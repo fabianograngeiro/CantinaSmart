@@ -1,0 +1,7 @@
+{
+  "name": "CantinaSmart - Gestão Escolar",
+  "description": "Sistema completo de gestão de cantina escolar com carteira digital pré-paga, PDV rápido e portal de responsáveis.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
