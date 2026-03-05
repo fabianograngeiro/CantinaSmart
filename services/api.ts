@@ -45,6 +45,16 @@ export class ApiService {
     }
   }
 
+  private static async readErrorMessage(response: Response, fallback: string) {
+    try {
+      const payload = await response.json();
+      if (payload?.error) return payload.error;
+    } catch {
+      // no-op
+    }
+    return fallback;
+  }
+
   // ===== AUTH =====
   static async login(email: string, password: string) {
     const response = await fetch(`${API_URL}/auth/login`, {
@@ -149,7 +159,7 @@ export class ApiService {
       headers: this.getHeaders(),
       body: JSON.stringify(data),
     });
-    if (!response.ok) throw new Error('Falha ao criar usuário');
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao criar usuário'));
     return response.json();
   }
 
@@ -159,7 +169,7 @@ export class ApiService {
       headers: this.getHeaders(),
       body: JSON.stringify(data),
     });
-    if (!response.ok) throw new Error('Falha ao atualizar usuário');
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao atualizar usuário'));
     return response.json();
   }
 

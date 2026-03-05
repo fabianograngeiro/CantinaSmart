@@ -763,7 +763,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
             )}
           </div>
           
-          <div className="h-72">
+          <div className="h-72 min-h-[288px] min-w-0">
             <ResponsiveContainer width="100%" height="100%">
               {isRestaurant ? (
                 <BarChart data={dashboardMetrics.salesByCategory} layout="vertical">

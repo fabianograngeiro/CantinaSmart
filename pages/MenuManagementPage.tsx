@@ -19,30 +19,28 @@ const DAYS_OF_WEEK: ('SEGUNDA' | 'TERCA' | 'QUARTA' | 'QUINTA' | 'SEXTA' | 'SABA
 interface MenuManagementPageProps {
   type: 'ALMOCO' | 'LANCHE';
   currentUser: User;
-  activeEnterprise: Enterprise;
+  activeEnterprise: Enterprise | null;
 }
 
 const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUser, activeEnterprise }) => {
-  // Guard clause: se não houver enterprise ativa, retornar carregamento
-  if (!activeEnterprise) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="text-center space-y-4">
-          <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full"></div>
-          <p className="text-gray-600 font-medium">Carregando menu...</p>
-        </div>
-      </div>
-    );
-  }
-
-  const [selectedUnitId, setSelectedUnitId] = useState<string>(activeEnterprise.id);
+  const [selectedUnitId, setSelectedUnitId] = useState<string>(activeEnterprise?.id || '');
   const [isLoading, setIsLoading] = useState(false);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [ingredientsCatalog, setIngredientsCatalog] = useState<Ingredient[]>([]);
   const [enterprises, setEnterprises] = useState<Enterprise[]>([]);
+
+  useEffect(() => {
+    if (activeEnterprise?.id) {
+      setSelectedUnitId(activeEnterprise.id);
+    }
+  }, [activeEnterprise?.id]);
   
   // Carregar planos da API
   useEffect(() => {
+    if (!selectedUnitId) {
+      setPlans([]);
+      return;
+    }
     const loadPlans = async () => {
       try {
         const data = await ApiService.getPlans(selectedUnitId);
@@ -233,7 +231,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
   }, [editingItem]);
 
   const getPlanName = (id: string) => availablePlans.find(p => p.id === id)?.name || 'PLANOS';
-  const selectedEnterpriseName = enterprises.find(ent => ent.id === selectedUnitId)?.name || activeEnterprise.name;
+  const selectedEnterpriseName = enterprises.find(ent => ent.id === selectedUnitId)?.name || activeEnterprise?.name || 'Unidade';
 
   const exportWeeklyCalendarPdf = () => {
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
@@ -308,6 +306,15 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
 
   return (
     <div className="p-6 space-y-6 max-w-[1600px] mx-auto min-h-screen pb-20">
+      {!activeEnterprise ? (
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center space-y-4">
+            <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full"></div>
+            <p className="text-gray-600 font-medium">Carregando menu...</p>
+          </div>
+        </div>
+      ) : (
+      <>
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="space-y-1">
           <h1 className="text-2xl font-black text-gray-800 tracking-tight flex items-center gap-3 leading-none">
@@ -658,6 +665,8 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
               </div>
            </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

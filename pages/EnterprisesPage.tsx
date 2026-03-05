@@ -117,7 +117,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
       const adminUser = {
         name: formData.managerName,
         email: formData.email,
-        password: '123456',
+        password: 'Admin123',
         role: formData.type === 'RESTAURANTE' ? 'ADMIN_RESTAURANTE' : 'ADMIN',
         enterpriseIds: [createdEnterprise.id],
         isActive: true
@@ -127,7 +127,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
       
       // Atualizar lista local
       setEnterprises(prev => [createdEnterprise, ...prev]);
-      setSuccessData({ email: formData.email, pass: '123456' });
+      setSuccessData({ email: formData.email, pass: 'Admin123' });
     } catch (err) {
       console.error('Erro ao criar empresa:', err);
       alert('Erro ao criar empresa. Tente novamente.');

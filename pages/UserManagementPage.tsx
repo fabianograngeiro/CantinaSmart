@@ -151,6 +151,18 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
     setIsLoading(true);
 
     try {
+      if (!editingUser || (editingUser && formData.password)) {
+        const strongPassword = formData.password.length >= 8
+          && /[A-Z]/.test(formData.password)
+          && /[a-z]/.test(formData.password)
+          && /[0-9]/.test(formData.password);
+        if (!strongPassword) {
+          alert('Senha inválida: use no mínimo 8 caracteres com letra maiúscula, minúscula e número.');
+          setIsLoading(false);
+          return;
+        }
+      }
+
       if ((formData.role === Role.GERENTE || formData.role === Role.FUNCIONARIO_BASICO || formData.role === Role.CAIXA) && formData.enterpriseIds.length === 0) {
         alert('Selecione ao menos uma unidade para este usuário.');
         setIsLoading(false);
@@ -191,7 +203,7 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
       handleCloseModal();
     } catch (err) {
       console.error('Erro ao salvar usuário:', err);
-      alert('Erro ao salvar usuário. Verifique os dados e tente novamente.');
+      alert((err as Error)?.message || 'Erro ao salvar usuário. Verifique os dados e tente novamente.');
     } finally {
       setIsLoading(false);
     }
@@ -461,7 +473,7 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl outline-none focus:border-indigo-500 transition-all font-medium"
                     placeholder={editingUser ? "Nova senha (opcional)" : "Senha"}
-                    minLength={6}
+                    minLength={8}
                   />
                 </div>
               </div>
