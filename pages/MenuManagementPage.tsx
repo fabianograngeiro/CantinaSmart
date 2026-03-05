@@ -36,6 +36,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
   const [selectedUnitId, setSelectedUnitId] = useState<string>(activeEnterprise.id);
   const [isLoading, setIsLoading] = useState(false);
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [ingredientsCatalog, setIngredientsCatalog] = useState<Ingredient[]>([]);
   const [enterprises, setEnterprises] = useState<Enterprise[]>([]);
   
   // Carregar planos da API
@@ -64,6 +65,20 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       }
     };
     loadEnterprises();
+  }, []);
+
+  // Carregar catálogo de insumos para autocomplete no editor
+  useEffect(() => {
+    const loadIngredients = async () => {
+      try {
+        const data = await ApiService.getIngredients();
+        setIngredientsCatalog(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error('Erro ao carregar insumos:', err);
+        setIngredientsCatalog([]);
+      }
+    };
+    loadIngredients();
   }, []);
   
   // Lista todos os planos cadastrados na seção OWNER > PLANOS para esta unidade
@@ -481,7 +496,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                                     
                                     {searchIngredientId === ing.id && ing.name.length > 1 && (
                                        <div className="absolute top-full left-0 w-full bg-white mt-2 border border-indigo-100 rounded-[24px] shadow-2xl z-[700] overflow-hidden max-h-60 overflow-y-auto animate-in zoom-in-95">
-                                          {ingredients.filter(mi => mi.name.toLowerCase().includes(ing.name.toLowerCase())).map(mockIng => (
+                                          {ingredientsCatalog.filter(mi => mi.name.toLowerCase().includes(ing.name.toLowerCase())).map(mockIng => (
                                              <button 
                                                 key={mockIng.id}
                                                 type="button"
@@ -498,6 +513,11 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                                                 <span className="text-[10px] font-black text-indigo-600">{mockIng.calories} kcal</span>
                                              </button>
                                           ))}
+                                          {ingredientsCatalog.filter(mi => mi.name.toLowerCase().includes(ing.name.toLowerCase())).length === 0 && (
+                                            <div className="p-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                              Nenhum insumo encontrado
+                                            </div>
+                                          )}
                                        </div>
                                     )}
                                  </div>
