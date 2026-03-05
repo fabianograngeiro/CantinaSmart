@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { 
   Plus, Trash2, Save, ChevronRight, Apple, 
   Flame, Droplets, Zap, Info, Calendar,
@@ -231,6 +233,78 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
   }, [editingItem]);
 
   const getPlanName = (id: string) => availablePlans.find(p => p.id === id)?.name || 'PLANOS';
+  const selectedEnterpriseName = enterprises.find(ent => ent.id === selectedUnitId)?.name || activeEnterprise.name;
+
+  const exportWeeklyCalendarPdf = () => {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const generatedAt = new Date();
+    const days = weeklyMenu.map((day) => day.dayOfWeek);
+    const maxItems = Math.max(1, ...weeklyMenu.map((day) => day.items.length));
+
+    const tableRows = Array.from({ length: maxItems }).map((_, rowIndex) => {
+      const row: string[] = [`Opção ${rowIndex + 1}`];
+      weeklyMenu.forEach((day) => {
+        const item = day.items[rowIndex];
+        if (!item) {
+          row.push('-');
+          return;
+        }
+
+        const planName = item.planId ? getPlanName(item.planId) : 'Sem plano';
+        const ingredientsText = item.ingredients.length
+          ? item.ingredients.map((ing) => ing.name).join(', ')
+          : 'Composição não definida';
+        row.push(
+          `${item.name}\nPlano: ${planName}\nValor: R$ ${item.price.toFixed(2)}\n${ingredientsText}`
+        );
+      });
+      return row;
+    });
+
+    doc.setFontSize(16);
+    doc.text('Calendario de Cardapio Local', 14, 14);
+    doc.setFontSize(10);
+    doc.text(`Unidade: ${selectedEnterpriseName}`, 14, 20);
+    doc.text(`Tipo: ${type === 'ALMOCO' ? 'Almoco' : 'Lanche'}`, 14, 25);
+    doc.text(
+      `Gerado em: ${generatedAt.toLocaleDateString('pt-BR')} ${generatedAt.toLocaleTimeString('pt-BR')}`,
+      14,
+      30
+    );
+
+    autoTable(doc, {
+      startY: 36,
+      head: [['Linha', ...days]],
+      body: tableRows,
+      styles: {
+        fontSize: 8,
+        cellPadding: 2,
+        valign: 'top',
+        lineColor: [220, 220, 220],
+        lineWidth: 0.1,
+      },
+      headStyles: {
+        fillColor: [79, 70, 229],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+      },
+      columnStyles: {
+        0: { cellWidth: 16, fontStyle: 'bold' },
+      },
+      theme: 'grid',
+      margin: { left: 10, right: 10, top: 36, bottom: 10 },
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.column.index > 0 && data.cell.raw === '-') {
+          data.cell.styles.textColor = [140, 140, 140];
+        }
+      },
+    });
+
+    const fileName = `cardapio_local_${selectedEnterpriseName
+      .toLowerCase()
+      .replace(/\s+/g, '_')}_${type.toLowerCase()}_${generatedAt.toISOString().slice(0, 10)}.pdf`;
+    doc.save(fileName);
+  };
 
   return (
     <div className="p-6 space-y-6 max-w-[1600px] mx-auto min-h-screen pb-20">
@@ -246,6 +320,12 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
         </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <button
+            onClick={exportWeeklyCalendarPdf}
+            className="px-6 py-3 bg-white border-2 border-indigo-100 text-indigo-700 rounded-2xl font-black text-xs uppercase tracking-widest shadow-sm hover:bg-indigo-50 transition-all flex items-center justify-center gap-2"
+          >
+            <Calendar size={16} /> Baixar Calendario PDF
+          </button>
           {isOwner && (
             <div className="relative group min-w-[240px]">
               <div className="absolute left-4 top-1/2 -translate-y-1/2 text-indigo-400 group-hover:text-indigo-600 transition-colors">
