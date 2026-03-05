@@ -152,7 +152,10 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const [clientPhotoFile, setClientPhotoFile] = useState<File | null>(null);
   const [clientPhotoPreview, setClientPhotoPreview] = useState('');
 
-  const isUnitAdmin = currentUser?.role === Role.ADMIN || currentUser?.role === Role.ADMIN_RESTAURANTE;
+  const isUnitAdmin = currentUser?.role === Role.ADMIN
+    || currentUser?.role === Role.ADMIN_RESTAURANTE
+    || currentUser?.role === Role.GERENTE
+    || currentUser?.role === Role.FUNCIONARIO_BASICO;
 
   // Carregar clientes, empresas, planos e transações da API
   useEffect(() => {

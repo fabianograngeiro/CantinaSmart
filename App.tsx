@@ -171,7 +171,46 @@ const App: React.FC = () => {
 
   const isSuperAdmin = currentUser?.role === Role.SUPERADMIN;
   const isOwner = currentUser?.role === Role.OWNER;
-  const isAdminUnit = currentUser?.role === Role.ADMIN || currentUser?.role === Role.ADMIN_RESTAURANTE;
+  const isAdminUnit = currentUser?.role === Role.ADMIN
+    || currentUser?.role === Role.ADMIN_RESTAURANTE
+    || currentUser?.role === Role.GERENTE
+    || currentUser?.role === Role.FUNCIONARIO_BASICO;
+  const roleDefaultPermissions = (() => {
+    switch (currentUser?.role) {
+      case Role.FUNCIONARIO_BASICO:
+        return {
+          canAccessInventory: false,
+          canAccessReports: false,
+          canAccessPOS: true,
+          canAccessClients: true,
+          canManageStaff: false,
+        };
+      case Role.GERENTE:
+      case Role.ADMIN:
+      case Role.ADMIN_RESTAURANTE:
+      case Role.OWNER:
+      case Role.SUPERADMIN:
+        return {
+          canAccessInventory: true,
+          canAccessReports: true,
+          canAccessPOS: true,
+          canAccessClients: true,
+          canManageStaff: true,
+        };
+      default:
+        return {
+          canAccessInventory: false,
+          canAccessReports: false,
+          canAccessPOS: false,
+          canAccessClients: false,
+          canManageStaff: false,
+        };
+    }
+  })();
+  const resolvedPermissions = {
+    ...roleDefaultPermissions,
+    ...(currentUser?.permissions || {}),
+  };
   const isPortalUser = currentUser?.role === 'RESPONSAVEL' || currentUser?.role === 'COLABORADOR' || currentUser?.role === 'CLIENTE';
   const isRestaurant = activeEnterprise?.type === 'RESTAURANTE';
   const isCantina = activeEnterprise?.type === 'CANTINA';
@@ -216,6 +255,7 @@ const App: React.FC = () => {
         availableEnterprises={availableEnterprises}
         showEnterpriseSelector={showEnterpriseSelector}
         setShowEnterpriseSelector={setShowEnterpriseSelector}
+        resolvedPermissions={resolvedPermissions}
       />
     </HashRouter>
   );
@@ -247,7 +287,7 @@ const AppContent: React.FC<any> = (props) => {
     isSidebarOpen, setIsSidebarOpen, activeEnterprise, setActiveEnterprise,
     handleLogout, handleLogin, transactions, setTransactions,
     availableEnterprises,
-    showEnterpriseSelector, setShowEnterpriseSelector
+    showEnterpriseSelector, setShowEnterpriseSelector, resolvedPermissions
   } = props;
 
   // Verificar se está na página de enterprises
@@ -314,17 +354,17 @@ const AppContent: React.FC<any> = (props) => {
                     <p className={`text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Minha Unidade</p>
                     
                     {/* MENU EXCLUSIVO PARA CANTINA */}
-                    {isCantina && (
+                    {isCantina && resolvedPermissions.canAccessReports && (
                       <SidebarItem icon={<Truck size={20} />} label="Entrega do Dia" to="/daily-delivery" isOpen={isSidebarOpen} />
                     )}
 
-                    <SidebarItem icon={<Calendar size={20} />} label="Cardápio Local" to="/menu-lunch" isOpen={isSidebarOpen} />
-                    <SidebarItem icon={<Beef size={20} />} label="Base Nutricional" to="/nutritional-info" isOpen={isSidebarOpen} />
-                    <SidebarItem icon={<Sparkles size={20} />} label="Planos Ativos" to={`/plans/${activeEnterprise?.id}`} isOpen={isSidebarOpen} />
-                    <SidebarItem icon={<ReceiptText size={20} />} label="Transações" to="/unit-sales" isOpen={isSidebarOpen} />
-                    <SidebarItem icon={<DollarSign size={20} />} label="Financeiro" to="/financial" isOpen={isSidebarOpen} />
-                    <SidebarItem icon={<ArrowRightLeft size={20} />} label="Estoque Unidade" to="/inventory" isOpen={isSidebarOpen} />
-                    <SidebarItem icon={<Settings size={20} />} label="Ajustes" to="/settings" isOpen={isSidebarOpen} />
+                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Calendar size={20} />} label="Cardápio Local" to="/menu-lunch" isOpen={isSidebarOpen} />}
+                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Beef size={20} />} label="Base Nutricional" to="/nutritional-info" isOpen={isSidebarOpen} />}
+                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Sparkles size={20} />} label="Planos Ativos" to={`/plans/${activeEnterprise?.id}`} isOpen={isSidebarOpen} />}
+                    {resolvedPermissions.canAccessReports && <SidebarItem icon={<ReceiptText size={20} />} label="Transações" to="/unit-sales" isOpen={isSidebarOpen} />}
+                    {resolvedPermissions.canAccessReports && <SidebarItem icon={<DollarSign size={20} />} label="Financeiro" to="/financial" isOpen={isSidebarOpen} />}
+                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<ArrowRightLeft size={20} />} label="Estoque Unidade" to="/inventory" isOpen={isSidebarOpen} />}
+                    {resolvedPermissions.canManageStaff && <SidebarItem icon={<Settings size={20} />} label="Ajustes" to="/settings" isOpen={isSidebarOpen} />}
                   </div>
                 )}
 
@@ -332,6 +372,7 @@ const AppContent: React.FC<any> = (props) => {
                   <div className="pt-4 pb-2 space-y-1">
                     <p className={`text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Administração</p>
                     <SidebarItem icon={<Building2 size={20} />} label="Minhas Unidades" to="/enterprises" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<Users size={20} />} label="Usuários da Rede" to="/users" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<ArrowRightLeft size={20} />} label="Estoque Geral" to="/inventory" isOpen={isSidebarOpen} />
                   </div>
                 )}
@@ -339,9 +380,9 @@ const AppContent: React.FC<any> = (props) => {
                 {!isSuperAdmin && (
                   <div className="py-4 border-t border-slate-800/50 mt-4 space-y-1">
                     <p className={`text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Operacional</p>
-                    <SidebarItem icon={<ShoppingCart size={20} />} label="Vender (PDV)" to="/pos" isOpen={isSidebarOpen} />
-                    <SidebarItem icon={<Users size={20} />} label="Clientes" to="/clients" isOpen={isSidebarOpen} />
-                    <SidebarItem icon={<Package size={20} />} label="Produtos" to="/products" isOpen={isSidebarOpen} />
+                    {resolvedPermissions.canAccessPOS && <SidebarItem icon={<ShoppingCart size={20} />} label="Vender (PDV)" to="/pos" isOpen={isSidebarOpen} />}
+                    {resolvedPermissions.canAccessClients && <SidebarItem icon={<Users size={20} />} label="Clientes" to="/clients" isOpen={isSidebarOpen} />}
+                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Package size={20} />} label="Produtos" to="/products" isOpen={isSidebarOpen} />}
                     <SidebarItem icon={<ClipboardList size={20} />} label="Suprimentos" to="/orders" isOpen={isSidebarOpen} />
                   </div>
                 )}
@@ -401,14 +442,14 @@ const AppContent: React.FC<any> = (props) => {
               <div className="flex-1 overflow-y-auto bg-gray-50 scrollbar-hide">
                 <Routes>
                   <Route path="/" element={<DashboardPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
-                  <Route path="/pos" element={isRestaurant ? <RestaurantPOSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <POSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} />} />
-                  <Route path="/clients" element={<ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
-                  <Route path="/products" element={<ProductsPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
-                  <Route path="/inventory" element={<InventoryPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
-                  <Route path="/reports" element={<ReportsPage currentUser={currentUser} />} />
-                  <Route path="/unit-sales" element={<UnitSalesTransactionsPage activeEnterprise={activeEnterprise} transactions={transactions} />} />
-                  <Route path="/financial" element={<FinancialPage activeEnterprise={activeEnterprise} />} />
-                  <Route path="/users" element={<UserManagementPage currentUser={currentUser} />} />
+                  <Route path="/pos" element={resolvedPermissions.canAccessPOS ? (isRestaurant ? <RestaurantPOSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <POSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} />) : <Navigate to="/" />} />
+                  <Route path="/clients" element={resolvedPermissions.canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/products" element={resolvedPermissions.canAccessInventory ? <ProductsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/inventory" element={resolvedPermissions.canAccessInventory ? <InventoryPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/reports" element={resolvedPermissions.canAccessReports ? <ReportsPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/unit-sales" element={resolvedPermissions.canAccessReports ? <UnitSalesTransactionsPage activeEnterprise={activeEnterprise} transactions={transactions} /> : <Navigate to="/" />} />
+                  <Route path="/financial" element={resolvedPermissions.canAccessReports ? <FinancialPage activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/users" element={(isSuperAdmin || isOwner || resolvedPermissions.canManageStaff) ? <UserManagementPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/system-settings" element={<SystemSettingsPage currentUser={currentUser} />} />
                   <Route path="/enterprises" element={<EnterprisesPage currentUser={currentUser} />} />
                   <Route path="/suppliers" element={<SuppliersPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
@@ -417,13 +458,13 @@ const AppContent: React.FC<any> = (props) => {
                     currentUser?.role === 'COLABORADOR' ? <CollaboratorPortalPage /> :
                     <Navigate to="/" />
                   } />
-                  <Route path="/menu-lunch" element={<MenuManagementPage type="ALMOCO" currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
-                  <Route path="/nutritional-info" element={<NutritionalInfoPage />} />
+                  <Route path="/menu-lunch" element={resolvedPermissions.canAccessInventory ? <MenuManagementPage type="ALMOCO" currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/nutritional-info" element={resolvedPermissions.canAccessInventory ? <NutritionalInfoPage /> : <Navigate to="/" />} />
                   <Route path="/orders" element={<OrdersPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
                   <Route path="/register" element={<RegistrationPage />} />
-                  <Route path="/plans/:enterpriseId" element={<PlansPage activeEnterprise={activeEnterprise} />} />
-                  <Route path="/daily-delivery" element={<DailyDeliveryPage activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} />} />
-                  <Route path="/settings" element={<SettingsPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
+                  <Route path="/plans/:enterpriseId" element={resolvedPermissions.canAccessInventory ? <PlansPage activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/daily-delivery" element={resolvedPermissions.canAccessReports ? <DailyDeliveryPage activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <Navigate to="/" />} />
+                  <Route path="/settings" element={resolvedPermissions.canManageStaff ? <SettingsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="*" element={<Navigate to="/" />} />
                 </Routes>
               </div>

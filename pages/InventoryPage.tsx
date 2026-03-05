@@ -57,7 +57,10 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ currentUser, activeEnterp
 
   const [products, setProducts] = useState<Product[]>([]);
 
-  const isUnitAdmin = currentUser.role === Role.ADMIN || currentUser.role === Role.ADMIN_RESTAURANTE;
+  const isUnitAdmin = currentUser.role === Role.ADMIN
+    || currentUser.role === Role.ADMIN_RESTAURANTE
+    || currentUser.role === Role.GERENTE
+    || currentUser.role === Role.FUNCIONARIO_BASICO;
   const today = new Date();
 
   // Carregar produtos da API

@@ -12,6 +12,9 @@ interface UserManagementPageProps {
 }
 
 const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) => {
+  const isOwner = currentUser.role === Role.OWNER;
+  const ownerEnterpriseIds = currentUser.enterpriseIds || [];
+  const ownerHasScopedEnterprises = ownerEnterpriseIds.length > 0;
   const [users, setUsers] = useState<User[]>([]);
   const [enterprises, setEnterprises] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -25,10 +28,45 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
     name: '',
     email: '',
     password: '',
-    role: 'ADMIN' as Role,
+    role: (isOwner ? 'GERENTE' : 'ADMIN') as Role,
     enterpriseIds: [] as string[],
-    isActive: true
+    isActive: true,
+    permissions: {
+      canAccessInventory: true,
+      canAccessReports: true,
+      canAccessPOS: true,
+      canAccessClients: true,
+      canManageStaff: false,
+    }
   });
+
+  const getDefaultPermissionsByRole = (role: Role) => {
+    if (role === Role.FUNCIONARIO_BASICO || role === Role.CAIXA) {
+      return {
+        canAccessInventory: false,
+        canAccessReports: false,
+        canAccessPOS: true,
+        canAccessClients: true,
+        canManageStaff: false,
+      };
+    }
+    if (role === Role.GERENTE || role === Role.ADMIN || role === Role.ADMIN_RESTAURANTE || role === Role.OWNER) {
+      return {
+        canAccessInventory: true,
+        canAccessReports: true,
+        canAccessPOS: true,
+        canAccessClients: true,
+        canManageStaff: true,
+      };
+    }
+    return {
+      canAccessInventory: false,
+      canAccessReports: false,
+      canAccessPOS: false,
+      canAccessClients: false,
+      canManageStaff: false,
+    };
+  };
 
   useEffect(() => {
     loadUsers();
@@ -38,7 +76,15 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
   const loadUsers = async () => {
     try {
       const data = await ApiService.getUsers();
-      setUsers(data);
+      const visible = data.filter((user: User) => {
+        if (!isOwner) return true;
+        if (user.role === Role.SUPERADMIN) return false;
+        if (user.role === Role.OWNER) return false;
+        if (!ownerHasScopedEnterprises) return true;
+        const userEnterprises = user.enterpriseIds || [];
+        return userEnterprises.some((enterpriseId) => ownerEnterpriseIds.includes(enterpriseId));
+      });
+      setUsers(visible);
     } catch (err) {
       console.error('Erro ao carregar usuários:', err);
     }
@@ -47,7 +93,10 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
   const loadEnterprises = async () => {
     try {
       const data = await ApiService.getEnterprises();
-      setEnterprises(data);
+      const visible = isOwner && ownerHasScopedEnterprises
+        ? data.filter((enterprise: any) => ownerEnterpriseIds.includes(enterprise.id))
+        : data;
+      setEnterprises(visible);
     } catch (err) {
       console.error('Erro ao carregar empresas:', err);
     }
@@ -62,7 +111,11 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
         password: '', // Não mostra senha existente
         role: user.role,
         enterpriseIds: user.enterpriseIds || [],
-        isActive: user.isActive
+        isActive: user.isActive,
+        permissions: {
+          ...getDefaultPermissionsByRole(user.role),
+          ...(user.permissions || {}),
+        }
       });
     } else {
       setEditingUser(null);
@@ -70,9 +123,10 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
         name: '',
         email: '',
         password: '',
-        role: 'ADMIN',
+        role: (isOwner ? 'GERENTE' : 'ADMIN') as Role,
         enterpriseIds: [],
-        isActive: true
+        isActive: true,
+        permissions: getDefaultPermissionsByRole((isOwner ? Role.GERENTE : Role.ADMIN))
       });
     }
     setIsModalOpen(true);
@@ -85,9 +139,10 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
       name: '',
       email: '',
       password: '',
-      role: 'ADMIN',
+      role: (isOwner ? 'GERENTE' : 'ADMIN') as Role,
       enterpriseIds: [],
-      isActive: true
+      isActive: true,
+      permissions: getDefaultPermissionsByRole((isOwner ? Role.GERENTE : Role.ADMIN))
     });
   };
 
@@ -96,6 +151,12 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
     setIsLoading(true);
 
     try {
+      if ((formData.role === Role.GERENTE || formData.role === Role.FUNCIONARIO_BASICO || formData.role === Role.CAIXA) && formData.enterpriseIds.length === 0) {
+        alert('Selecione ao menos uma unidade para este usuário.');
+        setIsLoading(false);
+        return;
+      }
+
       if (editingUser) {
         // Atualizar usuário existente
         const updateData: any = {
@@ -103,7 +164,8 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
           email: formData.email,
           role: formData.role,
           enterpriseIds: formData.enterpriseIds,
-          isActive: formData.isActive
+          isActive: formData.isActive,
+          permissions: formData.permissions
         };
         
         // Só atualiza senha se foi fornecida
@@ -120,7 +182,8 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
           password: formData.password,
           role: formData.role,
           enterpriseIds: formData.enterpriseIds,
-          isActive: formData.isActive
+          isActive: formData.isActive,
+          permissions: formData.permissions
         });
       }
 
@@ -171,6 +234,8 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
       OWNER: 'Dono de Rede',
       ADMIN: 'Administrador Cantina',
       ADMIN_RESTAURANTE: 'Administrador Restaurante',
+      GERENTE: 'Gerente de Unidade',
+      FUNCIONARIO_BASICO: 'Funcionário Básico',
       CAIXA: 'Caixa/Operador',
       COLABORADOR: 'Colaborador',
       RESPONSAVEL: 'Responsável',
@@ -185,6 +250,8 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
       OWNER: 'bg-indigo-100 text-indigo-700 border-indigo-200',
       ADMIN: 'bg-blue-100 text-blue-700 border-blue-200',
       ADMIN_RESTAURANTE: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+      GERENTE: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+      FUNCIONARIO_BASICO: 'bg-amber-100 text-amber-700 border-amber-200',
       CAIXA: 'bg-slate-100 text-slate-700 border-slate-200',
       COLABORADOR: 'bg-cyan-100 text-cyan-700 border-cyan-200',
       RESPONSAVEL: 'bg-amber-100 text-amber-700 border-amber-200',
@@ -404,12 +471,21 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
                 <label className="text-xs font-black text-gray-600 uppercase tracking-widest">Cargo/Função</label>
                 <select
                   value={formData.role}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value as Role })}
+                  onChange={(e) => {
+                    const nextRole = e.target.value as Role;
+                    setFormData({
+                      ...formData,
+                      role: nextRole,
+                      permissions: getDefaultPermissionsByRole(nextRole),
+                    });
+                  }}
                   className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl outline-none focus:border-indigo-500 transition-all font-bold"
                 >
-                  <option value="OWNER">Dono de Rede</option>
-                  <option value="ADMIN">Administrador Cantina</option>
-                  <option value="ADMIN_RESTAURANTE">Administrador Restaurante</option>
+                  {!isOwner && <option value="OWNER">Dono de Rede</option>}
+                  {!isOwner && <option value="ADMIN">Administrador Cantina</option>}
+                  {!isOwner && <option value="ADMIN_RESTAURANTE">Administrador Restaurante</option>}
+                  <option value="GERENTE">Gerente de Unidade</option>
+                  <option value="FUNCIONARIO_BASICO">Funcionário Básico</option>
                   <option value="CAIXA">Caixa/Operador</option>
                 </select>
                 <p className="text-xs text-gray-500 italic">Você não pode criar usuários SUPERADMIN</p>
@@ -440,6 +516,38 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
                   </div>
                 </div>
               )}
+
+              {/* Permissões */}
+              <div className="space-y-2">
+                <label className="text-xs font-black text-gray-600 uppercase tracking-widest">Privilégios</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border-2 border-gray-200 rounded-xl p-3">
+                  {[
+                    { key: 'canAccessPOS', label: 'Acessar PDV' },
+                    { key: 'canAccessClients', label: 'Acessar Clientes' },
+                    { key: 'canAccessInventory', label: 'Acessar Estoque/Produtos' },
+                    { key: 'canAccessReports', label: 'Acessar Relatórios/Transações' },
+                    { key: 'canManageStaff', label: 'Gerenciar Usuários' },
+                  ].map((permission) => (
+                    <label key={permission.key} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded-lg cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={Boolean((formData.permissions as any)[permission.key])}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            permissions: {
+                              ...formData.permissions,
+                              [permission.key]: e.target.checked,
+                            },
+                          })
+                        }
+                        className="rounded border-gray-300"
+                      />
+                      <span className="text-sm font-medium text-gray-700">{permission.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
 
               {/* Status */}
               <div className="flex items-center gap-3">
