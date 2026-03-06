@@ -1060,37 +1060,74 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
     items: SaleItem[];
     paymentsList: PaymentEntry[];
     totalValue: number;
+    changeValue?: number;
+    clientBalanceAfter?: number | null;
   }) => {
-    const { now, items, paymentsList, totalValue } = params;
+    const paperWidth = activeEnterprise.receiptPaperWidth || '80mm';
+    const marginVertical = Math.max(0, Math.min(20, Number(activeEnterprise.receiptMarginVertical ?? 2)));
+    const marginHorizontal = Math.max(0, Math.min(20, Number(activeEnterprise.receiptMarginHorizontal ?? 2)));
+    const itemGapTop = Math.max(0, Math.min(20, Number(activeEnterprise.receiptItemGapTop ?? 4)));
+    const itemGapBottom = Math.max(0, Math.min(20, Number(activeEnterprise.receiptItemGapBottom ?? 4)));
+    const fontFamilyMap: Record<string, string> = {
+      ARIAL_BLACK: '"Arial Black", Arial, sans-serif',
+      ARIAL: 'Arial, sans-serif',
+      COURIER_NEW: '"Courier New", Courier, monospace',
+      MONOSPACE: 'monospace'
+    };
+    const fontSizeMap: Record<string, { base: string; small: string; total: string }> = {
+      SMALL: { base: '10px', small: '9px', total: '12px' },
+      NORMAL: { base: '12px', small: '11px', total: '14px' },
+      LARGE: { base: '14px', small: '12px', total: '16px' }
+    };
+    const fontFamily = fontFamilyMap[activeEnterprise.receiptFontFamily || 'ARIAL_BLACK'] || fontFamilyMap.ARIAL_BLACK;
+    const fontScale = fontSizeMap[activeEnterprise.receiptFontSize || 'NORMAL'] || fontSizeMap.NORMAL;
+
+    const { now, items, paymentsList, totalValue, changeValue = 0, clientBalanceAfter = null } = params;
     const itemsHtml = items.map((item) => {
       const lineTotal = Number((item.quantity * item.price).toFixed(2));
       return `
-        <tr>
-          <td style="padding:4px 0;">${item.quantity}x ${item.name}</td>
-          <td style="padding:4px 0; text-align:right;">R$ ${lineTotal.toFixed(2)}</td>
-        </tr>
+        <div class="receipt-entry">
+          <div class="entry-line entry-label" style="padding-top:${itemGapTop}px;">${item.quantity}x ${item.name}:</div>
+          <div class="entry-line entry-price-left" style="padding-bottom:${itemGapBottom}px;">R$ ${lineTotal.toFixed(2)}</div>
+          <div class="entry-divider" style="margin-bottom:${Math.max(2, Math.round(itemGapBottom / 2))}px;"></div>
+        </div>
       `;
     }).join('');
 
-    const paymentsHtml = paymentsList.map((payment) => `
-      <tr>
-        <td style="padding:3px 0;">${payment.method === 'SALDO' ? 'SALDO CANTINA' : payment.method}</td>
-        <td style="padding:3px 0; text-align:right;">R$ ${payment.amount.toFixed(2)}</td>
-      </tr>
-    `).join('');
+    const paymentsHtml = paymentsList.map((payment) => {
+      const paidValue = payment.method === 'DINHEIRO'
+        ? Number(payment.receivedAmount ?? payment.amount)
+        : Number(payment.amount);
+      return `
+        <div class="receipt-entry">
+          <div class="entry-line" style="padding-top:${itemGapTop}px; padding-bottom:${itemGapBottom}px;">
+            <span class="entry-label">${payment.method === 'SALDO' ? 'SALDO CANTINA' : payment.method}:</span>
+            <span class="entry-price-inline">R$ ${paidValue.toFixed(2)}</span>
+          </div>
+          <div class="entry-divider" style="margin-bottom:${Math.max(2, Math.round(itemGapBottom / 2))}px;"></div>
+        </div>
+      `;
+    }).join('');
 
     const html = `
       <html>
         <head>
           <title>Cupom PDV</title>
           <style>
-            body { font-family: Arial, sans-serif; width: 80mm; margin: 0 auto; padding: 8px; color: #111; }
+            @page { size: ${paperWidth} auto; margin: ${marginVertical}mm ${marginHorizontal}mm; }
+            body { font-family: ${fontFamily}; font-weight: 900; width: 100%; margin: 0; padding: 0; color: #111; }
             h1, h2, h3, p { margin: 0; }
             .center { text-align: center; }
             .line { border-top: 1px dashed #999; margin: 8px 0; }
-            table { width: 100%; border-collapse: collapse; font-size: 12px; }
-            .small { font-size: 11px; color: #444; }
-            .total { font-weight: bold; font-size: 14px; }
+            .entries { width: 100%; font-size: ${fontScale.base}; font-weight: 900; line-height: 1.35; }
+            .entry-line { text-align: left; overflow-wrap: anywhere; }
+            .entry-label { white-space: normal; }
+            .entry-price-left { white-space: nowrap; text-align: left; }
+            .entry-price-inline { white-space: nowrap; float: right; }
+            .entry-divider { border-top: 1px dashed #bdbdbd; }
+            .small { font-size: ${fontScale.small}; color: #444; font-weight: 900; }
+            .total { font-weight: 900; font-size: ${fontScale.total}; }
+            .total-row { text-align: left; font-weight: 900; font-size: ${fontScale.total}; margin-top: 2px; }
           </style>
         </head>
         <body>
@@ -1104,15 +1141,23 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
           <p class="small">Operador: PDV</p>
           <p class="small">Impressora: ${activeEnterprise.receiptPrinterName || 'Padrão do sistema'}</p>
           <div class="line"></div>
-          <table>
+          <div class="entries">
             ${itemsHtml}
-          </table>
+          </div>
           <div class="line"></div>
-          <table>
+          <div class="entries">
             ${paymentsHtml}
-          </table>
+          </div>
+          ${changeValue > 0 ? `
+            <div class="line"></div>
+            <div class="entry-line">Troco: R$ ${changeValue.toFixed(2)}</div>
+          ` : ''}
+          ${clientBalanceAfter !== null && Number.isFinite(Number(clientBalanceAfter)) && Number(clientBalanceAfter) > 0 ? `
+            <div class="line"></div>
+            <div class="entry-line">Saldo Cliente: R$ ${Number(clientBalanceAfter).toFixed(2)}</div>
+          ` : ''}
           <div class="line"></div>
-          <p class="total">Total: R$ ${totalValue.toFixed(2)}</p>
+          <div class="total-row">Total: R$ ${totalValue.toFixed(2)}</div>
         </body>
       </html>
     `;
@@ -1148,8 +1193,10 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
     items: SaleItem[];
     paymentsList: PaymentEntry[];
     totalValue: number;
+    changeValue?: number;
+    clientBalanceAfter?: number | null;
   }) => {
-    const { now, items, paymentsList, totalValue } = params;
+    const { now, items, paymentsList, totalValue, changeValue = 0, clientBalanceAfter = null } = params;
     const baseUrl = String(activeEnterprise.localPrintAgentUrl || 'http://127.0.0.1:18181').trim().replace(/\/$/, '');
     const body = {
       enterpriseName: activeEnterprise.name,
@@ -1164,9 +1211,19 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
       })),
       payments: paymentsList.map((payment) => ({
         method: payment.method === 'SALDO' ? 'SALDO CANTINA' : payment.method,
-        amount: payment.amount
+        amount: payment.amount,
+        receivedAmount: payment.receivedAmount
       })),
-      total: totalValue
+      total: totalValue,
+      paperWidth: activeEnterprise.receiptPaperWidth || '80mm',
+      fontFamily: activeEnterprise.receiptFontFamily || 'ARIAL_BLACK',
+      fontSize: activeEnterprise.receiptFontSize || 'NORMAL',
+      marginVertical: Math.max(0, Math.min(20, Number(activeEnterprise.receiptMarginVertical ?? 2))),
+      marginHorizontal: Math.max(0, Math.min(20, Number(activeEnterprise.receiptMarginHorizontal ?? 2))),
+      itemGapTop: Math.max(0, Math.min(20, Number(activeEnterprise.receiptItemGapTop ?? 4))),
+      itemGapBottom: Math.max(0, Math.min(20, Number(activeEnterprise.receiptItemGapBottom ?? 4))),
+      change: Number(changeValue || 0),
+      clientBalanceAfter: clientBalanceAfter === null ? null : Number(clientBalanceAfter)
     };
 
     const response = await fetch(`${baseUrl}/print-receipt`, {
@@ -1546,7 +1603,21 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
 
       if (activeEnterprise.autoPrintPDVReceipt) {
         try {
-          const printParams = { now, items: cart, paymentsList: payments, totalValue: cartTotal };
+          const changeFromCash = payments
+            .filter((payment) => payment.method === 'DINHEIRO')
+            .reduce((sum, payment) => sum + Math.max(0, Number((payment.receivedAmount ?? payment.amount) - payment.amount)), 0);
+          const balanceAfter =
+            updatedSelectedClient && updatedSelectedClient.type !== 'COLABORADOR'
+              ? Number((updatedSelectedClient as any).balance ?? 0)
+              : null;
+          const printParams = {
+            now,
+            items: cart,
+            paymentsList: payments,
+            totalValue: cartTotal,
+            changeValue: Number(changeFromCash.toFixed(2)),
+            clientBalanceAfter: balanceAfter
+          };
           if (activeEnterprise.receiptPrintMode === 'LOCAL_AGENT') {
             await printReceiptWithLocalAgent(printParams);
           } else {
@@ -1560,7 +1631,6 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
         }
       }
 
-      alert(`Venda finalizada com sucesso!`);
       setCart([]); 
       setPayments([]); 
       setSelectedClient(null); 
@@ -1680,7 +1750,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
     const paymentAmount = Math.min(received, remainingToPay);
 
     // Fluxo específico de dinheiro: aceita valor recebido maior e aplica somente o saldo devedor.
-    setPayments(prev => [...prev, { method: 'DINHEIRO', amount: paymentAmount, status: 'CONFIRMADO' }]);
+    setPayments(prev => [...prev, { method: 'DINHEIRO', amount: paymentAmount, receivedAmount: received, status: 'CONFIRMADO' }]);
     setIsCashModalOpen(false);
     setIsAmountModalOpen(false);
     setCashReceived('');
@@ -2184,7 +2254,6 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Selecionar Pagamento</p>
-                     <span className="text-[10px] font-black bg-amber-100 text-amber-700 px-2 py-0.5 rounded animate-pulse">PAGAMENTO SPLIT HABILITADO</span>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     <PaymentButton 

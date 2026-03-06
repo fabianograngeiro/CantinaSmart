@@ -70,6 +70,13 @@ export type Enterprise = {
   receiptPrinterName?: string;
   receiptPrintMode?: 'SERVER_BROWSER' | 'LOCAL_AGENT';
   localPrintAgentUrl?: string;
+  receiptPaperWidth?: '58mm' | '80mm';
+  receiptFontFamily?: 'ARIAL_BLACK' | 'ARIAL' | 'COURIER_NEW' | 'MONOSPACE';
+  receiptFontSize?: 'SMALL' | 'NORMAL' | 'LARGE';
+  receiptMarginVertical?: number;
+  receiptMarginHorizontal?: number;
+  receiptItemGapTop?: number;
+  receiptItemGapBottom?: number;
 };
 
 export type Transaction = {
@@ -263,6 +270,7 @@ export type PaymentMethod = 'SALDO' | 'PIX' | 'DINHEIRO' | 'DEBITO' | 'CREDITO' 
 export type PaymentEntry = {
   method: PaymentMethod;
   amount: number;
+  receivedAmount?: number;
   status: string;
 };
 

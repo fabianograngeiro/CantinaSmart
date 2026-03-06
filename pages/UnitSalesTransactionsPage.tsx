@@ -937,25 +937,25 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   };
 
   return (
-    <div className="p-6 space-y-8 animate-in fade-in duration-500 pb-20">
+    <div className="dash-shell">
       
       {/* Header Contextual */}
-      <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-6">
+      <header className="dash-header">
         <div>
            <div className="flex items-center gap-3 mb-2">
               <div className="p-3 bg-indigo-600 rounded-2xl text-white shadow-xl shadow-indigo-100">
                  <ReceiptText size={32} />
               </div>
               <div>
-                 <h1 className="text-3xl font-black text-gray-900 tracking-tight leading-none uppercase">Consumo de Pacotes e Créditos</h1>
-                 <p className="text-gray-500 text-sm font-bold uppercase tracking-[2px] mt-1 opacity-60 flex items-center gap-2">
+                 <h1 className="dash-title">Consumo de Pacotes e Créditos</h1>
+                 <p className="dash-subtitle flex items-center gap-2">
                     <Building size={14} className="text-indigo-400"/> {activeEnterprise.name}
                  </p>
               </div>
            </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="dash-actions">
            <button
              onClick={openCreateModal}
              className="flex items-center gap-2 px-5 py-3.5 bg-emerald-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-100"
@@ -987,7 +987,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       </header>
 
       {/* MOTOR DE FILTRAGEM AVANÇADA UNIFICADO */}
-      <div className="bg-white p-6 rounded-[40px] border border-gray-100 shadow-xl space-y-6">
+      <div className="dash-filterbar space-y-6">
          
          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             
@@ -1084,7 +1084,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       </div>
 
       {/* TABELA UNIFICADA DE RESULTADOS */}
-      <div className="bg-white rounded-[40px] border border-gray-100 shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4">
+      <div className="dash-panel rounded-[40px] shadow-xl overflow-hidden animate-in slide-in-from-bottom-4">
         <div className="p-8 border-b bg-gray-50/50 flex items-center justify-between">
            <div>
               <h3 className="text-xl font-black text-indigo-900 uppercase tracking-tight flex items-center gap-2">

@@ -118,28 +118,75 @@ const listSystemPrinters = async () => {
 const buildReceiptText = (payload) => {
   const rows = Array.isArray(payload?.items) ? payload.items : [];
   const payments = Array.isArray(payload?.payments) ? payload.payments : [];
-  const line = '-'.repeat(40);
+  const paperWidth = String(payload?.paperWidth || '80mm').toLowerCase() === '58mm' ? '58mm' : '80mm';
+  const marginVertical = Math.max(0, Math.min(20, Number(payload?.marginVertical ?? 2)));
+  const marginHorizontal = Math.max(0, Math.min(20, Number(payload?.marginHorizontal ?? 2)));
+  const itemGapTop = Math.max(0, Math.min(20, Number(payload?.itemGapTop ?? 4)));
+  const itemGapBottom = Math.max(0, Math.min(20, Number(payload?.itemGapBottom ?? 4)));
+  const leftPadSpaces = Math.max(0, Math.round(marginHorizontal / 2));
+  const topBottomBlankLines = Math.max(0, Math.round(marginVertical / 2));
+  const itemTopLines = itemGapTop <= 0 ? 0 : Math.max(1, Math.round(itemGapTop / 2));
+  const itemBottomLines = itemGapBottom <= 0 ? 0 : Math.max(1, Math.round(itemGapBottom / 2));
+  const maxChars = paperWidth === '58mm' ? 32 : 40;
+  const charsPerLine = Math.max(20, maxChars - (leftPadSpaces * 2));
+  const line = '='.repeat(charsPerLine);
+  const softLine = '-'.repeat(charsPerLine);
   const lines = [];
-  lines.push(String(payload?.enterpriseName || 'Cantina Smart'));
-  lines.push('Cupom nao fiscal');
-  lines.push(`${String(payload?.date || '')} ${String(payload?.time || '')}`.trim());
-  lines.push(line);
-  lines.push(`Cliente: ${String(payload?.clientName || 'Consumidor Final')}`);
-  lines.push(line);
+  const leftPad = ' '.repeat(leftPadSpaces);
+  const padLine = (value) => `${leftPad}${value}`;
+  const buildValueLine = (label, value) => `${String(label || '').trim()}: ${String(value || '').trim()}`;
+  const pushWrappedValueLine = (label, value) => {
+    const lineText = buildValueLine(label, value);
+    if (lineText.length <= charsPerLine) {
+      lines.push(padLine(lineText));
+      return;
+    }
+    // Se ultrapassar a largura, quebra valor para linha abaixo para evitar corte na margem.
+    lines.push(padLine(`${String(label || '').trim()}:`));
+    lines.push(padLine(`  ${String(value || '').trim()}`));
+  };
+  for (let i = 0; i < topBottomBlankLines; i += 1) lines.push('');
+  lines.push(padLine(String(payload?.enterpriseName || 'Cantina Smart').toUpperCase()));
+  lines.push(padLine('CUPOM NAO FISCAL'));
+  lines.push(padLine(`FORMATO: ${paperWidth.toUpperCase()}`));
+  lines.push(padLine(`${String(payload?.date || '')} ${String(payload?.time || '')}`.trim()));
+  lines.push(padLine(line));
+  lines.push(padLine(`CLIENTE: ${String(payload?.clientName || 'Consumidor Final').toUpperCase()}`));
+  lines.push(padLine(softLine));
 
   rows.forEach((item) => {
-    lines.push(`${Number(item?.quantity || 0)}x ${String(item?.name || '')}`);
-    lines.push(`  R$ ${Number(item?.total || 0).toFixed(2)}`);
+    for (let i = 0; i < itemTopLines; i += 1) lines.push('');
+    lines.push(padLine(`${Number(item?.quantity || 0)}x ${String(item?.name || '').toUpperCase()}:`));
+    lines.push(padLine(`R$ ${Number(item?.total || 0).toFixed(2)}`));
+    for (let i = 0; i < itemBottomLines; i += 1) lines.push('');
+    lines.push(padLine(softLine));
   });
 
-  lines.push(line);
   payments.forEach((payment) => {
-    lines.push(`${String(payment?.method || '')}: R$ ${Number(payment?.amount || 0).toFixed(2)}`);
+    for (let i = 0; i < itemTopLines; i += 1) lines.push('');
+    const paidAmount = String(payment?.method || '').toUpperCase() === 'DINHEIRO'
+      ? Number((payment?.receivedAmount ?? payment?.amount) || 0)
+      : Number(payment?.amount || 0);
+    pushWrappedValueLine(
+      String(payment?.method || '').toUpperCase(),
+      `R$ ${paidAmount.toFixed(2)}`
+    );
+    for (let i = 0; i < itemBottomLines; i += 1) lines.push('');
+    lines.push(padLine(softLine));
   });
-  lines.push(line);
-  lines.push(`TOTAL: R$ ${Number(payload?.total || 0).toFixed(2)}`);
-  lines.push('');
-  lines.push('');
+  const change = Number(payload?.change || 0);
+  if (change > 0) {
+    lines.push(padLine(buildValueLine('TROCO', `R$ ${change.toFixed(2)}`)));
+    lines.push(padLine(softLine));
+  }
+  const clientBalanceAfter = Number(payload?.clientBalanceAfter);
+  if (Number.isFinite(clientBalanceAfter) && clientBalanceAfter > 0) {
+    lines.push(padLine(buildValueLine('SALDO CLIENTE', `R$ ${clientBalanceAfter.toFixed(2)}`)));
+    lines.push(padLine(softLine));
+  }
+  lines.push(padLine(line));
+  lines.push(padLine(buildValueLine('TOTAL', `R$ ${Number(payload?.total || 0).toFixed(2)}`)));
+  for (let i = 0; i < topBottomBlankLines + 2; i += 1) lines.push('');
   return lines.join('\n');
 };
 

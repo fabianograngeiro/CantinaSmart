@@ -108,21 +108,21 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUser }) => {
 
   if (isSuperAdmin) {
     return (
-      <div className="p-6 space-y-8 max-w-[1600px] mx-auto pb-20 animate-in fade-in duration-500">
-        <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-6">
+      <div className="dash-shell">
+        <header className="dash-header">
           <div>
             <div className="flex items-center gap-3 mb-2">
               <div className="p-3 bg-indigo-600 rounded-2xl text-white shadow-lg shadow-indigo-200">
                 <FileBarChart size={32} />
               </div>
               <div>
-                <h1 className="text-3xl font-black text-gray-900 tracking-tight leading-none uppercase">Faturamento SaaS</h1>
-                <p className="text-gray-500 text-sm font-bold uppercase tracking-[2px] mt-1 opacity-60">Console de Receita e Assinaturas da Plataforma</p>
+                <h1 className="dash-title">Faturamento SaaS</h1>
+                <p className="dash-subtitle">Console de Receita e Assinaturas da Plataforma</p>
               </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="dash-actions">
              <button onClick={() => handleExport('CSV')} className="flex items-center gap-2 px-5 py-3.5 bg-white border-2 border-gray-100 text-gray-700 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-gray-50 transition-all shadow-sm">
                <FileSpreadsheet size={18} className="text-emerald-500" /> Exportar Financeiro
              </button>
@@ -139,7 +139,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUser }) => {
            <ReportStatCard title="LTV Médio" value="R$ 4.200,00" change="+R$ 150" isPositive icon={<Users />} color="bg-blue-50 text-blue-600" />
         </div>
 
-        <div className="bg-white p-8 rounded-[48px] border border-gray-100 shadow-sm">
+        <div className="dash-panel p-8">
            <div className="flex flex-col md:flex-row md:items-center justify-between mb-10 gap-4">
               <div>
                  <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight">Crescimento de Receita SaaS</h3>
@@ -168,7 +168,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUser }) => {
            </div>
         </div>
 
-        <div className="bg-white rounded-[48px] border border-gray-100 shadow-2xl overflow-hidden">
+        <div className="dash-panel rounded-[48px] overflow-hidden shadow-xl">
           <div className="p-8 border-b bg-gray-50/50">
             <h3 className="text-2xl font-black text-gray-800 flex items-center gap-2 uppercase tracking-tight">
               <History size={24} className="text-indigo-600" /> Controle de Cobranças SaaS
@@ -214,23 +214,23 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUser }) => {
   }
 
   return (
-    <div className="p-6 space-y-8 max-w-[1600px] mx-auto pb-20 animate-in fade-in duration-500">
+    <div className="dash-shell">
       
       {/* Header Executivo */}
-      <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-6">
+      <header className="dash-header">
         <div>
           <div className="flex items-center gap-3 mb-2">
             <div className="p-3 bg-indigo-600 rounded-2xl text-white shadow-lg shadow-indigo-200">
               <FileBarChart size={32} />
             </div>
             <div>
-              <h1 className="text-3xl font-black text-gray-900 tracking-tight leading-none uppercase">Relatório de Vendas</h1>
-              <p className="text-gray-500 text-sm font-bold uppercase tracking-[2px] mt-1 opacity-60">Consolidação e Auditoria Financeira (OWNER)</p>
+              <h1 className="dash-title">Relatório de Vendas</h1>
+              <p className="dash-subtitle">Consolidação e Auditoria Financeira (OWNER)</p>
             </div>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="dash-actions">
            <button onClick={() => handleExport('CSV')} className="flex items-center gap-2 px-5 py-3.5 bg-white border-2 border-gray-100 text-gray-700 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-gray-50 transition-all shadow-sm">
              <FileSpreadsheet size={18} className="text-emerald-500" /> Planilha CSV
            </button>
@@ -241,7 +241,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUser }) => {
       </header>
 
       {/* MOTOR DE FILTRAGEM MULTIDIMENSIONAL */}
-      <div className="bg-white p-3 rounded-[40px] border border-gray-100 shadow-xl flex flex-col xl:flex-row items-center gap-6">
+      <div className="dash-filterbar flex flex-col xl:flex-row items-center gap-6">
          
          {/* FILTRO DE FILIAIS (NOVO) */}
          <div className="flex flex-col gap-1.5 w-full xl:w-72">
@@ -299,7 +299,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUser }) => {
       </div>
 
       {/* GRÁFICO DE TENDÊNCIA DE PERFORMANCE */}
-      <div className="bg-white p-8 rounded-[48px] border border-gray-100 shadow-sm">
+      <div className="dash-panel p-8">
          <div className="flex flex-col md:flex-row md:items-center justify-between mb-10 gap-4">
             <div>
                <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight">Performance Analítica</h3>
@@ -340,7 +340,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUser }) => {
       </div>
 
       {/* REGISTRO ANALÍTICO DE TRANSAÇÕES */}
-      <div className="bg-white rounded-[48px] border border-gray-100 shadow-2xl overflow-hidden">
+      <div className="dash-panel rounded-[48px] overflow-hidden shadow-xl">
         <div className="p-8 border-b bg-gray-50/50 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
             <h3 className="text-2xl font-black text-gray-800 flex items-center gap-2 uppercase tracking-tight">

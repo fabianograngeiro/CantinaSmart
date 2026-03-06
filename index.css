@@ -4,4 +4,55 @@
 
 body {
   font-family: 'Inter', sans-serif;
+  @apply bg-slate-50 text-slate-900;
+}
+
+@layer components {
+  .dash-shell {
+    @apply p-6 space-y-6 max-w-[1600px] mx-auto pb-20;
+  }
+
+  .dash-header {
+    @apply flex flex-col xl:flex-row xl:items-end justify-between gap-5;
+  }
+
+  .dash-title-wrap {
+    @apply flex items-center gap-3;
+  }
+
+  .dash-icon {
+    @apply p-3 rounded-2xl text-white shadow-lg bg-gradient-to-br from-indigo-600 to-blue-600;
+  }
+
+  .dash-title {
+    @apply text-3xl font-black text-slate-900 tracking-tight leading-none uppercase;
+  }
+
+  .dash-subtitle {
+    @apply text-xs font-bold text-slate-500 uppercase tracking-[0.2em] mt-1;
+  }
+
+  .dash-actions {
+    @apply flex flex-wrap items-center gap-2;
+  }
+
+  .dash-panel {
+    @apply bg-white/95 border border-slate-200 rounded-[28px] shadow-sm;
+  }
+
+  .dash-panel-head {
+    @apply px-5 py-4 border-b border-slate-100 bg-slate-50/80 rounded-t-[28px];
+  }
+
+  .dash-panel-title {
+    @apply text-sm font-black uppercase tracking-widest text-slate-700;
+  }
+
+  .dash-filterbar {
+    @apply dash-panel p-4;
+  }
+
+  .dash-kpi-grid {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4;
+  }
 }

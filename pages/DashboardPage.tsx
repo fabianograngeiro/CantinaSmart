@@ -638,25 +638,25 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
+    <div className="dash-shell">
+      <div className="dash-header">
+        <div className="dash-title-wrap">
           <img
             src={resolveUserAvatar(currentUser?.avatar, currentUser?.name)}
             alt={currentUser?.name || 'Usuário'}
             className="w-12 h-12 rounded-2xl object-cover border-2 border-white shadow-sm"
           />
           <div>
-            <h1 className="text-2xl font-black text-gray-800 tracking-tight flex items-center gap-3 leading-none">
+            <h1 className="dash-title text-2xl flex items-center gap-3">
             {isRestaurant ? <ChefHat className="text-indigo-600" size={32} /> : isOwner ? <Building className="text-indigo-600" /> : <LayoutDashboardIcon className="text-indigo-600" />}
             Dashboard {isOwner ? 'da Rede' : isRestaurant ? 'do Restaurante' : 'da Cantina'}
             </h1>
-            <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest mt-1 opacity-60">Análise de Performance: {activeEnterprise?.name}</p>
+            <p className="dash-subtitle">Análise de Performance: {activeEnterprise?.name}</p>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="dash-kpi-grid">
         <StatCard
           title="Vendas Hoje"
           value={isLoadingDashboardMetrics ? '...' : `R$ ${dashboardMetrics.salesToday.toFixed(2)}`}
@@ -690,7 +690,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
 
       {/* Card de Colaboradores com Débito (após vencimento configurado em Ajustes) */}
       {shouldShowCollaboratorDebtCard && (
-        <div className="bg-white rounded-[48px] shadow-sm border border-gray-100 overflow-hidden">
+        <div className="dash-panel overflow-hidden">
           <div className="p-8">
             <div className="flex items-center justify-between mb-6">
               <h3 className="font-black text-gray-400 uppercase tracking-widest text-[10px] flex items-center gap-2">
@@ -749,7 +749,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Gráfico Principal */}
-        <div className="lg:col-span-2 bg-white p-8 rounded-[48px] shadow-sm border border-gray-100">
+        <div className="lg:col-span-2 dash-panel p-8">
           <div className="flex items-center justify-between mb-8">
             <h3 className="font-black text-gray-400 uppercase tracking-widest text-[10px]">
               {isRestaurant ? 'Mix de Vendas por Categoria (Hoje)' : isOwner ? 'Vendas por Hora (Unidade Selecionada)' : 'Performance Operacional por Hora'}
@@ -789,7 +789,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
         </div>
 
         {/* Alertas Operacionais / Seções Laterais */}
-        <div className="bg-white p-8 rounded-[48px] shadow-sm border border-gray-100 flex flex-col justify-between">
+        <div className="dash-panel p-8 flex flex-col justify-between">
           <div className="space-y-6">
             <h3 className="font-black text-gray-400 uppercase tracking-widest text-[10px]">Indicadores Operacionais</h3>
             <div className="space-y-4">
@@ -941,7 +941,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
 };
 
 const StatCard: React.FC<any> = ({ title, value, change, isPositive, icon, isWarning }) => (
-  <div className={`bg-white p-6 rounded-[32px] border shadow-sm transition-all hover:shadow-xl group ${isWarning ? 'border-amber-200 bg-amber-50/10' : 'border-gray-100'}`}>
+  <div className={`dash-panel p-6 rounded-[24px] transition-all hover:shadow-lg group ${isWarning ? 'border-amber-300 bg-amber-50/30' : ''}`}>
     <div className="flex items-center justify-between mb-4">
       <div className="p-3 bg-gray-50 rounded-2xl group-hover:bg-indigo-50 transition-colors shadow-inner">{icon}</div>
       <div className={`flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full border ${isPositive ? 'bg-green-50 text-green-600 border-green-100' : 'bg-red-50 text-red-600 border-red-100'}`}>

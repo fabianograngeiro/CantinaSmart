@@ -234,7 +234,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       }
       
       return matchesSearch && matchesUnit;
-    });
+    }).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }));
   }, [clients, searchTerm, selectedUnitId, isUnitAdmin, activeEnterprise.id]);
 
   const availablePlans = useMemo(() => {

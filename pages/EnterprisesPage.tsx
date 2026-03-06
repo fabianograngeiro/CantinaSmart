@@ -175,19 +175,19 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
   };
 
   return (
-    <div className="p-6 space-y-8 max-w-[1600px] mx-auto pb-20 animate-in fade-in duration-500">
+    <div className="dash-shell">
       
-      <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-6">
+      <header className="dash-header">
         <div className="space-y-2">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-indigo-600 rounded-2xl text-white shadow-xl shadow-indigo-100">
               <Building2 size={32} />
             </div>
             <div>
-              <h1 className="text-3xl font-black text-gray-900 tracking-tight leading-none uppercase">
+              <h1 className="dash-title">
                 {isSuperAdmin ? 'Gestão de Clientes SaaS' : 'Minhas Unidades'}
               </h1>
-              <p className="text-gray-500 text-sm font-bold uppercase tracking-[2px] mt-1 opacity-60">
+              <p className="dash-subtitle">
                 {isSuperAdmin ? 'Console de Administração Global do Sistema' : 'Gerenciamento de Unidades Operacionais'}
               </p>
             </div>
@@ -208,7 +208,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
         </div>
       )}
 
-      <div className="bg-white p-4 rounded-[32px] border shadow-sm flex flex-col md:flex-row items-center gap-4">
+      <div className="dash-filterbar flex flex-col md:flex-row items-center gap-4">
         <div className="relative flex-1 w-full">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
           <input type="text" placeholder="Buscar por nome, dono, endereço ou CNPJ..." className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border-transparent border-2 focus:border-indigo-500 rounded-2xl outline-none font-bold text-sm transition-all" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/>

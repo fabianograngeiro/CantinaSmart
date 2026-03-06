@@ -2,14 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { 
-  Plus, Trash2, Save, ChevronRight, Apple, 
+  Plus, Trash2, Save, Apple, 
   Flame, Droplets, Zap, Info, Calendar,
   UtensilsCrossed, X, GripVertical, CheckCircle2,
   Building, ChevronDown, RefreshCw, Utensils,
-  DollarSign, Edit3, Clock, Eye, Star, Sandwich,
-  Search, LayoutGrid, Check, AlertCircle, Sparkles
+  Edit3, Clock, Eye, Search, AlertCircle
 } from 'lucide-react';
-import { MenuDay, MenuItem, Ingredient, User, Enterprise, Role, Plan } from '../types';
+import { MenuDay, MenuItem, Ingredient, User, Enterprise, Role } from '../types';
 import ApiService from '../services/api';
 
 const DAYS_OF_WEEK: ('SEGUNDA' | 'TERCA' | 'QUARTA' | 'QUINTA' | 'SEXTA' | 'SABADO')[] = [
@@ -25,7 +24,6 @@ interface MenuManagementPageProps {
 const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUser, activeEnterprise }) => {
   const [selectedUnitId, setSelectedUnitId] = useState<string>(activeEnterprise?.id || '');
   const [isLoading, setIsLoading] = useState(false);
-  const [plans, setPlans] = useState<Plan[]>([]);
   const [ingredientsCatalog, setIngredientsCatalog] = useState<Ingredient[]>([]);
   const [enterprises, setEnterprises] = useState<Enterprise[]>([]);
 
@@ -34,24 +32,6 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       setSelectedUnitId(activeEnterprise.id);
     }
   }, [activeEnterprise?.id]);
-  
-  // Carregar planos da API
-  useEffect(() => {
-    if (!selectedUnitId) {
-      setPlans([]);
-      return;
-    }
-    const loadPlans = async () => {
-      try {
-        const data = await ApiService.getPlans(selectedUnitId);
-        setPlans(data);
-      } catch (err) {
-        console.error('Erro ao carregar planos:', err);
-        setPlans([]);
-      }
-    };
-    loadPlans();
-  }, [selectedUnitId]);
   
   // Carregar enterprises da API (para OWNER selecionar unidade)
   useEffect(() => {
@@ -81,9 +61,6 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     loadIngredients();
   }, []);
   
-  // Lista todos os planos cadastrados na seção OWNER > PLANOS para esta unidade
-  const availablePlans = useMemo(() => plans.filter(p => p.enterpriseId === selectedUnitId), [selectedUnitId, plans]);
-
   // Função para gerar o estado inicial com os 2 planos obrigatórios por dia
   const generateInitialMenu = () => {
     return DAYS_OF_WEEK.map(day => ({ 
@@ -92,17 +69,17 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       items: [
         {
           id: Math.random().toString(36).substr(2, 9),
-          name: 'PF FIXO',
-          price: 25.00,
-          ingredients: [],
-          planId: 'p_1'
+          name: 'Cardápio do Dia',
+          description: 'Descreva o preparo e detalhes desta opção.',
+          price: 0,
+          ingredients: []
         },
         {
           id: Math.random().toString(36).substr(2, 9),
-          name: 'COMBO LANCHE',
-          price: 15.00,
-          ingredients: [],
-          planId: 'p_2'
+          name: 'Cardápio do Dia',
+          description: 'Descreva o preparo e detalhes desta opção.',
+          price: 0,
+          ingredients: []
         }
       ] 
     }));
@@ -123,13 +100,24 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
   const [editingItem, setEditingItem] = useState<{ dayId: string, item: MenuItem } | null>(null);
   const [searchIngredientId, setSearchIngredientId] = useState<string | null>(null);
 
+  const createBlankIngredient = (): Ingredient => ({
+    id: Math.random().toString(36).substr(2, 9),
+    name: '',
+    category: '',
+    unit: 'g',
+    calories: 0,
+    proteins: 0,
+    carbs: 0,
+    fats: 0
+  });
+
   const addItemToDay = (dayId: string) => {
     const newItem: MenuItem = {
       id: Math.random().toString(36).substr(2, 9),
       name: 'Nova Opção',
+      description: '',
       price: 0,
-      ingredients: [],
-      planId: undefined
+      ingredients: []
     };
     setWeeklyMenu(prev => prev.map(d => d.id === dayId ? { ...d, items: [...d.items, newItem] } : d));
     setEditingItem({ dayId, item: newItem });
@@ -143,21 +131,33 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
 
   const addIngredientToItem = () => {
     if (!editingItem) return;
-    // Fixed: added required category property to new ingredient
-    const newIng: Ingredient = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: '',
-      category: '',
-      unit: 'g',
-      calories: 0,
-      proteins: 0,
-      carbs: 0,
-      fats: 0
-    };
+    const newIng = createBlankIngredient();
     setEditingItem({
       ...editingItem,
       item: { ...editingItem.item, ingredients: [newIng, ...editingItem.item.ingredients] }
     });
+  };
+
+  const commitIngredientOnEnter = (ingId: string, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter' || !editingItem) return;
+    e.preventDefault();
+
+    const ingredients = editingItem.item.ingredients;
+    const target = ingredients.find((ing) => ing.id === ingId);
+    if (!target || !target.name.trim()) return;
+
+    const committed = { ...target, name: target.name.trim() };
+    const remaining = ingredients.filter((ing) => ing.id !== ingId && ing.name.trim() !== '');
+    const reordered = [createBlankIngredient(), ...remaining, committed];
+
+    setEditingItem({
+      ...editingItem,
+      item: {
+        ...editingItem.item,
+        ingredients: reordered
+      }
+    });
+    setSearchIngredientId(reordered[0].id);
   };
 
   const updateIngredient = (ingId: string, field: keyof Ingredient, value: string | number) => {
@@ -227,37 +227,34 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
 
   const canSaveFicha = useMemo(() => {
     if (!editingItem) return false;
-    return !!editingItem.item.planId && editingItem.item.ingredients.length > 0;
+    return Boolean(editingItem.item.name?.trim()) && Boolean(editingItem.item.description?.trim()) && editingItem.item.ingredients.length > 0;
   }, [editingItem]);
+  const editingDayLabel = useMemo(() => {
+    if (!editingItem) return '';
+    return weeklyMenu.find((day) => day.id === editingItem.dayId)?.dayOfWeek || '';
+  }, [editingItem, weeklyMenu]);
 
-  const getPlanName = (id: string) => availablePlans.find(p => p.id === id)?.name || 'PLANOS';
   const selectedEnterpriseName = enterprises.find(ent => ent.id === selectedUnitId)?.name || activeEnterprise?.name || 'Unidade';
 
   const exportWeeklyCalendarPdf = () => {
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const generatedAt = new Date();
     const days = weeklyMenu.map((day) => day.dayOfWeek);
-    const maxItems = Math.max(1, ...weeklyMenu.map((day) => day.items.length));
 
-    const tableRows = Array.from({ length: maxItems }).map((_, rowIndex) => {
-      const row: string[] = [`Opção ${rowIndex + 1}`];
-      weeklyMenu.forEach((day) => {
-        const item = day.items[rowIndex];
-        if (!item) {
-          row.push('-');
-          return;
-        }
+    const dayAsList = (day: MenuDay) => {
+      if (day.items.length === 0) return '-';
+      return day.items
+        .map((item, itemIndex) => {
+          const ingredientsList = item.ingredients.length
+            ? item.ingredients.map((ing) => `• ${ing.name}`).join('\n')
+            : '• Composição não definida';
+          const description = item.description?.trim() || 'Sem descrição';
+          return `${itemIndex + 1}) ${item.name}\nDescrição: ${description}\nInsumos:\n${ingredientsList}`;
+        })
+        .join('\n\n');
+    };
 
-        const planName = item.planId ? getPlanName(item.planId) : 'Sem plano';
-        const ingredientsText = item.ingredients.length
-          ? item.ingredients.map((ing) => ing.name).join(', ')
-          : 'Composição não definida';
-        row.push(
-          `${item.name}\nPlano: ${planName}\nValor: R$ ${item.price.toFixed(2)}\n${ingredientsText}`
-        );
-      });
-      return row;
-    });
+    const tableRows = [weeklyMenu.map((day) => dayAsList(day))];
 
     doc.setFontSize(16);
     doc.text('Calendario de Cardapio Local', 14, 14);
@@ -272,12 +269,14 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
 
     autoTable(doc, {
       startY: 36,
-      head: [['Linha', ...days]],
+      head: [days],
       body: tableRows,
       styles: {
         fontSize: 8,
-        cellPadding: 2,
+        cellPadding: 3,
         valign: 'top',
+        halign: 'center',
+        overflow: 'linebreak',
         lineColor: [220, 220, 220],
         lineWidth: 0.1,
       },
@@ -285,14 +284,12 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
         fillColor: [79, 70, 229],
         textColor: [255, 255, 255],
         fontStyle: 'bold',
-      },
-      columnStyles: {
-        0: { cellWidth: 16, fontStyle: 'bold' },
+        halign: 'center',
       },
       theme: 'grid',
       margin: { left: 10, right: 10, top: 36, bottom: 10 },
       didParseCell: (data) => {
-        if (data.section === 'body' && data.column.index > 0 && data.cell.raw === '-') {
+        if (data.section === 'body' && data.cell.raw === '-') {
           data.cell.styles.textColor = [140, 140, 140];
         }
       },
@@ -362,7 +359,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       {isLoading ? (
         <div className="flex flex-col items-center justify-center py-32 space-y-4 animate-pulse">
            <RefreshCw size={48} className="text-indigo-400 animate-spin" />
-           <p className="text-[10px] font-black text-gray-400 uppercase tracking-[4px]">Sincronizando com Base de Planos...</p>
+           <p className="text-[10px] font-black text-gray-400 uppercase tracking-[4px]">Sincronizando cardápio semanal...</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 animate-in fade-in duration-500">
@@ -395,29 +392,19 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                     >
                       <div className="p-4 flex-1">
                         <div className="flex justify-between items-start mb-3">
-                           <div className="flex flex-wrap gap-1">
-                              <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border uppercase tracking-tighter flex items-center gap-1 ${
-                                item.planId ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-gray-50 text-gray-400 border-gray-100'
-                              }`}>
-                                 <Star size={8} /> {item.planId ? getPlanName(item.planId) : 'SEM PLANO'}
-                              </span>
-                           </div>
-                           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all ml-auto">
                               <button onClick={() => setEditingItem({ dayId: day.id, item })} className="p-1.5 bg-gray-50 text-gray-400 hover:text-indigo-600 rounded-lg"><Edit3 size={14} /></button>
                               <button onClick={() => removeItemFromDay(day.id, item.id)} className="p-1.5 bg-gray-50 text-gray-400 hover:text-red-500 rounded-lg"><Trash2 size={14} /></button>
                            </div>
                         </div>
 
                         <h4 className="font-black text-gray-800 text-sm leading-tight mb-1 uppercase tracking-tight">{item.name}</h4>
-                        <p className="text-[10px] text-gray-500 leading-tight line-clamp-2 min-h-[2.5em] lowercase">
-                           {item.ingredients.length > 0 ? item.ingredients.map(ing => ing.name).join(', ') : 'Composição não definida...'}
+                        <p className="text-[10px] text-gray-500 leading-tight min-h-[2.5em] mb-2">
+                           {item.description?.trim() || 'Sem descrição.'}
                         </p>
-
-                        <div className="flex items-center gap-2 my-3">
-                           <div className="bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100 flex items-center gap-1">
-                              <DollarSign size={10} className="text-emerald-600" />
-                              <span className="text-xs font-black text-emerald-700">R$ {item.price.toFixed(2)}</span>
-                           </div>
+                        <div className="text-[10px] text-gray-500 leading-tight">
+                          <span className="font-black text-gray-600 uppercase tracking-wider">Insumos:</span>{' '}
+                          {item.ingredients.length > 0 ? item.ingredients.map(ing => ing.name).join(', ') : 'Composição não definida...'}
                         </div>
 
                         <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-50 mt-4">
@@ -458,89 +445,34 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                     </div>
                     <div>
                        <h2 className="text-xl font-black uppercase tracking-tight">Montagem do Cardápio</h2>
-                       <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest mt-1">Configuração de planos e componentes nutricionais</p>
+                       <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest mt-1">
+                         {editingDayLabel ? `Dia em edição: ${editingDayLabel} • ` : ''}Configuração de título, descrição e insumos
+                       </p>
                     </div>
                  </div>
                  <button onClick={() => setEditingItem(null)} className="p-3 hover:bg-white/10 rounded-full transition-colors"><X size={28} /></button>
               </div>
 
               <div className="flex-1 overflow-y-auto p-8 space-y-10 scrollbar-hide pb-32">
-                 {/* Nome da Opção e Preço Base */}
-                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="md:col-span-2 space-y-2">
-                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Descrição para o Cardápio</label>
+                 {/* Título e descrição */}
+                 <div className="space-y-6">
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Título do Cardápio</label>
                        <input 
                          value={editingItem.item.name}
                          onChange={(e) => setEditingItem({...editingItem, item: { ...editingItem.item, name: e.target.value }})}
                          className="w-full text-xl font-black text-gray-800 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl px-6 py-4 outline-none transition-all"
-                         placeholder="Ex: Arroz com Brócolis e Peixe Grelhado"
+                         placeholder="Ex: Frango grelhado com arroz integral"
                        />
                     </div>
                     <div className="space-y-2">
-                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Preço Venda (R$)</label>
-                       <div className="relative">
-                          <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 text-indigo-400" size={18} />
-                          <input 
-                            type="number" step="0.01"
-                            value={editingItem.item.price}
-                            onChange={(e) => setEditingItem({...editingItem, item: { ...editingItem.item, price: parseFloat(e.target.value) || 0 }})}
-                            className="w-full pl-12 pr-4 py-4 bg-emerald-50 border-2 border-transparent focus:border-emerald-500 rounded-2xl font-black text-emerald-700 outline-none transition-all"
-                          />
-                       </div>
-                    </div>
-                 </div>
-
-                 {/* SELEÇÃO DE PLANOS DO OWNER (ESTILO CHECKBOX) */}
-                 <div className="space-y-6">
-                    <div className="flex items-center gap-2 border-b pb-4">
-                       <LayoutGrid size={18} className="text-indigo-600" />
-                       <h3 className="text-xs font-black text-gray-800 uppercase tracking-widest">Selecione o Plano de Alimentação</h3>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                       {availablePlans.length === 0 ? (
-                         <div className="col-span-2 p-8 bg-red-50 border-2 border-dashed border-red-100 rounded-[32px] text-center space-y-3">
-                            <AlertCircle size={40} className="mx-auto text-red-400" />
-                            <div>
-                               <p className="text-sm font-black text-red-600 uppercase">Nenhum plano cadastrado ainda.</p>
-                               <p className="text-[10px] font-bold text-red-400 uppercase leading-relaxed mt-1">Crie planos em OWNER {'->'} PLANOS para que apareçam aqui.</p>
-                            </div>
-                         </div>
-                       ) : availablePlans.map(plan => (
-                         <label key={plan.id} className={`relative p-5 rounded-[28px] border-2 transition-all cursor-pointer group flex items-center justify-between overflow-hidden shadow-sm hover:shadow-md ${editingItem.item.planId === plan.id ? 'border-indigo-600 bg-indigo-50 ring-4 ring-indigo-500/10' : 'border-gray-100 bg-white hover:border-indigo-200'}`}>
-                            <div className="flex items-center gap-4 relative z-10">
-                               <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-black text-xs transition-all shadow-inner ${editingItem.item.planId === plan.id ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-400'}`}>
-                                  {plan.name.substring(0, 2).toUpperCase()}
-                               </div>
-                               <div>
-                                  <p className="text-[11px] font-black text-gray-800 uppercase tracking-tight leading-none mb-1.5">{plan.name}</p>
-                                  <p className="text-[10px] font-bold text-emerald-600 flex items-center gap-0.5">
-                                     <DollarSign size={10} /> {plan.price.toFixed(2)} <span className="opacity-40 text-[8px] font-black ml-1 uppercase">Vlr. Base</span>
-                                  </p>
-                               </div>
-                            </div>
-                            
-                            <div className="flex items-center relative z-10">
-                               <input 
-                                 type="radio" 
-                                 name="plan_selection" 
-                                 className="hidden"
-                                 checked={editingItem.item.planId === plan.id}
-                                 onChange={() => setEditingItem({...editingItem, item: { ...editingItem.item, planId: plan.id, price: plan.price }})}
-                               />
-                               <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${editingItem.item.planId === plan.id ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg rotate-0' : 'bg-white border-gray-200 text-transparent -rotate-45'}`}>
-                                  <Check size={16} strokeWidth={4} />
-                               </div>
-                            </div>
-
-                            {/* Detalhe de fundo decorativo para plano selecionado */}
-                            {editingItem.item.planId === plan.id && (
-                               <div className="absolute top-0 right-0 p-2 opacity-5">
-                                  <Sparkles size={40} className="text-indigo-600" />
-                               </div>
-                            )}
-                         </label>
-                       ))}
+                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Descrição</label>
+                       <textarea
+                         value={editingItem.item.description || ''}
+                         onChange={(e) => setEditingItem({...editingItem, item: { ...editingItem.item, description: e.target.value }})}
+                         className="w-full min-h-[110px] text-sm font-bold text-gray-700 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl px-5 py-4 outline-none transition-all resize-none"
+                         placeholder="Descreva o preparo, acompanhamentos e observações."
+                       />
                     </div>
                  </div>
 
@@ -575,6 +507,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                                       <input 
                                         value={ing.name}
                                         onFocus={() => setSearchIngredientId(ing.id)}
+                                        onKeyDown={(e) => commitIngredientOnEnter(ing.id, e)}
                                         onChange={(e) => updateIngredient(ing.id, 'name', e.target.value)}
                                         className="w-full bg-gray-50 border-2 border-transparent rounded-2xl pl-10 pr-4 py-3 text-sm font-black text-gray-700 outline-none focus:border-indigo-400 transition-all focus:bg-white"
                                         placeholder="Pesquisar insumo nutricional..."
@@ -591,7 +524,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                                                 className="w-full flex items-center justify-between p-4 hover:bg-indigo-50 border-b last:border-0 text-left transition-colors group/item"
                                              >
                                                 <div className="flex items-center gap-3">
-                                                   <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600 group-hover/item:bg-indigo-600 group-hover/item:text-white transition-colors"><Check size={14}/></div>
+                                                   <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600 group-hover/item:bg-indigo-600 group-hover/item:text-white transition-colors"><CheckCircle2 size={14}/></div>
                                                    <div>
                                                       <p className="text-xs font-black text-gray-800 uppercase">{mockIng.name}</p>
                                                       <p className="text-[8px] text-gray-400 font-bold uppercase tracking-tighter">Referência base 100{mockIng.unit}</p>
@@ -644,7 +577,8 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                        {canSaveFicha ? 'Pronto para salvar' : 'Ação Necessária'}
                     </p>
                     <p className="text-[8px] font-bold text-gray-400 uppercase mt-1 leading-relaxed">
-                       {!editingItem?.item.planId ? '• Vincule a um plano de alimentação. ' : ''}
+                       {!editingItem?.item.name?.trim() ? '• Informe um título. ' : ''}
+                       {!editingItem?.item.description?.trim() ? '• Informe uma descrição. ' : ''}
                        {editingItem?.item.ingredients.length === 0 ? '• Adicione pelo menos 1 componente.' : ''}
                     </p>
                  </div>

@@ -21,6 +21,7 @@ import { ApiService } from '../services/api';
 
 type TimeFilter = 'TODAY' | 'MONTH' | 'YEAR' | 'DATE';
 type EntryType = 'RECEITA' | 'DESPESA';
+type FinancialSectionTab = 'PENDING' | 'REMINDERS' | 'LAUNCHES';
 
 type FinancialTx = {
   id: string;
@@ -203,6 +204,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
   const [launchSpecificDate, setLaunchSpecificDate] = useState(toLocalDateKey(new Date()));
   const [launchTypeFilter, setLaunchTypeFilter] = useState<'ALL' | 'RECEITA' | 'DESPESA'>('ALL');
   const [launchSearch, setLaunchSearch] = useState('');
+  const [activeSectionTab, setActiveSectionTab] = useState<FinancialSectionTab>('PENDING');
   const [selectedPendingClientIds, setSelectedPendingClientIds] = useState<string[]>([]);
   const [transactions, setTransactions] = useState<FinancialTx[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -674,13 +676,13 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
   }
 
   return (
-    <div className="p-6 space-y-6 pb-20 animate-in fade-in duration-300">
-      <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-4">
+    <div className="dash-shell">
+      <header className="dash-header">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 uppercase">Financeiro</h1>
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mt-1">Receita, despesa, lucro, pendências e relatório</p>
+          <h1 className="dash-title">Financeiro</h1>
+          <p className="dash-subtitle">Receita, despesa, lucro, pendências e relatório</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="dash-actions">
           <button
             onClick={() => openEntryModal('RECEITA')}
             className="px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-black uppercase tracking-widest hover:bg-emerald-700 flex items-center gap-2"
@@ -702,7 +704,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
         </div>
       </header>
 
-      <div className="bg-white border rounded-2xl p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+      <div className="dash-filterbar grid grid-cols-1 md:grid-cols-4 gap-3">
         <div>
           <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Calendar size={12} /> Resumo - Período</label>
           <select value={summaryTimeFilter} onChange={(e) => setSummaryTimeFilter(e.target.value as TimeFilter)} className="w-full mt-1 px-3 py-2.5 rounded-xl bg-gray-50 border-2 border-transparent focus:border-indigo-500 outline-none text-xs font-black uppercase tracking-widest">
@@ -720,14 +722,49 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
         )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="dash-kpi-grid md:grid-cols-3 lg:grid-cols-3">
         <MetricCard label="Receita" value={totalRevenue} sub="Crédito plano/cantina e venda avulsa PDV" icon={<TrendingUp size={24} />} color="bg-emerald-600" />
         <MetricCard label="Despesa" value={totalExpense} sub="Saídas operacionais e administrativas" icon={<TrendingDown size={24} />} color="bg-red-600" />
         <MetricCard label="Lucro" value={netProfit} sub="Receita - Despesa" icon={<DollarSign size={24} />} color={netProfit >= 0 ? 'bg-slate-900' : 'bg-amber-700'} />
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <div className="bg-white border rounded-2xl overflow-hidden">
+      <div className="dash-panel p-2">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <button
+            onClick={() => setActiveSectionTab('PENDING')}
+            className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+              activeSectionTab === 'PENDING'
+                ? 'bg-indigo-600 text-white shadow'
+                : 'bg-white text-gray-500 hover:bg-gray-50'
+            }`}
+          >
+            Pendência e Saldo Negativo de Clientes
+          </button>
+          <button
+            onClick={() => setActiveSectionTab('REMINDERS')}
+            className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+              activeSectionTab === 'REMINDERS'
+                ? 'bg-indigo-600 text-white shadow'
+                : 'bg-white text-gray-500 hover:bg-gray-50'
+            }`}
+          >
+            Lembretes de Despesas
+          </button>
+          <button
+            onClick={() => setActiveSectionTab('LAUNCHES')}
+            className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+              activeSectionTab === 'LAUNCHES'
+                ? 'bg-indigo-600 text-white shadow'
+                : 'bg-white text-gray-500 hover:bg-gray-50'
+            }`}
+          >
+            Lançamentos Financeiros
+          </button>
+        </div>
+      </div>
+
+      {activeSectionTab === 'PENDING' && (
+        <div className="dash-panel overflow-hidden">
           <div className="p-4 border-b bg-gray-50 flex items-center justify-between">
             <h3 className="text-sm font-black uppercase tracking-widest text-gray-700">Pendência e Saldo Negativo de Clientes</h3>
             <div className="flex items-center gap-2">
@@ -763,24 +800,24 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
               <option value="COLABORADOR">Somente colaborador</option>
             </select>
           </div>
-          <div className="overflow-x-auto max-h-[360px]">
+          <div className="overflow-x-auto max-h-[560px] xl:max-h-[680px]">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-400">
+              <thead className="sticky top-0 z-10 bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-400">
                 <tr>
-                  <th className="px-4 py-3 text-center">
+                  <th className="px-4 py-3.5 text-center">
                     <input
                       type="checkbox"
                       checked={allFilteredPendingSelected}
                       onChange={(e) => toggleSelectAllFilteredPending(e.target.checked)}
                     />
                   </th>
-                  <th className="px-4 py-3 text-left">Matrícula</th>
-                  <th className="px-4 py-3 text-left">Aluno/Cliente</th>
-                  <th className="px-4 py-3 text-left">Turma</th>
-                  <th className="px-4 py-3 text-left">Responsável</th>
-                  <th className="px-4 py-3 text-left">Telefone</th>
-                  <th className="px-4 py-3 text-left">Planos</th>
-                  <th className="px-4 py-3 text-right">Pendência</th>
+                  <th className="px-4 py-3.5 text-left">Matrícula</th>
+                  <th className="px-4 py-3.5 text-left">Aluno/Cliente</th>
+                  <th className="px-4 py-3.5 text-left">Turma</th>
+                  <th className="px-4 py-3.5 text-left">Responsável</th>
+                  <th className="px-4 py-3.5 text-left">Telefone</th>
+                  <th className="px-4 py-3.5 text-left">Planos</th>
+                  <th className="px-4 py-3.5 text-right">Pendência</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -790,38 +827,40 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
                   </tr>
                 ) : filteredPendingClients.map((client) => (
                   <tr key={client.id}>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-4 py-4 text-center">
                       <input
                         type="checkbox"
                         checked={selectedPendingClientIds.includes(client.id)}
                         onChange={(e) => toggleSelectPendingClient(client.id, e.target.checked)}
                       />
                     </td>
-                    <td className="px-4 py-3 text-gray-600 font-bold">{client.registrationId}</td>
-                    <td className="px-4 py-3 font-black text-gray-800">
+                    <td className="px-4 py-4 text-gray-600 font-bold">{client.registrationId}</td>
+                    <td className="px-4 py-4 font-black text-gray-800">
                       <div className="flex items-center gap-2">
                         <User size={14} className="text-indigo-500" />
                         <span>{client.name}</span>
                       </div>
                       <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">{client.type}</p>
                     </td>
-                    <td className="px-4 py-3 text-gray-700 font-bold">{client.turma || '-'}</td>
-                    <td className="px-4 py-3 text-gray-700 font-bold">{client.responsibleName || '-'}</td>
-                    <td className="px-4 py-3 text-gray-700 font-bold">{client.responsiblePhone || 'Não informado'}</td>
-                    <td className="px-4 py-3 text-gray-700 font-bold max-w-[220px]">
+                    <td className="px-4 py-4 text-gray-700 font-bold">{client.turma || '-'}</td>
+                    <td className="px-4 py-4 text-gray-700 font-bold">{client.responsibleName || '-'}</td>
+                    <td className="px-4 py-4 text-gray-700 font-bold">{client.responsiblePhone || 'Não informado'}</td>
+                    <td className="px-4 py-4 text-gray-700 font-bold max-w-[260px]">
                       <p className="truncate" title={client.plansActive.length > 0 ? client.plansActive.join(', ') : 'INATIVO'}>
                         {client.plansActive.length > 0 ? client.plansActive.join(', ') : 'INATIVO'}
                       </p>
                     </td>
-                    <td className="px-4 py-3 text-right font-black text-red-600">R$ {client.pendingAmount.toFixed(2)}</td>
+                    <td className="px-4 py-4 text-right font-black text-red-600">R$ {client.pendingAmount.toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </div>
+      )}
 
-        <div className="bg-white border rounded-2xl overflow-hidden">
+      {activeSectionTab === 'REMINDERS' && (
+        <div className="dash-panel overflow-hidden">
           <div className="p-4 border-b bg-gray-50 flex items-center justify-between">
             <h3 className="text-sm font-black uppercase tracking-widest text-gray-700">Lembretes de Despesas</h3>
             <span className="text-xs font-black text-amber-600">{reminders.length} lembrete(s)</span>
@@ -905,9 +944,10 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
             </table>
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="bg-white border rounded-2xl overflow-hidden">
+      {activeSectionTab === 'LAUNCHES' && (
+      <div className="dash-panel overflow-hidden">
         <div className="p-4 border-b bg-gray-50 flex items-center justify-between">
           <h3 className="text-sm font-black uppercase tracking-widest text-gray-700">Lançamentos Financeiros</h3>
           <span className="text-xs font-black text-gray-500">{isLoading ? 'Carregando...' : `${filteredLaunchTransactions.length} registro(s)`}</span>
@@ -991,6 +1031,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
           </table>
         </div>
       </div>
+      )}
 
       {pendingClients.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3 text-amber-800">

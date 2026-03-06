@@ -63,6 +63,22 @@ const normalizeOpeningHours = (openingHours?: Record<string, OpeningHours>) => {
 type SettingsTab = 'FINANCEIRO' | 'ATENDIMENTO' | 'SALDO' | 'IMPRESSAO';
 type ReceiptPrintMode = 'SERVER_BROWSER' | 'LOCAL_AGENT';
 type LocalAgentStatus = 'IDLE' | 'CHECKING' | 'ONLINE' | 'OFFLINE';
+type ReceiptPaperWidth = '58mm' | '80mm';
+type ReceiptFontFamily = 'ARIAL_BLACK' | 'ARIAL' | 'COURIER_NEW' | 'MONOSPACE';
+type ReceiptFontSize = 'SMALL' | 'NORMAL' | 'LARGE';
+
+const RECEIPT_FONT_FAMILY_LABELS: Record<ReceiptFontFamily, string> = {
+  ARIAL_BLACK: 'Arial Black',
+  ARIAL: 'Arial',
+  COURIER_NEW: 'Courier New',
+  MONOSPACE: 'Monospace'
+};
+
+const RECEIPT_FONT_SIZE_LABELS: Record<ReceiptFontSize, string> = {
+  SMALL: 'Pequena',
+  NORMAL: 'Normal',
+  LARGE: 'Grande'
+};
 
 const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, activeEnterprise }) => {
   if (!activeEnterprise) {
@@ -88,6 +104,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
   const [receiptPrinterName, setReceiptPrinterName] = useState<string>(String(activeEnterprise.receiptPrinterName || ''));
   const [receiptPrintMode, setReceiptPrintMode] = useState<ReceiptPrintMode>((activeEnterprise.receiptPrintMode as ReceiptPrintMode) || 'SERVER_BROWSER');
   const [localPrintAgentUrl, setLocalPrintAgentUrl] = useState<string>(String(activeEnterprise.localPrintAgentUrl || 'http://127.0.0.1:18181'));
+  const [receiptPaperWidth, setReceiptPaperWidth] = useState<ReceiptPaperWidth>((activeEnterprise.receiptPaperWidth as ReceiptPaperWidth) || '80mm');
+  const [receiptFontFamily, setReceiptFontFamily] = useState<ReceiptFontFamily>((activeEnterprise.receiptFontFamily as ReceiptFontFamily) || 'ARIAL_BLACK');
+  const [receiptFontSize, setReceiptFontSize] = useState<ReceiptFontSize>((activeEnterprise.receiptFontSize as ReceiptFontSize) || 'NORMAL');
+  const [receiptMarginVertical, setReceiptMarginVertical] = useState<number>(Math.max(0, Math.min(20, Number(activeEnterprise.receiptMarginVertical ?? 2))));
+  const [receiptMarginHorizontal, setReceiptMarginHorizontal] = useState<number>(Math.max(0, Math.min(20, Number(activeEnterprise.receiptMarginHorizontal ?? 2))));
+  const [receiptItemGapTop, setReceiptItemGapTop] = useState<number>(Math.max(0, Math.min(20, Number(activeEnterprise.receiptItemGapTop ?? 4))));
+  const [receiptItemGapBottom, setReceiptItemGapBottom] = useState<number>(Math.max(0, Math.min(20, Number(activeEnterprise.receiptItemGapBottom ?? 4))));
   const [localAgentStatus, setLocalAgentStatus] = useState<LocalAgentStatus>('IDLE');
   const [localAgentStatusMessage, setLocalAgentStatusMessage] = useState('');
   const [printers, setPrinters] = useState<Array<{ name: string; isDefault: boolean }>>([]);
@@ -117,6 +140,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
     setReceiptPrinterName(String(activeEnterprise.receiptPrinterName || ''));
     setReceiptPrintMode((activeEnterprise.receiptPrintMode as ReceiptPrintMode) || 'SERVER_BROWSER');
     setLocalPrintAgentUrl(String(activeEnterprise.localPrintAgentUrl || 'http://127.0.0.1:18181'));
+    setReceiptPaperWidth((activeEnterprise.receiptPaperWidth as ReceiptPaperWidth) || '80mm');
+    setReceiptFontFamily((activeEnterprise.receiptFontFamily as ReceiptFontFamily) || 'ARIAL_BLACK');
+    setReceiptFontSize((activeEnterprise.receiptFontSize as ReceiptFontSize) || 'NORMAL');
+    setReceiptMarginVertical(Math.max(0, Math.min(20, Number(activeEnterprise.receiptMarginVertical ?? 2))));
+    setReceiptMarginHorizontal(Math.max(0, Math.min(20, Number(activeEnterprise.receiptMarginHorizontal ?? 2))));
+    setReceiptItemGapTop(Math.max(0, Math.min(20, Number(activeEnterprise.receiptItemGapTop ?? 4))));
+    setReceiptItemGapBottom(Math.max(0, Math.min(20, Number(activeEnterprise.receiptItemGapBottom ?? 4))));
   }, [activeEnterprise]);
 
   const loadSystemPrinters = async () => {
@@ -232,7 +262,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
         autoPrintPDVReceipt,
         receiptPrinterName: receiptPrinterName || '',
         receiptPrintMode,
-        localPrintAgentUrl: localPrintAgentUrl || 'http://127.0.0.1:18181'
+        localPrintAgentUrl: localPrintAgentUrl || 'http://127.0.0.1:18181',
+        receiptPaperWidth,
+        receiptFontFamily,
+        receiptFontSize,
+        receiptMarginVertical: Math.max(0, Math.min(20, Number(receiptMarginVertical || 0))),
+        receiptMarginHorizontal: Math.max(0, Math.min(20, Number(receiptMarginHorizontal || 0))),
+        receiptItemGapTop: Math.max(0, Math.min(20, Number(receiptItemGapTop || 0))),
+        receiptItemGapBottom: Math.max(0, Math.min(20, Number(receiptItemGapBottom || 0)))
       };
       await ApiService.updateEnterprise(activeEnterprise.id, payload);
       Object.assign(activeEnterprise as any, payload);
@@ -592,6 +629,166 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                     )}
                   </div>
 
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <p className="text-[10px] font-black text-sky-700 uppercase tracking-widest mb-1">Largura do Papel</p>
+                      <select
+                        value={receiptPaperWidth}
+                        onChange={(e) => setReceiptPaperWidth(e.target.value as ReceiptPaperWidth)}
+                        className="w-full px-4 py-3 rounded-xl border-2 border-sky-200 bg-white text-sm font-black text-sky-700"
+                      >
+                        <option value="58mm">58mm</option>
+                        <option value="80mm">80mm</option>
+                      </select>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-sky-700 uppercase tracking-widest mb-1">Fonte</p>
+                      <select
+                        value={receiptFontFamily}
+                        onChange={(e) => setReceiptFontFamily(e.target.value as ReceiptFontFamily)}
+                        className="w-full px-4 py-3 rounded-xl border-2 border-sky-200 bg-white text-sm font-black text-sky-700"
+                      >
+                        <option value="ARIAL_BLACK">Arial Black</option>
+                        <option value="ARIAL">Arial</option>
+                        <option value="COURIER_NEW">Courier New</option>
+                        <option value="MONOSPACE">Monospace</option>
+                      </select>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-sky-700 uppercase tracking-widest mb-1">Tamanho da Fonte</p>
+                      <select
+                        value={receiptFontSize}
+                        onChange={(e) => setReceiptFontSize(e.target.value as ReceiptFontSize)}
+                        className="w-full px-4 py-3 rounded-xl border-2 border-sky-200 bg-white text-sm font-black text-sky-700"
+                      >
+                        <option value="SMALL">Pequena</option>
+                        <option value="NORMAL">Normal</option>
+                        <option value="LARGE">Grande</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border-2 border-sky-200 bg-white p-4 space-y-4">
+                    <p className="text-[10px] font-black text-sky-700 uppercase tracking-widest">Simulador Visual do Cupom</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between rounded-xl border border-sky-200 px-3 py-2 bg-sky-50">
+                          <span className="text-[10px] font-black text-sky-700 uppercase tracking-widest">Margem Superior/Inferior</span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setReceiptMarginVertical((prev) => Math.max(0, prev - 1))}
+                              className="px-2 py-1 rounded-lg border border-sky-300 bg-white text-sky-700 text-xs font-black"
+                            >
+                              -
+                            </button>
+                            <span className="text-[11px] font-black text-sky-800 min-w-[52px] text-center">{receiptMarginVertical} mm</span>
+                            <button
+                              type="button"
+                              onClick={() => setReceiptMarginVertical((prev) => Math.min(20, prev + 1))}
+                              className="px-2 py-1 rounded-lg border border-sky-300 bg-white text-sky-700 text-xs font-black"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between rounded-xl border border-sky-200 px-3 py-2 bg-sky-50">
+                          <span className="text-[10px] font-black text-sky-700 uppercase tracking-widest">Margem Esquerda/Direita</span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setReceiptMarginHorizontal((prev) => Math.max(0, prev - 1))}
+                              className="px-2 py-1 rounded-lg border border-sky-300 bg-white text-sky-700 text-xs font-black"
+                            >
+                              -
+                            </button>
+                            <span className="text-[11px] font-black text-sky-800 min-w-[52px] text-center">{receiptMarginHorizontal} mm</span>
+                            <button
+                              type="button"
+                              onClick={() => setReceiptMarginHorizontal((prev) => Math.min(20, prev + 1))}
+                              className="px-2 py-1 rounded-lg border border-sky-300 bg-white text-sky-700 text-xs font-black"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between rounded-xl border border-sky-200 px-3 py-2 bg-sky-50">
+                          <span className="text-[10px] font-black text-sky-700 uppercase tracking-widest">Distância entre itens (Cima)</span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setReceiptItemGapTop((prev) => Math.max(0, prev - 1))}
+                              className="px-2 py-1 rounded-lg border border-sky-300 bg-white text-sky-700 text-xs font-black"
+                            >
+                              -
+                            </button>
+                            <span className="text-[11px] font-black text-sky-800 min-w-[52px] text-center">{receiptItemGapTop} px</span>
+                            <button
+                              type="button"
+                              onClick={() => setReceiptItemGapTop((prev) => Math.min(20, prev + 1))}
+                              className="px-2 py-1 rounded-lg border border-sky-300 bg-white text-sky-700 text-xs font-black"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between rounded-xl border border-sky-200 px-3 py-2 bg-sky-50">
+                          <span className="text-[10px] font-black text-sky-700 uppercase tracking-widest">Distância entre itens (Baixo)</span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setReceiptItemGapBottom((prev) => Math.max(0, prev - 1))}
+                              className="px-2 py-1 rounded-lg border border-sky-300 bg-white text-sky-700 text-xs font-black"
+                            >
+                              -
+                            </button>
+                            <span className="text-[11px] font-black text-sky-800 min-w-[52px] text-center">{receiptItemGapBottom} px</span>
+                            <button
+                              type="button"
+                              onClick={() => setReceiptItemGapBottom((prev) => Math.min(20, prev + 1))}
+                              className="px-2 py-1 rounded-lg border border-sky-300 bg-white text-sky-700 text-xs font-black"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-sky-200 bg-gray-100 p-3">
+                        <div
+                          className="mx-auto rounded-lg border-2 border-sky-300 bg-white relative overflow-hidden"
+                          style={{ width: receiptPaperWidth === '58mm' ? 160 : 220, height: 260 }}
+                        >
+                          <div
+                            className="absolute rounded-md border border-dashed border-sky-400 bg-sky-50/40"
+                            style={{
+                              top: `${Math.min(60, receiptMarginVertical * 2)}px`,
+                              bottom: `${Math.min(60, receiptMarginVertical * 2)}px`,
+                              left: `${Math.min(60, receiptMarginHorizontal * 2)}px`,
+                              right: `${Math.min(60, receiptMarginHorizontal * 2)}px`,
+                            }}
+                          >
+                            <div className="px-2 py-2 text-[8px] font-black text-sky-700 leading-tight">
+                              <div className="text-center mb-1">CUPOM NÃO FISCAL</div>
+                              <div style={{ marginTop: receiptItemGapTop, marginBottom: receiptItemGapBottom }}>1x COXINHA FRANGO</div>
+                              <div>R$ 7,00</div>
+                              <div style={{ borderTop: '1px dashed #93c5fd', margin: '2px 0' }}></div>
+                              <div style={{ marginTop: receiptItemGapTop, marginBottom: receiptItemGapBottom }}>1x SUCO NATURAL</div>
+                              <div>R$ 6,00</div>
+                              <div className="mt-2 border-t border-dashed border-sky-300 pt-1">TOTAL: R$ 13,00</div>
+                            </div>
+                          </div>
+                        </div>
+                        <p className="text-[10px] font-bold text-gray-600 mt-2 text-center">
+                          Simulação {receiptPaperWidth} (área azul = conteúdo impresso)
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
                   {printersMessage && (
                     <div className="p-3 rounded-xl bg-amber-50 border border-amber-100 text-[11px] font-bold text-amber-700">
                       {printersMessage}
@@ -657,6 +854,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                 <div className="bg-white/60 rounded-[16px] p-3 border border-indigo-100">
                   <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Modo Impressão</p>
                   <p className="text-xs text-gray-800 font-bold">{receiptPrintMode === 'LOCAL_AGENT' ? 'Agente Local' : 'Navegador/Servidor'}</p>
+                </div>
+                <div className="bg-white/60 rounded-[16px] p-3 border border-indigo-100">
+                  <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Cupom Não Fiscal</p>
+                  <p className="text-xs text-gray-800 font-bold">
+                    {receiptPaperWidth} • {RECEIPT_FONT_FAMILY_LABELS[receiptFontFamily]} • {RECEIPT_FONT_SIZE_LABELS[receiptFontSize]} • V:{receiptMarginVertical}mm H:{receiptMarginHorizontal}mm • Itens: +{receiptItemGapTop}px/-{receiptItemGapBottom}px
+                  </p>
                 </div>
               </div>
             </div>
