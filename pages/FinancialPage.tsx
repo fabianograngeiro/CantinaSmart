@@ -116,16 +116,23 @@ const filterTransactionsByPeriod = (
 const inferRevenueByBusinessRule = (tx: any) => {
   const description = normalizeUpper(tx?.description || tx?.item);
   const rawType = normalizeUpper(tx?.type);
+  const paymentMethodRaw = normalizeUpper(tx?.method || tx?.paymentMethod);
+  const paymentMethodTokens = paymentMethodRaw
+    .split('+')
+    .map((token) => token.trim())
+    .filter(Boolean);
+  const allowedPdvRevenueMethods = new Set(['DEBITO', 'PIX', 'CREDITO', 'DINHEIRO']);
+  const hasAllowedPdvMethod = paymentMethodTokens.some((token) => allowedPdvRevenueMethods.has(token));
 
   // Receitas somente: crédito plano, crédito cantina e venda avulsa PDV.
   const isCantinaCredit = description.includes('CREDITO LIVRE CANTINA');
   const isPlanCredit = description.includes('RECARGA DE PLANO') || description.includes('CREDITO PLANO');
-  const isPdvSale = description.includes('COMPRA PDV');
+  const isPdvSale = description.includes('COMPRA PDV') && hasAllowedPdvMethod;
 
   if (isCantinaCredit || isPlanCredit || isPdvSale) return true;
 
   // fallback: alguns registros antigos podem vir como VENDA_BALCAO
-  if (rawType === 'VENDA_BALCAO') return true;
+  if (rawType === 'VENDA_BALCAO' && hasAllowedPdvMethod) return true;
 
   return false;
 };

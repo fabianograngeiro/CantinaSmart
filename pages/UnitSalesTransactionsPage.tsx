@@ -828,6 +828,13 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     return totalSales / monthlySales.length;
   }, [sourceTransactions]);
 
+  const ticketAverageRevenueFiltered = useMemo(() => {
+    const revenueTransactions = filteredTransactions.filter((t) => t.type === 'CREDITO' || t.type === 'VENDA_BALCAO');
+    if (revenueTransactions.length === 0) return 0;
+    const total = revenueTransactions.reduce((sum, t) => sum + Number(t.total || t.value || 0), 0);
+    return total / revenueTransactions.length;
+  }, [filteredTransactions]);
+
   const plansList = useMemo(() => {
     const plans = new Set(normalizedTransactions.map(t => t.plan));
     return Array.from(plans);
@@ -910,10 +917,20 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     const periodLabel = timeFilter === 'TODAY' ? 'Hoje' : timeFilter === '7DAYS' ? '7 Dias' : timeFilter === 'MONTH' ? 'Mês' : timeFilter === 'YEAR' ? 'Ano' : 'Customizado';
     doc.text(`Filtros: Período: ${periodLabel} | Tipo: ${typeFilter} | Plano: ${planFilter}`, 14, 37);
 
+    // Resumo financeiro do relatório PDV
+    doc.setDrawColor(224, 231, 255);
+    doc.setFillColor(248, 250, 255);
+    doc.roundedRect(14, 40, 269, 12, 2, 2, 'FD');
+    doc.setFontSize(9);
+    doc.setTextColor(31, 41, 55);
+    doc.text(`Total Receitas: R$ ${totalRevenueFiltered.toFixed(2)}`, 18, 47.5);
+    doc.text(`Total Consumo: R$ ${totalConsumptionDiscountFiltered.toFixed(2)}`, 108, 47.5);
+    doc.text(`Ticket Médio (Receitas): R$ ${ticketAverageRevenueFiltered.toFixed(2)}`, 193, 47.5);
+
     autoTable(doc, {
       head: [tableColumn],
       body: tableRows,
-      startY: 42,
+      startY: 55,
       theme: 'grid',
       styles: { fontSize: 8, cellPadding: 3 },
       headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: 'bold' },
