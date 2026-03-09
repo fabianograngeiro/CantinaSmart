@@ -21,6 +21,7 @@ import transactionsRoutes from './routes/transactions.js';
 import ordersRoutes from './routes/orders.js';
 import ingredientsRoutes from './routes/ingredients.js';
 import systemRoutes from './routes/system.js';
+import whatsappRoutes from './routes/whatsapp.js';
 import { authMiddleware } from './middleware/auth.js';
 
 const app: Express = express();
@@ -59,6 +60,7 @@ app.use('/api/transactions', transactionsRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/ingredients', ingredientsRoutes);
 app.use('/api/system', systemRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
 app.use('/products_photos', express.static(path.join(__dirname, 'products_photos')));
 app.use('/clients_photos', express.static(path.join(__dirname, 'clients_photos')));
 

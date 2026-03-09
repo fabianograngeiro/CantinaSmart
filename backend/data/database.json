@@ -4116,6 +4116,28 @@
       "parentCpf": "",
       "parentEmail": "",
       "id": "c_1772715910787"
+    },
+    {
+      "registrationId": "1108",
+      "name": "victor",
+      "type": "ALUNO",
+      "class": "",
+      "servicePlans": [
+        "PREPAGO"
+      ],
+      "selectedPlansConfig": [],
+      "balance": 0,
+      "spentToday": 0,
+      "isBlocked": false,
+      "restrictions": [],
+      "dietaryNotes": "",
+      "photo": "https://api.dicebear.com/7.x/avataaars/svg?seed=victor",
+      "enterpriseId": "ent_1772371516130",
+      "parentName": "Fabiano",
+      "parentWhatsapp": "5548988732722",
+      "parentCpf": "",
+      "parentEmail": "",
+      "id": "c_1773020196577"
     }
   ],
   "plans": [

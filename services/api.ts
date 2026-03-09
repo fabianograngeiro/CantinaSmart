@@ -671,6 +671,89 @@ export class ApiService {
     if (!response.ok) throw new Error('Falha ao buscar impressoras instaladas');
     return response.json();
   }
+
+  // ===== WHATSAPP =====
+  static async getWhatsAppStatus() {
+    const response = await fetch(`${API_URL}/whatsapp/status`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao buscar status do WhatsApp');
+    return response.json();
+  }
+
+  static async startWhatsAppSession() {
+    const response = await fetch(`${API_URL}/whatsapp/start`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao iniciar sessão do WhatsApp');
+    return response.json();
+  }
+
+  static async stopWhatsAppSession() {
+    const response = await fetch(`${API_URL}/whatsapp/stop`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao encerrar sessão do WhatsApp');
+    return response.json();
+  }
+
+  static async sendWhatsAppMessage(phone: string, message: string) {
+    const response = await fetch(`${API_URL}/whatsapp/send`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ phone, message }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao enviar mensagem WhatsApp');
+    }
+    return response.json();
+  }
+
+  static async sendWhatsAppBulk(recipients: string[], message: string) {
+    const response = await fetch(`${API_URL}/whatsapp/send-bulk`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ recipients, message }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao enviar mensagens em lote');
+    }
+    return response.json();
+  }
+
+  static async getWhatsAppChats() {
+    const response = await fetch(`${API_URL}/whatsapp/chats`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao carregar conversas do WhatsApp');
+    return response.json();
+  }
+
+  static async getWhatsAppChatMessages(chatId: string, limit = 80) {
+    const encoded = String(chatId || '').replace(/@/g, '__AT__');
+    const response = await fetch(`${API_URL}/whatsapp/chats/${encoded}/messages?limit=${limit}`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao carregar mensagens da conversa');
+    return response.json();
+  }
+
+  static async sendWhatsAppMessageToChat(chatId: string, message: string) {
+    const response = await fetch(`${API_URL}/whatsapp/send-to-chat`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ chatId, message }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao enviar mensagem para a conversa');
+    }
+    return response.json();
+  }
 }
 
 export default ApiService;

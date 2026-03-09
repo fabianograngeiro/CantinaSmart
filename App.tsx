@@ -6,7 +6,7 @@ import {
   ReceiptText, Building2, Building, ShieldCheck, 
   UserCircle, Globe, ClipboardList, 
   Sparkles, Beef, Store, Calendar,
-  LogOut, Menu, DollarSign,
+  LogOut, Menu, DollarSign, MessageCircle,
   Truck, Settings, AlertTriangle, X, Plus, Check // Ícones adicionais
 } from 'lucide-react';
 
@@ -36,6 +36,7 @@ import UserManagementPage from './pages/UserManagementPage';
 import SystemSettingsPage from './pages/SystemSettingsPage';
 import SettingsPage from './pages/SettingsPage';
 import FinancialPage from './pages/FinancialPage';
+import WhatsAppPage from './pages/WhatsAppPage';
 
 
 import { Enterprise, Role, User, TransactionRecord } from './types';
@@ -323,6 +324,7 @@ const AppContent: React.FC<any> = (props) => {
                     <SidebarItem icon={<Sparkles size={20} />} label="Planos Ativos" to={`/plans/${activeEnterprise?.id}`} isOpen={isSidebarOpen} />
                     <SidebarItem icon={<ReceiptText size={20} />} label="Transações" to="/unit-sales" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<DollarSign size={20} />} label="Financeiro" to="/financial" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp" to="/whatsapp" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<ArrowRightLeft size={20} />} label="Estoque Unidade" to="/inventory" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Settings size={20} />} label="Ajustes" to="/settings" isOpen={isSidebarOpen} />
                   </div>
@@ -408,6 +410,7 @@ const AppContent: React.FC<any> = (props) => {
                   <Route path="/reports" element={<ReportsPage currentUser={currentUser} />} />
                   <Route path="/unit-sales" element={<UnitSalesTransactionsPage activeEnterprise={activeEnterprise} transactions={transactions} />} />
                   <Route path="/financial" element={<FinancialPage activeEnterprise={activeEnterprise} />} />
+                  <Route path="/whatsapp" element={<WhatsAppPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
                   <Route path="/users" element={<UserManagementPage currentUser={currentUser} />} />
                   <Route path="/system-settings" element={<SystemSettingsPage currentUser={currentUser} />} />
                   <Route path="/enterprises" element={<EnterprisesPage currentUser={currentUser} />} />
