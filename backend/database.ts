@@ -49,6 +49,33 @@ export class Database {
   private orders: any[] = [];
   private ingredients: any[] = [];
 
+  private normalizeBrazilPhone(value: any) {
+    const digits = String(value ?? '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('55')) return digits;
+    if (digits.length >= 10) return `55${digits}`;
+    return digits;
+  }
+
+  private normalizeContactFields(record: any) {
+    const next = { ...(record || {}) };
+    const phoneFields = ['phone', 'phone1', 'phone2', 'guardianPhone', 'parentWhatsapp'];
+
+    for (const field of phoneFields) {
+      if (field in next) {
+        next[field] = this.normalizeBrazilPhone(next[field]);
+      }
+    }
+
+    return next;
+  }
+
+  private normalizeStoredData() {
+    this.enterprises = this.enterprises.map((enterprise) => this.normalizeContactFields(enterprise));
+    this.clients = this.clients.map((client) => this.normalizeContactFields(client));
+    this.suppliers = this.suppliers.map((supplier) => this.normalizeContactFields(supplier));
+  }
+
   constructor() {
     this.loadData();
   }
@@ -140,6 +167,7 @@ export class Database {
       }
 
       this.assignData(data);
+      this.normalizeStoredData();
       this.syncProductSequence();
 
       console.log('✅ [DB] Data loaded successfully');
@@ -212,7 +240,7 @@ export class Database {
   }
 
   createEnterprise(data: any) {
-    const newEnterprise = { ...data, id: 'ent_' + Date.now() };
+    const newEnterprise = this.normalizeContactFields({ ...data, id: 'ent_' + Date.now() });
     this.enterprises.push(newEnterprise);
     this.saveData();
     return newEnterprise;
@@ -221,7 +249,7 @@ export class Database {
   updateEnterprise(id: string, data: any) {
     const index = this.enterprises.findIndex(e => e.id === id);
     if (index > -1) {
-      this.enterprises[index] = { ...this.enterprises[index], ...data };
+      this.enterprises[index] = this.normalizeContactFields({ ...this.enterprises[index], ...data });
       this.saveData();
       return this.enterprises[index];
     }
@@ -385,7 +413,7 @@ export class Database {
   }
 
   createClient(data: any) {
-    const newClient = { ...data, id: 'c_' + Date.now() };
+    const newClient = this.normalizeContactFields({ ...data, id: 'c_' + Date.now() });
     this.clients.push(newClient);
     this.saveData();
     return newClient;
@@ -394,7 +422,7 @@ export class Database {
   updateClient(id: string, data: any) {
     const index = this.clients.findIndex(c => c.id === id);
     if (index > -1) {
-      this.clients[index] = { ...this.clients[index], ...data };
+      this.clients[index] = this.normalizeContactFields({ ...this.clients[index], ...data });
       this.saveData();
       return this.clients[index];
     }
@@ -463,7 +491,7 @@ export class Database {
   }
 
   createSupplier(data: any) {
-    const newSupplier = { ...data, id: 's_' + Date.now() };
+    const newSupplier = this.normalizeContactFields({ ...data, id: 's_' + Date.now() });
     this.suppliers.push(newSupplier);
     this.saveData();
     return newSupplier;
@@ -472,7 +500,7 @@ export class Database {
   updateSupplier(id: string, data: any) {
     const index = this.suppliers.findIndex(s => s.id === id);
     if (index > -1) {
-      this.suppliers[index] = { ...this.suppliers[index], ...data };
+      this.suppliers[index] = this.normalizeContactFields({ ...this.suppliers[index], ...data });
       this.saveData();
       return this.suppliers[index];
     }

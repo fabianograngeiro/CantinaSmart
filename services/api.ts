@@ -681,10 +681,40 @@ export class ApiService {
     return response.json();
   }
 
-  static async startWhatsAppSession() {
+  static async getWhatsAppQr() {
+    const response = await fetch(`${API_URL}/whatsapp/qr`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao buscar QR Code do WhatsApp');
+    return response.json();
+  }
+
+  static async initWhatsAppSession() {
+    const response = await fetch(`${API_URL}/whatsapp/init`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao inicializar integração do WhatsApp');
+    return response.json();
+  }
+
+  static async startWhatsAppSession(options: {
+    forceNewSession?: boolean;
+    sessionName?: string;
+    startDate?: string;
+    endDate?: string;
+    syncFullHistory?: boolean;
+  } = {}) {
     const response = await fetch(`${API_URL}/whatsapp/start`, {
       method: 'POST',
       headers: this.getHeaders(),
+      body: JSON.stringify({
+        forceNewSession: Boolean(options.forceNewSession),
+        sessionName: String(options.sessionName || '').trim(),
+        startDate: String(options.startDate || '').trim(),
+        endDate: String(options.endDate || '').trim(),
+        syncFullHistory: Boolean(options.syncFullHistory),
+      }),
     });
     if (!response.ok) throw new Error('Falha ao iniciar sessão do WhatsApp');
     return response.json();
@@ -742,6 +772,19 @@ export class ApiService {
     return response.json();
   }
 
+  static async deleteWhatsAppChat(chatId: string) {
+    const encoded = String(chatId || '').replace(/@/g, '__AT__');
+    const response = await fetch(`${API_URL}/whatsapp/chats/${encoded}`, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao excluir conversa');
+    }
+    return response.json();
+  }
+
   static async sendWhatsAppMessageToChat(chatId: string, message: string) {
     const response = await fetch(`${API_URL}/whatsapp/send-to-chat`, {
       method: 'POST',
@@ -751,6 +794,62 @@ export class ApiService {
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text || 'Falha ao enviar mensagem para a conversa');
+    }
+    return response.json();
+  }
+
+  static async sendWhatsAppMediaToChat(
+    chatId: string,
+    message: string,
+    attachment: { mediaType: 'image' | 'document' | 'audio'; base64Data: string; mimeType?: string; fileName?: string }
+  ) {
+    const response = await fetch(`${API_URL}/whatsapp/send-media-to-chat`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ chatId, message, attachment }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao enviar mídia para a conversa');
+    }
+    return response.json();
+  }
+
+  static async scheduleWhatsAppMessage(payload: {
+    chatId: string;
+    message?: string;
+    scheduleAt: string;
+    attachment?: { mediaType: 'image' | 'document' | 'audio'; base64Data: string; mimeType?: string; fileName?: string } | null;
+  }) {
+    const response = await fetch(`${API_URL}/whatsapp/schedule`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao agendar mensagem');
+    }
+    return response.json();
+  }
+
+  static async getWhatsAppSchedules(chatId?: string) {
+    const query = chatId ? `?chatId=${encodeURIComponent(chatId)}` : '';
+    const response = await fetch(`${API_URL}/whatsapp/schedule${query}`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao carregar agendamentos');
+    return response.json();
+  }
+
+  static async cancelWhatsAppSchedule(id: string) {
+    const response = await fetch(`${API_URL}/whatsapp/schedule/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao cancelar agendamento');
     }
     return response.json();
   }

@@ -10,8 +10,44 @@ router.get('/status', async (_req: Request, res: Response) => {
   });
 });
 
+router.get('/qr', async (_req: Request, res: Response) => {
+  const snapshot = whatsappSession.getSnapshot();
+  res.json({
+    success: true,
+    state: snapshot.state,
+    connected: snapshot.connected,
+    qrAvailable: snapshot.qrAvailable,
+    qrDataUrl: snapshot.qrDataUrl,
+    phoneNumber: snapshot.phoneNumber,
+    lastError: snapshot.lastError,
+    sessionName: snapshot.sessionName,
+    startDate: snapshot.startDate,
+    endDate: snapshot.endDate,
+    syncFullHistory: snapshot.syncFullHistory
+  });
+});
+
 router.post('/start', async (_req: Request, res: Response) => {
-  const snapshot = await whatsappSession.start();
+  const forceNewSession = Boolean(_req.body?.forceNewSession);
+  const sessionName = String(_req.body?.sessionName || '').trim();
+  const startDate = String(_req.body?.startDate || '').trim();
+  const endDate = String(_req.body?.endDate || '').trim();
+  const syncFullHistory = Boolean(_req.body?.syncFullHistory);
+  const snapshot = await whatsappSession.start({
+    forceNewSession,
+    sessionName,
+    startDate,
+    endDate,
+    syncFullHistory
+  });
+  res.json({
+    success: true,
+    ...snapshot
+  });
+});
+
+router.post('/init', async (_req: Request, res: Response) => {
+  const snapshot = await whatsappSession.initializeOnBoot();
   res.json({
     success: true,
     ...snapshot
@@ -120,6 +156,19 @@ router.get('/chats/:chatId/messages', async (req: Request, res: Response) => {
   }
 });
 
+router.delete('/chats/:chatId', async (req: Request, res: Response) => {
+  try {
+    const chatId = String(req.params.chatId || '').replace(/__AT__/g, '@');
+    const result = await whatsappSession.deleteChat(chatId);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao excluir conversa.'
+    });
+  }
+});
+
 router.post('/send-to-chat', async (req: Request, res: Response) => {
   try {
     const { chatId, message } = req.body || {};
@@ -130,11 +179,98 @@ router.post('/send-to-chat', async (req: Request, res: Response) => {
       });
     }
     const result = await whatsappSession.sendMessageToChat(String(chatId), String(message));
+    console.log('✅ [WHATSAPP] /send-to-chat sucesso:', result);
+    res.json(result);
+  } catch (err) {
+    console.error('❌ [WHATSAPP] /send-to-chat erro:', err);
+    res.status(400).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao enviar mensagem no chat.'
+    });
+  }
+});
+
+router.post('/send-media-to-chat', async (req: Request, res: Response) => {
+  try {
+    const { chatId, message, attachment } = req.body || {};
+    if (!chatId || !attachment?.mediaType || !attachment?.base64Data) {
+      return res.status(400).json({
+        success: false,
+        message: 'Informe chatId e attachment válido.'
+      });
+    }
+
+    const result = await whatsappSession.sendMediaToChat(
+      String(chatId),
+      {
+        mediaType: String(attachment.mediaType) as 'image' | 'document' | 'audio',
+        base64Data: String(attachment.base64Data),
+        mimeType: attachment?.mimeType ? String(attachment.mimeType) : undefined,
+        fileName: attachment?.fileName ? String(attachment.fileName) : undefined
+      },
+      String(message || '')
+    );
+
+    res.json(result);
+  } catch (err) {
+    console.error('❌ [WHATSAPP] /send-media-to-chat erro:', err);
+    res.status(400).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao enviar anexo no chat.'
+    });
+  }
+});
+
+router.post('/schedule', async (req: Request, res: Response) => {
+  try {
+    const { chatId, message, scheduleAt, attachment } = req.body || {};
+    const result = await whatsappSession.scheduleMessage({
+      chatId: String(chatId || ''),
+      message: String(message || ''),
+      scheduleAt: scheduleAt,
+      attachment: attachment?.mediaType && attachment?.base64Data
+        ? {
+            mediaType: String(attachment.mediaType) as 'image' | 'document' | 'audio',
+            base64Data: String(attachment.base64Data),
+            mimeType: attachment?.mimeType ? String(attachment.mimeType) : undefined,
+            fileName: attachment?.fileName ? String(attachment.fileName) : undefined
+          }
+        : null
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('❌ [WHATSAPP] /schedule erro:', err);
+    res.status(400).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao agendar mensagem.'
+    });
+  }
+});
+
+router.get('/schedule', async (req: Request, res: Response) => {
+  try {
+    const chatId = String(req.query.chatId || '').trim();
+    const schedules = whatsappSession.getScheduledMessages(chatId || undefined);
+    res.json({
+      success: true,
+      schedules
+    });
+  } catch (err) {
+    res.status(400).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao listar agendamentos.'
+    });
+  }
+});
+
+router.delete('/schedule/:id', async (req: Request, res: Response) => {
+  try {
+    const result = await whatsappSession.cancelScheduledMessage(String(req.params.id || ''));
     res.json(result);
   } catch (err) {
     res.status(400).json({
       success: false,
-      message: err instanceof Error ? err.message : 'Falha ao enviar mensagem no chat.'
+      message: err instanceof Error ? err.message : 'Falha ao cancelar agendamento.'
     });
   }
 });

@@ -43,6 +43,7 @@ import { Enterprise, Role, User, TransactionRecord } from './types';
 import ApiService from './services/api';
 
 const AUTH_USER_STORAGE_KEY = 'canteen_auth_user';
+const ACTIVE_ENTERPRISE_STORAGE_KEY = 'canteen_active_enterprise';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -72,17 +73,36 @@ const App: React.FC = () => {
     try {
       const token = ApiService.getToken();
       const rawUser = localStorage.getItem(AUTH_USER_STORAGE_KEY);
+      const rawEnterprise = localStorage.getItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
       if (!token || !rawUser) return;
       const parsedUser = JSON.parse(rawUser) as User;
       if (!parsedUser?.id) return;
       setCurrentUser(parsedUser);
       setIsAuthenticated(true);
+      if (rawEnterprise) {
+        const parsedEnterprise = JSON.parse(rawEnterprise) as Enterprise;
+        if (parsedEnterprise?.id) {
+          setActiveEnterprise(parsedEnterprise);
+        }
+      }
     } catch (err) {
       console.error('Erro ao restaurar sessão:', err);
       ApiService.clearToken();
       localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+      localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
     }
   }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    if (activeEnterprise?.id) {
+      localStorage.setItem(ACTIVE_ENTERPRISE_STORAGE_KEY, JSON.stringify(activeEnterprise));
+      return;
+    }
+
+    localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
+  }, [isAuthenticated, activeEnterprise]);
 
   useEffect(() => {
     const onSessionExpired = () => {
@@ -91,6 +111,7 @@ const App: React.FC = () => {
       setActiveEnterprise(null);
       setTransactions([]);
       localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+      localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
       alert('Sua sessão expirou. Faça login novamente.');
     };
     window.addEventListener('canteen:session-expired', onSessionExpired);
@@ -164,6 +185,7 @@ const App: React.FC = () => {
     setTransactions([]);
     ApiService.clearToken();
     localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+    localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
   };
 
   const handleSetupComplete = () => {
