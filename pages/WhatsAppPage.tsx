@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import {
   Send,
   Users,
@@ -14,7 +16,8 @@ import {
   FileImage,
   FileText,
   Mic,
-  XCircle
+  XCircle,
+  BarChart3
 } from 'lucide-react';
 import { Client, Enterprise, User } from '../types';
 import ApiService from '../services/api';
@@ -59,6 +62,10 @@ type ChatMessage = {
   body: string;
   fromMe: boolean;
   timestamp: number;
+  mediaType?: 'image' | 'document' | 'audio' | null;
+  mimeType?: string | null;
+  fileName?: string | null;
+  mediaDataUrl?: string | null;
 };
 
 type ChatAttachment = {
@@ -83,6 +90,8 @@ type ScheduledItem = {
     fileName?: string | null;
   } | null;
 };
+
+type ReportPeriodMode = 'WEEKLY' | 'BIWEEKLY' | 'CUSTOM';
 
 type WhatsTab = 'BROADCAST' | 'CHATS' | 'CONNECTION' | 'SETTINGS';
 const WHATSAPP_SIGNATURE_ENABLED_KEY = 'whatsapp_signature_enabled';
@@ -120,6 +129,24 @@ const resolveResponsibleName = (client?: Client | null) =>
 const resolveConversationPrimaryName = (client?: Client | null) => {
   const responsible = resolveResponsibleName(client);
   return responsible || String(client?.name || '').trim();
+};
+
+const PT_WEEKDAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
+const WEEKDAY_KEY_TO_JS: Record<string, number> = {
+  DOMINGO: 0,
+  SEGUNDA: 1,
+  TERCA: 2,
+  QUARTA: 3,
+  QUINTA: 4,
+  SEXTA: 5,
+  SABADO: 6,
+  SUNDAY: 0,
+  MONDAY: 1,
+  TUESDAY: 2,
+  WEDNESDAY: 3,
+  THURSDAY: 4,
+  FRIDAY: 5,
+  SATURDAY: 6,
 };
 
 const getPlanCardTone = (planKey: string, balance: number) => {
@@ -191,6 +218,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser: _currentUser, 
   const [scheduleAt, setScheduleAt] = useState('');
   const [scheduledItems, setScheduledItems] = useState<ScheduledItem[]>([]);
   const [isScheduling, setIsScheduling] = useState(false);
+  const [reportPeriodMode, setReportPeriodMode] = useState<ReportPeriodMode>('WEEKLY');
+  const [reportStartDate, setReportStartDate] = useState('');
+  const [reportEndDate, setReportEndDate] = useState('');
+  const [isSendingReport, setIsSendingReport] = useState(false);
   const [isSendingChat, setIsSendingChat] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [isDeletingChatId, setIsDeletingChatId] = useState<string | null>(null);
@@ -322,6 +353,38 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser: _currentUser, 
     return picked || '';
   };
 
+  const toDateOnly = (value: Date) => {
+    const date = new Date(value);
+    date.setHours(0, 0, 0, 0);
+    return date;
+  };
+
+  const formatDatePt = (value: Date) => value.toLocaleDateString('pt-BR');
+
+  const getEnterpriseWorkingWeekDays = () => {
+    const opening = activeEnterprise?.openingHours || {};
+    const set = new Set<number>();
+    Object.entries(opening).forEach(([key, conf]: any) => {
+      const normalizedKey = String(key || '')
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase();
+      const jsDay = WEEKDAY_KEY_TO_JS[normalizedKey];
+      if (typeof jsDay === 'number' && !Boolean(conf?.closed)) {
+        set.add(jsDay);
+      }
+    });
+    return set;
+  };
+
+  const normalizeTxDate = (tx: any) => {
+    const raw = String(tx?.timestamp || tx?.date || '');
+    const parsed = raw ? new Date(raw) : null;
+    if (parsed && Number.isFinite(parsed.getTime())) return parsed;
+    return null;
+  };
+
   const clientByPhone = useMemo(() => {
     const map = new Map<string, Client>();
     clients.forEach((client) => {
@@ -408,7 +471,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser: _currentUser, 
     }
     try {
       const data = await ApiService.getWhatsAppSchedules(chatId);
-      setScheduledItems(Array.isArray(data?.schedules) ? data.schedules : []);
+      const pendingOnly = Array.isArray(data?.schedules)
+        ? data.schedules.filter((item: ScheduledItem) => String(item?.status || '').toLowerCase() === 'pending')
+        : [];
+      setScheduledItems(pendingOnly);
     } catch (err) {
       console.error('Erro ao carregar agendamentos:', err);
       setScheduledItems([]);
@@ -741,6 +807,221 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser: _currentUser, 
       };
     });
   }, [selectedStudent]);
+
+  const handleSendConsumptionReport = async () => {
+    if (!selectedChatId) {
+      setFeedback('Selecione uma conversa para enviar relatório.');
+      return;
+    }
+    if (!selectedChatClient) {
+      setFeedback('Contato sem cadastro de cliente para gerar relatório.');
+      return;
+    }
+    if (!activeEnterprise?.id) {
+      setFeedback('Empresa ativa não encontrada para gerar relatório.');
+      return;
+    }
+
+    const now = new Date();
+    const endDate = toDateOnly(now);
+    let startDate = toDateOnly(now);
+    if (reportPeriodMode === 'WEEKLY') {
+      startDate.setDate(startDate.getDate() - 6);
+    } else if (reportPeriodMode === 'BIWEEKLY') {
+      startDate.setDate(startDate.getDate() - 14);
+    } else {
+      const customStart = reportStartDate ? new Date(`${reportStartDate}T00:00:00`) : null;
+      const customEnd = reportEndDate ? new Date(`${reportEndDate}T23:59:59`) : null;
+      if (!customStart || !customEnd || !Number.isFinite(customStart.getTime()) || !Number.isFinite(customEnd.getTime())) {
+        setFeedback('Informe data inicial e final válidas para relatório.');
+        return;
+      }
+      if (customEnd.getTime() < customStart.getTime()) {
+        setFeedback('Data final deve ser maior ou igual à inicial.');
+        return;
+      }
+      startDate = toDateOnly(customStart);
+      endDate.setTime(customEnd.getTime());
+      endDate.setHours(23, 59, 59, 999);
+    }
+
+    setIsSendingReport(true);
+    try {
+      const contactType = String(selectedChatClient.type || '').toUpperCase();
+      if (!['ALUNO', 'COLABORADOR'].includes(contactType)) {
+        setFeedback('Relatório disponível apenas para ALUNO e COLABORADOR.');
+        return;
+      }
+
+      const reportClient = contactType === 'ALUNO'
+        ? (selectedStudent || selectedChatClient)
+        : selectedChatClient;
+
+      const txList = await ApiService.getTransactions({
+        clientId: reportClient.id,
+        enterpriseId: activeEnterprise.id
+      });
+      const transactions = Array.isArray(txList) ? txList : [];
+      const workingDays = getEnterpriseWorkingWeekDays();
+
+      const filtered = transactions.filter((tx: any) => {
+        const txDate = normalizeTxDate(tx);
+        if (!txDate) return false;
+        if (txDate.getTime() < startDate.getTime() || txDate.getTime() > endDate.getTime()) return false;
+        if (reportPeriodMode === 'WEEKLY' && workingDays.size > 0) {
+          return workingDays.has(txDate.getDay());
+        }
+        return true;
+      });
+
+      const sorted = [...filtered].sort((a, b) => {
+        const aTs = normalizeTxDate(a)?.getTime() || 0;
+        const bTs = normalizeTxDate(b)?.getTime() || 0;
+        return aTs - bTs;
+      });
+
+      const parseAmount = (tx: any) => Math.abs(Number(tx?.amount ?? tx?.total ?? tx?.value ?? 0) || 0);
+      const isConsumption = (tx: any) => {
+        const txType = String(tx?.type || '').toUpperCase();
+        const marker = String(tx?.category || tx?.plan || tx?.description || '').toUpperCase();
+        return txType.includes('DEBIT') || txType.includes('CONSUMO') || marker.includes('CONSUMO');
+      };
+      const isCredit = (tx: any) => {
+        const txType = String(tx?.type || '').toUpperCase();
+        return txType.includes('CREDIT') || txType.includes('CREDITO');
+      };
+
+      const totalConsumption = sorted.filter(isConsumption).reduce((acc, tx) => acc + parseAmount(tx), 0);
+      const totalCredits = sorted.filter(isCredit).reduce((acc, tx) => acc + parseAmount(tx), 0);
+      const netPeriod = Number((totalCredits - totalConsumption).toFixed(2));
+
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+
+      const periodLabel = reportPeriodMode === 'WEEKLY'
+        ? 'Semanal'
+        : reportPeriodMode === 'BIWEEKLY'
+          ? 'Quinzenal'
+          : 'Período personalizado';
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(15);
+      doc.text('Relatório de Movimentações - WhatsApp', 40, 36);
+
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Empresa: ${activeEnterprise.name || '-'}`, 40, 56);
+      doc.text(`Escola: ${activeEnterprise.attachedSchoolName || '-'}`, 40, 72);
+      doc.text(`Contato: ${reportClient.name || '-'}`, 40, 88);
+      doc.text(`Tipo: ${contactType}`, 40, 104);
+      doc.text(`Período: ${formatDatePt(startDate)} até ${formatDatePt(endDate)} (${periodLabel})`, 40, 120);
+
+      if (contactType === 'ALUNO') {
+        const classYear = [String(reportClient.class || '').trim(), String((reportClient as any).classGrade || '').trim()]
+          .filter(Boolean)
+          .join(' / ');
+        doc.text(`Turma/Ano: ${classYear || '-'}`, 320, 88);
+        doc.text(`Responsável: ${resolveResponsibleName(reportClient) || '-'}`, 320, 104);
+      } else {
+        doc.text(`Responsável: -`, 320, 104);
+      }
+
+      if (reportPeriodMode === 'WEEKLY' && workingDays.size > 0) {
+        const days = Array.from(workingDays).sort((a, b) => a - b).map((d) => PT_WEEKDAY_LABELS[d]).join(', ');
+        doc.text(`Dias funcionamento (semanal): ${days}`, 320, 120);
+      }
+
+      const bodyRows = sorted.map((tx: any) => {
+        const txDate = normalizeTxDate(tx);
+        const dateLabel = txDate ? txDate.toLocaleDateString('pt-BR') : '-';
+        const timeLabel = txDate ? txDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '-';
+        const description = String(tx?.description || tx?.item || tx?.plan || tx?.category || 'Movimentação');
+        const txType = isConsumption(tx) ? 'CONSUMO' : isCredit(tx) ? 'CRÉDITO' : String(tx?.type || '-');
+        const method = String(tx?.paymentMethod || tx?.method || '-');
+        const amount = parseAmount(tx);
+        return [
+          `${dateLabel} ${timeLabel}`,
+          description,
+          txType,
+          method,
+          `R$ ${amount.toFixed(2)}`
+        ];
+      });
+
+      autoTable(doc, {
+        startY: 146,
+        head: [['Data/Hora', 'Descrição', 'Tipo', 'Método', 'Valor']],
+        body: bodyRows.length > 0 ? bodyRows : [['-', 'Sem movimentações no período selecionado', '-', '-', 'R$ 0,00']],
+        styles: { fontSize: 8.5, cellPadding: 5 },
+        headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
+        columnStyles: {
+          0: { cellWidth: 110 },
+          1: { cellWidth: 190 },
+          2: { cellWidth: 80 },
+          3: { cellWidth: 80 },
+          4: { cellWidth: 85, halign: 'right' }
+        }
+      });
+
+      const finalY = (doc as any).lastAutoTable?.finalY || 170;
+      const planBalances = reportClient.planCreditBalances || {};
+      const prepaidBalance = Number(reportClient.balance || 0);
+      const plansTotalBalance = Object.values(planBalances).reduce((acc: number, entry: any) => acc + Number(entry?.balance || 0), 0);
+      const collaboratorDue = Number(reportClient.amountDue || 0);
+      const collaboratorConsumption = Number(reportClient.monthlyConsumption || 0);
+
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Rodapé de Totais e Saldos', 40, finalY + 24);
+      doc.setFont('helvetica', 'normal');
+
+      const footerLines = [
+        `Total de movimentações: ${sorted.length}`,
+        `Total créditos: R$ ${totalCredits.toFixed(2)}`,
+        `Total consumo: R$ ${totalConsumption.toFixed(2)}`,
+        `Saldo líquido do período: R$ ${netPeriod.toFixed(2)}`
+      ];
+
+      if (contactType === 'ALUNO') {
+        footerLines.push(`Saldo PREPAGO atual: R$ ${prepaidBalance.toFixed(2)}`);
+        footerLines.push(`Saldo total dos planos: R$ ${plansTotalBalance.toFixed(2)}`);
+      } else {
+        footerLines.push(`Consumo acumulado colaborador: R$ ${collaboratorConsumption.toFixed(2)}`);
+        footerLines.push(`Saldo/valor devido atual: R$ ${collaboratorDue.toFixed(2)}`);
+      }
+
+      footerLines.forEach((line, index) => {
+        doc.text(`- ${line}`, 40, finalY + 42 + (index * 14));
+      });
+
+      const footerSignature = `Gerado em ${new Date().toLocaleString('pt-BR')} por ${activeEnterprise.name || 'Cantina Smart'}`;
+      doc.setFontSize(8);
+      doc.text(footerSignature, pageWidth - 40, doc.internal.pageSize.getHeight() - 18, { align: 'right' });
+
+      const pdfDataUri = doc.output('datauristring');
+      const fileBase = String(reportClient.name || 'relatorio').trim().toLowerCase().replace(/\s+/g, '_');
+      const fileName = `relatorio_${fileBase}_${new Date().toISOString().slice(0, 10)}.pdf`;
+
+      await ApiService.sendWhatsAppMediaToChat(
+        selectedChatId,
+        formatOutgoingMessage('Segue relatório em PDF.'),
+        {
+          mediaType: 'document',
+          base64Data: pdfDataUri,
+          mimeType: 'application/pdf',
+          fileName
+        }
+      );
+
+      setFeedback('Relatório em PDF enviado com sucesso.');
+      await loadMessages(selectedChatId);
+      await loadChats(false);
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Erro ao enviar relatório em PDF.');
+    } finally {
+      setIsSendingReport(false);
+    }
+  };
 
   useEffect(() => {
     if (!selectedChatId) {
@@ -1401,13 +1682,105 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser: _currentUser, 
                             : 'mr-auto bg-white border-2 border-cyan-200 text-gray-800 rounded-bl-md'
                         }`}
                       >
-                        <p className="whitespace-pre-wrap break-words">{msg.body}</p>
+                        {msg.mediaType === 'image' && msg.mediaDataUrl && (
+                          <a href={msg.mediaDataUrl} target="_blank" rel="noreferrer" className="block mb-2">
+                            <img
+                              src={msg.mediaDataUrl}
+                              alt={msg.fileName || 'Imagem enviada'}
+                              className="max-h-64 rounded-xl border border-white/30 object-contain bg-white/20"
+                            />
+                          </a>
+                        )}
+
+                        {msg.mediaType === 'audio' && msg.mediaDataUrl && (
+                          <div className="mb-2">
+                            <audio controls src={msg.mediaDataUrl} className="w-full min-w-[240px]" />
+                          </div>
+                        )}
+
+                        {msg.mediaType === 'document' && (
+                          <div className="mb-2">
+                            {msg.mediaDataUrl ? (
+                              <a
+                                href={msg.mediaDataUrl}
+                                download={msg.fileName || 'arquivo'}
+                                target="_blank"
+                                rel="noreferrer"
+                                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest ${
+                                  msg.fromMe
+                                    ? 'bg-white/20 text-white border border-white/30'
+                                    : 'bg-cyan-50 text-cyan-700 border border-cyan-200'
+                                }`}
+                              >
+                                <FileText size={14} />
+                                {msg.fileName || 'Baixar arquivo'}
+                              </a>
+                            ) : (
+                              <p className="text-[11px] font-semibold opacity-80">
+                                {msg.fileName || 'Arquivo recebido'} (sem preview disponível)
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {msg.body && (
+                          <p className="whitespace-pre-wrap break-words">{msg.body}</p>
+                        )}
                       </div>
                     ))
                   )}
                 </div>
 
                 <div className="p-4 border-t-2 border-cyan-200 bg-white space-y-3">
+                  <div className="rounded-xl border-2 border-blue-200 bg-blue-50/60 p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <BarChart3 size={14} className="text-blue-700" />
+                      <p className="text-[11px] font-black uppercase tracking-widest text-blue-700">
+                        Relatório do Contato
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                      <select
+                        value={reportPeriodMode}
+                        onChange={(e) => setReportPeriodMode(e.target.value as ReportPeriodMode)}
+                        className="px-3 py-2 rounded-xl border-2 border-blue-200 bg-white text-xs font-black text-gray-700 outline-none focus:border-blue-400"
+                      >
+                        <option value="WEEKLY">Semanal</option>
+                        <option value="BIWEEKLY">Quinzenal</option>
+                        <option value="CUSTOM">Período (inicial/final)</option>
+                      </select>
+                      {reportPeriodMode === 'CUSTOM' && (
+                        <>
+                          <input
+                            type="date"
+                            value={reportStartDate}
+                            onChange={(e) => setReportStartDate(e.target.value)}
+                            className="px-3 py-2 rounded-xl border-2 border-blue-200 bg-white text-xs font-bold text-gray-700 outline-none focus:border-blue-400"
+                          />
+                          <input
+                            type="date"
+                            value={reportEndDate}
+                            onChange={(e) => setReportEndDate(e.target.value)}
+                            className="px-3 py-2 rounded-xl border-2 border-blue-200 bg-white text-xs font-bold text-gray-700 outline-none focus:border-blue-400"
+                          />
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleSendConsumptionReport}
+                        disabled={isSendingReport || !selectedChatClient || !['ALUNO', 'COLABORADOR'].includes(String(selectedChatClient?.type || '').toUpperCase())}
+                        className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-[11px] font-black uppercase tracking-widest"
+                      >
+                        {isSendingReport ? 'Enviando...' : 'Enviar Relatório'}
+                      </button>
+                    </div>
+                    <p className="text-[11px] font-semibold text-blue-700/90">
+                      {selectedChatClient
+                        ? `Tipo: ${String(selectedChatClient.type || '').toUpperCase()}`
+                        : 'Contato sem cadastro local. Para relatório, selecione um contato vinculado a cliente.'}
+                    </p>
+                  </div>
+
                   <div className="flex flex-wrap gap-2">
                     {quickReplies.map((quick) => (
                       <button

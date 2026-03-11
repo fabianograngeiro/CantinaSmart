@@ -4195,8 +4195,8 @@
           "subtotal": 135
         }
       ],
-      "balance": 180,
-      "spentToday": 0,
+      "balance": 135,
+      "spentToday": 45,
       "isBlocked": false,
       "restrictions": [],
       "dietaryNotes": "",
@@ -4222,23 +4222,6 @@
           "updatedAt": "2026-03-10T22:02:03.676Z"
         }
       }
-    },
-    {
-      "registrationId": "WA1773109828276",
-      "name": "meu bot",
-      "type": "ALUNO",
-      "enterpriseId": "ent_1772371516130",
-      "phone": "5548933002895",
-      "parentWhatsappCountryCode": "55",
-      "parentWhatsapp": "5548933002895",
-      "parentName": "meu bot",
-      "servicePlans": [],
-      "balance": 0,
-      "spentToday": 0,
-      "isBlocked": false,
-      "restrictions": [],
-      "dietaryNotes": "",
-      "id": "c_1773109828279"
     },
     {
       "registrationId": "1112",
@@ -13558,6 +13541,49 @@
       ],
       "id": "t_1773180123762_y49zk",
       "total": 135
+    },
+    {
+      "clientId": "c_1773100882173",
+      "clientName": "ALINE CASSIANO",
+      "enterpriseId": "ent_1772371516130",
+      "type": "DEBIT",
+      "amount": 45,
+      "description": "Compra PDV (4 item(ns))",
+      "item": "1x LANCHE FIXO(AVULSO), 1x SALGADO, 1x ALMOÇO FIXO(AVULSO), 1x IOGURTE",
+      "paymentMethod": "SALDO",
+      "method": "SALDO",
+      "timestamp": "2026-03-11T02:11:09.429Z",
+      "date": "2026-03-10",
+      "time": "23:11",
+      "status": "CONCLUIDA",
+      "items": [
+        {
+          "productId": "p_1772388690459",
+          "name": "LANCHE FIXO(AVULSO)",
+          "quantity": 1,
+          "price": 15
+        },
+        {
+          "productId": "p_1772373386734",
+          "name": "SALGADO",
+          "quantity": 1,
+          "price": 10
+        },
+        {
+          "productId": "p_1772388708921",
+          "name": "ALMOÇO FIXO(AVULSO)",
+          "quantity": 1,
+          "price": 15
+        },
+        {
+          "productId": "p_1772398569189",
+          "name": "IOGURTE",
+          "quantity": 1,
+          "price": 5
+        }
+      ],
+      "id": "t_1773195069486_q56t2",
+      "total": 45
     }
   ],
   "orders": [],

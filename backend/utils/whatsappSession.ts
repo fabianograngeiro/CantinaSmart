@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import makeWASocket, {
+  downloadContentFromMessage,
   DisconnectReason,
   fetchLatestBaileysVersion,
   useMultiFileAuthState
@@ -41,6 +42,10 @@ type ChatMessage = {
   body: string;
   fromMe: boolean;
   timestamp: number;
+  mediaType?: MediaType | null;
+  mimeType?: string | null;
+  fileName?: string | null;
+  mediaDataUrl?: string | null;
 };
 
 type StartOptions = {
@@ -58,6 +63,13 @@ type MediaAttachmentInput = {
   base64Data: string;
   mimeType?: string;
   fileName?: string;
+};
+
+type ExtractedMedia = {
+  mediaType: MediaType;
+  mimeType: string | null;
+  fileName: string | null;
+  mediaDataUrl: string | null;
 };
 
 type ScheduledMessage = {
@@ -86,6 +98,7 @@ const __dirname = path.dirname(__filename);
 class WhatsAppSessionManager {
   private static readonly MAX_CONNECTION_FAILURE_RETRIES = 4;
   private static readonly SCHEDULE_FILE_PATH = path.resolve(__dirname, '../data/whatsapp-schedules.json');
+  private static readonly CHAT_HISTORY_FILE_PATH = path.resolve(__dirname, '../data/whatsapp-history.json');
 
   private sock: any = null;
   private state: SessionState = 'DISCONNECTED';
@@ -98,12 +111,14 @@ class WhatsAppSessionManager {
   private connectionFailureStreak = 0;
   private scheduleTimer: ReturnType<typeof setInterval> | null = null;
   private scheduledMessages: ScheduledMessage[] = [];
+  private chatPersistTimer: ReturnType<typeof setTimeout> | null = null;
 
   private chatMap = new Map<string, ChatSummary>();
   private messageMap = new Map<string, ChatMessage[]>();
   private labelCatalog = new Map<string, { id: string; name: string; deleted?: boolean }>();
   private chatLabelMap = new Map<string, Set<string>>();
   private profilePictureMap = new Map<string, string | null>();
+  private lidToPhoneJidMap = new Map<string, string>();
   private profilePictureInFlight = new Set<string>();
   private static readonly APP_STATE_PATCHES = ['critical_block', 'critical_unblock_low', 'regular_high', 'regular_low', 'regular'] as const;
   private sessionConfig: {
@@ -119,6 +134,9 @@ class WhatsAppSessionManager {
     };
 
   constructor() {
+    this.loadPersistedChatHistory().catch((err) => {
+      this.logWarn('Falha ao carregar histórico persistido do WhatsApp na inicialização.', err);
+    });
     this.loadScheduledMessages().catch((err) => {
       this.logWarn('Falha ao carregar mensagens agendadas na inicialização.', err);
     });
@@ -129,12 +147,76 @@ class WhatsAppSessionManager {
     }, 5000);
   }
 
+  private schedulePersistChatHistory() {
+    if (this.chatPersistTimer) {
+      clearTimeout(this.chatPersistTimer);
+    }
+    this.chatPersistTimer = setTimeout(() => {
+      this.chatPersistTimer = null;
+      this.persistChatHistory().catch((err) => {
+        this.logWarn('Falha ao persistir histórico de conversas.', err);
+      });
+    }, 800);
+  }
+
+  private async persistChatHistory() {
+    const payload = JSON.stringify({
+      chats: Array.from(this.chatMap.entries()),
+      messages: Array.from(this.messageMap.entries()),
+      labels: Array.from(this.labelCatalog.entries()),
+      chatLabels: Array.from(this.chatLabelMap.entries()).map(([jid, set]) => [jid, Array.from(set)]),
+      profilePictures: Array.from(this.profilePictureMap.entries()),
+      lidMappings: Array.from(this.lidToPhoneJidMap.entries()),
+      persistedAt: new Date().toISOString()
+    });
+    await fs.writeFile(WhatsAppSessionManager.CHAT_HISTORY_FILE_PATH, payload, 'utf-8');
+  }
+
+  private async loadPersistedChatHistory() {
+    try {
+      const raw = await fs.readFile(WhatsAppSessionManager.CHAT_HISTORY_FILE_PATH, 'utf-8');
+      const parsed = JSON.parse(raw || '{}');
+
+      const chatEntries = Array.isArray(parsed?.chats) ? parsed.chats : [];
+      const messageEntries = Array.isArray(parsed?.messages) ? parsed.messages : [];
+      const labelEntries = Array.isArray(parsed?.labels) ? parsed.labels : [];
+      const chatLabelEntries = Array.isArray(parsed?.chatLabels) ? parsed.chatLabels : [];
+      const profilePictureEntries = Array.isArray(parsed?.profilePictures) ? parsed.profilePictures : [];
+      const lidMappingEntries = Array.isArray(parsed?.lidMappings) ? parsed.lidMappings : [];
+
+      this.chatMap = new Map(chatEntries);
+      this.messageMap = new Map(messageEntries);
+      this.labelCatalog = new Map(labelEntries);
+      this.chatLabelMap = new Map(chatLabelEntries.map(([jid, labels]: [string, string[]]) => [jid, new Set(labels || [])]));
+      this.profilePictureMap = new Map(profilePictureEntries);
+      this.lidToPhoneJidMap = new Map(lidMappingEntries);
+
+      for (const [jid, messages] of Array.from(this.messageMap.entries())) {
+        const list = Array.isArray(messages) ? messages : [];
+        const normalized = list
+          .filter((msg: any) => msg && msg.id)
+          .slice(-200);
+        this.messageMap.set(jid, normalized);
+      }
+
+      this.logInfo('Histórico de conversas restaurado do disco.', {
+        chats: this.chatMap.size,
+        messages: Array.from(this.messageMap.values()).reduce((acc, list) => acc + list.length, 0)
+      });
+    } catch (err: any) {
+      if (err?.code !== 'ENOENT') {
+        this.logWarn('Falha ao ler histórico persistido do WhatsApp.', err);
+      }
+    }
+  }
+
   private clearInMemoryChats() {
     this.chatMap.clear();
     this.messageMap.clear();
     this.labelCatalog.clear();
     this.chatLabelMap.clear();
     this.profilePictureMap.clear();
+    this.lidToPhoneJidMap.clear();
     this.profilePictureInFlight.clear();
   }
 
@@ -154,6 +236,92 @@ class WhatsAppSessionManager {
     const value = String(raw || '');
     const cleaned = value.includes(',') ? value.split(',').pop() || '' : value;
     return Buffer.from(cleaned, 'base64');
+  }
+
+  private ensureDataUrl(raw: string, mimeType?: string | null) {
+    const value = String(raw || '').trim();
+    if (!value) return null;
+    if (value.startsWith('data:')) return value;
+    const cleaned = value.includes(',') ? value.split(',').pop() || '' : value;
+    return `data:${String(mimeType || 'application/octet-stream')};base64,${cleaned}`;
+  }
+
+  private async streamToBuffer(stream: AsyncIterable<Buffer | Uint8Array>) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
+  }
+
+  private getRawMessageContent(msg: any) {
+    let content = msg?.message || {};
+    if (content?.ephemeralMessage?.message) {
+      content = content.ephemeralMessage.message;
+    }
+    if (content?.viewOnceMessage?.message) {
+      content = content.viewOnceMessage.message;
+    }
+    if (content?.viewOnceMessageV2?.message) {
+      content = content.viewOnceMessageV2.message;
+    }
+    if (content?.documentWithCaptionMessage?.message) {
+      content = content.documentWithCaptionMessage.message;
+    }
+    return content || {};
+  }
+
+  private async extractMediaFromMessage(msg: any): Promise<ExtractedMedia | null> {
+    const content = this.getRawMessageContent(msg);
+    const imageMessage = content?.imageMessage;
+    const audioMessage = content?.audioMessage;
+    const documentMessage = content?.documentMessage;
+    const videoMessage = content?.videoMessage;
+
+    let mediaNode: any = null;
+    let mediaType: MediaType | null = null;
+    let downloadType: 'image' | 'audio' | 'document' | 'video' | null = null;
+
+    if (imageMessage) {
+      mediaNode = imageMessage;
+      mediaType = 'image';
+      downloadType = 'image';
+    } else if (audioMessage) {
+      mediaNode = audioMessage;
+      mediaType = 'audio';
+      downloadType = 'audio';
+    } else if (documentMessage) {
+      mediaNode = documentMessage;
+      mediaType = 'document';
+      downloadType = 'document';
+    } else if (videoMessage) {
+      mediaNode = videoMessage;
+      mediaType = 'document';
+      downloadType = 'video';
+    }
+
+    if (!mediaNode || !mediaType || !downloadType) return null;
+
+    const mimeType = String(mediaNode?.mimetype || '').trim() || null;
+    const fileName = String(mediaNode?.fileName || '').trim() || null;
+    let mediaDataUrl: string | null = null;
+
+    try {
+      const stream = await downloadContentFromMessage(mediaNode, downloadType);
+      const buffer = await this.streamToBuffer(stream as AsyncIterable<Buffer | Uint8Array>);
+      if (buffer.length > 0 && buffer.length <= 12 * 1024 * 1024) {
+        mediaDataUrl = `data:${mimeType || 'application/octet-stream'};base64,${buffer.toString('base64')}`;
+      }
+    } catch (err) {
+      this.logWarn('Falha ao baixar mídia da mensagem para visualização.', err instanceof Error ? err.message : err);
+    }
+
+    return {
+      mediaType,
+      mimeType,
+      fileName,
+      mediaDataUrl
+    };
   }
 
   private async persistScheduledMessages() {
@@ -230,6 +398,37 @@ class WhatsAppSessionManager {
     return digits || raw;
   }
 
+  private normalizeLidJid(value: string) {
+    const normalized = this.stripDeviceSuffix(String(value || '').trim());
+    return normalized.endsWith('@lid') ? normalized : '';
+  }
+
+  private resolveMappedPhoneJidFromLid(value: string) {
+    const lid = this.normalizeLidJid(value);
+    if (!lid) return '';
+    const mapped = this.stripDeviceSuffix(String(this.lidToPhoneJidMap.get(lid) || '').trim());
+    if (!this.isClientJid(mapped) || this.isSelfJid(mapped)) return '';
+    return mapped;
+  }
+
+  private rememberLidMapping(lidValue: string, jidValue: string) {
+    const lid = this.normalizeLidJid(lidValue);
+    if (!lid) return;
+    const normalizedJid = this.stripDeviceSuffix(String(jidValue || '').trim());
+    if (!this.isClientJid(normalizedJid) || this.isSelfJid(normalizedJid)) return;
+    if (this.lidToPhoneJidMap.get(lid) === normalizedJid) return;
+    this.lidToPhoneJidMap.set(lid, normalizedJid);
+    this.schedulePersistChatHistory();
+  }
+
+  private rememberLidPnPair(lidValue: string, pnValue: string) {
+    const lid = this.normalizeLidJid(lidValue);
+    if (!lid) return;
+    const pnJid = this.toBaileysJid(String(pnValue || ''));
+    if (!pnJid || !this.isClientJid(pnJid) || this.isSelfJid(pnJid)) return;
+    this.rememberLidMapping(lid, pnJid);
+  }
+
   private setState(next: SessionState) {
     this.state = next;
   }
@@ -258,7 +457,7 @@ class WhatsAppSessionManager {
     if (!raw) return '';
 
     if (raw.endsWith('@lid')) {
-      return '';
+      return this.resolveMappedPhoneJidFromLid(raw);
     }
     if (raw.endsWith('@s.whatsapp.net')) {
       return this.stripDeviceSuffix(raw);
@@ -290,8 +489,211 @@ class WhatsAppSessionManager {
     );
   }
 
+  private isSelfJid(jid: string) {
+    const normalized = this.stripDeviceSuffix(String(jid || '').trim());
+    if (!normalized.endsWith('@s.whatsapp.net')) return false;
+    const ownFromSock = this.stripDeviceSuffix(String(this.sock?.user?.id || '').trim());
+    if (ownFromSock && normalized === ownFromSock) return true;
+
+    const ownPhoneDigits = String(this.phoneNumber || '').replace(/\D/g, '');
+    if (!ownPhoneDigits) return false;
+    const jidPhone = this.getPhoneFromJid(normalized);
+    return jidPhone === ownPhoneDigits;
+  }
+
+  private collectLidCandidates(values: string[]) {
+    const unique = new Set<string>();
+    for (const value of values) {
+      const lid = this.normalizeLidJid(value);
+      if (!lid) continue;
+      unique.add(lid);
+    }
+    return Array.from(unique);
+  }
+
+  private rememberLidCandidates(candidates: string[], resolvedJid: string) {
+    for (const lid of this.collectLidCandidates(candidates)) {
+      this.rememberLidMapping(lid, resolvedJid);
+    }
+  }
+
+  private learnLidMappingsFromMessage(msg: any) {
+    const key = msg?.key || {};
+    this.rememberLidPnPair(String(key?.senderLid || ''), String(key?.senderPn || ''));
+    this.rememberLidPnPair(String(key?.participantLid || ''), String(key?.participantPn || ''));
+    this.rememberLidPnPair(String(msg?.senderLid || ''), String(msg?.senderPn || ''));
+    this.rememberLidPnPair(String(msg?.participantLid || ''), String(msg?.participantPn || ''));
+
+    const content = this.getRawMessageContent(msg);
+    const protocolKey = content?.protocolMessage?.key || {};
+    const reactionKey = content?.reactionMessage?.key || {};
+    const receiptKey = content?.receiptMessage?.key || {};
+    this.rememberLidPnPair(String(protocolKey?.participantLid || ''), String(protocolKey?.participantPn || ''));
+    this.rememberLidPnPair(String(reactionKey?.participantLid || ''), String(reactionKey?.participantPn || ''));
+    this.rememberLidPnPair(String(receiptKey?.participantLid || ''), String(receiptKey?.participantPn || ''));
+  }
+
+  private collectMessagePeerCandidates(msg: any) {
+    this.learnLidMappingsFromMessage(msg);
+    const content = this.getRawMessageContent(msg);
+    const protocolKey = content?.protocolMessage?.key || {};
+    const reactionKey = content?.reactionMessage?.key || {};
+    const receiptKey = content?.receiptMessage?.key || {};
+
+    return [
+      msg?.key?.participant,
+      msg?.key?.participantPn,
+      msg?.key?.participantLid,
+      msg?.key?.senderPn,
+      msg?.key?.senderLid,
+      msg?.participant,
+      msg?.participantPn,
+      msg?.participantLid,
+      msg?.senderPn,
+      msg?.senderLid,
+      content?.extendedTextMessage?.contextInfo?.participant,
+      content?.extendedTextMessage?.contextInfo?.remoteJid,
+      content?.imageMessage?.contextInfo?.participant,
+      content?.imageMessage?.contextInfo?.remoteJid,
+      content?.videoMessage?.contextInfo?.participant,
+      content?.videoMessage?.contextInfo?.remoteJid,
+      content?.documentMessage?.contextInfo?.participant,
+      content?.documentMessage?.contextInfo?.remoteJid,
+      protocolKey?.participant,
+      protocolKey?.participantPn,
+      protocolKey?.participantLid,
+      protocolKey?.senderPn,
+      protocolKey?.senderLid,
+      protocolKey?.remoteJid,
+      reactionKey?.participant,
+      reactionKey?.participantPn,
+      reactionKey?.participantLid,
+      reactionKey?.senderPn,
+      reactionKey?.senderLid,
+      reactionKey?.remoteJid,
+      receiptKey?.participant,
+      receiptKey?.participantPn,
+      receiptKey?.participantLid,
+      receiptKey?.senderPn,
+      receiptKey?.senderLid,
+      receiptKey?.remoteJid
+    ]
+      .map((value: any) => String(value || '').trim())
+      .filter(Boolean);
+  }
+
+  private resolveClientJidFromCandidates(candidates: string[]) {
+    for (const candidate of candidates) {
+      const jid = this.toBaileysJid(candidate);
+      if (jid && this.isClientJid(jid) && !this.isSelfJid(jid)) {
+        return jid;
+      }
+    }
+    return '';
+  }
+
+  private pruneSelfChatsFromCache() {
+    let removed = 0;
+    for (const jid of Array.from(this.chatMap.keys())) {
+      if (!this.isSelfJid(jid)) continue;
+      removed += 1;
+      this.chatMap.delete(jid);
+      this.messageMap.delete(jid);
+      this.chatLabelMap.delete(jid);
+      this.profilePictureMap.delete(jid);
+    }
+
+    let removedMappings = 0;
+    for (const [lid, mappedJid] of Array.from(this.lidToPhoneJidMap.entries())) {
+      const normalized = this.stripDeviceSuffix(String(mappedJid || '').trim());
+      if (this.isClientJid(normalized) && !this.isSelfJid(normalized)) continue;
+      this.lidToPhoneJidMap.delete(lid);
+      removedMappings += 1;
+    }
+
+    if (removed > 0 || removedMappings > 0) {
+      this.logInfo('Dados do próprio número removidos do cache local.', { removedChats: removed, removedMappings });
+      this.schedulePersistChatHistory();
+    }
+  }
+
+  private resolveIncomingChatJid(msg: any) {
+    const rawRemote = String(msg?.key?.remoteJid || '').trim();
+    if (!rawRemote) return '';
+
+    const fromMe = Boolean(msg?.key?.fromMe);
+    const candidates = this.collectMessagePeerCandidates(msg);
+
+    if (rawRemote.endsWith('@s.whatsapp.net')) {
+      const normalized = this.stripDeviceSuffix(rawRemote);
+      if (!this.isSelfJid(normalized)) {
+        this.rememberLidCandidates(candidates, normalized);
+        return normalized;
+      }
+      const resolvedFromCandidates = this.resolveClientJidFromCandidates(candidates);
+      if (resolvedFromCandidates) {
+        this.rememberLidCandidates(candidates, resolvedFromCandidates);
+        return resolvedFromCandidates;
+      }
+      if (fromMe) {
+        this.logWarn('Mensagem enviada pelo celular apontou para o próprio JID e sem destinatário resolvível. Ignorando.', {
+          remoteJid: rawRemote,
+          keyId: String(msg?.key?.id || ''),
+          candidateCount: candidates.length
+        });
+      }
+      return '';
+    }
+    if (rawRemote.endsWith('@c.us')) {
+      const normalized = this.toBaileysJid(rawRemote);
+      if (normalized && !this.isSelfJid(normalized)) {
+        this.rememberLidCandidates(candidates, normalized);
+        return normalized;
+      }
+      const resolvedFromCandidates = this.resolveClientJidFromCandidates(candidates);
+      if (resolvedFromCandidates) {
+        this.rememberLidCandidates(candidates, resolvedFromCandidates);
+        return resolvedFromCandidates;
+      }
+      if (fromMe) {
+        this.logWarn('Mensagem enviada pelo celular com @c.us do próprio número sem destinatário resolvível. Ignorando.', {
+          remoteJid: rawRemote,
+          keyId: String(msg?.key?.id || ''),
+          candidateCount: candidates.length
+        });
+      }
+      return '';
+    }
+    if (!rawRemote.endsWith('@lid')) {
+      return '';
+    }
+
+    const mappedFromLid = this.resolveMappedPhoneJidFromLid(rawRemote);
+    if (mappedFromLid) {
+      this.rememberLidCandidates(candidates, mappedFromLid);
+      return mappedFromLid;
+    }
+
+    const resolvedFromCandidates = this.resolveClientJidFromCandidates(candidates);
+    if (resolvedFromCandidates) {
+      this.rememberLidMapping(rawRemote, resolvedFromCandidates);
+      this.rememberLidCandidates(candidates, resolvedFromCandidates);
+      return resolvedFromCandidates;
+    }
+
+    if (fromMe) {
+      this.logWarn('Mensagem @lid enviada pelo celular sem mapeamento de destinatário. Ignorando para evitar conversa fantasma.', {
+        remoteJid: rawRemote,
+        keyId: String(msg?.key?.id || ''),
+        candidateCount: candidates.length
+      });
+    }
+
+    return '';
+  }
+
   private extractBody(msg: any) {
-    const message = msg?.message || {};
+    const message = this.getRawMessageContent(msg);
     return String(
       message?.conversation
       || message?.extendedTextMessage?.text
@@ -316,6 +718,7 @@ class WhatsAppSessionManager {
       list.splice(0, list.length - 200);
     }
     this.messageMap.set(chatJid, list);
+    this.schedulePersistChatHistory();
   }
 
   private upsertChat(chatJid: string, patch: Partial<ChatSummary>) {
@@ -348,6 +751,7 @@ class WhatsAppSessionManager {
     };
 
     this.chatMap.set(chatJid, next);
+    this.schedulePersistChatHistory();
   }
 
   private async refreshProfilePicture(chatJid: string, force = false) {
@@ -439,6 +843,9 @@ class WhatsAppSessionManager {
     if (!normalized) {
       throw new Error('Destinatário inválido para envio.');
     }
+    if (this.isSelfJid(normalized)) {
+      throw new Error('Destinatário inválido: número da própria sessão.');
+    }
 
     const phone = this.getPhoneFromJid(normalized);
     const lookupJid = `${phone}@s.whatsapp.net`;
@@ -451,6 +858,9 @@ class WhatsAppSessionManager {
 
       if (!exists) {
         throw new Error(`Número ${phone} não foi encontrado no WhatsApp.`);
+      }
+      if (this.isSelfJid(resolvedJid)) {
+        throw new Error('Destinatário inválido: número da própria sessão.');
       }
 
       this.logInfo('Destinatário resolvido via onWhatsApp.', {
@@ -612,6 +1022,7 @@ class WhatsAppSessionManager {
           this.setState('CONNECTED');
           const jid = String(sock?.user?.id || '');
           this.phoneNumber = jid ? `+${this.getPhoneFromJid(jid)}` : null;
+          this.pruneSelfChatsFromCache();
           this.logInfo(`Conectado ${this.phoneNumber ? `(${this.phoneNumber})` : ''}`);
           setTimeout(() => {
             this.resyncLabelsFromAppState().catch(() => {});
@@ -710,30 +1121,36 @@ class WhatsAppSessionManager {
         }
       });
 
-      sock.ev.on('messages.upsert', (payload: any) => {
+      sock.ev.on('messages.upsert', async (payload: any) => {
         if (this.sock !== sock) return;
         const msgs = Array.isArray(payload?.messages) ? payload.messages : [];
 
         for (const msg of msgs) {
-          const remoteJid = String(msg?.key?.remoteJid || '');
-          if (!this.isClientJid(remoteJid)) continue;
+          const remoteJid = this.resolveIncomingChatJid(msg);
+          if (!this.isClientJid(remoteJid) || this.isSelfJid(remoteJid)) continue;
 
           const fromMe = Boolean(msg?.key?.fromMe);
           const timestamp = Number(msg?.messageTimestamp || Math.floor(Date.now() / 1000));
           const body = this.extractBody(msg);
+          const media = await this.extractMediaFromMessage(msg);
           const msgId = String(msg?.key?.id || `${timestamp}_${Math.random()}`);
+          const preview = body || (media?.fileName ? `[Arquivo: ${media.fileName}]` : media ? '[Arquivo]' : '');
 
           this.pushMessage(remoteJid, {
             id: msgId,
-            body,
+            body: preview,
             fromMe,
-            timestamp
+            timestamp,
+            mediaType: media?.mediaType || null,
+            mimeType: media?.mimeType || null,
+            fileName: media?.fileName || null,
+            mediaDataUrl: media?.mediaDataUrl || null
           });
 
           const existing = this.chatMap.get(remoteJid);
           this.upsertChat(remoteJid, {
             name: String(msg?.pushName || existing?.name || this.getPhoneFromJid(remoteJid)),
-            lastMessage: body || existing?.lastMessage || '',
+            lastMessage: preview || existing?.lastMessage || '',
             lastTimestamp: timestamp,
             unreadCount: fromMe ? Number(existing?.unreadCount || 0) : Number(existing?.unreadCount || 0) + 1,
             initiatedByClient: fromMe ? Boolean(existing?.initiatedByClient) : true
@@ -746,7 +1163,7 @@ class WhatsAppSessionManager {
         if (this.sock !== sock) return;
         for (const chat of Array.isArray(chats) ? chats : []) {
           const jid = String(chat?.id || '');
-          if (!this.isClientJid(jid)) continue;
+          if (!this.isClientJid(jid) || this.isSelfJid(jid)) continue;
           const existing = this.chatMap.get(jid);
           this.upsertChat(jid, {
             name: String(chat?.name || existing?.name || this.getPhoneFromJid(jid)),
@@ -761,7 +1178,7 @@ class WhatsAppSessionManager {
         if (this.sock !== sock) return;
         for (const chat of Array.isArray(chats) ? chats : []) {
           const jid = String(chat?.id || '');
-          if (!this.isClientJid(jid)) continue;
+          if (!this.isClientJid(jid) || this.isSelfJid(jid)) continue;
           const existing = this.chatMap.get(jid);
           this.upsertChat(jid, {
             name: String(chat?.name || existing?.name || this.getPhoneFromJid(jid)),
@@ -772,15 +1189,76 @@ class WhatsAppSessionManager {
         }
       });
 
+      sock.ev.on('chats.phoneNumberShare', (payload: any) => {
+        if (this.sock !== sock) return;
+        const lid = String(payload?.lid || '').trim();
+        const jid = String(payload?.jid || '').trim();
+        if (!lid || !jid) return;
+        const normalizedJid = this.toBaileysJid(jid);
+        if (!normalizedJid || !this.isClientJid(normalizedJid) || this.isSelfJid(normalizedJid)) return;
+        this.rememberLidMapping(lid, normalizedJid);
+      });
+
+      sock.ev.on('contacts.upsert', (contacts: any[]) => {
+        if (this.sock !== sock) return;
+        for (const contact of Array.isArray(contacts) ? contacts : []) {
+          const lid = String(contact?.lid || '').trim();
+          const directJid = this.toBaileysJid(String(contact?.jid || '').trim());
+          if (lid && directJid && this.isClientJid(directJid) && !this.isSelfJid(directJid)) {
+            this.rememberLidMapping(lid, directJid);
+          }
+
+          const jid = directJid || this.toBaileysJid(String(contact?.id || '').trim());
+          if (!jid || !this.isClientJid(jid) || this.isSelfJid(jid)) continue;
+
+          const existing = this.chatMap.get(jid);
+          const nextName = String(
+            contact?.name
+            || contact?.notify
+            || contact?.verifiedName
+            || existing?.name
+            || this.getPhoneFromJid(jid)
+          ).trim();
+          const patch: Partial<ChatSummary> = {};
+          if (nextName) patch.name = nextName;
+          this.upsertChat(jid, patch);
+
+          const imgUrl = contact?.imgUrl;
+          if (typeof imgUrl === 'string' && imgUrl.trim() && imgUrl !== 'changed') {
+            this.profilePictureMap.set(jid, imgUrl.trim());
+            this.upsertChat(jid, {});
+          }
+        }
+      });
+
       sock.ev.on('contacts.update', (updates: any[]) => {
         if (this.sock !== sock) return;
         for (const update of Array.isArray(updates) ? updates : []) {
-          const jid = this.toBaileysJid(String(update?.id || ''));
-          if (!jid || !this.isClientJid(jid)) continue;
+          const lid = String(update?.lid || '').trim();
+          const directJid = this.toBaileysJid(String(update?.jid || '').trim());
+          if (lid && directJid && this.isClientJid(directJid) && !this.isSelfJid(directJid)) {
+            this.rememberLidMapping(lid, directJid);
+          }
 
-          const imgUrl = String(update?.imgUrl || '').trim();
-          if (imgUrl) {
-            this.profilePictureMap.set(jid, imgUrl);
+          const jid = directJid || this.toBaileysJid(String(update?.id || ''));
+          if (!jid || !this.isClientJid(jid) || this.isSelfJid(jid)) continue;
+
+          const existing = this.chatMap.get(jid);
+          const nextName = String(
+            update?.name
+            || update?.notify
+            || update?.verifiedName
+            || existing?.name
+            || this.getPhoneFromJid(jid)
+          ).trim();
+
+          const patch: Partial<ChatSummary> = {};
+          if (nextName) patch.name = nextName;
+          this.upsertChat(jid, patch);
+
+          const imgUrl = update?.imgUrl;
+          if (typeof imgUrl === 'string' && imgUrl.trim() && imgUrl !== 'changed') {
+            this.profilePictureMap.set(jid, imgUrl.trim());
             this.upsertChat(jid, {});
           }
         }
@@ -939,6 +1417,7 @@ class WhatsAppSessionManager {
 
   async getClientChats(): Promise<ChatSummary[]> {
     this.ensureConnected();
+    this.pruneSelfChatsFromCache();
     return Array.from(this.chatMap.values())
       .filter((chat) => String(chat.chatId || '').endsWith('@c.us'))
       .sort((a, b) => Number(b.lastTimestamp || 0) - Number(a.lastTimestamp || 0))
@@ -948,7 +1427,7 @@ class WhatsAppSessionManager {
   async getChatMessages(chatId: string, limit = 80): Promise<ChatMessage[]> {
     this.ensureConnected();
     const jid = this.toBaileysJid(chatId);
-    if (!jid || !this.isClientJid(jid)) throw new Error('Chat inválido.');
+    if (!jid || !this.isClientJid(jid) || this.isSelfJid(jid)) throw new Error('Chat inválido.');
 
     const messages = this.messageMap.get(jid) || [];
     const safeLimit = Math.max(10, Math.min(200, Number(limit) || 80));
@@ -963,6 +1442,7 @@ class WhatsAppSessionManager {
 
     const existedChat = this.chatMap.delete(jid);
     const existedMessages = this.messageMap.delete(jid);
+    this.schedulePersistChatHistory();
 
     return {
       success: true,
@@ -1039,12 +1519,18 @@ class WhatsAppSessionManager {
     const fileName = String(attachment.fileName || '').trim();
     const preview = caption?.trim()
       || (fileName ? `[Arquivo enviado: ${fileName}]` : '[Arquivo enviado]');
+    const mimeType = String(attachment.mimeType || '').trim() || null;
+    const mediaDataUrl = this.ensureDataUrl(String(attachment.base64Data || ''), mimeType);
 
     this.pushMessage(jid, {
       id: msgId,
       body: preview,
       fromMe: true,
-      timestamp
+      timestamp,
+      mediaType: attachment.mediaType,
+      mimeType,
+      fileName: fileName || null,
+      mediaDataUrl
     });
 
     const existing = this.chatMap.get(jid);
