@@ -36,7 +36,7 @@ backend/data/tmp/
 dist/
 backend/dist/
 coverage/
-vite.config.ts
+
 
 # Logs
 *.log
