@@ -38,6 +38,13 @@ type ExtendedTransactionRecord = TransactionRecord & {
   description?: string;
 };
 
+type TransactionItemDetail = {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+};
+
 const toLocalDateKey = (date: Date) => {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, '0');
@@ -60,6 +67,55 @@ const formatDateBr = (dateStr?: string) => {
   const parsed = parseDateOnly(dateStr);
   if (!parsed) return '';
   return parsed.toLocaleDateString('pt-BR');
+};
+
+const getTransactionItemDetails = (row: ExtendedTransactionRecord): TransactionItemDetail[] => {
+  const rawItems = Array.isArray(row.raw?.items) ? row.raw.items : [];
+  if (rawItems.length > 0) {
+    return rawItems.map((item: any, idx: number) => {
+      const name = String(item?.name || item?.productName || `Item ${idx + 1}`).trim() || `Item ${idx + 1}`;
+      const quantity = Math.max(1, Number(item?.quantity || 1));
+      const unitPrice = Number(item?.price ?? item?.unitPrice ?? 0) || 0;
+      const total = Number(item?.total ?? (quantity * unitPrice)) || 0;
+      return { name, quantity, unitPrice, total };
+    });
+  }
+
+  const parts = String(row.item || '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length > 0) {
+    const parsed = parts.map((part) => {
+      const qtyMatch = /^(\d+)x\s+(.+)$/i.exec(part);
+      if (qtyMatch) {
+        return {
+          name: qtyMatch[2].trim(),
+          quantity: Math.max(1, Number(qtyMatch[1] || 1)),
+        };
+      }
+      return { name: part, quantity: 1 };
+    });
+    const rowTotal = Number(row.value || row.total || 0);
+    const safeTotal = Number.isFinite(rowTotal) ? rowTotal : 0;
+    const unitFallback = parsed.length > 0 ? safeTotal / parsed.reduce((sum, item) => sum + item.quantity, 0) : 0;
+    return parsed.map((item) => ({
+      name: item.name,
+      quantity: item.quantity,
+      unitPrice: unitFallback,
+      total: unitFallback * item.quantity,
+    }));
+  }
+
+  return [];
+};
+
+const formatTransactionItemsForExport = (row: ExtendedTransactionRecord) => {
+  const items = getTransactionItemDetails(row);
+  if (items.length === 0) return String(row.item || '-');
+  return items
+    .map((item) => `${item.quantity}x ${item.name} (R$ ${item.total.toFixed(2)})`)
+    .join(' | ');
 };
 
 const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ activeEnterprise, transactions }) => {
@@ -841,14 +897,14 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   }, [normalizedTransactions]);
 
   const exportToCSV = () => {
-    const headers = ["ID", "Data", "Hora", "Cliente", "Plano", "Item", "Tipo", "Metodo", "Valor", "Status"];
+    const headers = ["ID", "Data", "Hora", "Cliente", "Plano", "Itens Detalhados", "Tipo", "Metodo", "Valor", "Status"];
     const rows = filteredTransactions.map(t => [
       t.id,
       t.date,
       t.time,
       t.client,
       t.plan,
-      t.item,
+      formatTransactionItemsForExport(t),
       t.type,
       t.method,
       (t.value || t.total || 0).toFixed(2),
@@ -878,13 +934,13 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       format: 'a4'
     });
 
-    const tableColumn = ["ID", "Data/Hora", "Cliente", "Plano", "Item", "Tipo", "Valor", "Status"];
+    const tableColumn = ["ID", "Data/Hora", "Cliente", "Plano", "Itens Detalhados", "Tipo", "Valor", "Status"];
     const tableRows = filteredTransactions.map(t => [
       t.id,
       `${formatDateBr(t.date)} ${t.time}`,
       t.client,
       t.plan,
-      t.item,
+      formatTransactionItemsForExport(t),
       t.type.replace('_', ' '),
       (t.value || t.total || 0) > 0 ? `R$ ${(t.value || t.total || 0).toFixed(2)}` : 'BAIXA PACOTE',
       t.status
@@ -1211,16 +1267,14 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                               <Pencil size={16} />
                               <span className="text-[10px] font-black uppercase tracking-widest">Editar</span>
                            </button>
-                           {row.type === 'VENDA_BALCAO' && (
-                             <button 
-                               onClick={() => setSelectedTransaction(row)}
-                               className="p-2 bg-white border text-gray-400 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm flex items-center gap-2"
-                               title="Ver Detalhes"
-                             >
-                                <Eye size={16} />
-                                <span className="text-[10px] font-black uppercase tracking-widest">Ver Detalhe</span>
-                             </button>
-                           )}
+                           <button 
+                             onClick={() => setSelectedTransaction(row)}
+                             className="p-2 bg-white border text-gray-400 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm flex items-center gap-2"
+                             title="Ver"
+                           >
+                              <Eye size={16} />
+                              <span className="text-[10px] font-black uppercase tracking-widest">Ver</span>
+                           </button>
                            <button
                              onClick={() => handleDeleteTransaction(row)}
                              disabled={deletingTransactionId === row.id}
@@ -1281,12 +1335,23 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                        <Layers size={14} className="text-indigo-600" /> Itens Comprados
                     </p>
                     <div className="space-y-2">
-                       {selectedTransaction.item.split(', ').map((item, idx) => (
-                          <div key={idx} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                             <span className="text-sm font-black text-gray-800 uppercase">{item}</span>
-                             <div className="w-2 h-2 rounded-full bg-indigo-400"></div>
-                          </div>
-                       ))}
+                       {getTransactionItemDetails(selectedTransaction).length > 0 ? (
+                         getTransactionItemDetails(selectedTransaction).map((item, idx) => (
+                            <div key={`${item.name}-${idx}`} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                               <div>
+                                 <span className="text-sm font-black text-gray-800 uppercase">{item.name}</span>
+                                 <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                                   Qtd: {item.quantity} • Unit: R$ {item.unitPrice.toFixed(2)}
+                                 </p>
+                               </div>
+                               <span className="text-xs font-black text-indigo-700">R$ {item.total.toFixed(2)}</span>
+                            </div>
+                         ))
+                       ) : (
+                         <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                           <p className="text-sm font-bold text-gray-700 uppercase">{selectedTransaction.item || 'Sem itens detalhados'}</p>
+                         </div>
+                       )}
                     </div>
                  </div>
 

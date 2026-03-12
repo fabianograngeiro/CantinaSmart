@@ -785,6 +785,19 @@ export class ApiService {
     return response.json();
   }
 
+  static async clearWhatsAppChatMessages(chatId: string) {
+    const encoded = String(chatId || '').replace(/@/g, '__AT__');
+    const response = await fetch(`${API_URL}/whatsapp/chats/${encoded}/messages`, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao apagar mensagens da conversa');
+    }
+    return response.json();
+  }
+
   static async sendWhatsAppMessageToChat(chatId: string, message: string) {
     const response = await fetch(`${API_URL}/whatsapp/send-to-chat`, {
       method: 'POST',
@@ -794,6 +807,45 @@ export class ApiService {
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text || 'Falha ao enviar mensagem para a conversa');
+    }
+    return response.json();
+  }
+
+  static async improveWhatsAppTextWithAi(chatId: string, text: string) {
+    const response = await fetch(`${API_URL}/whatsapp/ai/improve-text`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ chatId, text }),
+    });
+    if (!response.ok) {
+      const textErr = await response.text();
+      throw new Error(textErr || 'Falha ao melhorar texto com IA');
+    }
+    return response.json();
+  }
+
+  static async getWhatsAppChatAiAgentState(chatId: string) {
+    const encoded = String(chatId || '').replace(/@/g, '__AT__');
+    const response = await fetch(`${API_URL}/whatsapp/chats/${encoded}/ai-agent`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const textErr = await response.text();
+      throw new Error(textErr || 'Falha ao buscar estado do agente IA');
+    }
+    return response.json();
+  }
+
+  static async setWhatsAppChatAiAgentState(chatId: string, enabled: boolean) {
+    const encoded = String(chatId || '').replace(/@/g, '__AT__');
+    const response = await fetch(`${API_URL}/whatsapp/chats/${encoded}/ai-agent`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ enabled: Boolean(enabled) }),
+    });
+    if (!response.ok) {
+      const textErr = await response.text();
+      throw new Error(textErr || 'Falha ao atualizar agente IA');
     }
     return response.json();
   }
@@ -811,6 +863,25 @@ export class ApiService {
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text || 'Falha ao enviar mídia para a conversa');
+    }
+    return response.json();
+  }
+
+  static async transcribeWhatsAppAudio(payload: {
+    chatId?: string;
+    messageId?: string;
+    mediaDataUrl: string;
+    mimeType?: string | null;
+    fileName?: string | null;
+  }) {
+    const response = await fetch(`${API_URL}/whatsapp/transcribe-audio`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload || {}),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao transcrever áudio');
     }
     return response.json();
   }
@@ -851,6 +922,44 @@ export class ApiService {
       const text = await response.text();
       throw new Error(text || 'Falha ao cancelar agendamento');
     }
+    return response.json();
+  }
+
+  static async getWhatsAppAiConfig() {
+    const response = await fetch(`${API_URL}/whatsapp/ai-config`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao carregar configuração de AI');
+    return response.json();
+  }
+
+  static async updateWhatsAppAiConfig(config: any) {
+    const response = await fetch(`${API_URL}/whatsapp/ai-config`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify(config || {}),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao salvar configuração de AI');
+    }
+    return response.json();
+  }
+
+  static async getWhatsAppAiAudit(limit = 50) {
+    const safeLimit = Math.max(1, Math.min(200, Number(limit || 50)));
+    const response = await fetch(`${API_URL}/whatsapp/ai-audit?limit=${encodeURIComponent(String(safeLimit))}`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao carregar auditoria da IA');
+    return response.json();
+  }
+
+  static async getWhatsAppAiFlowNodes() {
+    const response = await fetch(`${API_URL}/whatsapp/ai-flow-nodes`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao gerar nodes de fluxo de AI');
     return response.json();
   }
 }

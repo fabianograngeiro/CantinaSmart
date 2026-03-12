@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   TrendingUp, Users, AlertTriangle, ArrowUpRight, ArrowDownRight, 
   Sparkles, Clock, Ban, Utensils, LayoutDashboard, Calendar, 
   Percent, Tag, Save, X, ArrowRight, Info, Globe, ShieldCheck, Building, Wallet,
   // Added missing FileBarChart import
-  ChefHat, Scale, Coffee, UtensilsCrossed, FileBarChart, Trash2, RefreshCw, CreditCard, Check
+  ChefHat, Scale, Coffee, UtensilsCrossed, FileBarChart, Trash2, RefreshCw
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Cell, PieChart, Pie } from 'recharts';
-import { Role, User, Enterprise, Product, Client } from '../types';
+import { Role, User, Enterprise, Product } from '../types';
 import ApiService from '../services/api';
 import { resolveUserAvatar } from '../utils/avatar';
 
@@ -48,38 +49,13 @@ const toCountDelta = (current: number, previous: number) => {
   return `${sign}${delta}`;
 };
 
-const hasCollaboratorDebtExpired = (enterprise?: Enterprise | null) => {
-  if (!enterprise) return false;
-
-  const configuredDueDayRaw =
-    (enterprise as any)?.collaboratorPaymentDueDay ??
-    (enterprise as any)?.collaboratorClosingDate;
-  const configuredDueDay = Number(configuredDueDayRaw);
-
-  // Sem dia de vencimento configurado, mantém comportamento atual para não ocultar débitos
-  if (!Number.isFinite(configuredDueDay) || configuredDueDay <= 0) return true;
-
-  const now = new Date();
-  const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const dueDayInCurrentMonth = Math.min(Math.max(1, Math.floor(configuredDueDay)), lastDayOfMonth);
-  const dueDate = new Date(now.getFullYear(), now.getMonth(), dueDayInCurrentMonth, 23, 59, 59, 999);
-
-  return now.getTime() > dueDate.getTime();
-};
-
 const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise }) => {
+  const navigate = useNavigate();
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [isResetting, setIsResetting] = useState(false);
   const [systemStats, setSystemStats] = useState<any>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(true);
-  const [collaboratorsInDebt, setCollaboratorsInDebt] = useState<Client[]>([]);
-  const [isLoadingCollaborators, setIsLoadingCollaborators] = useState(false);
-  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
-  const [collaboratorInPayment, setCollaboratorInPayment] = useState<Client | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'PIX' | 'BOLETO' | 'CAIXA'>('PIX');
-  const [paymentAmount, setPaymentAmount] = useState<string>('');
-  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [dashboardMetrics, setDashboardMetrics] = useState<DashboardMetrics>({
     salesToday: 0,
     salesYesterday: 0,
@@ -92,7 +68,6 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
     salesByCategory: [],
   });
   const [isLoadingDashboardMetrics, setIsLoadingDashboardMetrics] = useState(false);
-  const shouldShowCollaboratorDebtCard = hasCollaboratorDebtExpired(activeEnterprise);
 
   // Buscar estatísticas do sistema para SUPERADMIN
   useEffect(() => {
@@ -106,15 +81,9 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
   // Buscar colaboradores com débito para unidades
   useEffect(() => {
     if (activeEnterprise && currentUser.role !== Role.SUPERADMIN) {
-      if (shouldShowCollaboratorDebtCard) {
-        loadCollaboratorsInDebt();
-      } else {
-        setCollaboratorsInDebt([]);
-        setIsLoadingCollaborators(false);
-      }
       loadDashboardMetrics();
     }
-  }, [activeEnterprise, currentUser.role, shouldShowCollaboratorDebtCard]);
+  }, [activeEnterprise, currentUser.role]);
 
   const loadSystemStats = async () => {
     try {
@@ -125,22 +94,6 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
       console.error('Erro ao carregar estatísticas:', err);
     } finally {
       setIsLoadingStats(false);
-    }
-  };
-
-  const loadCollaboratorsInDebt = async () => {
-    try {
-      setIsLoadingCollaborators(true);
-      const allClients = await ApiService.getClients(activeEnterprise.id);
-      // Filtrar apenas colaboradores com débito
-      const debtors = allClients.filter(
-        client => client.type === 'COLABORADOR' && (client.amountDue || 0) > 0
-      );
-      setCollaboratorsInDebt(debtors);
-    } catch (err) {
-      console.error('Erro ao carregar colaboradores com débito:', err);
-    } finally {
-      setIsLoadingCollaborators(false);
     }
   };
 
@@ -269,60 +222,6 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
       console.error('Erro ao carregar métricas do dashboard:', err);
     } finally {
       setIsLoadingDashboardMetrics(false);
-    }
-  };
-
-  const handlePayDebt = async () => {
-    if (!collaboratorInPayment) return;
-
-    const amount = parseFloat(paymentAmount);
-    if (isNaN(amount) || amount <= 0) {
-      alert('Digite um valor válido');
-      return;
-    }
-
-    if (amount > (collaboratorInPayment.amountDue || 0)) {
-      alert(`Valor não pode ser maior que a dívida de R$ ${(collaboratorInPayment.amountDue || 0).toFixed(2)}`);
-      return;
-    }
-
-    setIsProcessingPayment(true);
-    try {
-      const newAmountDue = Math.max(0, (collaboratorInPayment.amountDue || 0) - amount);
-      const newBalance = (collaboratorInPayment.balance || 0) + amount;
-
-      const updated = await ApiService.updateClient(collaboratorInPayment.id, {
-        amountDue: newAmountDue,
-        balance: newBalance,
-        lastPaymentDate: new Date().toISOString(),
-        lastPaymentMethod: paymentMethod
-      });
-
-      setCollaboratorsInDebt(prev => 
-        prev.filter(c => (updated.amountDue || 0) > 0)
-      );
-
-      // Atualiza o cliente em pagamento
-      setCollaboratorInPayment(updated);
-
-      // Limpa o modal
-      setIsPaymentModalOpen(false);
-      setPaymentAmount('');
-      setCollaboratorInPayment(null);
-
-      alert(
-        `✅ Pagamento de R$ ${amount.toFixed(2)} realizado com sucesso para ${collaboratorInPayment.name}!\n` +
-        `Método: ${paymentMethod}\n` +
-        `Débito restante: R$ ${newAmountDue.toFixed(2)}`
-      );
-
-      // Recarrega a lista de devedores
-      await loadCollaboratorsInDebt();
-    } catch (err) {
-      console.error('Erro ao processar pagamento:', err);
-      alert('Erro ao processar pagamento. Tente novamente.');
-    } finally {
-      setIsProcessingPayment(false);
     }
   };
 
@@ -663,6 +562,8 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
           change={toPercentDelta(dashboardMetrics.salesToday, dashboardMetrics.salesYesterday)}
           isPositive={dashboardMetrics.salesToday >= dashboardMetrics.salesYesterday}
           icon={<TrendingUp className="text-indigo-600" />}
+          onClick={() => navigate('/unit-sales')}
+          cta="Abrir Transações"
         />
         <StatCard
           title="Recargas Hoje"
@@ -670,6 +571,8 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
           change={toPercentDelta(dashboardMetrics.creditsToday, dashboardMetrics.creditsYesterday)}
           isPositive={dashboardMetrics.creditsToday >= dashboardMetrics.creditsYesterday}
           icon={<Wallet className="text-emerald-600" />}
+          onClick={() => navigate('/financial')}
+          cta="Abrir Financeiro"
         />
         <StatCard
           title="Fluxo Clientes"
@@ -677,6 +580,8 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
           change={toCountDelta(dashboardMetrics.uniqueClientsToday, dashboardMetrics.uniqueClientsYesterday)}
           isPositive={dashboardMetrics.uniqueClientsToday >= dashboardMetrics.uniqueClientsYesterday}
           icon={<Users className="text-blue-600" />}
+          onClick={() => navigate('/clients')}
+          cta="Abrir Clientes"
         />
         <StatCard
           title="Estoque Crítico"
@@ -685,67 +590,10 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
           isPositive={dashboardMetrics.criticalStockCount === 0}
           icon={<AlertTriangle className="text-amber-600" />}
           isWarning={dashboardMetrics.criticalStockCount > 0}
+          onClick={() => navigate('/products')}
+          cta="Abrir Produtos"
         />
       </div>
-
-      {/* Card de Colaboradores com Débito (após vencimento configurado em Ajustes) */}
-      {shouldShowCollaboratorDebtCard && (
-        <div className="bg-white rounded-[48px] shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-8">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="font-black text-gray-400 uppercase tracking-widest text-[10px] flex items-center gap-2">
-                <CreditCard size={16} className="text-indigo-600" />
-                Colaboradores com Débito
-              </h3>
-              {collaboratorsInDebt.length > 0 && (
-                <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-black">
-                  {collaboratorsInDebt.length} devendo
-                </span>
-              )}
-            </div>
-
-            {isLoadingCollaborators ? (
-              <div className="flex items-center justify-center h-32">
-                <div className="text-center space-y-2">
-                  <div className="animate-spin inline-block w-6 h-6 border-3 border-indigo-600 border-t-transparent rounded-full"></div>
-                  <p className="text-xs text-gray-500 font-medium">Carregando colaboradores...</p>
-                </div>
-              </div>
-            ) : collaboratorsInDebt.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-32 text-center space-y-2">
-                <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center">
-                  <CreditCard className="text-emerald-600" size={24} />
-                </div>
-                <p className="text-sm font-bold text-gray-600">Nenhum colaborador com débito</p>
-                <p className="text-xs text-gray-400">Todos os colaboradores estão em dia! 🎉</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {collaboratorsInDebt.map((collaborator) => (
-                  <div key={collaborator.id} className="flex items-center justify-between p-4 bg-gradient-to-r from-red-50 to-rose-50 rounded-2xl border border-red-100 hover:border-red-200 transition-all">
-                    <div className="flex-1">
-                      <p className="text-sm font-black text-gray-800">{collaborator.name}</p>
-                      <p className="text-xs text-red-600 font-bold mt-1">
-                        Débito: R$ {((collaborator.amountDue || 0).toFixed(2)).replace('.', ',')}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setCollaboratorInPayment(collaborator);
-                        setPaymentAmount('');
-                        setIsPaymentModalOpen(true);
-                      }}
-                      className="ml-4 px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-indigo-700 transition-all whitespace-nowrap"
-                    >
-                      Pagar
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Gráfico Principal */}
@@ -793,155 +641,51 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
           <div className="space-y-6">
             <h3 className="font-black text-gray-400 uppercase tracking-widest text-[10px]">Indicadores Operacionais</h3>
             <div className="space-y-4">
-              <div className="p-5 bg-indigo-50 rounded-3xl border border-indigo-100 flex gap-4 items-center">
-                <div className="bg-indigo-600 text-white p-2 rounded-2xl shadow-lg"><Scale size={18} /></div>
+              <button
+                onClick={() => navigate('/unit-sales')}
+                className="w-full text-left p-5 bg-indigo-50 rounded-3xl border border-indigo-100 flex gap-4 items-center hover:bg-indigo-100 transition-all"
+              >
+                <div className="bg-indigo-600 text-white p-2 rounded-2xl shadow-lg"><TrendingUp size={18} /></div>
                 <div>
-                  <p className="text-[10px] font-black text-indigo-900 uppercase">Preço KG Ativo</p>
-                  <p className="text-lg font-black text-indigo-600 leading-none mt-0.5">R$ {activeEnterprise.pricePerKg?.toFixed(2) || '0.00'}</p>
-                </div>
-              </div>
-              <div className="p-5 bg-amber-50 rounded-3xl border border-amber-100 flex gap-4 items-center">
-                <div className="bg-amber-500 text-white p-2 rounded-2xl shadow-lg"><Clock size={18} /></div>
-                <div>
-                  <p className="text-[10px] font-black text-amber-900 uppercase">Sangria Pendente</p>
-                  <p className="text-lg font-black text-amber-600 leading-none mt-0.5">
-                    R$ {collaboratorsInDebt.reduce((sum, collaborator) => sum + Number(collaborator.amountDue || 0), 0).toFixed(2)}
+                  <p className="text-[10px] font-black text-indigo-900 uppercase">Movimentações do Dia</p>
+                  <p className="text-lg font-black text-indigo-600 leading-none mt-0.5">
+                    R$ {dashboardMetrics.salesToday.toFixed(2)}
                   </p>
                 </div>
-              </div>
+              </button>
+              <button
+                onClick={() => navigate('/inventory')}
+                className="w-full text-left p-5 bg-amber-50 rounded-3xl border border-amber-100 flex gap-4 items-center hover:bg-amber-100 transition-all"
+              >
+                <div className="bg-amber-500 text-white p-2 rounded-2xl shadow-lg"><AlertTriangle size={18} /></div>
+                <div>
+                  <p className="text-[10px] font-black text-amber-900 uppercase">Itens em Alerta de Estoque</p>
+                  <p className="text-lg font-black text-amber-600 leading-none mt-0.5">
+                    {dashboardMetrics.criticalStockCount} itens
+                  </p>
+                </div>
+              </button>
             </div>
           </div>
 
-          <button className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center justify-center gap-2 mt-8 shadow-xl">
+          <button
+            onClick={() => navigate('/reports')}
+            className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center justify-center gap-2 mt-8 shadow-xl"
+          >
              <FileBarChart size={16} /> Gerar Fechamento
           </button>
         </div>
       </div>
-
-      {/* Modal de Pagamento de Débito */}
-      {isPaymentModalOpen && collaboratorInPayment && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 animate-in fade-in">
-          <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-sm" onClick={() => !isProcessingPayment && setIsPaymentModalOpen(false)}></div>
-          <div className="relative w-full max-w-2xl bg-white rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
-            
-            {/* Header */}
-            <div className="bg-indigo-600 p-8 text-white text-center shrink-0">
-              <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <CreditCard size={32} />
-              </div>
-              <h2 className="text-xl font-black uppercase tracking-tight">Pagamento de Dívida</h2>
-              <p className="text-[10px] font-bold text-indigo-100 uppercase tracking-widest mt-1">{collaboratorInPayment.name}</p>
-            </div>
-
-            {/* Content Area */}
-            <div className="flex-1 overflow-y-auto p-8 space-y-8 scrollbar-hide">
-              
-              {/* Informações da Dívida */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 border-b pb-2">
-                  <AlertTriangle size={16} className="text-red-600" />
-                  <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Informações da Dívida</h3>
-                </div>
-                <div className="p-6 bg-red-50 border-2 border-red-100 rounded-2xl">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <p className="text-[10px] font-bold text-red-700 uppercase tracking-widest">Valor Devido</p>
-                      <p className="text-2xl font-black text-red-600 mt-2">R$ {(collaboratorInPayment.amountDue || 0).toFixed(2)}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Métodos de Pagamento */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 border-b pb-2">
-                  <Wallet size={16} className="text-indigo-600" />
-                  <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Método de Pagamento</h3>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  {(['PIX', 'BOLETO', 'CAIXA'] as const).map(method => (
-                    <button
-                      key={method}
-                      onClick={() => setPaymentMethod(method)}
-                      className={`py-4 px-3 rounded-2xl font-black text-[10px] uppercase tracking-wider transition-all border-2 ${
-                        paymentMethod === method 
-                          ? 'border-indigo-600 bg-indigo-50 text-indigo-700' 
-                          : 'border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300'
-                      }`}
-                    >
-                      {method}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Valor do Pagamento */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 border-b pb-2">
-                  <TrendingUp size={16} className="text-emerald-600" />
-                  <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Valor do Pagamento</h3>
-                </div>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-black">R$</span>
-                  <input 
-                    type="number" 
-                    value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(e.target.value)}
-                    placeholder={`Máximo: R$ ${(collaboratorInPayment.amountDue || 0).toFixed(2)}`}
-                    className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-black text-lg"
-                    disabled={isProcessingPayment}
-                  />
-                </div>
-                <button
-                  onClick={() => setPaymentAmount((collaboratorInPayment.amountDue || 0).toString())}
-                  className="w-full py-3 text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:text-indigo-700 transition-colors"
-                  disabled={isProcessingPayment}
-                >
-                  Usar valor total da dívida
-                </button>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="p-6 bg-gray-50 border-t flex gap-3 shrink-0">
-              <button 
-                onClick={() => {
-                  setIsPaymentModalOpen(false);
-                  setPaymentAmount('');
-                  setCollaboratorInPayment(null);
-                }}
-                disabled={isProcessingPayment}
-                className="flex-1 text-[10px] font-black text-gray-600 uppercase tracking-widest hover:text-gray-800 transition-colors disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handlePayDebt}
-                disabled={isProcessingPayment || !paymentAmount}
-                className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-black text-[10px] uppercase tracking-wider hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {isProcessingPayment ? (
-                  <>
-                    <div className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>
-                    Processando...
-                  </>
-                ) : (
-                  <>
-                    <Check size={16} />
-                    Confirmar Pagamento
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
 
-const StatCard: React.FC<any> = ({ title, value, change, isPositive, icon, isWarning }) => (
-  <div className={`bg-white p-6 rounded-[32px] border shadow-sm transition-all hover:shadow-xl group ${isWarning ? 'border-amber-200 bg-amber-50/10' : 'border-gray-100'}`}>
+const StatCard: React.FC<any> = ({ title, value, change, isPositive, icon, isWarning, onClick, cta }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`w-full text-left bg-white p-6 rounded-[32px] border shadow-sm transition-all hover:shadow-xl group ${isWarning ? 'border-amber-200 bg-amber-50/10' : 'border-gray-100'} ${onClick ? 'cursor-pointer' : 'cursor-default'}`}
+  >
     <div className="flex items-center justify-between mb-4">
       <div className="p-3 bg-gray-50 rounded-2xl group-hover:bg-indigo-50 transition-colors shadow-inner">{icon}</div>
       <div className={`flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full border ${isPositive ? 'bg-green-50 text-green-600 border-green-100' : 'bg-red-50 text-red-600 border-red-100'}`}>
@@ -950,7 +694,12 @@ const StatCard: React.FC<any> = ({ title, value, change, isPositive, icon, isWar
     </div>
     <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">{title}</p>
     <p className="text-2xl font-black text-gray-800 mt-1">{value}</p>
-  </div>
+    {cta ? (
+      <div className="mt-4 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-indigo-600">
+        {cta} <ChevronRight size={13} />
+      </div>
+    ) : null}
+  </button>
 );
 
 const LegendItem = ({ color, label }: any) => (

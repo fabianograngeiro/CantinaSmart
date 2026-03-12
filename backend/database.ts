@@ -7,8 +7,10 @@ const __dirname = path.dirname(__filename);
 
 const DATA_DIR = path.join(__dirname, 'data');
 const DATABASE_FILE = path.join(DATA_DIR, 'database.json');
+const CURRENT_SCHEMA_VERSION = 1;
 
 interface DatabaseShape {
+  schemaVersion: number;
   enterprises: any[];
   users: any[];
   products: any[];
@@ -20,9 +22,16 @@ interface DatabaseShape {
   transactions: any[];
   orders: any[];
   ingredients: any[];
+  whatsappStore?: {
+    history?: any;
+    schedules?: any;
+    aiConfig?: any;
+    updatedAt?: string;
+  };
 }
 
 const createEmptyDatabase = (): DatabaseShape => ({
+  schemaVersion: CURRENT_SCHEMA_VERSION,
   enterprises: [],
   users: [],
   products: [],
@@ -34,9 +43,11 @@ const createEmptyDatabase = (): DatabaseShape => ({
   transactions: [],
   orders: [],
   ingredients: [],
+  whatsappStore: {},
 });
 
 export class Database {
+  private schemaVersion = CURRENT_SCHEMA_VERSION;
   private enterprises: any[] = [];
   private users: any[] = [];
   private products: any[] = [];
@@ -48,6 +59,12 @@ export class Database {
   private transactions: any[] = [];
   private orders: any[] = [];
   private ingredients: any[] = [];
+  private whatsappStore: {
+    history?: any;
+    schedules?: any;
+    aiConfig?: any;
+    updatedAt?: string;
+  } = {};
 
   private normalizeBrazilPhone(value: any) {
     const digits = String(value ?? '').replace(/\D/g, '');
@@ -100,6 +117,7 @@ export class Database {
     };
 
     return {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       enterprises: readArrayFile('enterprises.json'),
       users: readArrayFile('users.json'),
       products: readArrayFile('products.json'),
@@ -114,7 +132,52 @@ export class Database {
     };
   }
 
+  private normalizeIncomingData(raw: any): DatabaseShape {
+    const safeRaw = raw && typeof raw === 'object' ? raw : {};
+    const ensureArray = (value: any) => (Array.isArray(value) ? value : []);
+    const rawVersion = Number(safeRaw.schemaVersion);
+    const detectedVersion = Number.isFinite(rawVersion) && rawVersion > 0
+      ? Math.trunc(rawVersion)
+      : 0;
+    const merged = {
+      ...createEmptyDatabase(),
+      ...safeRaw,
+      enterprises: ensureArray(safeRaw.enterprises),
+      users: ensureArray(safeRaw.users),
+      products: ensureArray(safeRaw.products),
+      categories: ensureArray(safeRaw.categories),
+      clients: ensureArray(safeRaw.clients),
+      plans: ensureArray(safeRaw.plans),
+      suppliers: ensureArray(safeRaw.suppliers),
+      transactions: ensureArray(safeRaw.transactions),
+      orders: ensureArray(safeRaw.orders),
+      ingredients: ensureArray(safeRaw.ingredients),
+      whatsappStore: safeRaw.whatsappStore && typeof safeRaw.whatsappStore === 'object'
+        ? safeRaw.whatsappStore
+        : {},
+      productSequence: Number(safeRaw.productSequence) || 0,
+    } as DatabaseShape;
+
+    let version = detectedVersion;
+    if (version < 1) {
+      version = 1;
+    }
+
+    merged.schemaVersion = Math.max(version, CURRENT_SCHEMA_VERSION);
+    return merged;
+  }
+
+  private migrateData(raw: any) {
+    const detectedVersion = Number.isFinite(Number(raw?.schemaVersion)) && Number(raw?.schemaVersion) > 0
+      ? Math.trunc(Number(raw.schemaVersion))
+      : 0;
+    const normalized = this.normalizeIncomingData(raw);
+    const migrated = detectedVersion !== normalized.schemaVersion;
+    return { data: normalized, migrated, fromVersion: detectedVersion, toVersion: normalized.schemaVersion };
+  }
+
   private assignData(data: DatabaseShape) {
+    this.schemaVersion = Number(data.schemaVersion || CURRENT_SCHEMA_VERSION);
     this.enterprises = data.enterprises;
     this.users = data.users;
     this.products = data.products;
@@ -126,10 +189,14 @@ export class Database {
     this.transactions = data.transactions;
     this.orders = data.orders;
     this.ingredients = data.ingredients;
+    this.whatsappStore = (data as any).whatsappStore && typeof (data as any).whatsappStore === 'object'
+      ? (data as any).whatsappStore
+      : {};
   }
 
   private snapshotData(): DatabaseShape {
     return {
+      schemaVersion: this.schemaVersion,
       enterprises: this.enterprises,
       users: this.users,
       products: this.products,
@@ -141,6 +208,7 @@ export class Database {
       transactions: this.transactions,
       orders: this.orders,
       ingredients: this.ingredients,
+      whatsappStore: this.whatsappStore,
     };
   }
 
@@ -153,15 +221,29 @@ export class Database {
 
       if (fs.existsSync(DATABASE_FILE)) {
         const parsed = JSON.parse(fs.readFileSync(DATABASE_FILE, 'utf-8'));
-        data = {
-          ...createEmptyDatabase(),
-          ...parsed,
-        };
+        const migration = this.migrateData(parsed);
+        data = migration.data;
+        if (migration.migrated) {
+          console.log(`ℹ️ [DB] Schema migration aplicada: v${migration.fromVersion} -> v${migration.toVersion}`);
+          fs.writeFileSync(DATABASE_FILE, JSON.stringify(data, null, 2), 'utf-8');
+        }
       } else {
         console.log('ℹ️ [DB] database.json not found, migrating legacy files...');
         const legacyData = this.readLegacyData();
-        const hasLegacyRecords = Object.values(legacyData).some(collection => collection.length > 0);
-        data = hasLegacyRecords ? legacyData : createEmptyDatabase();
+        const hasLegacyRecords = [
+          legacyData.enterprises,
+          legacyData.users,
+          legacyData.products,
+          legacyData.categories,
+          legacyData.clients,
+          legacyData.plans,
+          legacyData.suppliers,
+          legacyData.transactions,
+          legacyData.orders,
+          legacyData.ingredients,
+        ].some((collection) => collection.length > 0);
+        const baseData = hasLegacyRecords ? legacyData : createEmptyDatabase();
+        data = this.migrateData(baseData).data;
         fs.writeFileSync(DATABASE_FILE, JSON.stringify(data, null, 2), 'utf-8');
         console.log('✅ [DB] database.json created successfully');
       }
@@ -174,6 +256,7 @@ export class Database {
       console.log(`   - Enterprise: ${this.enterprises.length}`);
       console.log(`   - Users: ${this.users.length}`);
       console.log(`   - Products: ${this.products.length}`);
+      console.log(`   - Schema version: ${this.schemaVersion}`);
       console.log(`   - Categories: ${this.categories.length}`);
       console.log(`   - Clients: ${this.clients.length}`);
       console.log(`   - Plans: ${this.plans.length}`);
@@ -228,6 +311,27 @@ export class Database {
       orders: this.orders.length,
       transactions: this.transactions.length,
     };
+  }
+
+  // ===== WHATSAPP STORE (persistido no database.json) =====
+  getWhatsAppStore() {
+    return this.whatsappStore && typeof this.whatsappStore === 'object'
+      ? this.whatsappStore
+      : {};
+  }
+
+  updateWhatsAppStore(patch: {
+    history?: any;
+    schedules?: any;
+    aiConfig?: any;
+  }) {
+    this.whatsappStore = {
+      ...this.getWhatsAppStore(),
+      ...(patch && typeof patch === 'object' ? patch : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    this.saveData();
+    return this.whatsappStore;
   }
 
   // ===== ENTERPRISES =====
