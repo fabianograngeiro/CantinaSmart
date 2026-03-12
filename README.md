@@ -8,6 +8,7 @@ Sistema de gestão para cantina escolar com:
 - `Transações`
 - `Financeiro`
 - `Entrega do Dia`
+- `Integração WhatsApp via Baileys`
 
 ## Estrutura
 
@@ -75,6 +76,22 @@ npm run dev
 Frontend padrão: `http://localhost:5173`  
 Backend padrão: `http://localhost:3001`
 
+## WhatsApp (Baileys)
+
+O backend já sobe a integração do WhatsApp automaticamente no boot quando `WHATSAPP_AUTO_START=true`.
+
+- Biblioteca: `@whiskeysockets/baileys`
+- Persistência de sessão: `backend/data/whatsapp-auth/<WHATSAPP_SESSION_ID>`
+- QR Code: exposto pelo backend em `GET /api/whatsapp/qr`
+- Status completo: `GET /api/whatsapp/status`
+
+Fluxo:
+
+1. O backend inicializa a sessão no boot.
+2. Se já existir auth persistido, a conexão volta sem novo QR Code.
+3. Se não existir auth válido, o backend gera um novo QR Code.
+4. O frontend faz polling do endpoint e exibe o QR para leitura.
+
 ## Build
 
 Frontend:
@@ -121,4 +138,3 @@ No sistema:
 - `npm run dev` inicia backend em desenvolvimento
 - `npm run build` compila TypeScript
 - `npm run start` inicia backend
-

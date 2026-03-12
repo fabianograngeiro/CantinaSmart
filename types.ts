@@ -253,6 +253,7 @@ export type Client = {
   guardianPhone?: string;
   guardianEmail?: string;
   parentName?: string;
+  parentWhatsappCountryCode?: string;
   parentWhatsapp?: string;
   parentCpf?: string;
   parentEmail?: string;

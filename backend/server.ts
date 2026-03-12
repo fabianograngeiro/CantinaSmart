@@ -21,7 +21,9 @@ import transactionsRoutes from './routes/transactions.js';
 import ordersRoutes from './routes/orders.js';
 import ingredientsRoutes from './routes/ingredients.js';
 import systemRoutes from './routes/system.js';
+import whatsappRoutes from './routes/whatsapp.js';
 import { authMiddleware } from './middleware/auth.js';
+import { whatsappSession } from './utils/whatsappSession.js';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3001;
@@ -59,6 +61,7 @@ app.use('/api/transactions', transactionsRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/ingredients', ingredientsRoutes);
 app.use('/api/system', systemRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
 app.use('/products_photos', express.static(path.join(__dirname, 'products_photos')));
 app.use('/clients_photos', express.static(path.join(__dirname, 'clients_photos')));
 
@@ -72,6 +75,10 @@ app.listen(PORT, () => {
   console.log(`🌐 Servidor rodando em http://localhost:${PORT}`);
   console.log(`🔗 API URL: http://localhost:${PORT}/api`);
   console.log('='.repeat(50) + '\n');
+
+  whatsappSession.initializeOnBoot().catch((err) => {
+    console.error('❌ [SERVER] Falha ao inicializar integração WhatsApp no boot:', err);
+  });
 });
 
 export default app;

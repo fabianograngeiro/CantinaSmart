@@ -681,6 +681,297 @@ export class ApiService {
     if (!response.ok) throw new Error('Falha ao buscar impressoras instaladas');
     return response.json();
   }
+
+  // ===== WHATSAPP =====
+  static async getWhatsAppStatus() {
+    const response = await fetch(`${API_URL}/whatsapp/status`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao buscar status do WhatsApp');
+    return response.json();
+  }
+
+  static async getWhatsAppQr() {
+    const response = await fetch(`${API_URL}/whatsapp/qr`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao buscar QR Code do WhatsApp');
+    return response.json();
+  }
+
+  static async initWhatsAppSession() {
+    const response = await fetch(`${API_URL}/whatsapp/init`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao inicializar integração do WhatsApp');
+    return response.json();
+  }
+
+  static async startWhatsAppSession(options: {
+    forceNewSession?: boolean;
+    sessionName?: string;
+    startDate?: string;
+    endDate?: string;
+    syncFullHistory?: boolean;
+  } = {}) {
+    const response = await fetch(`${API_URL}/whatsapp/start`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({
+        forceNewSession: Boolean(options.forceNewSession),
+        sessionName: String(options.sessionName || '').trim(),
+        startDate: String(options.startDate || '').trim(),
+        endDate: String(options.endDate || '').trim(),
+        syncFullHistory: Boolean(options.syncFullHistory),
+      }),
+    });
+    if (!response.ok) throw new Error('Falha ao iniciar sessão do WhatsApp');
+    return response.json();
+  }
+
+  static async stopWhatsAppSession() {
+    const response = await fetch(`${API_URL}/whatsapp/stop`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao encerrar sessão do WhatsApp');
+    return response.json();
+  }
+
+  static async sendWhatsAppMessage(phone: string, message: string) {
+    const response = await fetch(`${API_URL}/whatsapp/send`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ phone, message }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao enviar mensagem WhatsApp');
+    }
+    return response.json();
+  }
+
+  static async sendWhatsAppBulk(recipients: string[], message: string) {
+    const response = await fetch(`${API_URL}/whatsapp/send-bulk`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ recipients, message }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao enviar mensagens em lote');
+    }
+    return response.json();
+  }
+
+  static async getWhatsAppChats() {
+    const response = await fetch(`${API_URL}/whatsapp/chats`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao carregar conversas do WhatsApp');
+    return response.json();
+  }
+
+  static async getWhatsAppChatMessages(chatId: string, limit = 80) {
+    const encoded = String(chatId || '').replace(/@/g, '__AT__');
+    const response = await fetch(`${API_URL}/whatsapp/chats/${encoded}/messages?limit=${limit}`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao carregar mensagens da conversa');
+    return response.json();
+  }
+
+  static async deleteWhatsAppChat(chatId: string) {
+    const encoded = String(chatId || '').replace(/@/g, '__AT__');
+    const response = await fetch(`${API_URL}/whatsapp/chats/${encoded}`, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao excluir conversa');
+    }
+    return response.json();
+  }
+
+  static async clearWhatsAppChatMessages(chatId: string) {
+    const encoded = String(chatId || '').replace(/@/g, '__AT__');
+    const response = await fetch(`${API_URL}/whatsapp/chats/${encoded}/messages`, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao apagar mensagens da conversa');
+    }
+    return response.json();
+  }
+
+  static async sendWhatsAppMessageToChat(chatId: string, message: string) {
+    const response = await fetch(`${API_URL}/whatsapp/send-to-chat`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ chatId, message }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao enviar mensagem para a conversa');
+    }
+    return response.json();
+  }
+
+  static async improveWhatsAppTextWithAi(chatId: string, text: string) {
+    const response = await fetch(`${API_URL}/whatsapp/ai/improve-text`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ chatId, text }),
+    });
+    if (!response.ok) {
+      const textErr = await response.text();
+      throw new Error(textErr || 'Falha ao melhorar texto com IA');
+    }
+    return response.json();
+  }
+
+  static async getWhatsAppChatAiAgentState(chatId: string) {
+    const encoded = String(chatId || '').replace(/@/g, '__AT__');
+    const response = await fetch(`${API_URL}/whatsapp/chats/${encoded}/ai-agent`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const textErr = await response.text();
+      throw new Error(textErr || 'Falha ao buscar estado do agente IA');
+    }
+    return response.json();
+  }
+
+  static async setWhatsAppChatAiAgentState(chatId: string, enabled: boolean) {
+    const encoded = String(chatId || '').replace(/@/g, '__AT__');
+    const response = await fetch(`${API_URL}/whatsapp/chats/${encoded}/ai-agent`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ enabled: Boolean(enabled) }),
+    });
+    if (!response.ok) {
+      const textErr = await response.text();
+      throw new Error(textErr || 'Falha ao atualizar agente IA');
+    }
+    return response.json();
+  }
+
+  static async sendWhatsAppMediaToChat(
+    chatId: string,
+    message: string,
+    attachment: { mediaType: 'image' | 'document' | 'audio'; base64Data: string; mimeType?: string; fileName?: string }
+  ) {
+    const response = await fetch(`${API_URL}/whatsapp/send-media-to-chat`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ chatId, message, attachment }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao enviar mídia para a conversa');
+    }
+    return response.json();
+  }
+
+  static async transcribeWhatsAppAudio(payload: {
+    chatId?: string;
+    messageId?: string;
+    mediaDataUrl: string;
+    mimeType?: string | null;
+    fileName?: string | null;
+  }) {
+    const response = await fetch(`${API_URL}/whatsapp/transcribe-audio`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload || {}),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao transcrever áudio');
+    }
+    return response.json();
+  }
+
+  static async scheduleWhatsAppMessage(payload: {
+    chatId: string;
+    message?: string;
+    scheduleAt: string;
+    attachment?: { mediaType: 'image' | 'document' | 'audio'; base64Data: string; mimeType?: string; fileName?: string } | null;
+  }) {
+    const response = await fetch(`${API_URL}/whatsapp/schedule`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao agendar mensagem');
+    }
+    return response.json();
+  }
+
+  static async getWhatsAppSchedules(chatId?: string) {
+    const query = chatId ? `?chatId=${encodeURIComponent(chatId)}` : '';
+    const response = await fetch(`${API_URL}/whatsapp/schedule${query}`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao carregar agendamentos');
+    return response.json();
+  }
+
+  static async cancelWhatsAppSchedule(id: string) {
+    const response = await fetch(`${API_URL}/whatsapp/schedule/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao cancelar agendamento');
+    }
+    return response.json();
+  }
+
+  static async getWhatsAppAiConfig() {
+    const response = await fetch(`${API_URL}/whatsapp/ai-config`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao carregar configuração de AI');
+    return response.json();
+  }
+
+  static async updateWhatsAppAiConfig(config: any) {
+    const response = await fetch(`${API_URL}/whatsapp/ai-config`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify(config || {}),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao salvar configuração de AI');
+    }
+    return response.json();
+  }
+
+  static async getWhatsAppAiAudit(limit = 50) {
+    const safeLimit = Math.max(1, Math.min(200, Number(limit || 50)));
+    const response = await fetch(`${API_URL}/whatsapp/ai-audit?limit=${encodeURIComponent(String(safeLimit))}`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao carregar auditoria da IA');
+    return response.json();
+  }
+
+  static async getWhatsAppAiFlowNodes() {
+    const response = await fetch(`${API_URL}/whatsapp/ai-flow-nodes`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao gerar nodes de fluxo de AI');
+    return response.json();
+  }
 }
 
 export default ApiService;

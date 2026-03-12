@@ -73,6 +73,70 @@ const toDateKey = (date: Date) => {
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace(/\/api\/?$/, '');
 
+const COUNTRY_OPTIONS = [
+  { code: '55', label: 'Brasil', dial: '+55' },
+  { code: '54', label: 'Argentina', dial: '+54' },
+  { code: '591', label: 'Bolivia', dial: '+591' },
+  { code: '56', label: 'Chile', dial: '+56' },
+  { code: '57', label: 'Colombia', dial: '+57' },
+  { code: '506', label: 'Costa Rica', dial: '+506' },
+  { code: '53', label: 'Cuba', dial: '+53' },
+  { code: '593', label: 'Equador', dial: '+593' },
+  { code: '503', label: 'El Salvador', dial: '+503' },
+  { code: '502', label: 'Guatemala', dial: '+502' },
+  { code: '592', label: 'Guiana', dial: '+592' },
+  { code: '509', label: 'Haiti', dial: '+509' },
+  { code: '504', label: 'Honduras', dial: '+504' },
+  { code: '1', label: 'Estados Unidos', dial: '+1' },
+  { code: '52', label: 'Mexico', dial: '+52' },
+  { code: '505', label: 'Nicaragua', dial: '+505' },
+  { code: '507', label: 'Panama', dial: '+507' },
+  { code: '595', label: 'Paraguai', dial: '+595' },
+  { code: '51', label: 'Peru', dial: '+51' },
+  { code: '1784', label: 'Sao Vicente e Granadinas', dial: '+1784' },
+  { code: '1809', label: 'Republica Dominicana', dial: '+1809' },
+  { code: '508', label: 'Sao Pedro e Miquelon', dial: '+508' },
+  { code: '597', label: 'Suriname', dial: '+597' },
+  { code: '598', label: 'Uruguai', dial: '+598' },
+  { code: '58', label: 'Venezuela', dial: '+58' },
+  { code: '33', label: 'Franca', dial: '+33' },
+  { code: '49', label: 'Alemanha', dial: '+49' },
+  { code: '39', label: 'Italia', dial: '+39' },
+  { code: '351', label: 'Portugal', dial: '+351' },
+  { code: '34', label: 'Espanha', dial: '+34' },
+  { code: '44', label: 'Reino Unido', dial: '+44' },
+  { code: '41', label: 'Suica', dial: '+41' },
+];
+
+const splitPhoneByCountryCode = (rawPhone?: string, fallbackCode = '55') => {
+  const digits = String(rawPhone || '').replace(/\D/g, '');
+  if (!digits) {
+    return { countryCode: fallbackCode, localPhone: '' };
+  }
+
+  const matched = COUNTRY_OPTIONS
+    .slice()
+    .sort((a, b) => b.code.length - a.code.length)
+    .find((option) => digits.startsWith(option.code));
+
+  if (matched) {
+    return {
+      countryCode: matched.code,
+      localPhone: digits.slice(matched.code.length),
+    };
+  }
+
+  return { countryCode: fallbackCode, localPhone: digits };
+};
+
+const joinPhoneWithCountryCode = (countryCode?: string, localPhone?: string) => {
+  const normalizedCode = String(countryCode || '55').replace(/\D/g, '') || '55';
+  const normalizedPhone = String(localPhone || '').replace(/\D/g, '');
+  if (!normalizedPhone) return '';
+  if (normalizedPhone.startsWith(normalizedCode)) return normalizedPhone;
+  return `${normalizedCode}${normalizedPhone}`;
+};
+
 const resolveClientPhotoUrl = (photoUrl?: string, clientName?: string) => {
   if (photoUrl && /^https?:\/\//i.test(photoUrl)) return photoUrl;
   if (photoUrl && photoUrl.startsWith('/clients_photos/')) return `${API_BASE_URL}${photoUrl}`;
@@ -82,6 +146,8 @@ const resolveClientPhotoUrl = (photoUrl?: string, clientName?: string) => {
 
 const formatPhoneNumber = (rawPhone?: string) => {
   const digits = String(rawPhone || '').replace(/\D/g, '');
+  if (digits.length === 13 && digits.startsWith('55')) return `+55 (${digits.slice(2, 4)}) ${digits.slice(4, 9)}-${digits.slice(9)}`;
+  if (digits.length === 12 && digits.startsWith('55')) return `+55 (${digits.slice(2, 4)}) ${digits.slice(4, 8)}-${digits.slice(8)}`;
   if (digits.length === 11) return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
   if (digits.length === 10) return `(${digits.slice(0, 2)})${digits.slice(2, 6)}-${digits.slice(6)}`;
   return rawPhone || 'Não informado';
@@ -103,6 +169,38 @@ const fileToBase64 = (file: File): Promise<string> =>
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+
+const renderHighlightedText = (value: string, query: string) => {
+  const safeValue = String(value || '');
+  const safeQuery = String(query || '').trim();
+
+  if (!safeQuery) return safeValue;
+
+  const lowerValue = safeValue.toLowerCase();
+  const lowerQuery = safeQuery.toLowerCase();
+  const startIndex = lowerValue.indexOf(lowerQuery);
+
+  if (startIndex === -1) return safeValue;
+
+  const before = safeValue.slice(0, startIndex);
+  const match = safeValue.slice(startIndex, startIndex + safeQuery.length);
+  const after = safeValue.slice(startIndex + safeQuery.length);
+
+  return (
+    <>
+      {before}
+      <mark className="bg-amber-200 text-gray-900 rounded px-0.5">{match}</mark>
+      {after}
+    </>
+  );
+};
+
+const normalizeSearchText = (value?: string) =>
+  String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
 
 const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise }) => {
   // Guard clause: se não houver enterprise ativa, retornar carregamento
@@ -206,6 +304,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     restrictions: [] as string[],
     dietaryNotes: '',
     parentName: '',
+    parentWhatsappCountryCode: '55',
     parentWhatsapp: '',
     parentCpf: '',
     parentEmail: '',
@@ -220,11 +319,14 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   };
 
   const filteredClients = useMemo(() => {
+    const normalizedSearch = normalizeSearchText(searchTerm);
+
     return clients.filter(c => {
-      const matchesSearch = 
-        c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.registrationId.includes(searchTerm) ||
-        (c.class && c.class.toLowerCase().includes(searchTerm.toLowerCase()));
+      const matchesSearch =
+        !normalizedSearch
+        || normalizeSearchText(c.name).includes(normalizedSearch)
+        || normalizeSearchText(c.registrationId).includes(normalizedSearch)
+        || normalizeSearchText(c.class).includes(normalizedSearch);
       
       let matchesUnit = true;
       if (isUnitAdmin) {
@@ -390,7 +492,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     setFormData({
       name: '', type: 'ALUNO', servicePlans: ['PREPAGO'], class: '', classType: '', classGrade: '', balance: 0,
       dailyLimit: 30, initialCredit: 0, isDailyLimitActive: false, isBlocked: false,
-      restrictions: [], dietaryNotes: '', parentName: '', parentWhatsapp: '', parentCpf: '', parentEmail: '', photo: ''
+      restrictions: [], dietaryNotes: '', parentName: '', parentWhatsappCountryCode: '55', parentWhatsapp: '', parentCpf: '', parentEmail: '', photo: ''
     });
     setClientPhotoFile(null);
     setClientPhotoPreview('');
@@ -398,6 +500,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   };
 
   const handleOpenCreateStudentFromDetail = () => {
+    const phoneParts = splitPhoneByCountryCode(viewingClient?.parentWhatsapp || '');
     setEditingClient(null);
     setIsStudentOnlyMode(true);
     setShowPaymentFlow(false);
@@ -421,7 +524,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       restrictions: [],
       dietaryNotes: '',
       parentName: viewingClient?.parentName || '',
-      parentWhatsapp: viewingClient?.parentWhatsapp || '',
+      parentWhatsappCountryCode: phoneParts.countryCode,
+      parentWhatsapp: phoneParts.localPhone,
       parentCpf: viewingClient?.parentCpf || '',
       parentEmail: viewingClient?.parentEmail || '',
       photo: ''
@@ -433,6 +537,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   };
 
   const handleOpenEditModal = (client: Client) => {
+    const phoneParts = splitPhoneByCountryCode(client.parentWhatsapp || '', client.parentWhatsappCountryCode || '55');
     const classParts = (client.class || '').split(' - ').map(part => part.trim());
     const maybeClassType = classParts.length > 1 ? classParts[0] : '';
     const maybeClassGrade = classParts.length > 1 ? classParts.slice(1).join(' - ') : '';
@@ -493,7 +598,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       restrictions: client.restrictions || [],
       dietaryNotes: client.dietaryNotes || '',
       parentName: client.parentName || '',
-      parentWhatsapp: client.parentWhatsapp || '',
+      parentWhatsappCountryCode: phoneParts.countryCode,
+      parentWhatsapp: phoneParts.localPhone,
       parentCpf: client.parentCpf || '',
       parentEmail: client.parentEmail || '',
       photo: client.photo || ''
@@ -768,7 +874,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       photo: finalPhoto,
       enterpriseId: editingClient?.enterpriseId || activeEnterprise.id,
       parentName: formData.parentName,
-      parentWhatsapp: formData.parentWhatsapp,
+      parentWhatsappCountryCode: formData.parentWhatsappCountryCode,
+      parentWhatsapp: joinPhoneWithCountryCode(formData.parentWhatsappCountryCode, formData.parentWhatsapp),
       parentCpf: formData.parentCpf,
       parentEmail: formData.parentEmail
     };
@@ -1726,7 +1833,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                       <div className="flex items-center gap-4">
                         <img src={resolveClientPhotoUrl(client.photo, client.name)} className="w-12 h-12 rounded-2xl object-cover border-2 border-white shadow-sm" />
                         <div>
-                          <p className="font-black text-gray-800 text-sm leading-tight uppercase">{client.name}</p>
+                          <p className="font-black text-gray-800 text-sm leading-tight uppercase">{renderHighlightedText(client.name, searchTerm)}</p>
                           <p className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">{client.type}</p>
                         </div>
                       </div>
@@ -2283,7 +2390,25 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                            </div>
                            <div className="space-y-1.5">
                               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{formData.type === 'ALUNO' ? 'WhatsApp do Responsável' : 'WhatsApp do Colaborador'}</label>
-                              <input value={formData.parentWhatsapp} onChange={e => setFormData({...formData, parentWhatsapp: e.target.value})} className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-[24px] outline-none font-bold text-sm transition-all shadow-inner" placeholder="(00) 00000-0000" />
+                              <div className="grid grid-cols-[160px_minmax(0,1fr)] gap-3">
+                                <select
+                                  value={formData.parentWhatsappCountryCode}
+                                  onChange={e => setFormData({...formData, parentWhatsappCountryCode: e.target.value})}
+                                  className="w-full px-4 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-[24px] outline-none font-bold text-sm transition-all shadow-inner"
+                                >
+                                  {COUNTRY_OPTIONS.map((country) => (
+                                    <option key={country.code} value={country.code}>
+                                      {country.label} ({country.dial})
+                                    </option>
+                                  ))}
+                                </select>
+                                <input
+                                  value={formData.parentWhatsapp}
+                                  onChange={e => setFormData({...formData, parentWhatsapp: e.target.value})}
+                                  className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-[24px] outline-none font-bold text-sm transition-all shadow-inner"
+                                  placeholder="DDD + número"
+                                />
+                              </div>
                            </div>
                            <div className="space-y-1.5">
                               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{formData.type === 'ALUNO' ? 'CPF do Responsável' : 'CPF do Colaborador'}</label>
