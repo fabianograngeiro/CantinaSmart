@@ -121,7 +121,6 @@ interface DeliveryProfile {
   scheduledPeriod: PeriodFilter;
   scheduledDay: 'TODAY' | 'TOMORROW';
   scheduledDate?: string; // Adicionado Data Específica
-  deliverySelectedDaysText: string;
   restrictions: string[];
   dietaryNotes: string;
   description: string;
@@ -194,43 +193,6 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
       return null;
     };
 
-    const weekdayLabel = (dayKey: string) => {
-      const normalized = normalizeDayKey(dayKey);
-      const labels: Record<string, string> = {
-        SEGUNDA: 'Seg',
-        TERCA: 'Ter',
-        QUARTA: 'Qua',
-        QUINTA: 'Qui',
-        SEXTA: 'Sex',
-        SABADO: 'Sáb',
-        DOMINGO: 'Dom',
-      };
-      return labels[normalized] || dayKey;
-    };
-
-    const formatSelectedDeliveryDays = (selectedDates: string[], daysOfWeek: string[]) => {
-      const uniqueDates = Array.from(new Set((selectedDates || []).filter(Boolean))).sort();
-      const uniqueDays = Array.from(new Set((daysOfWeek || []).filter(Boolean)));
-
-      const datesPart = uniqueDates.length > 0
-        ? uniqueDates
-          .map((dateIso) => {
-            const parsed = new Date(`${dateIso}T00:00:00`);
-            if (Number.isNaN(parsed.getTime())) return dateIso;
-            return parsed.toLocaleDateString('pt-BR');
-          })
-          .join(', ')
-        : '';
-      const daysPart = uniqueDays.length > 0
-        ? uniqueDays.map((day) => weekdayLabel(day)).join(', ')
-        : '';
-
-      if (datesPart && daysPart) return `Datas: ${datesPart} | Semana: ${daysPart}`;
-      if (datesPart) return datesPart;
-      if (daysPart) return daysPart;
-      return 'Não informado';
-    };
-
     const loadDeliveryProfiles = async () => {
       try {
         const [clientsData, plansData] = await Promise.all([
@@ -272,7 +234,6 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
               const daysOfWeek = daysOfWeekRaw
                 .map((day) => normalizeDayKey(day))
                 .filter(Boolean);
-              const deliverySelectedDaysText = formatSelectedDeliveryDays(selectedDates, daysOfWeek);
               const daysOfWeekSet = new Set(daysOfWeek);
               const deliveryShifts = (Array.isArray(config?.deliveryShifts) ? config.deliveryShifts : []) as string[];
               const normalizedPeriods = deliveryShifts
@@ -319,7 +280,6 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                   scheduledPeriod: period,
                   scheduledDay,
                   scheduledDate,
-                  deliverySelectedDaysText,
                   restrictions: client.restrictions || [],
                   dietaryNotes: client.dietaryNotes || '',
                   description: plan?.description || planName || 'Plano sem descrição',
@@ -425,6 +385,13 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
       })();
       const matchesPlan = selectedPlans.length === 0 || selectedPlans.includes(d.planName);
       return matchesSearch && matchesPeriod && matchesDay && matchesDateScope && matchesPlan;
+    }).sort((a, b) => {
+      const byName = String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' });
+      if (byName !== 0) return byName;
+      const aDate = String(a.scheduledDate || '');
+      const bDate = String(b.scheduledDate || '');
+      if (aDate !== bDate) return aDate.localeCompare(bDate);
+      return String(a.id || '').localeCompare(String(b.id || ''));
     });
   }, [students, searchTerm, searchFieldFilter, periodFilter, selectedDays, selectedPlans, customDate, serviceContext, dateScopeFilter, filterDate]);
 
@@ -543,7 +510,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
       unit: 'mm',
       format: 'a4'
     });
-    const tableColumn = ["Aluno", "Matrícula", "Ano/Turma", "Responsável", "Turno", "Plano", "Dias Selecionados Entrega", "Descrição", "Status"];
+    const tableColumn = ["Aluno", "Matrícula", "Ano/Turma", "Responsável", "Turno", "Plano", "Data Refeição", "Descrição", "Status"];
     const tableRows: any[] = [];
 
     filteredData.forEach(student => {
@@ -554,7 +521,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
         student.responsibleName,
         student.scheduledPeriod === 'MORNING' ? 'Manhã' : student.scheduledPeriod === 'AFTERNOON' ? 'Tarde' : student.scheduledPeriod === 'NIGHT' ? 'Noite' : 'Todos',
         student.planName.replace('_', ' '),
-        student.deliverySelectedDaysText,
+        student.scheduledDate ? new Date(`${student.scheduledDate}T00:00:00`).toLocaleDateString('pt-BR') : '-',
         student.description,
         student.items.every(i => i.status === 'SERVIDO') ? 'Servido' : 'Pendente'
       ];
@@ -864,7 +831,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                      <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Responsável</th>
                      <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Turno</th>
                      <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Plano</th>
-                     <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Dias Selecionados Entrega</th>
+                     <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Data Refeição</th>
                      <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Descrição</th>
                      <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Restrições</th>
                      <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
@@ -921,8 +888,8 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                               </span>
                            </td>
                            <td className="px-6 py-6">
-                              <span className="text-[10px] font-black px-3 py-1 rounded-xl border border-cyan-100 bg-cyan-50 text-cyan-700 tracking-wide">
-                                {student.deliverySelectedDaysText}
+                              <span className="text-[10px] font-black px-3 py-1 rounded-full border border-cyan-100 bg-cyan-50 text-cyan-700 uppercase tracking-widest">
+                                {student.scheduledDate ? new Date(`${student.scheduledDate}T00:00:00`).toLocaleDateString('pt-BR') : '-'}
                               </span>
                            </td>
                            <td className="px-6 py-6">
