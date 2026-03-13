@@ -202,22 +202,23 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
         const blockedPlanNames = new Set(['PREPAGO', 'PRÉ-PAGO', 'PRE-PAGO', 'PF_FIXO', 'LANCHE_FIXO']);
         const normalizePlanName = (value?: string) => String(value || '').trim().toUpperCase();
 
-        const deliveredKeys = new Set<string>(
-          transactions
-            .filter((tx: any) => {
-              const type = String(tx?.type || '').toUpperCase();
-              if (type !== 'CONSUMO') return false;
-              const bag = String(tx?.description || '').toLowerCase();
-              return bag.includes('entrega do dia');
-            })
-            .map((tx: any) => {
-              const clientId = String(tx?.clientId || '').trim();
-              const planName = normalizePlanName(tx?.plan || tx?.planName || tx?.item || '');
-              const deliveryDate = String(tx?.deliveryDate || tx?.scheduledDate || tx?.mealDate || tx?.date || '').slice(0, 10);
-              return `${clientId}|${planName}|${deliveryDate}`;
-            })
-            .filter((key: string) => key.split('|').every((part) => Boolean(part)))
-        );
+        const deliveryBalanceByKey = new Map<string, number>();
+        transactions.forEach((tx: any) => {
+          const type = String(tx?.type || '').toUpperCase();
+          const description = String(tx?.description || '').toLowerCase();
+          const isDelivery = description.includes('entrega do dia');
+          if (!isDelivery) return;
+
+          const clientId = String(tx?.clientId || '').trim();
+          const planName = normalizePlanName(tx?.plan || tx?.planName || tx?.item || '');
+          const deliveryDate = String(tx?.deliveryDate || tx?.scheduledDate || tx?.mealDate || tx?.date || '').slice(0, 10);
+          if (!clientId || !planName || !deliveryDate) return;
+
+          const key = `${clientId}|${planName}|${deliveryDate}`;
+          const current = Number(deliveryBalanceByKey.get(key) || 0);
+          const isReversal = description.includes('estorno') || type === 'CREDITO';
+          deliveryBalanceByKey.set(key, isReversal ? current - 1 : current + 1);
+        });
 
         const currentContext = getServiceContext(activeEnterprise?.openingHours, new Date());
 
@@ -273,7 +274,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                 const scheduledDay: 'TODAY' | 'TOMORROW' = scheduledDate === currentContext.todayIso ? 'TODAY' : 'TOMORROW';
                 const planNameUpper = normalizePlanName(plan?.name || planName || 'PLANO');
                 const deliveredKey = `${client.id}|${planNameUpper}|${scheduledDate}`;
-                const deliveredForDate = deliveredKeys.has(deliveredKey);
+                const deliveredForDate = Number(deliveryBalanceByKey.get(deliveredKey) || 0) > 0;
 
                 return effectivePeriods.map((period, periodIndex) => ({
                   id: `${client.id}-${plan?.id || planName || idx}-${dateIndex}-${periodIndex}`,
@@ -451,7 +452,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
     const now = new Date();
     const method = 'PLANO';
     const status = 'CONCLUIDA';
-    const transactionDate = now.toISOString().split('T')[0];
+    const transactionDate = student.scheduledDate || now.toISOString().split('T')[0];
     const transactionTime = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
     try {
@@ -489,6 +490,73 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
           item: item.name,
           type: 'CONSUMO',
           method,
+          value: 0,
+          status: 'CONCLUIDA'
+        });
+      });
+    }
+  };
+
+  const reverseServeStudent = async (studentId: string) => {
+    const student = students.find(s => s.id === studentId);
+    if (!student) return;
+    const servedItems = student.items.filter(item => item.status === 'SERVIDO');
+    if (servedItems.length === 0) return;
+
+    const confirmed = window.confirm(`Estornar 1 unidade do plano ${student.planName} para ${student.name} na data ${student.scheduledDate ? new Date(`${student.scheduledDate}T00:00:00`).toLocaleDateString('pt-BR') : '-'}?`);
+    if (!confirmed) return;
+
+    setStudents(prev => prev.map(s => {
+      if (s.id !== studentId) return s;
+      return {
+        ...s,
+        items: s.items.map(item => ({
+          ...item,
+          status: 'PENDENTE',
+          components: item.components.map(c => ({ ...c, checked: false })),
+        }))
+      };
+    }));
+
+    const now = new Date();
+    const transactionDate = student.scheduledDate || now.toISOString().split('T')[0];
+    const transactionTime = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+    try {
+      await Promise.all(servedItems.map((item) =>
+        ApiService.createTransaction({
+          clientId: student.clientId,
+          clientName: student.name,
+          enterpriseId: activeEnterprise.id,
+          type: 'CREDITO',
+          amount: 0,
+          description: `Estorno entrega do dia - ${student.planName} - ${item.name} - ${student.scheduledDate || transactionDate}`,
+          item: item.name,
+          paymentMethod: 'PLANO',
+          method: 'PLANO',
+          timestamp: now.toISOString(),
+          date: transactionDate,
+          deliveryDate: student.scheduledDate || transactionDate,
+          time: transactionTime,
+          status: 'CONCLUIDA',
+          plan: student.planName,
+        })
+      ));
+    } catch (error) {
+      console.error('Erro ao registrar estorno de entrega do dia:', error);
+    }
+
+    if (onRegisterTransaction) {
+      servedItems.forEach(item => {
+        onRegisterTransaction({
+          id: `EST-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
+          time: transactionTime,
+          date: transactionDate,
+          client: student.name,
+          plan: student.planName,
+          item: item.name,
+          type: 'CREDITO',
+          method: 'PLANO',
           value: 0,
           status: 'CONCLUIDA'
         });
@@ -943,9 +1011,17 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                                     Entregar <ArrowRight size={14}/>
                                  </button>
                               ) : (
-                                 <div className="text-emerald-500 flex items-center gap-2 justify-end">
-                                    <CheckCircle2 size={18} />
-                                    <span className="text-[10px] font-black uppercase tracking-widest">Concluído</span>
+                                 <div className="flex items-center justify-end gap-2">
+                                    <div className="text-emerald-500 flex items-center gap-2">
+                                       <CheckCircle2 size={18} />
+                                       <span className="text-[10px] font-black uppercase tracking-widest">Concluído</span>
+                                    </div>
+                                    <button
+                                      onClick={() => reverseServeStudent(student.id)}
+                                      className="bg-rose-600 text-white px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-rose-100 hover:bg-rose-700 active:scale-95 transition-all"
+                                    >
+                                      Estornar
+                                    </button>
                                  </div>
                               )}
                            </td>
