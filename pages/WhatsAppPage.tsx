@@ -2984,7 +2984,15 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
   useEffect(() => {
     if (activeTab !== 'CRM') return;
-    if (crmView === 'DASHBOARD' || crmView === 'CONVERSAS' || crmView === 'AI_CONFIG') return;
+    if (
+      crmView === 'DASHBOARD'
+      || crmView === 'CONVERSAS'
+      || crmView === 'CONTATOS'
+      || crmView === 'CAMPANHAS'
+      || crmView === 'AI_CONFIG'
+      || crmView === 'AI_FLOW'
+      || crmView === 'CONTA'
+    ) return;
     setCrmView('CONVERSAS');
   }, [activeTab, crmView]);
 
