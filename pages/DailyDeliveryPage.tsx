@@ -17,6 +17,8 @@ import ApiService from '../services/api';
 type TimeFilter = 'TODAY' | 'TOMORROW' | 'CUSTOM';
 type PeriodFilter = 'ALL' | 'MORNING' | 'AFTERNOON' | 'NIGHT';
 type DeliveryStatus = 'PENDENTE' | 'PREPARANDO' | 'PRONTO' | 'SERVIDO';
+type SearchFieldFilter = 'NAME' | 'RESPONSIBLE' | 'PLAN' | 'CLASS' | 'STATUS';
+type DateScopeFilter = 'ALL' | 'CURRENT_WEEK' | 'BIWEEKLY' | 'DATE';
 
 const JS_DAY_TO_KEY: Record<number, string> = {
   0: 'DOMINGO',
@@ -110,6 +112,7 @@ interface DeliveryProfile {
   id: string;
   clientId: string;
   name: string;
+  responsibleName: string;
   photo: string;
   class: string;
   year: string;
@@ -147,7 +150,10 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
   const [customDate, setCustomDate] = useState<string>('');
   const [selectedPlans, setSelectedPlans] = useState<string[]>([]);
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('ALL');
+  const [searchFieldFilter, setSearchFieldFilter] = useState<SearchFieldFilter>('NAME');
   const [searchTerm, setSearchTerm] = useState('');
+  const [dateScopeFilter, setDateScopeFilter] = useState<DateScopeFilter>('ALL');
+  const [filterDate, setFilterDate] = useState<string>('');
   const [nowTick, setNowTick] = useState<number>(Date.now());
 
   // Estado local para gerenciar a preparação dos alunos
@@ -260,6 +266,12 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                   id: `${client.id}-${plan?.id || planName || idx}-${dateIndex}-${periodIndex}`,
                   clientId: client.id,
                   name: client.name,
+                  responsibleName: String(
+                    client.parentName
+                    || (client as any).guardianName
+                    || (Array.isArray((client as any).guardians) ? (client as any).guardians[0] : '')
+                    || ''
+                  ).trim() || '-',
                   photo: client.photo || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(client.name)}`,
                   class: (client.class || '').split(' - ')[1] || client.class || 'Sem turma',
                   year: (client.class || '').split(' - ')[0] || 'Aluno',
@@ -297,9 +309,43 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
   }, [activeEnterprise?.id, activeEnterprise?.openingHours, customDate]);
 
   const filteredData = useMemo(() => {
+    const getStudentStatus = (student: DeliveryProfile): DeliveryStatus => {
+      if (student.items.every((i) => i.status === 'SERVIDO')) return 'SERVIDO';
+      if (student.items.some((i) => i.status === 'PRONTO')) return 'PRONTO';
+      if (student.items.some((i) => i.status === 'PREPARANDO')) return 'PREPARANDO';
+      return 'PENDENTE';
+    };
+
+    const normalize = (value: string) =>
+      String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+
+    const now = new Date();
+    const startOfCurrentWeek = new Date(now);
+    startOfCurrentWeek.setHours(0, 0, 0, 0);
+    startOfCurrentWeek.setDate(startOfCurrentWeek.getDate() - startOfCurrentWeek.getDay());
+    const endOfCurrentWeek = new Date(startOfCurrentWeek);
+    endOfCurrentWeek.setDate(endOfCurrentWeek.getDate() + 6);
+
+    const startOfBiWeekly = new Date(now);
+    startOfBiWeekly.setHours(0, 0, 0, 0);
+    startOfBiWeekly.setDate(startOfBiWeekly.getDate() - 13);
+
     return students.filter(d => {
-      const matchesSearch = d.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          d.registrationId.includes(searchTerm);
+      const searchValue = normalize(searchTerm);
+      const statusLabel = getStudentStatus(d);
+      const searchTarget = (() => {
+        if (searchFieldFilter === 'RESPONSIBLE') return normalize(d.responsibleName);
+        if (searchFieldFilter === 'PLAN') return normalize(d.planName);
+        if (searchFieldFilter === 'CLASS') return normalize(`${d.year} ${d.class}`);
+        if (searchFieldFilter === 'STATUS') return normalize(statusLabel);
+        return normalize(`${d.name} ${d.registrationId}`);
+      })();
+
+      const matchesSearch = !searchValue || searchTarget.includes(searchValue);
       const matchesPeriod = periodFilter === 'ALL' || d.scheduledPeriod === periodFilter;
       const matchesDay = (() => {
         if (customDate) {
@@ -321,10 +367,26 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
           return Boolean(d.scheduledDate && d.scheduledDate >= serviceContext.tomorrowIso);
         });
       })();
+      const matchesDateScope = (() => {
+        if (!d.scheduledDate) return dateScopeFilter === 'ALL';
+        const scheduledDate = new Date(`${d.scheduledDate}T00:00:00`);
+        if (Number.isNaN(scheduledDate.getTime())) return false;
+
+        if (dateScopeFilter === 'CURRENT_WEEK') {
+          return scheduledDate >= startOfCurrentWeek && scheduledDate <= endOfCurrentWeek;
+        }
+        if (dateScopeFilter === 'BIWEEKLY') {
+          return scheduledDate >= startOfBiWeekly && scheduledDate <= now;
+        }
+        if (dateScopeFilter === 'DATE') {
+          return Boolean(filterDate) && d.scheduledDate === filterDate;
+        }
+        return true;
+      })();
       const matchesPlan = selectedPlans.length === 0 || selectedPlans.includes(d.planName);
-      return matchesSearch && matchesPeriod && matchesDay && matchesPlan;
+      return matchesSearch && matchesPeriod && matchesDay && matchesDateScope && matchesPlan;
     });
-  }, [students, searchTerm, periodFilter, selectedDays, selectedPlans, customDate, serviceContext]);
+  }, [students, searchTerm, searchFieldFilter, periodFilter, selectedDays, selectedPlans, customDate, serviceContext, dateScopeFilter, filterDate]);
 
   const availablePlanNames = useMemo(() => {
     return Array.from(new Set(students.map(s => s.planName))).filter(Boolean);
@@ -441,7 +503,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
       unit: 'mm',
       format: 'a4'
     });
-    const tableColumn = ["Aluno", "Matrícula", "Ano/Turma", "Turno", "Plano", "Descrição", "Status"];
+    const tableColumn = ["Aluno", "Matrícula", "Ano/Turma", "Responsável", "Turno", "Plano", "Data Lanche Crédito", "Descrição", "Status"];
     const tableRows: any[] = [];
 
     filteredData.forEach(student => {
@@ -449,8 +511,10 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
         student.name,
         student.registrationId,
         `${student.year} - ${student.class}`,
+        student.responsibleName,
         student.scheduledPeriod === 'MORNING' ? 'Manhã' : student.scheduledPeriod === 'AFTERNOON' ? 'Tarde' : student.scheduledPeriod === 'NIGHT' ? 'Noite' : 'Todos',
         student.planName.replace('_', ' '),
+        student.scheduledDate ? new Date(`${student.scheduledDate}T00:00:00`).toLocaleDateString('pt-BR') : '-',
         student.description,
         student.items.every(i => i.status === 'SERVIDO') ? 'Servido' : 'Pendente'
       ];
@@ -646,17 +710,86 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
             {/* 3. BUSCA POR ALUNO */}
             <div className="lg:col-span-12 space-y-3">
                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-4 flex items-center gap-2">
-                  <User size={12} className="text-indigo-600"/> Identificar Aluno (Matrícula)
+                  <User size={12} className="text-indigo-600"/> Pesquisa e Período
                </label>
-               <div className="relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                  <input 
-                    type="text"
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                    placeholder="Nome ou ID para agilizar preparo..."
-                    className="w-full pl-12 pr-6 py-3.5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none font-bold text-sm transition-all"
-                  />
+               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <select
+                    value={searchFieldFilter}
+                    onChange={(e) => setSearchFieldFilter(e.target.value as SearchFieldFilter)}
+                    className="px-4 py-3.5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none font-bold text-sm transition-all"
+                  >
+                    <option value="NAME">Por nome</option>
+                    <option value="RESPONSIBLE">Por responsável</option>
+                    <option value="PLAN">Por tipo de plano</option>
+                    <option value="CLASS">Por turma</option>
+                    <option value="STATUS">Por status</option>
+                  </select>
+
+                  <div className="relative md:col-span-2">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                    <input
+                      type="text"
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                      placeholder={
+                        searchFieldFilter === 'RESPONSIBLE'
+                          ? 'Digite o nome do responsável...'
+                          : searchFieldFilter === 'PLAN'
+                            ? 'Digite o tipo de plano...'
+                            : searchFieldFilter === 'CLASS'
+                              ? 'Digite a turma...'
+                              : searchFieldFilter === 'STATUS'
+                                ? 'Ex: pendente, pronto, servido...'
+                                : 'Nome ou matrícula do aluno...'
+                      }
+                      className="w-full pl-12 pr-6 py-3.5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none font-bold text-sm transition-all"
+                    />
+                  </div>
+
+                  <select
+                    value={dateScopeFilter}
+                    onChange={(e) => setDateScopeFilter(e.target.value as DateScopeFilter)}
+                    className="px-4 py-3.5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none font-bold text-sm transition-all"
+                  >
+                    <option value="ALL">Período: Todos</option>
+                    <option value="CURRENT_WEEK">Semana atual</option>
+                    <option value="BIWEEKLY">Quinzenal</option>
+                    <option value="DATE">Por data</option>
+                  </select>
+               </div>
+               {dateScopeFilter === 'DATE' && (
+                 <div className="mt-3 max-w-sm">
+                   <input
+                     type="date"
+                     value={filterDate}
+                     onChange={(e) => setFilterDate(e.target.value)}
+                     className="w-full px-4 py-3 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-bold text-sm transition-all"
+                   />
+                 </div>
+               )}
+               <div className="flex flex-wrap gap-2 mt-3">
+                 <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Atalhos:</span>
+                 <button
+                   type="button"
+                   onClick={() => setDateScopeFilter('CURRENT_WEEK')}
+                   className="px-3 py-1.5 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest"
+                 >
+                   Semana atual
+                 </button>
+                 <button
+                   type="button"
+                   onClick={() => setDateScopeFilter('BIWEEKLY')}
+                   className="px-3 py-1.5 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest"
+                 >
+                   Quinzenal
+                 </button>
+                 <button
+                   type="button"
+                   onClick={() => setDateScopeFilter('DATE')}
+                   className="px-3 py-1.5 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest"
+                 >
+                   Por data
+                 </button>
                </div>
             </div>
          </div>
@@ -688,8 +821,10 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                   <tr className="bg-gray-50 border-b border-gray-100">
                      <th className="px-8 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Aluno / Matrícula</th>
                      <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Ano / Turma</th>
+                     <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Responsável</th>
                      <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Turno</th>
                      <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Plano</th>
+                     <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Data Lanche Crédito</th>
                      <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Descrição</th>
                      <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Restrições</th>
                      <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
@@ -719,6 +854,9 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                               </div>
                            </td>
                            <td className="px-6 py-6">
+                              <p className="text-xs font-black text-gray-700 uppercase tracking-tight">{student.responsibleName}</p>
+                           </td>
+                           <td className="px-6 py-6">
                               <div className="flex items-center gap-2">
                                  <div className={`p-1.5 rounded-lg ${
                                     student.scheduledPeriod === 'MORNING' ? 'bg-amber-100 text-amber-600' :
@@ -740,6 +878,11 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                                 'bg-indigo-50 text-indigo-600 border-indigo-100'
                               }`}>
                                 {student.planName.replace('_', ' ')}
+                              </span>
+                           </td>
+                           <td className="px-6 py-6">
+                              <span className="text-[10px] font-black px-3 py-1 rounded-full border border-cyan-100 bg-cyan-50 text-cyan-700 uppercase tracking-widest">
+                                {student.scheduledDate ? new Date(`${student.scheduledDate}T00:00:00`).toLocaleDateString('pt-BR') : '-'}
                               </span>
                            </td>
                            <td className="px-6 py-6">
