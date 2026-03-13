@@ -135,6 +135,23 @@ type CampaignStep = {
   message: string;
 };
 
+type CampaignReport = {
+  id: string;
+  name: string;
+  mode: CampaignMode;
+  audience: CampaignAudience;
+  createdAt: number;
+  startAt: number;
+  targetCount: number;
+  sentCount: number;
+  scheduledCount: number;
+  failedCount: number;
+  intervalSeconds: number;
+  withSignature: boolean;
+  hasAttachment: boolean;
+  status: 'ENVIADA' | 'AGENDADA' | 'PARCIAL' | 'ERRO';
+};
+
 type AiProvider = 'openai' | 'gemini' | 'groq';
 type AiContextActionType = 'RESPONDER_CLIENTE' | 'ATENDIMENTO_HUMANO';
 type AiContextRoutingMode = 'DIRECT' | 'INTENT_SWITCH';
@@ -214,6 +231,7 @@ const WHATSAPP_SIGNATURE_NAME_KEY = 'whatsapp_signature_name';
 const NEW_CHAT_COUNTRY_CODE_KEY = 'whatsapp_new_chat_country_code';
 const WHATSAPP_QUICK_REPLIES_KEY = 'whatsapp_quick_replies';
 const WHATSAPP_AI_CONFIG_KEY = 'whatsapp_ai_config';
+const WHATSAPP_CAMPAIGN_REPORTS_KEY = 'whatsapp_campaign_reports';
 
 const normalizeSearchValue = (value?: string) =>
   String(value || '')
@@ -611,6 +629,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const [campaignSendNow, setCampaignSendNow] = useState(true);
   const [campaignRecurringFrequency, setCampaignRecurringFrequency] = useState<'DAILY' | 'WEEKLY' | 'MONTHLY'>('WEEKLY');
   const [campaignOccurrences, setCampaignOccurrences] = useState(4);
+  const [campaignIntervalSeconds, setCampaignIntervalSeconds] = useState(2);
+  const [campaignUseSignature, setCampaignUseSignature] = useState(true);
+  const [campaignAttachment, setCampaignAttachment] = useState<ChatAttachment | null>(null);
+  const [campaignReports, setCampaignReports] = useState<CampaignReport[]>([]);
   const [campaignSteps, setCampaignSteps] = useState<CampaignStep[]>([
     { id: 1, title: 'Boas-vindas', delayDays: 0, message: 'Olá {Nome}! 👋 Bem-vindo(a). Estamos felizes em ter você por aqui.' },
     { id: 2, title: 'Check-in', delayDays: 2, message: 'Oi {Nome}, passando para saber se conseguiu ver nossa última mensagem.' },
@@ -754,6 +776,23 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     if (!signatureEnabled || !trimmedSignature) return trimmedMessage;
 
     return `*${trimmedSignature}:*\n${trimmedMessage}`;
+  };
+
+  const formatCampaignOutgoingMessage = (rawMessage: string) => {
+    const trimmedMessage = String(rawMessage || '').trim();
+    const trimmedSignature = String(signatureName || '').trim();
+
+    if (!trimmedMessage) return '';
+    if (!campaignUseSignature || !signatureEnabled || !trimmedSignature) return trimmedMessage;
+
+    return `*${trimmedSignature}:*\n${trimmedMessage}`;
+  };
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+
+  const persistCampaignReports = (items: CampaignReport[]) => {
+    setCampaignReports(items);
+    localStorage.setItem(WHATSAPP_CAMPAIGN_REPORTS_KEY, JSON.stringify(items));
   };
 
   const resolveClientPhone = (client: Client) => {
@@ -954,6 +993,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     const storedCountryCode = localStorage.getItem(NEW_CHAT_COUNTRY_CODE_KEY);
     const storedQuickRepliesRaw = localStorage.getItem(WHATSAPP_QUICK_REPLIES_KEY);
     const storedAiConfigRaw = localStorage.getItem(WHATSAPP_AI_CONFIG_KEY);
+    const storedCampaignReportsRaw = localStorage.getItem(WHATSAPP_CAMPAIGN_REPORTS_KEY);
     const normalizedStoredName = String(storedName || '');
     const normalizedStoredEnabled = storedEnabled === 'true';
     let parsedQuickReplies: string[] = [];
@@ -972,6 +1012,35 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     setSavedSignatureName(normalizedStoredName);
     setNewChatCountryCode(storedCountryCode || '55');
     setQuickReplies(parsedQuickReplies);
+
+    try {
+      const parsed = JSON.parse(String(storedCampaignReportsRaw || '[]'));
+      const normalized = Array.isArray(parsed)
+        ? parsed.map((item: any) => ({
+            id: String(item?.id || ''),
+            name: String(item?.name || ''),
+            mode: String(item?.mode || 'BROADCAST') as CampaignMode,
+            audience: String(item?.audience || 'ALL') as CampaignAudience,
+            createdAt: Number(item?.createdAt || Date.now()),
+            startAt: Number(item?.startAt || Date.now()),
+            targetCount: Number(item?.targetCount || 0),
+            sentCount: Number(item?.sentCount || 0),
+            scheduledCount: Number(item?.scheduledCount || 0),
+            failedCount: Number(item?.failedCount || 0),
+            intervalSeconds: Number(item?.intervalSeconds || 0),
+            withSignature: Boolean(item?.withSignature),
+            hasAttachment: Boolean(item?.hasAttachment),
+            status: ['ENVIADA', 'AGENDADA', 'PARCIAL', 'ERRO'].includes(String(item?.status || ''))
+              ? String(item.status) as CampaignReport['status']
+              : 'ERRO',
+          }))
+            .filter((item: CampaignReport) => Boolean(item.id))
+            .slice(0, 100)
+        : [];
+      setCampaignReports(normalized);
+    } catch {
+      setCampaignReports([]);
+    }
 
     let parsedAiConfig = getDefaultAiConfig();
     try {
@@ -2141,73 +2210,157 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         return;
       }
 
-      if (campaignMode === 'BROADCAST') {
-        const finalMessage = formatOutgoingMessage(replaceCampaignVariables(campaignMessage, campaignPreviewName));
-        if (campaignSendNow) {
-          await ApiService.sendWhatsAppBulk(phones, finalMessage);
-          setFeedback(`Campanha "${campaignName}" enviada para ${phones.length} contatos.`);
-        } else {
-          await Promise.all(
-            phones.map((phone) => ApiService.scheduleWhatsAppMessage({
-              chatId: `${phone}@c.us`,
-              message: finalMessage,
-              scheduleAt: baseDate.toISOString(),
-            }))
-          );
-          setFeedback(`Campanha "${campaignName}" agendada para ${baseDate.toLocaleString('pt-BR')}.`);
-        }
-        return;
-      }
+      const intervalSeconds = Math.max(0, Number(campaignIntervalSeconds || 0));
+      const intervalMs = intervalSeconds * 1000;
+      const attachmentPayload = campaignAttachment
+        ? {
+            mediaType: campaignAttachment.mediaType,
+            base64Data: campaignAttachment.base64Data,
+            mimeType: campaignAttachment.mimeType || undefined,
+            fileName: campaignAttachment.fileName || undefined,
+          }
+        : null;
 
-      if (campaignMode === 'RECURRING') {
+      let sentCount = 0;
+      let scheduledCount = 0;
+      let failedCount = 0;
+
+      const deliverNow = async (phone: string, finalMessage: string) => {
+        const chatId = `${phone}@c.us`;
+        if (attachmentPayload) {
+          await ApiService.sendWhatsAppMediaToChat(chatId, finalMessage, attachmentPayload);
+          return;
+        }
+        await ApiService.sendWhatsAppMessage(phone, finalMessage);
+      };
+
+      const scheduleDelivery = async (chatId: string, finalMessage: string, scheduleAt: Date) => {
+        await ApiService.scheduleWhatsAppMessage({
+          chatId,
+          message: finalMessage,
+          scheduleAt: scheduleAt.toISOString(),
+          attachment: attachmentPayload,
+        });
+      };
+
+      if (campaignMode === 'BROADCAST') {
+        if (campaignSendNow) {
+          for (let i = 0; i < phones.length; i += 1) {
+            const phone = phones[i];
+            const finalMessage = formatCampaignOutgoingMessage(
+              replaceCampaignVariables(campaignMessage, campaignPreviewName)
+            );
+            try {
+              await deliverNow(phone, finalMessage);
+              sentCount += 1;
+            } catch {
+              failedCount += 1;
+            }
+            if (i < phones.length - 1 && intervalMs > 0) {
+              await sleep(intervalMs);
+            }
+          }
+        } else {
+          for (let i = 0; i < phones.length; i += 1) {
+            const phone = phones[i];
+            const finalMessage = formatCampaignOutgoingMessage(
+              replaceCampaignVariables(campaignMessage, campaignPreviewName)
+            );
+            const scheduleDate = new Date(baseDate);
+            scheduleDate.setSeconds(scheduleDate.getSeconds() + (i * intervalSeconds));
+            try {
+              await scheduleDelivery(`${phone}@c.us`, finalMessage, scheduleDate);
+              scheduledCount += 1;
+            } catch {
+              failedCount += 1;
+            }
+          }
+        }
+      } else if (campaignMode === 'RECURRING') {
         const occurrences = Math.max(1, Number(campaignOccurrences || 1));
         const frequency = campaignRecurringFrequency;
-        const tasks: Promise<any>[] = [];
-
         for (let occurrenceIndex = 0; occurrenceIndex < occurrences; occurrenceIndex += 1) {
-          const scheduleDate = new Date(baseDate);
+          const cycleDate = new Date(baseDate);
           if (occurrenceIndex > 0) {
-            if (frequency === 'DAILY') scheduleDate.setDate(scheduleDate.getDate() + occurrenceIndex);
-            if (frequency === 'WEEKLY') scheduleDate.setDate(scheduleDate.getDate() + (occurrenceIndex * 7));
-            if (frequency === 'MONTHLY') scheduleDate.setMonth(scheduleDate.getMonth() + occurrenceIndex);
+            if (frequency === 'DAILY') cycleDate.setDate(cycleDate.getDate() + occurrenceIndex);
+            if (frequency === 'WEEKLY') cycleDate.setDate(cycleDate.getDate() + (occurrenceIndex * 7));
+            if (frequency === 'MONTHLY') cycleDate.setMonth(cycleDate.getMonth() + occurrenceIndex);
           }
 
-          const finalMessage = formatOutgoingMessage(replaceCampaignVariables(campaignMessage, campaignPreviewName));
-          phones.forEach((phone) => {
-            tasks.push(ApiService.scheduleWhatsAppMessage({
-              chatId: `${phone}@c.us`,
-              message: finalMessage,
-              scheduleAt: scheduleDate.toISOString(),
-            }));
-          });
+          for (let i = 0; i < phones.length; i += 1) {
+            const phone = phones[i];
+            const finalMessage = formatCampaignOutgoingMessage(
+              replaceCampaignVariables(campaignMessage, campaignPreviewName)
+            );
+            const scheduleDate = new Date(cycleDate);
+            scheduleDate.setSeconds(scheduleDate.getSeconds() + (i * intervalSeconds));
+            try {
+              await scheduleDelivery(`${phone}@c.us`, finalMessage, scheduleDate);
+              scheduledCount += 1;
+            } catch {
+              failedCount += 1;
+            }
+          }
+        }
+      } else {
+        const steps = campaignSteps.filter((step) => String(step.message || '').trim());
+        if (steps.length === 0) {
+          setFeedback('Adicione ao menos uma etapa com mensagem na sequência de follow-up.');
+          return;
         }
 
-        await Promise.all(tasks);
-        setFeedback(`Campanha recorrente "${campaignName}" programada (${occurrences} execução(ões)).`);
-        return;
+        for (let stepIndex = 0; stepIndex < steps.length; stepIndex += 1) {
+          const step = steps[stepIndex];
+          for (let phoneIndex = 0; phoneIndex < phones.length; phoneIndex += 1) {
+            const phone = phones[phoneIndex];
+            const scheduleDate = new Date(baseDate);
+            scheduleDate.setDate(scheduleDate.getDate() + Math.max(0, Number(step.delayDays || 0)));
+            scheduleDate.setSeconds(
+              scheduleDate.getSeconds() + ((stepIndex * phones.length + phoneIndex) * intervalSeconds)
+            );
+            const finalMessage = formatCampaignOutgoingMessage(
+              replaceCampaignVariables(step.message, campaignPreviewName)
+            );
+            try {
+              await scheduleDelivery(`${phone}@c.us`, finalMessage, scheduleDate);
+              scheduledCount += 1;
+            } catch {
+              failedCount += 1;
+            }
+          }
+        }
       }
 
-      const steps = campaignSteps.filter((step) => String(step.message || '').trim());
-      if (steps.length === 0) {
-        setFeedback('Adicione ao menos uma etapa com mensagem na sequência de follow-up.');
-        return;
-      }
+      const report: CampaignReport = {
+        id: `cmp_${Date.now()}`,
+        name: String(campaignName || '').trim(),
+        mode: campaignMode,
+        audience: campaignAudience,
+        createdAt: Date.now(),
+        startAt: baseDate.getTime(),
+        targetCount: phones.length,
+        sentCount,
+        scheduledCount,
+        failedCount,
+        intervalSeconds,
+        withSignature: Boolean(campaignUseSignature && signatureEnabled && String(signatureName || '').trim()),
+        hasAttachment: Boolean(attachmentPayload),
+        status: (
+          failedCount === 0
+            ? (sentCount > 0 && scheduledCount === 0 ? 'ENVIADA' : 'AGENDADA')
+            : ((sentCount + scheduledCount) > 0 ? 'PARCIAL' : 'ERRO')
+        ),
+      };
 
-      const tasks: Promise<any>[] = [];
-      steps.forEach((step) => {
-        const scheduleDate = new Date(baseDate);
-        scheduleDate.setDate(scheduleDate.getDate() + Math.max(0, Number(step.delayDays || 0)));
-        const finalMessage = formatOutgoingMessage(replaceCampaignVariables(step.message, campaignPreviewName));
-        phones.forEach((phone) => {
-          tasks.push(ApiService.scheduleWhatsAppMessage({
-            chatId: `${phone}@c.us`,
-            message: finalMessage,
-            scheduleAt: scheduleDate.toISOString(),
-          }));
-        });
-      });
-      await Promise.all(tasks);
-      setFeedback(`Sequência "${campaignName}" programada com ${steps.length} etapa(s).`);
+      persistCampaignReports([report, ...campaignReports].slice(0, 100));
+
+      if (report.status === 'ENVIADA') {
+        setFeedback(`Campanha "${campaignName}" enviada (${sentCount}/${phones.length}).`);
+      } else if (report.status === 'AGENDADA') {
+        setFeedback(`Campanha "${campaignName}" agendada com sucesso (${scheduledCount} item(ns)).`);
+      } else {
+        setFeedback(`Campanha "${campaignName}" concluída com falhas (${failedCount} falha(s)).`);
+      }
     } catch (err) {
       setFeedback(err instanceof Error ? err.message : 'Erro ao salvar e disparar campanha.');
     } finally {
@@ -2444,6 +2597,40 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       });
     } catch (err) {
       setFeedback(err instanceof Error ? err.message : 'Erro ao preparar anexo.');
+    }
+  };
+
+  const handleCampaignAttachFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    const toBase64 = (value: File) => new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Falha ao ler arquivo da campanha.'));
+      reader.readAsDataURL(value);
+    });
+
+    try {
+      const base64 = await toBase64(file);
+      const mimeType = String(file.type || '').toLowerCase();
+      const mediaType: 'image' | 'document' | 'audio' =
+        mimeType.startsWith('image/')
+          ? 'image'
+          : mimeType.startsWith('audio/')
+            ? 'audio'
+            : 'document';
+
+      setCampaignAttachment({
+        mediaType,
+        base64Data: base64,
+        mimeType: mimeType || undefined,
+        fileName: file.name,
+      });
+      setFeedback(`Arquivo da campanha selecionado: ${file.name}`);
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Erro ao preparar anexo da campanha.');
     }
   };
 
@@ -3165,7 +3352,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         </div>
       </div>
 
-      <div className="bg-white/95 rounded-[24px] border-2 border-cyan-200 p-2 grid grid-cols-2 md:grid-cols-4 gap-2 shadow-sm">
+      <div className="bg-white/95 rounded-[24px] border-2 border-cyan-200 p-2 grid grid-cols-2 md:grid-cols-5 gap-2 shadow-sm">
         <button
           onClick={() => {
             setActiveTab('CRM');
@@ -3191,6 +3378,19 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           }`}
         >
           Dashboard
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab('CRM');
+            setCrmView('CAMPANHAS');
+          }}
+          className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest ${
+            activeTab === 'CRM' && crmView === 'CAMPANHAS'
+              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white'
+              : 'bg-slate-50 text-gray-500'
+          }`}
+        >
+          Disparos
         </button>
         <button
           onClick={() => setActiveTab('SESSION_QR')}
@@ -3888,6 +4088,9 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             setCampaignAudience('ALL');
                             setCampaignSendNow(true);
                             setCampaignStartAt('');
+                            setCampaignIntervalSeconds(2);
+                            setCampaignUseSignature(true);
+                            setCampaignAttachment(null);
                           }}
                           className="px-4 py-2 rounded-xl border border-slate-300 text-slate-600 text-xs font-black uppercase tracking-widest hover:bg-white"
                         >
@@ -3994,6 +4197,65 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             )}
                           </div>
                         </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                              Intervalo entre mensagens (segundos)
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              max={600}
+                              value={campaignIntervalSeconds}
+                              onChange={(e) => setCampaignIntervalSeconds(Math.max(0, Number(e.target.value) || 0))}
+                              className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">Assinatura</label>
+                            <button
+                              type="button"
+                              onClick={() => setCampaignUseSignature((prev) => !prev)}
+                              className={`w-full px-3 py-2.5 rounded-xl border-2 text-sm font-black ${
+                                campaignUseSignature
+                                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                  : 'border-slate-200 bg-slate-50 text-slate-600'
+                              }`}
+                            >
+                              {campaignUseSignature ? 'Com assinatura' : 'Sem assinatura'}
+                            </button>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">Anexo da campanha</label>
+                            <label className="w-full inline-flex items-center justify-center px-3 py-2.5 rounded-xl border-2 border-cyan-100 bg-cyan-50 text-cyan-700 text-sm font-black cursor-pointer hover:bg-cyan-100">
+                              {campaignAttachment ? 'Trocar arquivo' : 'Selecionar arquivo'}
+                              <input
+                                type="file"
+                                className="hidden"
+                                onChange={handleCampaignAttachFile}
+                                accept="image/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,.rar,.7z,.mp4,.avi,.mkv,.mov"
+                              />
+                            </label>
+                          </div>
+                        </div>
+
+                        {campaignAttachment && (
+                          <div className="rounded-xl border border-cyan-100 bg-cyan-50/40 px-3 py-2 flex items-center justify-between gap-3">
+                            <p className="text-xs font-semibold text-slate-700 truncate">
+                              Anexo: <span className="font-black">{campaignAttachment.fileName || 'arquivo'}</span> ({campaignAttachment.mediaType})
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setCampaignAttachment(null)}
+                              className="px-2 py-1 rounded-lg text-[11px] font-black text-rose-600 hover:bg-rose-50"
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        )}
 
                         {campaignMode === 'RECURRING' && (
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -4137,6 +4399,108 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         </p>
                       </aside>
                     </div>
+
+                    <section className="rounded-2xl border border-cyan-100 bg-white p-5 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Gerenciar campanhas</p>
+                          <h4 className="text-lg font-black text-slate-900">Relatório de envios</h4>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => persistCampaignReports([])}
+                          disabled={campaignReports.length === 0}
+                          className="px-3 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-black uppercase tracking-widest hover:bg-slate-50 disabled:opacity-60"
+                        >
+                          Limpar histórico
+                        </button>
+                      </div>
+
+                      {campaignReports.length === 0 ? (
+                        <p className="text-sm font-semibold text-slate-500">Nenhum disparo registrado ainda.</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full text-sm">
+                            <thead>
+                              <tr className="text-left text-[11px] uppercase tracking-widest text-slate-500 border-b border-slate-100">
+                                <th className="py-2 pr-3 font-black">Campanha</th>
+                                <th className="py-2 pr-3 font-black">Status</th>
+                                <th className="py-2 pr-3 font-black">Público</th>
+                                <th className="py-2 pr-3 font-black">Início</th>
+                                <th className="py-2 pr-3 font-black">Resultado</th>
+                                <th className="py-2 pr-3 font-black">Ações</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {campaignReports.map((item) => (
+                                <tr key={item.id} className="border-b border-slate-100 last:border-b-0">
+                                  <td className="py-2 pr-3">
+                                    <p className="font-black text-slate-800">{item.name}</p>
+                                    <p className="text-xs font-semibold text-slate-500">
+                                      {item.mode} • intervalo {item.intervalSeconds}s
+                                      {item.hasAttachment ? ' • com anexo' : ''}
+                                      {item.withSignature ? ' • com assinatura' : ''}
+                                    </p>
+                                  </td>
+                                  <td className="py-2 pr-3">
+                                    <span className={`px-2 py-1 rounded-full text-[11px] font-black ${
+                                      item.status === 'ENVIADA'
+                                        ? 'bg-emerald-100 text-emerald-700'
+                                        : item.status === 'AGENDADA'
+                                          ? 'bg-cyan-100 text-cyan-700'
+                                          : item.status === 'PARCIAL'
+                                            ? 'bg-amber-100 text-amber-700'
+                                            : 'bg-rose-100 text-rose-700'
+                                    }`}>
+                                      {item.status}
+                                    </span>
+                                  </td>
+                                  <td className="py-2 pr-3 font-semibold text-slate-600">{item.audience}</td>
+                                  <td className="py-2 pr-3 font-semibold text-slate-600">{new Date(item.startAt).toLocaleString('pt-BR')}</td>
+                                  <td className="py-2 pr-3">
+                                    <p className="text-xs font-semibold text-slate-600">
+                                      Alvo: <span className="font-black">{item.targetCount}</span>
+                                    </p>
+                                    <p className="text-xs font-semibold text-slate-600">
+                                      Enviadas: <span className="font-black text-emerald-700">{item.sentCount}</span> •
+                                      Agendadas: <span className="font-black text-cyan-700"> {item.scheduledCount}</span> •
+                                      Falhas: <span className="font-black text-rose-700"> {item.failedCount}</span>
+                                    </p>
+                                  </td>
+                                  <td className="py-2 pr-3">
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setCampaignName(item.name);
+                                          setCampaignMode(item.mode);
+                                          setCampaignAudience(item.audience);
+                                          setCampaignIntervalSeconds(item.intervalSeconds);
+                                          setCampaignUseSignature(item.withSignature);
+                                          setCampaignSendNow(item.status === 'ENVIADA');
+                                          setFeedback(`Campanha "${item.name}" carregada para edição.`);
+                                        }}
+                                        className="px-2 py-1 rounded-lg text-[11px] font-black text-cyan-700 hover:bg-cyan-50"
+                                      >
+                                        Reutilizar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => persistCampaignReports(campaignReports.filter((report) => report.id !== item.id))}
+                                        className="p-1 rounded text-rose-600 hover:bg-rose-50"
+                                        title="Excluir relatório"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </section>
                   </div>
                 </div>
               )}
