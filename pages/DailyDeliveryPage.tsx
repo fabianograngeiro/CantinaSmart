@@ -111,6 +111,7 @@ interface DeliveryItem {
 interface DeliveryProfile {
   id: string;
   clientId: string;
+  planId: string;
   name: string;
   responsibleName: string;
   photo: string;
@@ -146,7 +147,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
     );
   }
 
-  const [selectedDays, setSelectedDays] = useState<('TODAY' | 'TOMORROW')[]>(['TODAY']);
+  const [selectedDays, setSelectedDays] = useState<('TODAY' | 'TOMORROW')[]>([]);
   const [customDate, setCustomDate] = useState<string>('');
   const [selectedPlans, setSelectedPlans] = useState<string[]>([]);
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('ALL');
@@ -170,15 +171,6 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
   );
 
   useEffect(() => {
-    if (serviceContext.isWithinServiceHours) return;
-    setSelectedDays((prev) => {
-      const withoutToday = prev.filter(day => day !== 'TODAY');
-      if (withoutToday.length > 0) return withoutToday as ('TODAY' | 'TOMORROW')[];
-      return ['TOMORROW'];
-    });
-  }, [serviceContext.isWithinServiceHours]);
-
-  useEffect(() => {
     const enterpriseId = activeEnterprise?.id;
     if (!enterpriseId) {
       setStudents([]);
@@ -195,17 +187,37 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
 
     const loadDeliveryProfiles = async () => {
       try {
-        const [clientsData, plansData] = await Promise.all([
+        const [clientsData, plansData, transactionsData] = await Promise.all([
           ApiService.getClients(enterpriseId),
           ApiService.getPlans(enterpriseId),
+          ApiService.getTransactions({ enterpriseId }),
         ]);
 
         const clients = (Array.isArray(clientsData) ? clientsData : []) as Client[];
         const plans = (Array.isArray(plansData) ? plansData : []) as Plan[];
+        const transactions = Array.isArray(transactionsData) ? transactionsData : [];
         const activePlans = plans.filter(plan => plan.isActive !== false);
         const planById = new Map(activePlans.map(plan => [plan.id, plan]));
         const planByName = new Map(activePlans.map(plan => [String(plan.name).trim().toUpperCase(), plan]));
         const blockedPlanNames = new Set(['PREPAGO', 'PRÉ-PAGO', 'PRE-PAGO', 'PF_FIXO', 'LANCHE_FIXO']);
+        const normalizePlanName = (value?: string) => String(value || '').trim().toUpperCase();
+
+        const deliveredKeys = new Set<string>(
+          transactions
+            .filter((tx: any) => {
+              const type = String(tx?.type || '').toUpperCase();
+              if (type !== 'CONSUMO') return false;
+              const bag = String(tx?.description || '').toLowerCase();
+              return bag.includes('entrega do dia');
+            })
+            .map((tx: any) => {
+              const clientId = String(tx?.clientId || '').trim();
+              const planName = normalizePlanName(tx?.plan || tx?.planName || tx?.item || '');
+              const deliveryDate = String(tx?.deliveryDate || tx?.scheduledDate || tx?.mealDate || tx?.date || '').slice(0, 10);
+              return `${clientId}|${planName}|${deliveryDate}`;
+            })
+            .filter((key: string) => key.split('|').every((part) => Boolean(part)))
+        );
 
         const currentContext = getServiceContext(activeEnterprise?.openingHours, new Date());
 
@@ -257,14 +269,16 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
               if (scheduleDates.length === 0) return [];
 
               return scheduleDates.flatMap((dateKey, dateIndex) => {
-                const scheduledDate = currentContext.shouldRollToTomorrow && dateKey <= currentContext.todayIso
-                  ? currentContext.tomorrowIso
-                  : dateKey;
+                const scheduledDate = dateKey;
                 const scheduledDay: 'TODAY' | 'TOMORROW' = scheduledDate === currentContext.todayIso ? 'TODAY' : 'TOMORROW';
+                const planNameUpper = normalizePlanName(plan?.name || planName || 'PLANO');
+                const deliveredKey = `${client.id}|${planNameUpper}|${scheduledDate}`;
+                const deliveredForDate = deliveredKeys.has(deliveredKey);
 
                 return effectivePeriods.map((period, periodIndex) => ({
                   id: `${client.id}-${plan?.id || planName || idx}-${dateIndex}-${periodIndex}`,
                   clientId: client.id,
+                  planId: String(plan?.id || planId || ''),
                   name: client.name,
                   responsibleName: String(
                     client.parentName
@@ -288,8 +302,8 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                     id: `item-${client.id}-${plan?.id || planName || idx}-${dateIndex}-${periodIndex}`,
                     type: 'ALMOCO',
                     name: plan?.name || planName || 'Plano',
-                    components: (plan?.items || []).map(i => ({ name: i.name, checked: false })),
-                    status: 'PENDENTE' as DeliveryStatus,
+                    components: (plan?.items || []).map(i => ({ name: i.name, checked: deliveredForDate })),
+                    status: (deliveredForDate ? 'SERVIDO' : 'PENDENTE') as DeliveryStatus,
                   }],
                 }));
               });
@@ -448,12 +462,13 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
           enterpriseId: activeEnterprise.id,
           type: 'CONSUMO',
           amount: 0,
-          description: `Entrega do dia - ${student.planName} - ${item.name}`,
+          description: `Entrega do dia - ${student.planName} - ${item.name} - ${student.scheduledDate || transactionDate}`,
           item: item.name,
           paymentMethod: method,
           method,
           timestamp: now.toISOString(),
           date: transactionDate,
+          deliveryDate: student.scheduledDate || transactionDate,
           time: transactionTime,
           status,
           plan: student.planName,
