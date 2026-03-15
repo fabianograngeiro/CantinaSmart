@@ -203,6 +203,20 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
         const normalizePlanName = (value?: string) => String(value || '').trim().toUpperCase();
 
         const deliveryBalanceByKey = new Map<string, number>();
+        const autoFinalizeQueue = new Map<string, {
+          clientId: string;
+          clientName: string;
+          enterpriseId: string;
+          planName: string;
+          scheduledDate: string;
+        }>();
+        const nowRuntime = new Date();
+        const isPastDeliveryCutoff = (dateIso: string) => {
+          const base = new Date(`${dateIso}T18:00:00`);
+          if (Number.isNaN(base.getTime())) return false;
+          return nowRuntime.getTime() > base.getTime();
+        };
+
         transactions.forEach((tx: any) => {
           const type = String(tx?.type || '').toUpperCase();
           const description = String(tx?.description || '').toLowerCase();
@@ -275,6 +289,18 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                 const planNameUpper = normalizePlanName(plan?.name || planName || 'PLANO');
                 const deliveredKey = `${client.id}|${planNameUpper}|${scheduledDate}`;
                 const deliveredForDate = Number(deliveryBalanceByKey.get(deliveredKey) || 0) > 0;
+                const shouldAutoFinalizeByCutoff = !deliveredForDate && isPastDeliveryCutoff(scheduledDate);
+                if (shouldAutoFinalizeByCutoff) {
+                  autoFinalizeQueue.set(deliveredKey, {
+                    clientId: String(client.id),
+                    clientName: String(client.name || ''),
+                    enterpriseId: String(activeEnterprise.id),
+                    planName: String(plan?.name || planName || 'PLANO'),
+                    scheduledDate,
+                  });
+                  deliveryBalanceByKey.set(deliveredKey, 1);
+                }
+                const isServed = deliveredForDate || shouldAutoFinalizeByCutoff;
 
                 return effectivePeriods.map((period, periodIndex) => ({
                   id: `${client.id}-${plan?.id || planName || idx}-${dateIndex}-${periodIndex}`,
@@ -303,8 +329,8 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                     id: `item-${client.id}-${plan?.id || planName || idx}-${dateIndex}-${periodIndex}`,
                     type: 'ALMOCO',
                     name: plan?.name || planName || 'Plano',
-                    components: (plan?.items || []).map(i => ({ name: i.name, checked: deliveredForDate })),
-                    status: (deliveredForDate ? 'SERVIDO' : 'PENDENTE') as DeliveryStatus,
+                    components: (plan?.items || []).map(i => ({ name: i.name, checked: isServed })),
+                    status: (isServed ? 'SERVIDO' : 'PENDENTE') as DeliveryStatus,
                   }],
                 }));
               });
@@ -312,6 +338,35 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
 
             return fromSelectedConfig;
           });
+
+        if (autoFinalizeQueue.size > 0) {
+          const finalizeNow = new Date();
+          const finalizeTime = finalizeNow.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          await Promise.all(
+            Array.from(autoFinalizeQueue.values()).map((entry) =>
+              ApiService.createTransaction({
+                clientId: entry.clientId,
+                clientName: entry.clientName,
+                enterpriseId: entry.enterpriseId,
+                type: 'CONSUMO',
+                amount: 0,
+                description: `Entrega do dia - ${entry.planName} - ${entry.planName} - ${entry.scheduledDate}`,
+                item: entry.planName,
+                paymentMethod: 'PLANO',
+                method: 'PLANO',
+                timestamp: finalizeNow.toISOString(),
+                date: entry.scheduledDate,
+                deliveryDate: entry.scheduledDate,
+                time: finalizeTime,
+                status: 'CONCLUIDA',
+                executionSource: 'SISTEMA',
+                plan: entry.planName,
+              }).catch((error) => {
+                console.error('Erro ao auto-finalizar entrega por vencimento (18h):', error);
+              })
+            )
+          );
+        }
 
         setStudents(deliveryProfiles);
       } catch (error) {
@@ -472,6 +527,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
           deliveryDate: student.scheduledDate || transactionDate,
           time: transactionTime,
           status,
+          executionSource: 'USUARIO',
           plan: student.planName,
         })
       ));
@@ -539,6 +595,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
           deliveryDate: student.scheduledDate || transactionDate,
           time: transactionTime,
           status: 'CONCLUIDA',
+          executionSource: 'USUARIO',
           plan: student.planName,
         })
       ));
@@ -971,9 +1028,20 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                               </span>
                            </td>
                            <td className="px-6 py-6">
-                              <span className="text-[10px] font-black px-3 py-1 rounded-full border border-cyan-100 bg-cyan-50 text-cyan-700 uppercase tracking-widest">
-                                {student.scheduledDate ? new Date(`${student.scheduledDate}T00:00:00`).toLocaleDateString('pt-BR') : '-'}
-                              </span>
+                              <div className="inline-flex flex-col items-center gap-1">
+                                <span className="text-[10px] font-black px-3 py-1 rounded-full border border-cyan-100 bg-cyan-50 text-cyan-700 uppercase tracking-widest">
+                                  {student.scheduledDate ? new Date(`${student.scheduledDate}T00:00:00`).toLocaleDateString('pt-BR') : '-'}
+                                </span>
+                                <span className="text-[9px] font-black text-cyan-700 uppercase tracking-widest">
+                                  {student.scheduledDate
+                                    ? new Date(`${student.scheduledDate}T00:00:00`)
+                                      .toLocaleDateString('pt-BR', { weekday: 'long' })
+                                      .normalize('NFD')
+                                      .replace(/[\u0300-\u036f]/g, '')
+                                      .toUpperCase()
+                                    : '-'}
+                                </span>
+                              </div>
                            </td>
                            <td className="px-6 py-6">
                               <div className="flex items-center gap-2">

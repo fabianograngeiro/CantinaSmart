@@ -8,6 +8,8 @@ import {
   ChefHat, Scale, Coffee, UtensilsCrossed, FileBarChart, Trash2, RefreshCw
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Cell, PieChart, Pie } from 'recharts';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { Role, User, Enterprise, Product } from '../types';
 import ApiService from '../services/api';
 import { resolveUserAvatar } from '../utils/avatar';
@@ -25,6 +27,29 @@ type DashboardMetrics = {
   uniqueClientsToday: number;
   uniqueClientsYesterday: number;
   criticalStockCount: number;
+  activeStudentsWithPlanBalance: number;
+  activePlanBreakdown: Array<{
+    planName: string;
+    studentsCount: number;
+    totalBalance: number;
+    members: Array<{
+      clientId: string;
+      name: string;
+      className: string;
+      responsible: string;
+      balance: number;
+    }>;
+  }>;
+  weekdayDeliveriesCount: number;
+  weekdayDeliveriesByDay: Array<{
+    key: string;
+    label: string;
+    fullLabel: string;
+    dateLabel: string;
+    count: number;
+    plans: Array<{ planName: string; count: number }>;
+  }>;
+  weekdayDeliveriesWindowLabel: string;
   todayHourly: Array<{ name: string; sales: number }>;
   salesByCategory: Array<{ name: string; value: number; fill: string }>;
 };
@@ -64,6 +89,11 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
     uniqueClientsToday: 0,
     uniqueClientsYesterday: 0,
     criticalStockCount: 0,
+    activeStudentsWithPlanBalance: 0,
+    activePlanBreakdown: [],
+    weekdayDeliveriesCount: 0,
+    weekdayDeliveriesByDay: [],
+    weekdayDeliveriesWindowLabel: '',
     todayHourly: [],
     salesByCategory: [],
   });
@@ -102,9 +132,10 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
 
     try {
       setIsLoadingDashboardMetrics(true);
-      const [transactions, products] = await Promise.all([
+      const [transactions, products, clients] = await Promise.all([
         ApiService.getTransactions({ enterpriseId: activeEnterprise.id }),
         ApiService.getProducts(activeEnterprise.id),
+        ApiService.getClients(activeEnterprise.id),
       ]);
 
       const today = new Date();
@@ -116,6 +147,183 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
       const productById = new Map(products.map((product: Product) => [product.id, product]));
       const todayHourlyMap = new Map<string, number>();
       const categoryMap = new Map<string, number>();
+
+      const normalize = (value?: string) =>
+        String(value || '')
+          .trim()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toUpperCase();
+
+      const blockedPlanNames = new Set(['PREPAGO', 'PRE-PAGO', 'PRÉ-PAGO', 'CANTINA', 'CREDITO CANTINA', 'CRÉDITO CANTINA']);
+
+      const clientsData = Array.isArray(clients) ? clients : [];
+      const toIsoDate = (date: Date) => {
+        const year = date.getFullYear();
+        const month = `${date.getMonth() + 1}`.padStart(2, '0');
+        const day = `${date.getDate()}`.padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+
+      const ptWeekdayToKey: Record<number, string> = {
+        1: 'SEGUNDA',
+        2: 'TERCA',
+        3: 'QUARTA',
+        4: 'QUINTA',
+        5: 'SEXTA',
+      };
+      const weekdayLabels: Record<string, string> = {
+        SEGUNDA: 'SEG',
+        TERCA: 'TER',
+        QUARTA: 'QUA',
+        QUINTA: 'QUI',
+        SEXTA: 'SEX',
+      };
+      const activeStudentsWithPlanBalanceCount = clientsData.filter((client: any) => {
+        if (String(client?.type || '').toUpperCase() !== 'ALUNO') return false;
+        const balances = client?.planCreditBalances && typeof client.planCreditBalances === 'object'
+          ? Object.values(client.planCreditBalances)
+          : [];
+        return balances.some((entry: any) => {
+          const planName = normalize(entry?.planName);
+          const balance = Number(entry?.balance || 0);
+          return balance > 0 && !blockedPlanNames.has(planName);
+        });
+      }).length;
+
+      const planBreakdownMap = new Map<
+        string,
+        {
+          planName: string;
+          students: Set<string>;
+          totalBalance: number;
+          membersById: Map<string, { clientId: string; name: string; className: string; responsible: string; balance: number }>;
+        }
+      >();
+      clientsData.forEach((client: any) => {
+        if (String(client?.type || '').toUpperCase() !== 'ALUNO') return;
+        const balances = client?.planCreditBalances && typeof client.planCreditBalances === 'object'
+          ? Object.values(client.planCreditBalances)
+          : [];
+
+        balances.forEach((entry: any) => {
+          const normalizedPlanName = normalize(entry?.planName);
+          const balance = Number(entry?.balance || 0);
+          if (!normalizedPlanName || balance <= 0 || blockedPlanNames.has(normalizedPlanName)) return;
+
+          const displayPlanName = String(entry?.planName || normalizedPlanName)
+            .replace(/_/g, ' ')
+            .trim()
+            .toUpperCase();
+
+          const existing = planBreakdownMap.get(normalizedPlanName) || {
+            planName: displayPlanName,
+            students: new Set<string>(),
+            totalBalance: 0,
+            membersById: new Map<string, { clientId: string; name: string; className: string; responsible: string; balance: number }>(),
+          };
+          const clientId = String(client?.id || '');
+          existing.students.add(clientId);
+          existing.totalBalance += balance;
+          existing.membersById.set(clientId, {
+            clientId,
+            name: String(client?.name || 'Sem nome'),
+            className: String(client?.class || '-'),
+            responsible: String(client?.parentName || client?.responsible || '-'),
+            balance: Number(balance.toFixed(2)),
+          });
+          planBreakdownMap.set(normalizedPlanName, existing);
+        });
+      });
+
+      const activePlanBreakdown = Array.from(planBreakdownMap.values())
+        .map((item) => ({
+          planName: item.planName,
+          studentsCount: item.students.size,
+          totalBalance: Number(item.totalBalance.toFixed(2)),
+          members: Array.from(item.membersById.values()).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
+        }))
+        .sort((a, b) => {
+          if (b.studentsCount !== a.studentsCount) return b.studentsCount - a.studentsCount;
+          return a.planName.localeCompare(b.planName, 'pt-BR');
+        });
+
+      const WEEKDAY_SET = new Set(['SEGUNDA', 'TERCA', 'QUARTA', 'QUINTA', 'SEXTA']);
+
+      const nowLocal = new Date();
+      const nowDay = nowLocal.getDay();
+      const nowHour = nowLocal.getHours();
+      const mondayCurrent = new Date(nowLocal);
+      mondayCurrent.setHours(0, 0, 0, 0);
+      mondayCurrent.setDate(mondayCurrent.getDate() - ((nowDay + 6) % 7));
+      const shouldUseNextWeek = nowDay === 6 || nowDay === 0 || (nowDay === 5 && nowHour >= 18);
+      const mondayReference = new Date(mondayCurrent);
+      if (shouldUseNextWeek) {
+        mondayReference.setDate(mondayReference.getDate() + 7);
+      }
+
+      const weekdayDates = [0, 1, 2, 3, 4].map((offset) => {
+        const d = new Date(mondayReference);
+        d.setDate(mondayReference.getDate() + offset);
+        const jsDay = d.getDay();
+        const key = ptWeekdayToKey[jsDay] || '';
+        return {
+          key,
+          label: weekdayLabels[key] || '',
+          fullLabel: key,
+          iso: toIsoDate(d),
+          dateLabel: d.toLocaleDateString('pt-BR'),
+        };
+      });
+
+      const weekdayDeliveriesByDay = weekdayDates.map((dayInfo) => {
+        const dayPlanMap = new Map<string, number>();
+
+        clientsData.forEach((client: any) => {
+          if (String(client?.type || '').toUpperCase() !== 'ALUNO') return;
+          const selectedPlans = Array.isArray(client?.selectedPlansConfig) ? client.selectedPlansConfig : [];
+          selectedPlans.forEach((config: any) => {
+            const days = Array.isArray(config?.daysOfWeek) ? config.daysOfWeek : [];
+            const selectedDates = Array.isArray(config?.selectedDates) ? config.selectedDates : [];
+            const deliveryShifts = Array.isArray(config?.deliveryShifts) ? config.deliveryShifts : [];
+            const shiftsMultiplier = deliveryShifts.length > 0 ? deliveryShifts.length : 1;
+
+            const hasWeekDayMatch = days.some((day: string) => normalize(day) === dayInfo.key);
+            const hasSelectedDateMatch = selectedDates.some((date: string) => String(date || '').slice(0, 10) === dayInfo.iso);
+            if (!hasWeekDayMatch && !hasSelectedDateMatch) return;
+
+            const rawPlanName = String(config?.planName || config?.name || '').trim();
+            const normalizedPlanName = normalize(rawPlanName);
+            if (!normalizedPlanName || blockedPlanNames.has(normalizedPlanName)) return;
+            const displayPlanName = rawPlanName.replace(/_/g, ' ').toUpperCase();
+            dayPlanMap.set(displayPlanName, (dayPlanMap.get(displayPlanName) || 0) + shiftsMultiplier);
+          });
+        });
+
+        const plans = Array.from(dayPlanMap.entries())
+          .map(([planName, count]) => ({ planName, count }))
+          .sort((a, b) => {
+            if (b.count !== a.count) return b.count - a.count;
+            return a.planName.localeCompare(b.planName, 'pt-BR');
+          });
+
+        const count = plans.reduce((sum, item) => sum + item.count, 0);
+
+        return {
+          key: dayInfo.key,
+          label: dayInfo.label,
+          fullLabel: dayInfo.fullLabel,
+          dateLabel: dayInfo.dateLabel,
+          count,
+          plans,
+        };
+      });
+
+      const weekdayDeliveriesCount = weekdayDeliveriesByDay.reduce((sum, day) => sum + day.count, 0);
+
+      const fridayReference = new Date(mondayReference);
+      fridayReference.setDate(mondayReference.getDate() + 4);
+      const weekdayDeliveriesWindowLabel = `Semana de ${mondayReference.toLocaleDateString('pt-BR')} a ${fridayReference.toLocaleDateString('pt-BR')}`;
 
       const getDateKeyFromTransaction = (tx: any) => {
         if (tx?.date) return tx.date;
@@ -215,6 +423,11 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
         uniqueClientsToday,
         uniqueClientsYesterday,
         criticalStockCount,
+        activeStudentsWithPlanBalance: activeStudentsWithPlanBalanceCount,
+        activePlanBreakdown,
+        weekdayDeliveriesCount,
+        weekdayDeliveriesByDay,
+        weekdayDeliveriesWindowLabel,
         todayHourly,
         salesByCategory,
       });
@@ -269,6 +482,98 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
       console.error('Erro ao resetar database:', err);
       alert('❌ Erro ao resetar database. Verifique o console.');
       setIsResetting(false);
+    }
+  };
+
+  const handlePrintPlanReport = (planName: string) => {
+    try {
+      const selectedPlan = (dashboardMetrics.activePlanBreakdown || []).find((item) => item.planName === planName);
+      if (!selectedPlan) {
+        alert('Plano não encontrado para gerar relatório.');
+        return;
+      }
+
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      const generatedAt = new Date();
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.text('RELATÓRIO DE PLANO ATIVO', 40, 40);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(11);
+      doc.text(`Empresa: ${activeEnterprise?.name || '-'}`, 40, 62);
+      doc.text(`Plano: ${selectedPlan.planName}`, 40, 78);
+      doc.text(`Total de alunos ativos: ${selectedPlan.studentsCount}`, 40, 94);
+      doc.text(`Saldo total do plano: R$ ${selectedPlan.totalBalance.toFixed(2)}`, 40, 110);
+      doc.text(`Gerado em: ${generatedAt.toLocaleString('pt-BR')}`, 40, 126);
+
+      const bodyRows = (selectedPlan.members || []).map((member, index) => [
+        String(index + 1),
+        member.name,
+        member.className || '-',
+        member.responsible || '-',
+        `R$ ${Number(member.balance || 0).toFixed(2)}`,
+      ]);
+
+      autoTable(doc, {
+        startY: 146,
+        head: [['#', 'Aluno', 'Turma/Ano', 'Responsável', 'Saldo']],
+        body: bodyRows,
+        theme: 'grid',
+        margin: { left: 40, right: 40 },
+        styles: { fontSize: 10, cellPadding: 6, textColor: [31, 41, 55] },
+        headStyles: { fillColor: [109, 40, 217], textColor: 255, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+      });
+
+      const safePlan = selectedPlan.planName.toLowerCase().replace(/\s+/g, '_');
+      const safeEnterprise = String(activeEnterprise?.name || 'empresa').toLowerCase().replace(/\s+/g, '_');
+      doc.save(`relatorio_plano_${safePlan}_${safeEnterprise}_${generatedAt.toISOString().slice(0, 10)}.pdf`);
+    } catch (error) {
+      console.error('Erro ao gerar PDF do plano:', error);
+      alert('Não foi possível gerar o PDF deste plano.');
+    }
+  };
+
+  const handlePrintWeekdayReport = (day: { label: string; dateLabel: string; count: number; plans: Array<{ planName: string; count: number }> }) => {
+    try {
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+      const generatedAt = new Date();
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.text('RELATÓRIO DE ENTREGA DO DIA', 40, 40);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(11);
+      doc.text(`Empresa: ${activeEnterprise?.name || '-'}`, 40, 62);
+      doc.text(`Dia: ${day.label}`, 40, 78);
+      doc.text(`Data: ${day.dateLabel}`, 40, 94);
+      doc.text(`Total programado: ${day.count}`, 40, 110);
+      doc.text(`Gerado em: ${generatedAt.toLocaleString('pt-BR')}`, 40, 126);
+
+      const bodyRows = (day.plans || []).map((plan, index) => [
+        String(index + 1),
+        plan.planName,
+        String(plan.count),
+      ]);
+
+      autoTable(doc, {
+        startY: 146,
+        head: [['#', 'Plano', 'Total']],
+        body: bodyRows,
+        theme: 'grid',
+        margin: { left: 40, right: 40 },
+        styles: { fontSize: 10, cellPadding: 6, textColor: [31, 41, 55] },
+        headStyles: { fillColor: [13, 148, 136], textColor: 255, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+      });
+
+      const safeDate = String(day.dateLabel || '').replace(/\//g, '-');
+      const safeEnterprise = String(activeEnterprise?.name || 'empresa').toLowerCase().replace(/\s+/g, '_');
+      doc.save(`relatorio_entrega_${safeDate}_${safeEnterprise}.pdf`);
+    } catch (error) {
+      console.error('Erro ao gerar PDF do dia de entrega:', error);
+      alert('Não foi possível gerar o PDF deste dia.');
     }
   };
 
@@ -593,11 +898,190 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
           onClick={() => navigate('/products')}
           cta="Abrir Produtos"
         />
+        <div className="lg:col-span-2">
+          <StatCard
+            title="Entrega SEG a SEX"
+            value={isLoadingDashboardMetrics ? '...' : `${dashboardMetrics.weekdayDeliveriesCount}`}
+            valueBesideIcon
+            hideMainValue
+            change="Dias programados"
+            isPositive
+            icon={<Calendar className="text-teal-600" />}
+            onClick={() => navigate('/daily-delivery')}
+            cta="Abrir Entregas"
+            renderExtra={
+              <div className="mt-3 space-y-2">
+                <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
+                  {dashboardMetrics.weekdayDeliveriesWindowLabel || 'Semana de referência'}
+                </p>
+                <div className="flex justify-center gap-2 overflow-x-auto pb-1 pr-1">
+                  {(dashboardMetrics.weekdayDeliveriesByDay || []).map((day) => (
+                    <div
+                      key={day.key}
+                      className="w-[108px] min-w-[108px] rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white px-2 py-3 text-center min-h-[182px] flex flex-col shadow-sm"
+                    >
+                      <p className="text-[36px] font-black text-slate-800 uppercase tracking-tight leading-none">
+                        {day.label || day.fullLabel || day.key}
+                      </p>
+                      <p className="text-[13px] font-bold text-slate-500 mt-2 leading-none whitespace-nowrap">{day.dateLabel}</p>
+                      <div className="w-full border-b border-slate-300 mt-3 mb-2.5" />
+                      <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest leading-none">Total</p>
+                      <p className="text-[52px] font-black text-teal-700 leading-[0.9] mt-1">{day.count}</p>
+                      <div className="mt-2 space-y-1 text-left">
+                        {(day.plans || []).slice(0, 3).map((plan) => (
+                          <div key={`${day.key}-${plan.planName}`} className="flex items-center justify-between gap-1 rounded-lg border border-teal-100 bg-teal-50 px-1.5 py-1">
+                            <span className="text-[8px] font-black text-teal-700 uppercase truncate">{plan.planName}</span>
+                            <span className="text-[8px] font-black text-teal-900">{plan.count}</span>
+                          </div>
+                        ))}
+                        {(day.plans || []).length === 0 && (
+                          <div className="rounded-lg border border-slate-200 bg-slate-100 px-1.5 py-1 text-center">
+                            <span className="text-[8px] font-bold text-slate-500 uppercase">Sem entrega</span>
+                          </div>
+                        )}
+                      {(day.plans || []).length > 3 && (
+                        <p className="text-[8px] font-black text-slate-500 text-right">
+                          +{(day.plans || []).length - 3}
+                        </p>
+                      )}
+                      <div className="mt-1.5">
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handlePrintWeekdayReport(day);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              handlePrintWeekdayReport(day);
+                            }
+                          }}
+                          className="inline-flex items-center justify-center w-full rounded-lg border border-teal-200 bg-white px-1.5 py-1 text-[8px] font-black uppercase tracking-wide text-teal-700 hover:bg-teal-50 transition-colors cursor-pointer"
+                        >
+                          Imprimir PDF
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                </div>
+              </div>
+            }
+          />
+        </div>
+        <div className="lg:col-span-1">
+          <StatCard
+            title="Alunos c/ Plano Ativo"
+            value={isLoadingDashboardMetrics ? '...' : `${dashboardMetrics.activeStudentsWithPlanBalance}`}
+            valueBesideIcon
+            hideMainValue
+            change="Saldo de plano > 0"
+            isPositive
+            icon={<Users className="text-purple-600" />}
+            onClick={() => navigate('/clients')}
+            cta="Ver Alunos"
+            renderExtra={
+              <div className="mt-3 space-y-2">
+                <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Totais por Plano Ativo</p>
+                <div className="flex justify-center gap-2 overflow-x-auto pb-1 pr-1">
+                  {(dashboardMetrics.activePlanBreakdown || []).slice(0, 6).map((plan) => (
+                    <div
+                      key={plan.planName}
+                      className="w-[108px] min-w-[108px] rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white px-2 py-3 text-center min-h-[182px] flex flex-col shadow-sm"
+                    >
+                      <p className="text-[16px] font-black text-slate-800 uppercase tracking-tight leading-none line-clamp-2 min-h-[34px]">
+                        {plan.planName}
+                      </p>
+                      <p className="text-[11px] font-bold text-slate-500 mt-2 leading-none">Alunos ativos</p>
+                      <div className="w-full border-b border-slate-300 mt-3 mb-2.5" />
+                      <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest leading-none">Total</p>
+                      <p className="text-[52px] font-black text-purple-700 leading-[0.9] mt-1">{plan.studentsCount}</p>
+                      <div className="mt-2 rounded-lg border border-purple-100 bg-purple-50 px-1.5 py-1 text-left">
+                        <span className="text-[8px] font-black text-purple-700 uppercase">Saldo</span>
+                        <p className="text-[10px] font-black text-purple-900">R$ {plan.totalBalance.toFixed(2)}</p>
+                      </div>
+                      <div className="mt-1.5">
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handlePrintPlanReport(plan.planName);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              handlePrintPlanReport(plan.planName);
+                            }
+                          }}
+                          className="inline-flex items-center justify-center w-full rounded-lg border border-purple-200 bg-white px-1.5 py-1 text-[8px] font-black uppercase tracking-wide text-purple-700 hover:bg-purple-50 transition-colors cursor-pointer"
+                        >
+                          Imprimir PDF
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                  {(dashboardMetrics.activePlanBreakdown || []).length === 0 && (
+                    <div className="rounded-xl border border-gray-100 bg-gray-50 px-2.5 py-2 text-center">
+                      <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Sem planos ativos</p>
+                    </div>
+                  )}
+                </div>
+                {(dashboardMetrics.activePlanBreakdown || []).length > 6 && (
+                  <p className="text-[9px] font-bold text-purple-500">
+                    +{(dashboardMetrics.activePlanBreakdown || []).length - 6} plano(s)...
+                  </p>
+                )}
+              </div>
+            }
+          />
+        </div>
+        <div className="lg:col-span-1 dash-panel p-6 flex flex-col justify-between">
+          <div className="space-y-4">
+            <h3 className="font-black text-gray-400 uppercase tracking-widest text-[10px]">Indicadores Operacionais</h3>
+            <div className="space-y-3">
+              <button
+                onClick={() => navigate('/unit-sales')}
+                className="w-full text-left p-4 bg-indigo-50 rounded-2xl border border-indigo-100 flex gap-3 items-center hover:bg-indigo-100 transition-all"
+              >
+                <div className="bg-indigo-600 text-white p-2 rounded-xl shadow-lg"><TrendingUp size={16} /></div>
+                <div>
+                  <p className="text-[9px] font-black text-indigo-900 uppercase">Movimentações do Dia</p>
+                  <p className="text-base font-black text-indigo-600 leading-none mt-0.5">
+                    R$ {dashboardMetrics.salesToday.toFixed(2)}
+                  </p>
+                </div>
+              </button>
+              <button
+                onClick={() => navigate('/inventory')}
+                className="w-full text-left p-4 bg-amber-50 rounded-2xl border border-amber-100 flex gap-3 items-center hover:bg-amber-100 transition-all"
+              >
+                <div className="bg-amber-500 text-white p-2 rounded-xl shadow-lg"><AlertTriangle size={16} /></div>
+                <div>
+                  <p className="text-[9px] font-black text-amber-900 uppercase">Itens em Alerta de Estoque</p>
+                  <p className="text-base font-black text-amber-600 leading-none mt-0.5">
+                    {dashboardMetrics.criticalStockCount} itens
+                  </p>
+                </div>
+              </button>
+            </div>
+          </div>
+          <button
+            onClick={() => navigate('/reports')}
+            className="w-full py-3 bg-gray-900 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center justify-center gap-2 mt-6 shadow-lg"
+          >
+            <FileBarChart size={14} /> Gerar Fechamento
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Gráfico Principal */}
-        <div className="lg:col-span-2 dash-panel p-8">
+        <div className="lg:col-span-3 dash-panel p-8">
           <div className="flex items-center justify-between mb-8">
             <h3 className="font-black text-gray-400 uppercase tracking-widest text-[10px]">
               {isRestaurant ? 'Mix de Vendas por Categoria (Hoje)' : isOwner ? 'Vendas por Hora (Unidade Selecionada)' : 'Performance Operacional por Hora'}
@@ -636,64 +1120,29 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
           </div>
         </div>
 
-        {/* Alertas Operacionais / Seções Laterais */}
-        <div className="dash-panel p-8 flex flex-col justify-between">
-          <div className="space-y-6">
-            <h3 className="font-black text-gray-400 uppercase tracking-widest text-[10px]">Indicadores Operacionais</h3>
-            <div className="space-y-4">
-              <button
-                onClick={() => navigate('/unit-sales')}
-                className="w-full text-left p-5 bg-indigo-50 rounded-3xl border border-indigo-100 flex gap-4 items-center hover:bg-indigo-100 transition-all"
-              >
-                <div className="bg-indigo-600 text-white p-2 rounded-2xl shadow-lg"><TrendingUp size={18} /></div>
-                <div>
-                  <p className="text-[10px] font-black text-indigo-900 uppercase">Movimentações do Dia</p>
-                  <p className="text-lg font-black text-indigo-600 leading-none mt-0.5">
-                    R$ {dashboardMetrics.salesToday.toFixed(2)}
-                  </p>
-                </div>
-              </button>
-              <button
-                onClick={() => navigate('/inventory')}
-                className="w-full text-left p-5 bg-amber-50 rounded-3xl border border-amber-100 flex gap-4 items-center hover:bg-amber-100 transition-all"
-              >
-                <div className="bg-amber-500 text-white p-2 rounded-2xl shadow-lg"><AlertTriangle size={18} /></div>
-                <div>
-                  <p className="text-[10px] font-black text-amber-900 uppercase">Itens em Alerta de Estoque</p>
-                  <p className="text-lg font-black text-amber-600 leading-none mt-0.5">
-                    {dashboardMetrics.criticalStockCount} itens
-                  </p>
-                </div>
-              </button>
-            </div>
-          </div>
-
-          <button
-            onClick={() => navigate('/reports')}
-            className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center justify-center gap-2 mt-8 shadow-xl"
-          >
-             <FileBarChart size={16} /> Gerar Fechamento
-          </button>
-        </div>
       </div>
     </div>
   );
 };
 
-const StatCard: React.FC<any> = ({ title, value, change, isPositive, icon, isWarning, onClick, cta }) => (
+const StatCard: React.FC<any> = ({ title, value, change, isPositive, icon, isWarning, onClick, cta, renderExtra, valueBesideIcon, hideMainValue }) => (
   <button
     type="button"
     onClick={onClick}
     className={`w-full text-left bg-white p-6 rounded-[32px] border shadow-sm transition-all hover:shadow-xl group ${isWarning ? 'border-amber-200 bg-amber-50/10' : 'border-gray-100'} ${onClick ? 'cursor-pointer' : 'cursor-default'}`}
   >
     <div className="flex items-center justify-between mb-4">
-      <div className="p-3 bg-gray-50 rounded-2xl group-hover:bg-indigo-50 transition-colors shadow-inner">{icon}</div>
+      <div className="flex items-center gap-3">
+        <div className="p-3 bg-gray-50 rounded-2xl group-hover:bg-indigo-50 transition-colors shadow-inner">{icon}</div>
+        {valueBesideIcon ? <p className="text-2xl font-black text-gray-800 leading-none">{value}</p> : null}
+      </div>
       <div className={`flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full border ${isPositive ? 'bg-green-50 text-green-600 border-green-100' : 'bg-red-50 text-red-600 border-red-100'}`}>
         {change}
       </div>
     </div>
     <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">{title}</p>
-    <p className="text-2xl font-black text-gray-800 mt-1">{value}</p>
+    {!hideMainValue ? <p className="text-2xl font-black text-gray-800 mt-1">{value}</p> : null}
+    {renderExtra || null}
     {cta ? (
       <div className="mt-4 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-indigo-600">
         {cta} <ChevronRight size={13} />

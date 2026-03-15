@@ -662,6 +662,7 @@ export class Database {
       amount,
       total: Number(data?.total ?? amount) || amount,
       status: data?.status || 'CONCLUIDA',
+      executionSource: String(data?.executionSource || 'USUARIO').toUpperCase() === 'SISTEMA' ? 'SISTEMA' : 'USUARIO',
       timestamp: data?.timestamp || nowIso,
       date: data?.date || date,
       time: data?.time || time,

@@ -36,6 +36,7 @@ type ExtendedTransactionRecord = TransactionRecord & {
   quantity?: number;
   unitPrice?: number;
   description?: string;
+  executionSource?: 'USUARIO' | 'SISTEMA';
 };
 
 type TransactionItemDetail = {
@@ -118,6 +119,16 @@ const formatTransactionItemsForExport = (row: ExtendedTransactionRecord) => {
     .join(' | ');
 };
 
+const resolveExecutionSource = (tx: any): 'USUARIO' | 'SISTEMA' => {
+  const rawSource = String(tx?.executionSource || tx?.source || tx?.origin || '').trim().toUpperCase();
+  if (rawSource === 'SISTEMA') return 'SISTEMA';
+  if (rawSource === 'USUARIO' || rawSource === 'USUÁRIO') return 'USUARIO';
+
+  const txId = String(tx?.id || '').toLowerCase();
+  if (txId.startsWith('tx_autodeliv_')) return 'SISTEMA';
+  return 'USUARIO';
+};
+
 const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ activeEnterprise, transactions }) => {
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
@@ -198,6 +209,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
               : '');
 
             const total = Number(tx?.total ?? tx?.amount ?? tx?.value ?? 0);
+            const executionSource = resolveExecutionSource(tx);
 
             return {
               id: String(tx?.id || `tx_${Date.now()}`),
@@ -209,7 +221,8 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
               type: mappedType,
               method: String(tx?.method || tx?.paymentMethod || 'N/A'),
               total: Number.isFinite(total) ? total : 0,
-              status: String(tx?.status || 'CONCLUIDA'),
+              status: executionSource === 'SISTEMA' ? 'SISTEMA' : 'USUÁRIO',
+              executionSource,
               raw: tx,
               clientId: tx?.clientId || null,
               planId: tx?.planId,
@@ -1195,8 +1208,10 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                       <td className="px-8 py-6">
                          <div className="flex flex-col">
                             <span className="font-mono text-[10px] font-black text-indigo-600">#{row.id}</span>
-                            <span className="text-[9px] font-bold text-gray-400 flex items-center gap-1 uppercase tracking-tighter">
-                               <Calendar size={10}/> {formatDateBr(row.date)} • {row.time}
+                           <span className="text-[9px] font-bold text-gray-400 flex items-center gap-1 uppercase tracking-tighter">
+                               <Calendar size={10}/>
+                               {formatDateBr(row.date)}
+                               {String(row.method || '').toUpperCase() !== 'PLANO' ? ` • ${row.time}` : ''}
                             </span>
                          </div>
                       </td>
@@ -1253,7 +1268,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                          </div>
                       </td>
                       <td className="px-8 py-6 text-center">
-                         <span className="bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase border border-emerald-100">
+                         <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase border ${
+                           row.status === 'SISTEMA'
+                             ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
+                             : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                         }`}>
                             {row.status}
                          </span>
                       </td>
