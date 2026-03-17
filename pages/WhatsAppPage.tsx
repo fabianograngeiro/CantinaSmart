@@ -30,6 +30,7 @@ import {
 import { Client, Enterprise, User } from '../types';
 import ApiService from '../services/api';
 import WhatsAppQrConnector from '../components/WhatsAppQrConnector';
+import notificationService from '../services/notificationService';
 
 interface WhatsAppPageProps {
   currentUser: User;
@@ -82,6 +83,15 @@ type ChatMessage = {
     url?: string | null;
     mapThumbnailDataUrl?: string | null;
   } | null;
+};
+
+type AiHandoffRequest = {
+  id: string;
+  chatId: string;
+  contactName: string;
+  messagePreview: string;
+  createdAt: number;
+  expiresAt: number;
 };
 
 type ChatAttachment = {
@@ -581,6 +591,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const [isSending, setIsSending] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [aiAuditLogs, setAiAuditLogs] = useState<AiAuditLogEntry[]>([]);
+  const [aiHandoffRequests, setAiHandoffRequests] = useState<AiHandoffRequest[]>([]);
 
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [chatSearchName, setChatSearchName] = useState('');
@@ -666,6 +677,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const [aiFlowNodePositions, setAiFlowNodePositions] = useState<Record<string, { x: number; y: number }>>({});
   const isSendingChatRef = useRef(false);
   const pollingInFlightRef = useRef(false);
+  const notifiedHandoffIdsRef = useRef<Set<string>>(new Set());
   const contactsImportInputRef = useRef<HTMLInputElement | null>(null);
   const messagesViewportRef = useRef<HTMLDivElement | null>(null);
   const messagesBottomRef = useRef<HTMLDivElement | null>(null);
@@ -954,6 +966,63 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     }
   };
 
+  const loadAiHandoffRequests = async () => {
+    try {
+      const data = await ApiService.getWhatsAppAiHandoffRequests();
+      const nextRequests = Array.isArray(data?.requests) ? data.requests : [];
+      setAiHandoffRequests(nextRequests);
+
+      nextRequests.forEach((request: AiHandoffRequest) => {
+        const id = String(request?.id || '').trim();
+        if (!id) return;
+        if (notifiedHandoffIdsRef.current.has(id)) return;
+        notifiedHandoffIdsRef.current.add(id);
+        notificationService.alerta(
+          'Aprovação de atendimento IA',
+          `Contato ${request.contactName || request.chatId} aguardando decisão humana para iniciar atendimento automático.`,
+          6000
+        );
+      });
+
+      const activeIds = new Set(nextRequests.map((item: AiHandoffRequest) => String(item?.id || '').trim()).filter(Boolean));
+      Array.from(notifiedHandoffIdsRef.current.values()).forEach((id) => {
+        if (!activeIds.has(id)) {
+          notifiedHandoffIdsRef.current.delete(id);
+        }
+      });
+    } catch (err) {
+      console.error('Erro ao carregar solicitações de handoff da IA:', err);
+      setAiHandoffRequests([]);
+    }
+  };
+
+  const handleAiHandoffDecision = async (request: AiHandoffRequest, accept: boolean) => {
+    const requestId = String(request?.id || '').trim();
+    if (!requestId) return;
+    try {
+      await ApiService.decideWhatsAppAiHandoffRequest(requestId, accept);
+      notificationService.informativo(
+        accept ? 'Atendimento IA aprovado' : 'Atendimento IA recusado',
+        accept
+          ? `A IA foi liberada para iniciar o atendimento de ${request.contactName || request.chatId}.`
+          : `A IA não iniciará atendimento automático para ${request.contactName || request.chatId}.`,
+        4500
+      );
+      await loadAiHandoffRequests();
+      if (accept && request.chatId) {
+        setSelectedChatId(request.chatId);
+        await loadChats(false);
+        await loadMessages(request.chatId, false);
+      }
+    } catch (err) {
+      console.error('Erro ao decidir handoff de atendimento IA:', err);
+      notificationService.critico(
+        'Falha ao registrar decisão',
+        'Não foi possível aplicar a decisão de atendimento automático. Tente novamente.'
+      );
+    }
+  };
+
   const loadData = async () => {
     if (!activeEnterprise) {
       setClients([]);
@@ -966,7 +1035,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       const [clientsData] = await Promise.all([
         ApiService.getClients(activeEnterprise.id),
         refreshStatus(),
-        loadAiAudit(20)
+        loadAiAudit(20),
+        loadAiHandoffRequests(),
       ]);
       setClients(Array.isArray(clientsData) ? clientsData : []);
     } catch (err) {
@@ -1106,6 +1176,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       try {
         await refreshStatus();
         await loadAiAudit(20);
+        await loadAiHandoffRequests();
         if (status.connected) {
           await loadChats(false);
           if (selectedChatId) {
@@ -3695,6 +3766,47 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         </button>
                       </div>
                     </div>
+
+                    {aiHandoffRequests.length > 0 && (
+                      <div className="border-b border-amber-200 bg-amber-50/70 px-3 py-3 space-y-2">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">
+                          Aprovação de atendimento IA pendente
+                        </p>
+                        <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                          {aiHandoffRequests.map((request) => (
+                            <div key={request.id} className="rounded-xl border border-amber-200 bg-white px-3 py-2">
+                              <p className="text-xs font-black text-slate-800 truncate">{request.contactName || request.chatId}</p>
+                              <p className="text-[11px] font-semibold text-slate-500 truncate mt-0.5">
+                                {formatChatPreviewText(request.messagePreview) || 'Mensagem recebida'}
+                              </p>
+                              <div className="mt-2 flex items-center justify-between gap-2">
+                                <span className="text-[10px] font-bold text-slate-500">
+                                  {Number.isFinite(Number(request.createdAt))
+                                    ? new Date(Number(request.createdAt)).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                                    : ''}
+                                </span>
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAiHandoffDecision(request, false)}
+                                    className="px-2 py-1 rounded-lg border border-slate-300 bg-white text-[10px] font-black uppercase tracking-wide text-slate-600 hover:bg-slate-50"
+                                  >
+                                    Recusar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAiHandoffDecision(request, true)}
+                                    className="px-2.5 py-1 rounded-lg border border-emerald-300 bg-emerald-500 text-[10px] font-black uppercase tracking-wide text-white hover:bg-emerald-600"
+                                  >
+                                    Atender IA
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     <div className="flex-1 min-h-0 overflow-y-auto">
                       {crmVisibleChats.length === 0 ? (

@@ -860,6 +860,30 @@ export class ApiService {
     return response.json();
   }
 
+  static async getWhatsAppAiHandoffRequests() {
+    const response = await fetch(`${API_URL}/whatsapp/ai/handoff-requests`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const textErr = await response.text();
+      throw new Error(textErr || 'Falha ao carregar solicitações pendentes de atendimento IA');
+    }
+    return response.json();
+  }
+
+  static async decideWhatsAppAiHandoffRequest(id: string, accept: boolean) {
+    const response = await fetch(`${API_URL}/whatsapp/ai/handoff-requests/${encodeURIComponent(String(id || ''))}/decision`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ accept: Boolean(accept) }),
+    });
+    if (!response.ok) {
+      const textErr = await response.text();
+      throw new Error(textErr || 'Falha ao registrar decisão de atendimento IA');
+    }
+    return response.json();
+  }
+
   static async sendWhatsAppMediaToChat(
     chatId: string,
     message: string,

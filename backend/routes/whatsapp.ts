@@ -381,6 +381,35 @@ router.put('/chats/:chatId/ai-agent', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/ai/handoff-requests', async (_req: Request, res: Response) => {
+  try {
+    const requests = whatsappSession.listPendingAiHumanHandoffRequests();
+    res.json({
+      success: true,
+      requests,
+    });
+  } catch (err) {
+    res.status(400).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao carregar solicitações pendentes de atendimento IA.',
+    });
+  }
+});
+
+router.post('/ai/handoff-requests/:id/decision', async (req: Request, res: Response) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    const accept = Boolean(req.body?.accept);
+    const result = await whatsappSession.decideAiHumanHandoffRequest(id, accept);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao registrar decisão de atendimento IA.',
+    });
+  }
+});
+
 router.post('/send-media-to-chat', async (req: Request, res: Response) => {
   try {
     const { chatId, message, attachment } = req.body || {};
