@@ -19,7 +19,7 @@ interface UnitSalesTransactionsPageProps {
   transactions: TransactionRecord[];
 }
 
-type TimeFilter = 'TODAY' | '7DAYS' | 'MONTH' | 'YEAR' | 'CUSTOM';
+type TimeFilter = 'ALLTIME' | 'TODAY' | '7DAYS' | 'MONTH' | 'YEAR' | 'CUSTOM';
 type TransactionType = 'ALL' | 'CONSUMO' | 'VENDA_BALCAO' | 'CREDITO';
 type EditCartItem = {
   id: string;
@@ -167,7 +167,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     );
   }
 
-  const [timeFilter, setTimeFilter] = useState<TimeFilter>('TODAY');
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>('ALLTIME');
   const [typeFilter, setTypeFilter] = useState<TransactionType>('ALL');
   const [planFilter, setPlanFilter] = useState<string>('ALL');
   const [startDate, setStartDate] = useState('');
@@ -875,6 +875,8 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
       if (!rowDate) {
         matchesTime = false;
+      } else if (timeFilter === 'ALLTIME') {
+        matchesTime = true;
       } else if (timeFilter === 'TODAY') {
         matchesTime = rowDate >= todayStart && rowDate <= todayEnd;
       } else if (timeFilter === '7DAYS') {
@@ -1015,7 +1017,17 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     
     doc.setFontSize(9);
     doc.setTextColor(100);
-    const periodLabel = timeFilter === 'TODAY' ? 'Hoje' : timeFilter === '7DAYS' ? '7 Dias' : timeFilter === 'MONTH' ? 'Mês' : timeFilter === 'YEAR' ? 'Ano' : 'Customizado';
+    const periodLabel = timeFilter === 'ALLTIME'
+      ? 'Todos'
+      : timeFilter === 'TODAY'
+        ? 'Hoje'
+        : timeFilter === '7DAYS'
+          ? '7 Dias'
+          : timeFilter === 'MONTH'
+            ? 'Mês'
+            : timeFilter === 'YEAR'
+              ? 'Ano'
+              : 'Customizado';
     doc.text(`Filtros: Período: ${periodLabel} | Tipo: ${typeFilter} | Plano: ${planFilter}`, 14, 37);
 
     // Resumo financeiro do relatório PDV
@@ -1175,6 +1187,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                     onChange={e => setTimeFilter(e.target.value as TimeFilter)}
                     className="w-full px-5 py-3 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-black text-[10px] uppercase tracking-widest appearance-none cursor-pointer"
                   >
+                     <option value="ALLTIME">Todos os períodos</option>
                      <option value="TODAY">Hoje</option>
                      <option value="7DAYS">Últimos 7 dias</option>
                      <option value="MONTH">Mês Atual</option>
@@ -1348,7 +1361,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       </div>
 
       {/* SUMÁRIO RÁPIDO NO RODAPÉ */}
-      <div className="grid grid-cols-1 gap-6 animate-in fade-in duration-700">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-in fade-in duration-700">
          <QuickSummaryCard label="Total Receitas R$" value={`R$ ${totalRevenueFiltered.toFixed(2)}`} sub="Entradas conforme filtros selecionados" icon={<Store />} color="bg-emerald-600" />
          <QuickSummaryCard label="Total Descontos de Consumos R$" value={`R$ ${totalConsumptionDiscountFiltered.toFixed(2)}`} sub="Saídas de consumo conforme filtros" icon={<Sparkles />} color="bg-indigo-600" />
          <QuickSummaryCard label="Ticket Médio Mês" value={`R$ ${monthlyTicketAverage.toFixed(2)}`} sub="Vendas do mês (balcão)" icon={<DollarSign />} color="bg-slate-900" />
@@ -1867,16 +1880,16 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 };
 
 const QuickSummaryCard = ({ label, value, sub, icon, color }: any) => (
-  <div className={`${color} w-full p-8 rounded-[40px] text-white shadow-2xl flex items-center justify-between group overflow-hidden relative border-b-8 border-black/10`}>
+  <div className={`${color} w-full p-5 rounded-[28px] text-white shadow-xl flex items-center justify-between group overflow-hidden relative border-b-4 border-black/10 min-h-[120px]`}>
      <div className="relative z-10">
-        <p className="text-[10px] font-black uppercase tracking-[3px] opacity-60 mb-2">{label}</p>
-        <p className="text-3xl font-black tracking-tighter mb-1">{value}</p>
-        <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest">{sub}</p>
+        <p className="text-[9px] font-black uppercase tracking-[2px] opacity-70 mb-1">{label}</p>
+        <p className="text-2xl font-black tracking-tight mb-0.5 leading-none">{value}</p>
+        <p className="text-[9px] font-bold opacity-50 uppercase tracking-wide leading-tight">{sub}</p>
      </div>
-     <div className="p-5 bg-white/10 rounded-[28px] backdrop-blur-md relative z-10 group-hover:scale-110 transition-transform duration-500">
-        {React.cloneElement(icon as React.ReactElement, { size: 32 })}
+     <div className="p-3 bg-white/10 rounded-2xl backdrop-blur-md relative z-10 group-hover:scale-105 transition-transform duration-300">
+        {React.cloneElement(icon as React.ReactElement, { size: 24 })}
      </div>
-     <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+     <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full -mr-12 -mt-12 blur-xl"></div>
   </div>
 );
 
