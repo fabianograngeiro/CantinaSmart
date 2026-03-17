@@ -24,7 +24,7 @@ backend/data/*.json
 *.bak
 *.backup
 *.tmp
-
+backend/products_photos/*
 # WhatsApp session auth/cache
 backend/data/.wwebjs_auth/
 backend/data/.wwebjs_cache/

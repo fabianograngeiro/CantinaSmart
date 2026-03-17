@@ -70,6 +70,13 @@ const formatDateBr = (dateStr?: string) => {
   return parsed.toLocaleDateString('pt-BR');
 };
 
+const normalizeSearchText = (value?: string) =>
+  String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
 const getTransactionItemDetails = (row: ExtendedTransactionRecord): TransactionItemDetail[] => {
   const rawItems = Array.isArray(row.raw?.items) ? row.raw.items : [];
   if (rawItems.length > 0) {
@@ -473,21 +480,21 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   }, [editProducts]);
 
   const filteredEditProducts = useMemo(() => {
-    const term = editSearch.toLowerCase();
+    const term = normalizeSearchText(editSearch);
     const activeCat = String(editActiveCategory || 'TODOS').toUpperCase();
     if (activeCat === 'PLANOS') return [];
     return editProducts.filter((p: any) => {
       const cat = String(p.category || 'GERAL').toUpperCase();
       const matchesCat = activeCat === 'TODOS' || cat === activeCat || cat === 'GERAL';
-      const matchesSearch = String(p.name || '').toLowerCase().includes(term);
+      const matchesSearch = !term || normalizeSearchText(p.name).includes(term);
       return matchesCat && matchesSearch;
     });
   }, [editProducts, editSearch, editActiveCategory]);
 
   const filteredEditPlans = useMemo(() => {
     if (String(editActiveCategory || '').toUpperCase() !== 'PLANOS') return [];
-    const term = editSearch.toLowerCase();
-    return editPlans.filter((p: any) => String(p.name || '').toLowerCase().includes(term));
+    const term = normalizeSearchText(editSearch);
+    return editPlans.filter((p: any) => !term || normalizeSearchText(p.name).includes(term));
   }, [editPlans, editSearch, editActiveCategory]);
 
   const createCategories = useMemo(() => {
@@ -496,30 +503,30 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   }, [editProducts]);
 
   const filteredCreateProducts = useMemo(() => {
-    const term = createSearch.toLowerCase();
+    const term = normalizeSearchText(createSearch);
     const activeCat = String(createActiveCategory || 'TODOS').toUpperCase();
     if (activeCat === 'PLANOS') return [];
     return editProducts.filter((p: any) => {
       const cat = String(p.category || 'GERAL').toUpperCase();
       const matchesCat = activeCat === 'TODOS' || cat === activeCat || cat === 'GERAL';
-      const matchesSearch = String(p.name || '').toLowerCase().includes(term);
+      const matchesSearch = !term || normalizeSearchText(p.name).includes(term);
       return matchesCat && matchesSearch;
     });
   }, [editProducts, createSearch, createActiveCategory]);
 
   const filteredCreatePlans = useMemo(() => {
     if (String(createActiveCategory || '').toUpperCase() !== 'PLANOS') return [];
-    const term = createSearch.toLowerCase();
-    return editPlans.filter((p: any) => String(p.name || '').toLowerCase().includes(term));
+    const term = normalizeSearchText(createSearch);
+    return editPlans.filter((p: any) => !term || normalizeSearchText(p.name).includes(term));
   }, [editPlans, createSearch, createActiveCategory]);
 
   const filteredCreateClients = useMemo(() => {
-    const term = String(createClientName || '').trim().toLowerCase();
+    const term = normalizeSearchText(createClientName);
     if (!term || createIsConsumerFinal) return [];
     return createClients
       .filter((client: any) => {
-        const name = String(client?.name || '').toLowerCase();
-        const registrationId = String(client?.registrationId || '').toLowerCase();
+        const name = normalizeSearchText(client?.name);
+        const registrationId = normalizeSearchText(client?.registrationId);
         return name.includes(term) || registrationId.includes(term);
       })
       .slice(0, 8);
@@ -832,9 +839,12 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
     return normalizedTransactions.filter(row => {
-      const matchesSearch = row.client.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          row.item.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          row.id.toLowerCase().includes(searchTerm.toLowerCase());
+      const normalizedSearch = normalizeSearchText(searchTerm);
+      const matchesSearch =
+        !normalizedSearch
+        || normalizeSearchText(row.client).includes(normalizedSearch)
+        || normalizeSearchText(row.item).includes(normalizedSearch)
+        || normalizeSearchText(row.id).includes(normalizedSearch);
       
       const matchesType = typeFilter === 'ALL' || row.type === typeFilter;
       
@@ -1183,19 +1193,19 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
            </div>
         </div>
 
-        <div className="overflow-x-auto scrollbar-hide">
-           <table className="w-full text-left">
+        <div className="overflow-x-hidden">
+           <table className="w-full text-left table-fixed">
               <thead className="bg-gray-50 text-[9px] font-black text-gray-400 uppercase tracking-[2px] border-b">
                  <tr>
-                    <th className="px-8 py-6">ID / Data</th>
-                    <th className="px-8 py-6">Cliente</th>
-                    <th className="px-8 py-6">Plano / Origem</th>
-                    <th className="px-8 py-6">Itens</th>
-                    <th className="px-8 py-6">Tipo</th>
-                    <th className="px-8 py-6">Movimentação</th>
-                    <th className="px-8 py-6 text-right">Valor Final</th>
-                    <th className="px-8 py-6 text-center">Status</th>
-                    <th className="px-8 py-6 text-right">Ações</th>
+                    <th className="px-4 py-6 w-[12%]">ID / Data</th>
+                    <th className="px-4 py-6 w-[13%]">Cliente</th>
+                    <th className="px-4 py-6 w-[8%]">Plano / Origem</th>
+                    <th className="px-4 py-6 w-[15%]">Itens</th>
+                    <th className="px-4 py-6 w-[8%]">Tipo</th>
+                    <th className="px-4 py-6 w-[9%]">Movimentação</th>
+                    <th className="px-4 py-6 w-[10%] text-right">Valor Final</th>
+                    <th className="px-4 py-6 w-[8%] text-center">Status</th>
+                    <th className="px-4 py-6 w-[17%] text-right">Ações</th>
                  </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 text-sm">
@@ -1205,7 +1215,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                    </tr>
                  ) : filteredTransactions.map(row => (
                    <tr key={row.id} className="hover:bg-indigo-50/30 transition-colors group">
-                      <td className="px-8 py-6">
+                      <td className="px-4 py-6 align-top">
                          <div className="flex flex-col">
                             <span className="font-mono text-[10px] font-black text-indigo-600">#{row.id}</span>
                            <span className="text-[9px] font-bold text-gray-400 flex items-center gap-1 uppercase tracking-tighter">
@@ -1215,15 +1225,15 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                             </span>
                          </div>
                       </td>
-                      <td className="px-8 py-6">
+                      <td className="px-4 py-6 align-top">
                          <div className="flex items-center gap-3">
                             <div className={`w-9 h-9 rounded-full flex items-center justify-center ${row.client === 'Consumidor Final' ? 'bg-gray-100 text-gray-400' : 'bg-indigo-50 text-indigo-600'}`}>
                                <User size={18}/>
                             </div>
-                            <p className="font-black text-indigo-900 uppercase tracking-tight">{row.client}</p>
+                            <p className="font-black text-indigo-900 uppercase tracking-tight break-words leading-tight">{row.client}</p>
                          </div>
                       </td>
-                      <td className="px-8 py-6">
+                      <td className="px-4 py-6 align-top">
                          <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-tighter shadow-sm border ${
                            row.plan === 'Venda'
                              ? 'bg-gray-50 text-gray-500 border-gray-100'
@@ -1234,12 +1244,12 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                            {row.plan}
                          </span>
                       </td>
-                      <td className="px-8 py-6">
+                      <td className="px-4 py-6 align-top">
                          <p className="font-bold text-gray-700 uppercase text-[11px] leading-tight max-w-[200px] truncate" title={row.item}>
                            {row.item}
                          </p>
                       </td>
-                      <td className="px-8 py-6">
+                      <td className="px-4 py-6 align-top">
                          <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-md border ${
                            row.type === 'CREDITO'
                              ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
@@ -1250,7 +1260,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                            {row.type.replace('_', ' ')}
                          </span>
                       </td>
-                      <td className="px-8 py-6">
+                      <td className="px-4 py-6 align-top">
                          <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-md border ${
                            row.type === 'CREDITO'
                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -1259,7 +1269,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                            {row.type === 'CREDITO' ? 'ENTRADA' : 'SAÍDA'}
                          </span>
                       </td>
-                      <td className="px-8 py-6 text-right">
+                      <td className="px-4 py-6 text-right align-top">
                          <div className="flex flex-col items-end">
                             <p className={`font-black text-base ${(row.value || row.total) > 0 ? 'text-indigo-900' : 'text-gray-300'}`}>
                                { (row.value || row.total) > 0 ? `R$ ${(row.value || row.total).toFixed(2)}` : 'BAIXA PACOTE' }
@@ -1267,7 +1277,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                             <span className="text-[8px] font-black text-gray-400 uppercase tracking-tighter">{row.method}</span>
                          </div>
                       </td>
-                      <td className="px-8 py-6 text-center">
+                      <td className="px-4 py-6 text-center align-top">
                          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase border ${
                            row.status === 'SISTEMA'
                              ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
@@ -1276,15 +1286,14 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                             {row.status}
                          </span>
                       </td>
-                      <td className="px-8 py-6 text-right">
-                         <div className="flex justify-end gap-2">
+                      <td className="px-4 py-6 text-right align-top">
+                         <div className="flex justify-end gap-1.5 flex-wrap">
                            <button
                              onClick={() => openEditModal(row)}
                              className="p-2 bg-white border text-gray-400 rounded-xl hover:text-amber-600 hover:bg-amber-50 transition-all shadow-sm flex items-center gap-2"
                              title="Editar Transação"
                            >
                               <Pencil size={16} />
-                              <span className="text-[10px] font-black uppercase tracking-widest">Editar</span>
                            </button>
                            <button 
                              onClick={() => setSelectedTransaction(row)}
@@ -1292,7 +1301,6 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                              title="Ver"
                            >
                               <Eye size={16} />
-                              <span className="text-[10px] font-black uppercase tracking-widest">Ver</span>
                            </button>
                            <button
                              onClick={() => handleDeleteTransaction(row)}
@@ -1301,10 +1309,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                              title="Excluir Transação"
                            >
                               <Trash2 size={16} />
-                              <span className="text-[10px] font-black uppercase tracking-widest">
-                                {deletingTransactionId === row.id ? 'Excluindo...' : 'Excluir'}
-                              </span>
-                           </button>
+                            </button>
                          </div>
                       </td>
                    </tr>
@@ -1315,7 +1320,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       </div>
 
       {/* SUMÁRIO RÁPIDO NO RODAPÉ */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in duration-700">
+      <div className="grid grid-cols-1 gap-6 animate-in fade-in duration-700">
          <QuickSummaryCard label="Total Receitas R$" value={`R$ ${totalRevenueFiltered.toFixed(2)}`} sub="Entradas conforme filtros selecionados" icon={<Store />} color="bg-emerald-600" />
          <QuickSummaryCard label="Total Descontos de Consumos R$" value={`R$ ${totalConsumptionDiscountFiltered.toFixed(2)}`} sub="Saídas de consumo conforme filtros" icon={<Sparkles />} color="bg-indigo-600" />
          <QuickSummaryCard label="Ticket Médio Mês" value={`R$ ${monthlyTicketAverage.toFixed(2)}`} sub="Vendas do mês (balcão)" icon={<DollarSign />} color="bg-slate-900" />
@@ -1834,7 +1839,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 };
 
 const QuickSummaryCard = ({ label, value, sub, icon, color }: any) => (
-  <div className={`${color} p-8 rounded-[40px] text-white shadow-2xl flex items-center justify-between group overflow-hidden relative border-b-8 border-black/10`}>
+  <div className={`${color} w-full p-8 rounded-[40px] text-white shadow-2xl flex items-center justify-between group overflow-hidden relative border-b-8 border-black/10`}>
      <div className="relative z-10">
         <p className="text-[10px] font-black uppercase tracking-[3px] opacity-60 mb-2">{label}</p>
         <p className="text-3xl font-black tracking-tighter mb-1">{value}</p>

@@ -14,11 +14,9 @@ import {
 } from 'lucide-react';
 import ApiService from '../services/api';
 
-type TimeFilter = 'TODAY' | 'TOMORROW' | 'CUSTOM';
 type PeriodFilter = 'ALL' | 'MORNING' | 'AFTERNOON' | 'NIGHT';
 type DeliveryStatus = 'PENDENTE' | 'PREPARANDO' | 'PRONTO' | 'SERVIDO';
 type SearchFieldFilter = 'NAME' | 'RESPONSIBLE' | 'PLAN' | 'CLASS' | 'STATUS';
-type DateScopeFilter = 'ALL' | 'CURRENT_WEEK' | 'BIWEEKLY' | 'DATE';
 
 const JS_DAY_TO_KEY: Record<number, string> = {
   0: 'DOMINGO',
@@ -147,14 +145,12 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
     );
   }
 
-  const [selectedDays, setSelectedDays] = useState<('TODAY' | 'TOMORROW')[]>([]);
+  const [selectedDays, setSelectedDays] = useState<('TODAY')[]>(['TODAY']);
   const [customDate, setCustomDate] = useState<string>('');
   const [selectedPlans, setSelectedPlans] = useState<string[]>([]);
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('ALL');
   const [searchFieldFilter, setSearchFieldFilter] = useState<SearchFieldFilter>('NAME');
   const [searchTerm, setSearchTerm] = useState('');
-  const [dateScopeFilter, setDateScopeFilter] = useState<DateScopeFilter>('ALL');
-  const [filterDate, setFilterDate] = useState<string>('');
   const [nowTick, setNowTick] = useState<number>(Date.now());
 
   // Estado local para gerenciar a preparação dos alunos
@@ -393,17 +389,6 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
         .toLowerCase()
         .trim();
 
-    const now = new Date();
-    const startOfCurrentWeek = new Date(now);
-    startOfCurrentWeek.setHours(0, 0, 0, 0);
-    startOfCurrentWeek.setDate(startOfCurrentWeek.getDate() - startOfCurrentWeek.getDay());
-    const endOfCurrentWeek = new Date(startOfCurrentWeek);
-    endOfCurrentWeek.setDate(endOfCurrentWeek.getDate() + 6);
-
-    const startOfBiWeekly = new Date(now);
-    startOfBiWeekly.setHours(0, 0, 0, 0);
-    startOfBiWeekly.setDate(startOfBiWeekly.getDate() - 13);
-
     return students.filter(d => {
       const searchValue = normalize(searchTerm);
       const statusLabel = getStudentStatus(d);
@@ -426,35 +411,13 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
         if (selectedDays.length === 0) return true;
 
         return selectedDays.some((day) => {
-          if (day === 'TODAY') {
-            if (!serviceContext.isWithinServiceHours) return false;
-            return d.scheduledDate === serviceContext.todayIso;
-          }
-
-          if (serviceContext.isWithinServiceHours) {
-            return d.scheduledDate === serviceContext.tomorrowIso;
-          }
-          return Boolean(d.scheduledDate && d.scheduledDate >= serviceContext.tomorrowIso);
+          if (day !== 'TODAY') return false;
+          if (!serviceContext.isWithinServiceHours) return false;
+          return d.scheduledDate === serviceContext.todayIso;
         });
       })();
-      const matchesDateScope = (() => {
-        if (!d.scheduledDate) return dateScopeFilter === 'ALL';
-        const scheduledDate = new Date(`${d.scheduledDate}T00:00:00`);
-        if (Number.isNaN(scheduledDate.getTime())) return false;
-
-        if (dateScopeFilter === 'CURRENT_WEEK') {
-          return scheduledDate >= startOfCurrentWeek && scheduledDate <= endOfCurrentWeek;
-        }
-        if (dateScopeFilter === 'BIWEEKLY') {
-          return scheduledDate >= startOfBiWeekly && scheduledDate <= now;
-        }
-        if (dateScopeFilter === 'DATE') {
-          return Boolean(filterDate) && d.scheduledDate === filterDate;
-        }
-        return true;
-      })();
       const matchesPlan = selectedPlans.length === 0 || selectedPlans.includes(d.planName);
-      return matchesSearch && matchesPeriod && matchesDay && matchesDateScope && matchesPlan;
+      return matchesSearch && matchesPeriod && matchesDay && matchesPlan;
     }).sort((a, b) => {
       const byName = String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' });
       if (byName !== 0) return byName;
@@ -463,7 +426,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
       if (aDate !== bDate) return aDate.localeCompare(bDate);
       return String(a.id || '').localeCompare(String(b.id || ''));
     });
-  }, [students, searchTerm, searchFieldFilter, periodFilter, selectedDays, selectedPlans, customDate, serviceContext, dateScopeFilter, filterDate]);
+  }, [students, searchTerm, searchFieldFilter, periodFilter, selectedDays, selectedPlans, customDate, serviceContext]);
 
   const availablePlanNames = useMemo(() => {
     return Array.from(new Set(students.map(s => s.planName))).filter(Boolean);
@@ -644,6 +607,25 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
     }, {} as Record<string, number>);
   }, [filteredData]);
 
+  const planCreatedSummary = useMemo(() => {
+    const totals = new Map<string, number>();
+
+    filteredData.forEach((student) => {
+      const rawPlanName = String(student.planName || '').trim();
+      if (!rawPlanName) return;
+      const displayPlanName = rawPlanName.replace(/_/g, ' ').toUpperCase();
+      const units = Array.isArray(student.items) && student.items.length > 0 ? student.items.length : 1;
+      totals.set(displayPlanName, (totals.get(displayPlanName) || 0) + units);
+    });
+
+    return Array.from(totals.entries())
+      .map(([planName, count]) => ({ planName, count }))
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return a.planName.localeCompare(b.planName, 'pt-BR');
+      });
+  }, [filteredData]);
+
   const exportToPDF = () => {
     const doc = new jsPDF({
       orientation: 'landscape',
@@ -694,7 +676,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
     doc.setTextColor(100);
     const periodLabel = periodFilter === 'ALL' ? 'Todos' : periodFilter === 'MORNING' ? 'Manhã' : periodFilter === 'AFTERNOON' ? 'Tarde' : 'Noite';
     const plansLabel = selectedPlans.length > 0 ? selectedPlans.map(p => p.replace('_', ' ')).join(', ') : 'Todos';
-    const daysLabel = selectedDays.length > 0 ? selectedDays.map(d => d === 'TODAY' ? 'Hoje' : 'Amanhã').join(', ') : 'Todos';
+    const daysLabel = selectedDays.length > 0 ? 'Hoje' : 'Todos';
     
     doc.text(`Filtros Aplicados - Turno: ${periodLabel} | Planos: ${plansLabel} | Dias: ${daysLabel}`, 14, 37);
 
@@ -777,25 +759,21 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                </label>
                <div className="flex gap-2">
                   <div className="flex flex-1 gap-2 bg-gray-100 p-1 rounded-2xl">
-                    {['TODAY', 'TOMORROW'].map((day) => (
-                      <button
-                        key={day}
-                        onClick={() => {
-                          setSelectedDays(prev => 
-                            prev.includes(day as any) 
-                            ? prev.filter(d => d !== day) 
-                            : [...prev, day as any]
-                          );
-                        }}
-                        className={`flex-1 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${
-                          selectedDays.includes(day as any)
+                    <button
+                      key="TODAY"
+                      onClick={() => {
+                        setSelectedDays(prev =>
+                          prev.includes('TODAY') ? prev.filter(d => d !== 'TODAY') : ['TODAY']
+                        );
+                      }}
+                      className={`flex-1 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${
+                        selectedDays.includes('TODAY')
                           ? 'bg-indigo-600 text-white shadow-lg'
                           : 'text-gray-400 hover:text-gray-600'
-                        }`}
-                      >
-                        {day === 'TODAY' ? 'Hoje' : 'Amanhã'}
-                      </button>
-                    ))}
+                      }`}
+                    >
+                      Hoje
+                    </button>
                   </div>
                   <div className="relative flex-1">
                     <input 
@@ -893,71 +871,50 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                     />
                   </div>
 
-                  <select
-                    value={dateScopeFilter}
-                    onChange={(e) => setDateScopeFilter(e.target.value as DateScopeFilter)}
-                    className="px-4 py-3.5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none font-bold text-sm transition-all"
-                  >
-                    <option value="ALL">Período: Todos</option>
-                    <option value="CURRENT_WEEK">Semana atual</option>
-                    <option value="BIWEEKLY">Quinzenal</option>
-                    <option value="DATE">Por data</option>
-                  </select>
-               </div>
-               {dateScopeFilter === 'DATE' && (
-                 <div className="mt-3 max-w-sm">
-                   <input
-                     type="date"
-                     value={filterDate}
-                     onChange={(e) => setFilterDate(e.target.value)}
-                     className="w-full px-4 py-3 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-bold text-sm transition-all"
-                   />
-                 </div>
-               )}
-               <div className="flex flex-wrap gap-2 mt-3">
-                 <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Atalhos:</span>
-                 <button
-                   type="button"
-                   onClick={() => setDateScopeFilter('CURRENT_WEEK')}
-                   className="px-3 py-1.5 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest"
-                 >
-                   Semana atual
-                 </button>
-                 <button
-                   type="button"
-                   onClick={() => setDateScopeFilter('BIWEEKLY')}
-                   className="px-3 py-1.5 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest"
-                 >
-                   Quinzenal
-                 </button>
-                 <button
-                   type="button"
-                   onClick={() => setDateScopeFilter('DATE')}
-                   className="px-3 py-1.5 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest"
-                 >
-                   Por data
-                 </button>
                </div>
             </div>
          </div>
       </div>
 
       {/* RESUMO POR PLANO */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-         <div className="bg-amber-50 p-6 rounded-[32px] border border-amber-100 shadow-sm flex items-center justify-between">
+      <div className="flex gap-3 overflow-x-auto pb-1">
+         <div className="min-w-[180px] bg-amber-50 p-4 rounded-2xl border border-amber-100 shadow-sm flex items-center justify-between">
             <div>
                <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Total Lanches</p>
-               <p className="text-2xl font-black text-amber-900">{planSummary['LANCHE'] || 0}</p>
+               <p className="text-xl font-black text-amber-900">{planSummary['LANCHE'] || 0}</p>
             </div>
-            <div className="p-3 bg-white rounded-2xl text-amber-500 shadow-sm"><Sandwich size={24}/></div>
+            <div className="p-2.5 bg-white rounded-xl text-amber-500 shadow-sm"><Sandwich size={20}/></div>
          </div>
-         <div className="bg-emerald-50 p-6 rounded-[32px] border border-emerald-100 shadow-sm flex items-center justify-between">
+         <div className="min-w-[180px] bg-emerald-50 p-4 rounded-2xl border border-emerald-100 shadow-sm flex items-center justify-between">
             <div>
                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Total Almoços</p>
-               <p className="text-2xl font-black text-emerald-900">{planSummary['ALMOCO'] || 0}</p>
+               <p className="text-xl font-black text-emerald-900">{planSummary['ALMOCO'] || 0}</p>
             </div>
-            <div className="p-3 bg-white rounded-2xl text-emerald-500 shadow-sm"><Beef size={24}/></div>
+            <div className="p-2.5 bg-white rounded-xl text-emerald-500 shadow-sm"><Beef size={20}/></div>
          </div>
+      
+        {planCreatedSummary.length === 0 ? (
+          <div className="min-w-[320px] bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">
+              Nenhum plano selecionado para soma no período/filtro atual.
+            </p>
+          </div>
+        ) : (
+          planCreatedSummary.map((plan) => (
+            <div
+              key={plan.planName}
+              className="min-w-[200px] bg-indigo-50 p-4 rounded-2xl border border-indigo-100 shadow-sm flex items-center justify-between"
+            >
+              <div>
+                <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Total {plan.planName}</p>
+                <p className="text-xl font-black text-indigo-900">{plan.count}</p>
+              </div>
+              <div className="p-2.5 bg-white rounded-xl text-indigo-500 shadow-sm">
+                <ClipboardCheck size={20} />
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       {/* ESTEIRA DE PRODUÇÃO - LISTA DETALHADA */}

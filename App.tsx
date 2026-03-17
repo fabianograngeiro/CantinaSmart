@@ -37,10 +37,12 @@ import SystemSettingsPage from './pages/SystemSettingsPage';
 import SettingsPage from './pages/SettingsPage';
 import FinancialPage from './pages/FinancialPage';
 import WhatsAppPage from './pages/WhatsAppPage';
+import NotificationCenter from './components/NotificationCenter';
 
 
 import { Enterprise, Role, User, TransactionRecord } from './types';
 import ApiService from './services/api';
+import notificationService from './services/notificationService';
 
 const AUTH_USER_STORAGE_KEY = 'canteen_auth_user';
 const ACTIVE_ENTERPRISE_STORAGE_KEY = 'canteen_active_enterprise';
@@ -112,7 +114,10 @@ const App: React.FC = () => {
       setTransactions([]);
       localStorage.removeItem(AUTH_USER_STORAGE_KEY);
       localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
-      alert('Sua sessão expirou. Faça login novamente.');
+      notificationService.critico(
+        'Sessão expirada',
+        'Sua sessão expirou. Faça login novamente.'
+      );
     };
     window.addEventListener('canteen:session-expired', onSessionExpired);
     return () => window.removeEventListener('canteen:session-expired', onSessionExpired);
@@ -326,6 +331,7 @@ const AppContent: React.FC<any> = (props) => {
 
   return (
       <div className="flex h-screen bg-gray-50 overflow-hidden text-gray-900 font-['Inter'] relative">
+        <NotificationCenter />
         
         {!isAuthenticated ? (
           <div className="flex-1">

@@ -240,6 +240,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const [selectedPlanDays, setSelectedPlanDays] = useState<Record<string, string[]>>({});
   const [selectedPlanDates, setSelectedPlanDates] = useState<Record<string, string[]>>({});
   const [selectedPlanShifts, setSelectedPlanShifts] = useState<Record<string, string[]>>({});
+  const [planRequiredUnitsById, setPlanRequiredUnitsById] = useState<Record<string, number>>({});
   const [openPlanCalendarId, setOpenPlanCalendarId] = useState<string | null>(null);
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [rechargeSelectedPlanId, setRechargeSelectedPlanId] = useState<string | null>(null);
@@ -249,6 +250,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const [rechargeCalendarMonth, setRechargeCalendarMonth] = useState<Date>(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [clientPhotoFile, setClientPhotoFile] = useState<File | null>(null);
   const [clientPhotoPreview, setClientPhotoPreview] = useState('');
+  const [isSavingPlanView, setIsSavingPlanView] = useState(false);
+  const [planViewNotice, setPlanViewNotice] = useState<{ type: 'warning' | 'success' | 'error'; message: string } | null>(null);
 
   const isUnitAdmin = currentUser?.role === Role.ADMIN
     || currentUser?.role === Role.ADMIN_RESTAURANTE
@@ -256,6 +259,13 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     || currentUser?.role === Role.FUNCIONARIO_BASICO;
 
   // Carregar clientes, empresas, planos e transações da API
+  const showPlanNotice = (message: string, type: 'warning' | 'success' | 'error' = 'warning') => {
+    setPlanViewNotice({ type, message });
+    window.setTimeout(() => {
+      setPlanViewNotice((prev) => (prev?.message === message ? null : prev));
+    }, 3500);
+  };
+
   useEffect(() => {
     const enterpriseId = activeEnterprise?.id;
     if (!enterpriseId) return;
@@ -487,6 +497,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     setSelectedPlanDays({});
     setSelectedPlanDates({});
     setSelectedPlanShifts({});
+    setPlanRequiredUnitsById({});
     setOpenPlanCalendarId(null);
     setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
     setFormData({
@@ -546,7 +557,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       ? (maybeClassType as '' | 'INFANTIL' | 'FUNDAMENTAL' | 'MEDIO' | 'INTEGRAL')
       : ((client.class || '').trim().toUpperCase() === 'INTEGRAL' ? 'INTEGRAL' : '');
 
-    const existingSelectedPlans = ((client as any).selectedPlansConfig || []) as Array<{ planId?: string; planName?: string; daysOfWeek?: string[]; selectedDates?: string[]; deliveryShifts?: string[] }>;
+    const existingSelectedPlansRaw = (client as any).selectedPlansConfig;
+    const existingSelectedPlans = (Array.isArray(existingSelectedPlansRaw) ? existingSelectedPlansRaw : []) as Array<{ planId?: string; planName?: string; daysOfWeek?: string[]; selectedDates?: string[]; deliveryShifts?: string[] }>;
     const normalizedPlanDays = existingSelectedPlans.reduce((acc, config) => {
       if (!config?.planId || !Array.isArray(config.daysOfWeek)) return acc;
       acc[config.planId] = config.daysOfWeek;
@@ -564,7 +576,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     }, {} as Record<string, string[]>);
 
     if (!Object.keys(normalizedPlanDays).length) {
-      const fallbackPlanDays = (client.servicePlans || [])
+      const fallbackPlanDays = (Array.isArray(client.servicePlans) ? client.servicePlans : [])
         .filter(planName => !['PREPAGO', 'PF_FIXO', 'LANCHE_FIXO'].includes(planName))
         .reduce((acc, planName) => {
           const plan = availablePlans.find(p => p.name === planName);
@@ -577,6 +589,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     }
     setSelectedPlanDates(normalizedPlanDates);
     setSelectedPlanShifts(normalizedPlanShifts);
+    setPlanRequiredUnitsById({});
 
     setEditingClient(client);
     setIsStudentOnlyMode(false);
@@ -586,7 +599,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     setFormData({
       name: client.name || '',
       type: (client.type === 'COLABORADOR' ? 'COLABORADOR' : 'ALUNO') as 'ALUNO' | 'COLABORADOR',
-      servicePlans: (client.servicePlans || ['PREPAGO']) as ClientPlanType[],
+      servicePlans: (Array.isArray(client.servicePlans) ? client.servicePlans : ['PREPAGO']) as ClientPlanType[],
       class: client.type === 'COLABORADOR' ? (client.class || '') : '',
       classType: client.type === 'ALUNO' ? parsedClassType : '',
       classGrade: client.type === 'ALUNO' ? maybeClassGrade : '',
@@ -611,8 +624,78 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
   const handleOpenDetail = (client: Client) => {
     setViewingClient(client);
-    setConsumptionPeriod('MONTH');
-    setConsumptionSpecificDate('');
+    setPlanViewNotice(null);
+    const existingSelectedPlansRaw = (client as any).selectedPlansConfig;
+    const existingSelectedPlans = (Array.isArray(existingSelectedPlansRaw) ? existingSelectedPlansRaw : []) as Array<{ planId?: string; daysOfWeek?: string[]; selectedDates?: string[]; deliveryShifts?: string[] }>;
+    const activePlanIdSet = new Set(availablePlans.map(plan => plan.id));
+
+    const normalizedPlanDays = existingSelectedPlans.reduce((acc, config) => {
+      const planId = String(config?.planId || '');
+      if (!planId || !activePlanIdSet.has(planId)) return acc;
+      if (!Array.isArray(config.daysOfWeek)) return acc;
+      acc[planId] = config.daysOfWeek;
+      return acc;
+    }, {} as Record<string, string[]>);
+
+    const normalizedPlanDates = existingSelectedPlans.reduce((acc, config) => {
+      const planId = String(config?.planId || '');
+      if (!planId || !activePlanIdSet.has(planId)) return acc;
+      if (!Array.isArray(config.selectedDates)) return acc;
+      acc[planId] = config.selectedDates;
+      return acc;
+    }, {} as Record<string, string[]>);
+
+    const normalizedPlanShifts = existingSelectedPlans.reduce((acc, config) => {
+      const planId = String(config?.planId || '');
+      if (!planId || !activePlanIdSet.has(planId)) return acc;
+      if (!Array.isArray(config.deliveryShifts)) return acc;
+      acc[planId] = config.deliveryShifts;
+      return acc;
+    }, {} as Record<string, string[]>);
+
+    if (Object.keys(normalizedPlanDays).length === 0) {
+      (Array.isArray(client.servicePlans) ? client.servicePlans : []).forEach((planName) => {
+        const matchedPlan = availablePlans.find((p) => String(p.name || '').trim().toUpperCase() === String(planName || '').trim().toUpperCase());
+        if (!matchedPlan) return;
+        normalizedPlanDays[matchedPlan.id] = [];
+        normalizedPlanDates[matchedPlan.id] = normalizedPlanDates[matchedPlan.id] || [];
+        normalizedPlanShifts[matchedPlan.id] = normalizedPlanShifts[matchedPlan.id] || [];
+      });
+    }
+
+    const planBalances = clientPlanBalances.get(client.id) || [];
+    const balanceByPlanId = new Map(
+      planBalances
+        .filter((entry: any) => String(entry?.planId || '').trim())
+        .map((entry: any) => [String(entry.planId), Math.max(0, Number(entry.remaining || 0))])
+    );
+    const balanceByPlanName = new Map(
+      planBalances.map((entry) => [normalizeSearchText(entry.planName), Math.max(0, Number(entry.remaining || 0))])
+    );
+    const requiredByPlan: Record<string, number> = {};
+    const allPlanIds = new Set<string>([
+      ...Object.keys(normalizedPlanDays),
+      ...Object.keys(normalizedPlanDates),
+    ]);
+
+    allPlanIds.forEach((planId) => {
+      const planData = availablePlans.find((plan) => plan.id === planId);
+      const byId = balanceByPlanId.get(planId);
+      const byName = planData ? balanceByPlanName.get(normalizeSearchText(planData.name)) : undefined;
+      const fallback = (normalizedPlanDates[planId] || []).length;
+      const resolvedRaw = Number.isFinite(Number(byId))
+        ? Number(byId)
+        : (Number.isFinite(Number(byName)) ? Number(byName) : fallback);
+      requiredByPlan[planId] = Math.max(0, Number(resolvedRaw || 0));
+    });
+
+    setPlanRequiredUnitsById(requiredByPlan);
+
+    setSelectedPlanDays(normalizedPlanDays);
+    setSelectedPlanDates(normalizedPlanDates);
+    setSelectedPlanShifts(normalizedPlanShifts);
+    setOpenPlanCalendarId(null);
+    setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
     setIsDetailModalOpen(true);
   };
 
@@ -699,9 +782,16 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     setSelectedPlanDates(prev => {
       const current = prev[planId] || [];
       const exists = current.includes(dateKey);
+      const requiredCountRaw = Number(planRequiredUnitsById[planId] || 0);
+      const requiredCount = Number.isFinite(requiredCountRaw) ? requiredCountRaw : 0;
+
+      if (!exists && isDetailModalOpen && current.length >= requiredCount) return prev;
+
+      const nextDates = exists ? current.filter(d => d !== dateKey) : [...current, dateKey].sort();
+
       return {
         ...prev,
-        [planId]: exists ? current.filter(d => d !== dateKey) : [...current, dateKey].sort(),
+        [planId]: nextDates,
       };
     });
   };
@@ -802,6 +892,10 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const selectedPlansTotal = useMemo(() => {
     return selectedPlanConfigs.reduce((acc, plan) => acc + plan.subtotal, 0);
   }, [selectedPlanConfigs]);
+
+  const activePlansInView = useMemo(() => {
+    return selectedPlanConfigs.filter(plan => availablePlans.some(p => p.id === plan.planId && p.isActive !== false));
+  }, [selectedPlanConfigs, availablePlans]);
 
   const rechargeSelectedPlanSummary = useMemo(() => {
     if (!rechargeSelectedPlanId) return null;
@@ -918,7 +1012,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       ? [...rechargingClient.servicePlans, planName as any] 
       : rechargingClient.servicePlans;
 
-    const existingSelectedPlans = (((rechargingClient as any).selectedPlansConfig || []) as Array<any>);
+    const existingSelectedPlansRaw = (rechargingClient as any).selectedPlansConfig;
+    const existingSelectedPlans = ((Array.isArray(existingSelectedPlansRaw) ? existingSelectedPlansRaw : []) as Array<any>);
     let nextSelectedPlans = existingSelectedPlans;
 
     if (planConfig) {
@@ -1044,6 +1139,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     const planById = new Map(plans.map((plan) => [plan.id, plan]));
     const planByName = new Map(plans.map((plan) => [String(plan.name || '').trim().toUpperCase(), plan]));
     const result = new Map<string, Array<{
+      planId?: string;
       planName: string;
       isActive: boolean;
       total: number;
@@ -1056,10 +1152,12 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     }>>();
 
     clients.forEach((client) => {
-      const selectedConfigs = (((client as any).selectedPlansConfig || []) as Array<any>);
+      const selectedConfigsRaw = (client as any).selectedPlansConfig;
+      const selectedConfigs = ((Array.isArray(selectedConfigsRaw) ? selectedConfigsRaw : []) as Array<any>);
       const planCreditBalances = (((client as any).planCreditBalances || {}) as Record<string, { planId?: string; planName?: string; balance?: number }>);
       const txFromClient = transactions.filter((tx: any) => isTransactionFromClient(tx, client));
       const planEntries: Array<{
+        planId?: string;
         planName: string;
         isActive: boolean;
         total: number;
@@ -1072,14 +1170,14 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       }> = [];
       const seenPlanNames = new Set<string>();
 
-      const buildEntry = (planNameRaw: string, totalCount: number, creditValue?: number) => {
+      const buildEntry = (planNameRaw: string, totalCount: number, creditValue?: number, planIdHint?: string) => {
         const normalizedName = String(planNameRaw || '').trim();
         if (!normalizedName) return;
         const normalizedKey = normalizedName.toUpperCase();
         if (seenPlanNames.has(normalizedKey)) return;
         seenPlanNames.add(normalizedKey);
 
-        const linkedPlan = planByName.get(normalizedKey);
+        const linkedPlan = planIdHint ? planById.get(planIdHint) || planByName.get(normalizedKey) : planByName.get(normalizedKey);
         const finalPlanName = linkedPlan?.name || normalizedName;
         const finalPlanNameUpper = String(finalPlanName).toUpperCase();
         const isActive = Boolean(linkedPlan && linkedPlan.isActive !== false);
@@ -1099,6 +1197,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         const totalValue = safeTotal * unitPrice;
 
         planEntries.push({
+          planId: linkedPlan?.id || planIdHint || undefined,
           planName: finalPlanName,
           isActive,
           total: safeTotal,
@@ -1124,10 +1223,10 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         const daysOfWeek = Array.isArray(config?.daysOfWeek) ? config.daysOfWeek : [];
         const totalCount = selectedDates.length > 0 ? selectedDates.length : daysOfWeek.length;
 
-        buildEntry(finalPlanName, totalCount, creditValue);
+        buildEntry(finalPlanName, totalCount, creditValue, configPlanId || undefined);
       });
 
-      (client.servicePlans || [])
+      (Array.isArray(client.servicePlans) ? client.servicePlans : [])
         .filter((planName) => planName && !['PREPAGO', 'PF_FIXO', 'LANCHE_FIXO'].includes(String(planName).toUpperCase()))
         .forEach((planName) => {
           const creditByName = Object.values(planCreditBalances).find((entry) => String(entry?.planName || '').trim().toUpperCase() === String(planName || '').trim().toUpperCase());
@@ -1145,6 +1244,126 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
     return result;
   }, [clients, plans, transactions]);
+
+  useEffect(() => {
+    if (!isDetailModalOpen || !viewingClient) return;
+    const balances = clientPlanBalances.get(viewingClient.id) || [];
+    if (balances.length === 0) return;
+
+    const nextRequired: Record<string, number> = { ...planRequiredUnitsById };
+    let hasChanges = false;
+
+    activePlansInView.forEach((plan) => {
+      const byId = balances.find((entry: any) => String(entry?.planId || '') === String(plan.planId));
+      const byName = balances.find((entry: any) => normalizeSearchText(entry?.planName) === normalizeSearchText(plan.planName));
+      const resolved = Math.max(0, Number(byId?.remaining ?? byName?.remaining ?? planRequiredUnitsById[plan.planId] ?? 0));
+      if (nextRequired[plan.planId] !== resolved) {
+        nextRequired[plan.planId] = resolved;
+        hasChanges = true;
+      }
+    });
+
+    if (hasChanges) setPlanRequiredUnitsById(nextRequired);
+  }, [isDetailModalOpen, viewingClient, clientPlanBalances, activePlansInView, planRequiredUnitsById]);
+
+  const requiredUnitsByPlanId = useMemo(() => {
+    const result = new Map<string, number>();
+    if (!viewingClient) return result;
+
+    const balances = clientPlanBalances.get(viewingClient.id) || [];
+    const balanceByPlanId = new Map(
+      balances
+        .filter((entry: any) => String(entry?.planId || '').trim())
+        .map((entry: any) => [String(entry.planId), Math.max(0, Number(entry.remaining || 0))])
+    );
+    const balanceByPlanName = new Map(
+      balances.map((entry) => [normalizeSearchText(entry.planName), Math.max(0, Number(entry.remaining || 0))])
+    );
+
+    activePlansInView.forEach((plan) => {
+      const byId = balanceByPlanId.get(plan.planId);
+      const byName = balanceByPlanName.get(normalizeSearchText(plan.planName));
+      const snapshotFallback = Math.max(0, Number(planRequiredUnitsById[plan.planId] || 0));
+      const resolved = Number.isFinite(Number(byId))
+        ? Number(byId)
+        : (Number.isFinite(Number(byName)) ? Number(byName) : snapshotFallback);
+      result.set(plan.planId, Math.max(0, Number(resolved || 0)));
+    });
+
+    return result;
+  }, [viewingClient, clientPlanBalances, activePlansInView, planRequiredUnitsById]);
+
+  const planAdjustmentStatus = useMemo(() => {
+    return activePlansInView.map((plan) => {
+      const selectedCount = (selectedPlanDates[plan.planId] || []).length;
+      const requiredCount = requiredUnitsByPlanId.get(plan.planId) ?? selectedCount;
+      return {
+        planId: plan.planId,
+        planName: plan.planName,
+        selectedCount,
+        requiredCount,
+        isValid: selectedCount === requiredCount,
+      };
+    });
+  }, [activePlansInView, requiredUnitsByPlanId, selectedPlanDates]);
+
+  const isPlanAllocationValid = useMemo(() => {
+    if (!isDetailModalOpen) return true;
+    if (planAdjustmentStatus.length === 0) return true;
+    return planAdjustmentStatus.every((item) => item.isValid);
+  }, [isDetailModalOpen, planAdjustmentStatus]);
+
+  const totalRequiredUnitsInView = useMemo(() => {
+    return planAdjustmentStatus.reduce((sum, item) => sum + Number(item.requiredCount || 0), 0);
+  }, [planAdjustmentStatus]);
+
+  const enforcePlanAllocationBeforeAction = () => {
+    if (isPlanAllocationValid) return true;
+    const pending = planAdjustmentStatus.find((item) => !item.isValid);
+    if (pending) {
+      showPlanNotice(
+        `Ajuste o plano ${pending.planName}: selecione ${pending.requiredCount} dia(s). Atual: ${pending.selectedCount}.`,
+        'warning'
+      );
+    } else {
+      showPlanNotice('Ajuste os dias do plano para seguir.', 'warning');
+    }
+    return false;
+  };
+
+  const handleSavePlanViewChanges = async () => {
+    if (!viewingClient) return;
+    if (!enforcePlanAllocationBeforeAction()) return;
+
+    const activeConfigs = activePlansInView.map((plan) => ({
+      planId: plan.planId,
+      planName: plan.planName,
+      planPrice: plan.planPrice,
+      daysOfWeek: plan.daysOfWeek,
+      selectedDates: plan.selectedDates,
+      deliveryShifts: plan.deliveryShifts,
+      subtotal: plan.subtotal,
+    }));
+
+    const baseServicePlans = (Array.isArray(viewingClient.servicePlans) ? viewingClient.servicePlans : []).filter((plan) => String(plan || '').toUpperCase() === 'PREPAGO');
+    const nextServicePlans = [...baseServicePlans, ...activeConfigs.map((cfg) => cfg.planName as ClientPlanType)];
+
+    setIsSavingPlanView(true);
+    try {
+      const updated = await ApiService.updateClient(viewingClient.id, {
+        selectedPlansConfig: activeConfigs,
+        servicePlans: nextServicePlans,
+      });
+      setClients(prev => prev.map(c => (c.id === viewingClient.id ? updated : c)));
+      setViewingClient(updated);
+      showPlanNotice('Planos e dias de refeição atualizados com sucesso.', 'success');
+    } catch (error) {
+      console.error('Erro ao salvar alterações dos planos:', error);
+      showPlanNotice('Não foi possível salvar as alterações dos planos.', 'error');
+    } finally {
+      setIsSavingPlanView(false);
+    }
+  };
 
   const getClientMovements = (client?: Client | null) => {
     if (!client) return [];
@@ -1358,6 +1577,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     header: ReturnType<typeof buildExtractHeaderData>,
     periodLabel: string
   ) => {
+    const planLinesHtml = header.planLines.map((line) => `<li>${line}</li>`).join('');
     return `
       <section class="report-header">
         <div class="top-row">
@@ -1815,7 +2035,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                 </tr>
               ) : filteredClients.map(client => {
                 const enterprise = enterprises.find(e => e.id === client.enterpriseId);
-                const hasRestriction = client.restrictions.length > 0;
+                const clientRestrictions = Array.isArray(client.restrictions) ? client.restrictions : [];
+                const hasRestriction = clientRestrictions.length > 0;
                 const responsibleOrSector = client.type === 'ALUNO'
                   ? (client.parentName || client.guardianName || client.guardians?.[0] || client.parentEmail || 'Não informado')
                   : (client.class || 'Não informado');
@@ -1898,13 +2119,13 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                     </td>
                     <td className="px-8 py-5">
                       <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">
-                        {enterprise?.name.split('-')[0] || 'Unidade'}
+                        {(enterprise?.name ? enterprise.name.split('-')[0] : 'Unidade') || 'Unidade'}
                       </span>
                     </td>
                     <td className="px-8 py-5 text-center">
                       {hasRestriction ? (
                         <div className="flex justify-center">
-                          <span className="p-1.5 bg-red-50 text-red-600 rounded-lg border border-red-100 animate-pulse" title={client.restrictions.join(', ')}>
+                          <span className="p-1.5 bg-red-50 text-red-600 rounded-lg border border-red-100 animate-pulse" title={clientRestrictions.join(', ')}>
                             <AlertTriangle size={14} />
                           </span>
                         </div>
@@ -1921,14 +2142,19 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                          <button onClick={() => { setConsumptionPeriod('MONTH'); setConsumptionSpecificDate(''); setHistoryClient(client); setIsHistoryModalOpen(true); }} className="p-3 bg-white border text-gray-400 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm" title="Histórico"><History size={16} /></button>
                          <button
                            onClick={() => {
-                             resetRechargePlanSelection();
-                             setRechargingClient(client);
-                             setIsRechargeModalOpen(true);
+                             handleOpenDetail(client);
                            }}
                            className="p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
-                           title="Recarga Rápida"
+                           title="Ver Planos"
                          >
-                           <Wallet size={16} />
+                           <Beef size={16} />
+                         </button>
+                         <button
+                           onClick={() => handleOpenEditModal(client)}
+                           className="p-3 bg-white border text-indigo-500 rounded-xl hover:text-indigo-700 hover:bg-indigo-50 transition-all shadow-sm"
+                           title="Editar"
+                         >
+                           <Edit size={16} />
                          </button>
                          <button
                            onClick={() => handleDeleteClient(client)}
@@ -1949,8 +2175,14 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
       {/* MODAL DE DETALHES DO CLIENTE */}
       {isDetailModalOpen && viewingClient && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 animate-in fade-in">
-           <div className="absolute inset-0 bg-indigo-950/80 backdrop-blur-md" onClick={() => setIsDetailModalOpen(false)}></div>
+      <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 animate-in fade-in">
+           <div
+             className="absolute inset-0 bg-indigo-950/80 backdrop-blur-md"
+             onClick={() => {
+               setPlanViewNotice(null);
+               setIsDetailModalOpen(false);
+             }}
+           ></div>
            <div className="relative w-full max-w-4xl bg-white rounded-[48px] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[92vh]">
               
               <div className="bg-indigo-900 p-10 text-white flex items-center justify-between shrink-0 relative overflow-hidden">
@@ -1972,256 +2204,267 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                        </p>
                     </div>
                  </div>
-                 <button onClick={() => setIsDetailModalOpen(false)} className="p-3 hover:bg-white/10 rounded-full transition-colors relative z-10"><X size={32} /></button>
+                 <button
+                   onClick={() => {
+                     setPlanViewNotice(null);
+                     setIsDetailModalOpen(false);
+                   }}
+                   className="p-3 hover:bg-white/10 rounded-full transition-colors relative z-10"
+                 >
+                   <X size={32} />
+                 </button>
                  
                  {/* Decorativo de fundo */}
                  <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full -mr-32 -mt-32 blur-3xl"></div>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-10 space-y-10 scrollbar-hide">
-                 
-                 {/* GRID DE INFORMAÇÕES CRÍTICAS */}
-                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <DetailStatCard icon={<Wallet size={20}/>} label="Saldo em Carteira" value={`R$ ${viewingClient.balance.toFixed(2)}`} color="emerald" />
-                    <DetailStatCard icon={<CreditCard size={20}/>} label="Limite de Crédito" value={`R$ ${(viewingClient.creditLimit || 0).toFixed(2)}`} color="indigo" />
-                    <DetailStatCard icon={<Smartphone size={20}/>} label="Limite Diário" value={`R$ ${(viewingClient.dailyLimit || 0).toFixed(2)}`} color="amber" />
-                 </div>
-
-                 {viewingClient.type === 'COLABORADOR' && (
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                     <DetailStatCard icon={<ShoppingCart size={20}/>} label="Consumo do Mês" value={`R$ ${(viewingClient.monthlyConsumption || 0).toFixed(2)}`} color="amber" />
-                     <DetailStatCard icon={<Landmark size={20}/>} label="Valor em Aberto" value={`R$ ${(viewingClient.amountDue || 0).toFixed(2)}`} color="indigo" />
+              <div className="flex-1 overflow-y-auto p-10 space-y-8 scrollbar-hide">
+                 {planViewNotice && (
+                   <div
+                     className={`px-4 py-3 rounded-2xl border text-xs font-black uppercase tracking-widest ${
+                       planViewNotice.type === 'success'
+                         ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                         : planViewNotice.type === 'error'
+                           ? 'bg-red-50 border-red-200 text-red-700'
+                           : 'bg-amber-50 border-amber-200 text-amber-700'
+                     }`}
+                   >
+                     {planViewNotice.message}
                    </div>
                  )}
 
-                 {/* RESUMO FINANCEIRO E MOVIMENTAÇÕES */}
-                 <section className="space-y-4">
-                    <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-[4px] flex items-center gap-2 border-b pb-2">
-                       <History size={16} className="text-indigo-600" /> Consumos, Vendas e Recargas
-                    </h3>
-                    <div className="flex flex-wrap gap-2">
-                       {[
-                         { id: 'TODAY', label: 'Hoje' },
-                         { id: 'YESTERDAY', label: 'Ontem' },
-                         { id: 'WEEK', label: 'Semana' },
-                         { id: '15D', label: '15 dias' },
-                         { id: 'MONTH', label: 'Mês' },
-                         { id: 'YEAR', label: 'Ano' },
-                         { id: 'DATE', label: 'Data' }
-                       ].map(period => (
-                         <button
-                           key={period.id}
-                           onClick={() => setConsumptionPeriod(period.id as 'TODAY' | 'YESTERDAY' | 'WEEK' | '15D' | 'MONTH' | 'YEAR' | 'DATE')}
-                           className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
-                             consumptionPeriod === period.id
-                               ? 'bg-indigo-600 border-indigo-600 text-white'
-                               : 'bg-white border-gray-100 text-gray-500 hover:border-indigo-200'
-                           }`}
+                 <section className="bg-indigo-50 border border-indigo-100 rounded-[28px] p-6">
+                   <p className="text-[10px] font-black text-indigo-500 uppercase tracking-[3px]">Saldo Atual em Unidades</p>
+                   <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mt-2">
+                     <div>
+                       <p className="text-5xl font-black text-indigo-700 leading-none">{totalRequiredUnitsInView}</p>
+                       <p className="text-[11px] font-black text-indigo-500 uppercase tracking-widest mt-2">
+                         unidades disponíveis para edição de datas
+                       </p>
+                     </div>
+                     <div className="flex flex-wrap gap-2">
+                       {planAdjustmentStatus.map((item) => (
+                         <span
+                           key={`saldo-${item.planId}`}
+                           className="px-3 py-2 rounded-xl border border-indigo-200 bg-white text-[10px] font-black text-indigo-700 uppercase tracking-widest"
                          >
-                           {period.label}
-                         </button>
+                           {item.planName}: {item.requiredCount}
+                         </span>
                        ))}
-                       {consumptionPeriod === 'DATE' && (
-                         <input
-                           type="date"
-                           value={consumptionSpecificDate}
-                           onChange={(e) => setConsumptionSpecificDate(e.target.value)}
-                           className="px-3 py-2 rounded-xl border-2 border-indigo-100 focus:border-indigo-500 outline-none text-xs font-black text-gray-600 bg-white"
-                         />
-                       )}
-                       <button
-                         onClick={handleExportClientExtractPdf}
-                         className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 bg-white border-gray-100 text-gray-600 hover:border-red-200 hover:text-red-700 transition-all flex items-center gap-2"
-                       >
-                         <FileText size={14} /> Exportar PDF
-                       </button>
-                       <button
-                         onClick={handlePrintClientExtract}
-                         className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 bg-white border-gray-100 text-gray-600 hover:border-emerald-200 hover:text-emerald-700 transition-all flex items-center gap-2"
-                       >
-                         <Printer size={14} /> Imprimir
-                       </button>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                       <div className="p-5 rounded-2xl border bg-red-50 border-red-100">
-                          <p className="text-[10px] font-black text-red-500 uppercase tracking-widest">Consumos</p>
-                          <p className="text-xl font-black text-red-600 mt-1">R$ {detailSummary.consumos.toFixed(2)}</p>
-                       </div>
-                       <div className="p-5 rounded-2xl border bg-amber-50 border-amber-100">
-                          <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Vendas</p>
-                          <p className="text-xl font-black text-amber-700 mt-1">R$ {detailSummary.vendas.toFixed(2)}</p>
-                       </div>
-                       <div className="p-5 rounded-2xl border bg-emerald-50 border-emerald-100">
-                          <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Recargas</p>
-                          <p className="text-xl font-black text-emerald-700 mt-1">R$ {detailSummary.recargas.toFixed(2)}</p>
-                       </div>
-                    </div>
-                    <div className="bg-gray-50 border border-gray-100 rounded-[24px] p-4 max-h-80 overflow-y-auto space-y-3">
-                       {periodFilteredMovements.length > 0 ? periodFilteredMovements.map((move) => (
-                         <div key={move.id} className="flex items-center justify-between p-3 bg-white rounded-xl border border-gray-100">
-                            <div className="flex items-center gap-3">
-                               <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${move.iconBg}`}>
-                                  {move.category === 'RECARGA' ? <Wallet size={16} /> : <ShoppingCart size={16} />}
-                               </div>
-                               <div>
-                                  <p className="text-xs font-black text-gray-800 uppercase leading-none">{move.description}</p>
-                                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-1">
-                                     {move.category} • {move.method} • {move.timestamp ? new Date(move.timestamp).toLocaleString('pt-BR') : 'Data indisponível'}
-                                  </p>
-                               </div>
+                     </div>
+                   </div>
+                 </section>
+
+                 <section className="space-y-4">
+                    <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-[4px] flex items-center gap-2 border-b pb-2">
+                       <ShieldCheck size={16} className="text-indigo-600" /> Responsáveis
+                    </h3>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <div className="bg-indigo-50/70 p-5 rounded-[24px] border border-indigo-100 space-y-3">
+                        <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Responsáveis cadastrados</p>
+                        {Array.isArray(viewingClient.guardians) && viewingClient.guardians.length > 0 ? viewingClient.guardians.map((g, idx) => (
+                          <div key={idx} className="flex items-center gap-3 bg-white p-3 rounded-xl border border-indigo-100">
+                            <div className="w-9 h-9 bg-indigo-600 text-white rounded-lg flex items-center justify-center font-black">{g.charAt(0)}</div>
+                            <div>
+                              <p className="text-xs font-black text-gray-800 uppercase">{g}</p>
+                              <p className="text-[9px] font-bold text-indigo-400 uppercase">Responsável</p>
                             </div>
-                            <div className="text-right">
-                               <p className={`text-sm font-black ${move.amountColor}`}>{move.signal} R$ {move.amount.toFixed(2)}</p>
-                               <p className="text-[9px] font-black text-gray-400 uppercase mt-1">{move.status}</p>
-                            </div>
-                         </div>
-                       )) : (
-                         <div className="py-8 text-center">
-                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nenhuma movimentação encontrada para este cliente</p>
-                         </div>
-                       )}
+                          </div>
+                        )) : (
+                          <p className="text-[10px] font-black text-gray-400 uppercase">Nenhum responsável vinculado</p>
+                        )}
+                      </div>
+                      <div className="bg-emerald-50/70 p-5 rounded-[24px] border border-emerald-100 space-y-2">
+                        <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Contato principal</p>
+                        {viewingClient.parentName && <InfoItem label="Nome" value={viewingClient.parentName} />}
+                        {viewingClient.parentWhatsapp && <InfoItem label="WhatsApp" value={viewingClient.parentWhatsapp} />}
+                        {viewingClient.parentEmail && <InfoItem label="E-mail" value={viewingClient.parentEmail} />}
+                        {!viewingClient.parentName && !viewingClient.parentWhatsapp && !viewingClient.parentEmail && (
+                          <p className="text-[10px] font-black text-gray-400 uppercase">Sem contato principal cadastrado</p>
+                        )}
+                      </div>
                     </div>
                  </section>
 
                  <section className="space-y-4">
                     <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-[4px] flex items-center gap-2 border-b pb-2">
-                       <Layers size={16} className="text-indigo-600" /> Produtos Consumidos ({consumptionPeriodLabel})
+                       <Beef size={16} className="text-indigo-600" /> Planos ativos (edição de dias)
                     </h3>
-                    <div className="bg-gray-50 border border-gray-100 rounded-[24px] p-4 max-h-72 overflow-y-auto space-y-2">
-                       {consumedProducts.length > 0 ? consumedProducts.map((product, idx) => (
-                         <div key={`${product.name}-${idx}`} className="flex items-center justify-between p-3 bg-white rounded-xl border border-gray-100">
-                            <div>
-                               <p className="text-xs font-black text-gray-800 uppercase">{product.name}</p>
-                               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Qtd consumida: {product.quantity}</p>
+
+                    {activePlansInView.length === 0 ? (
+                      <div className="bg-white border border-gray-100 rounded-[24px] p-6 text-center">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          Este cliente não possui plano ativo configurado.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-5">
+                        {activePlansInView.map((plan) => {
+                          const activeDates = selectedPlanDates[plan.planId] || [];
+                          const activeShifts = selectedPlanShifts[plan.planId] || [];
+                          const isCalendarOpen = openPlanCalendarId === plan.planId;
+                          const requiredCount = requiredUnitsByPlanId.get(plan.planId) ?? activeDates.length;
+                          const isPlanValid = activeDates.length === requiredCount;
+
+                          return (
+                            <div key={plan.planId} className="bg-white border border-gray-100 rounded-[28px] p-5 space-y-4">
+                              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                <div>
+                                  <p className="text-sm font-black text-gray-800 uppercase">{plan.planName}</p>
+                                  <p className={`text-[10px] font-black uppercase tracking-widest ${isPlanValid ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                    Selecionado: {activeDates.length} • Necessário: {requiredCount}
+                                  </p>
+                                </div>
+                                <button
+                                  onClick={() => setOpenPlanCalendarId(isCalendarOpen ? null : plan.planId)}
+                                  className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
+                                    isCalendarOpen
+                                      ? 'bg-indigo-600 border-indigo-600 text-white'
+                                      : 'bg-white border-indigo-100 text-indigo-600 hover:bg-indigo-50'
+                                  }`}
+                                >
+                                  {isCalendarOpen ? 'Ocultar calendário' : 'Editar datas'}
+                                </button>
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                {DELIVERY_SHIFT_OPTIONS.map((shift) => {
+                                  const isActive = activeShifts.includes(shift.key);
+                                  return (
+                                    <button
+                                      key={`${plan.planId}-shift-${shift.key}`}
+                                      type="button"
+                                      onClick={() => togglePlanShift(plan.planId, shift.key)}
+                                      className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                                        isActive
+                                          ? 'bg-indigo-600 border-indigo-600 text-white'
+                                          : 'bg-white border-gray-200 text-gray-500 hover:border-indigo-200'
+                                      }`}
+                                    >
+                                      {shift.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                              {isCalendarOpen && (
+                                <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                                  <div className="flex items-center justify-between mb-3">
+                                    <button
+                                      type="button"
+                                      onClick={() => setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                                      className="px-3 py-1.5 rounded-lg border bg-white text-gray-600 text-xs font-black"
+                                    >
+                                      <ChevronLeft size={14} />
+                                    </button>
+                                    <p className="text-xs font-black text-gray-700 uppercase tracking-widest">{calendarMonthLabel}</p>
+                                    <button
+                                      type="button"
+                                      onClick={() => setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                                      className="px-3 py-1.5 rounded-lg border bg-white text-gray-600 text-xs font-black"
+                                    >
+                                      <ArrowRight size={14} />
+                                    </button>
+                                  </div>
+                                  <div className="grid grid-cols-7 gap-1.5">
+                                    {['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB'].map((label) => (
+                                      <div key={`${plan.planId}-header-${label}`} className="text-center text-[9px] font-black text-gray-400 uppercase py-1">
+                                        {label}
+                                      </div>
+                                    ))}
+                                    {calendarGrid.map((dateCell, index) => {
+                                      if (!dateCell) return <div key={`${plan.planId}-empty-${index}`} className="h-9" />;
+                                      const dateKey = toDateKey(dateCell);
+                                      const isAllowed = isServiceDateAllowed(dateCell);
+                                      const isSelected = activeDates.includes(dateKey);
+                                      const isAtLimit = activeDates.length >= requiredCount;
+                                      const looksDisabledByLimit = !isSelected && isAtLimit;
+
+                                      return (
+                                        <button
+                                          key={`${plan.planId}-date-${dateKey}`}
+                                          type="button"
+                                          disabled={!isAllowed}
+                                          onClick={() => togglePlanDate(plan.planId, dateCell)}
+                                          className={`h-9 rounded-lg text-[10px] font-black transition-all ${
+                                            !isAllowed
+                                              ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                                              : isSelected
+                                                ? 'bg-indigo-600 text-white'
+                                                : looksDisabledByLimit
+                                                  ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+                                                  : 'bg-white text-gray-600 border border-gray-200 hover:border-indigo-300'
+                                          }`}
+                                        >
+                                          <span className="inline-flex items-center justify-center relative w-full h-full">
+                                            {dateCell.getDate()}
+                                            {isSelected && (
+                                              <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-white text-indigo-700 text-[10px] leading-none flex items-center justify-center font-black border border-indigo-200">
+                                                ×
+                                              </span>
+                                            )}
+                                          </span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                            <div className="text-right">
-                               <p className="text-sm font-black text-indigo-600">{product.quantity} un</p>
-                               {product.totalValue > 0 && (
-                                 <p className="text-[10px] font-black text-gray-400 uppercase">R$ {product.totalValue.toFixed(2)}</p>
-                               )}
-                            </div>
-                         </div>
-                       )) : (
-                         <div className="py-8 text-center">
-                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nenhum produto consumido no período</p>
-                         </div>
-                       )}
-                    </div>
+                          );
+                        })}
+                      </div>
+                    )}
                  </section>
-
-                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-                    
-                    {/* COLUNA ESQUERDA: DADOS PESSOAIS */}
-                    <div className="lg:col-span-7 space-y-8">
-                       <section className="space-y-4">
-                          <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-[4px] flex items-center gap-2 border-b pb-2">
-                             <Fingerprint size={16} className="text-indigo-600" /> Dados de Identificação
-                          </h3>
-                          <div className="grid grid-cols-2 gap-6 bg-gray-50 p-6 rounded-[32px] border border-gray-100 shadow-inner">
-                             <InfoItem label="CPF do Cliente" value={viewingClient.cpf || 'Não informado'} />
-                             <InfoItem label="Unidade Vinculada" value={enterprises.find(e => e.id === viewingClient.enterpriseId)?.name || 'N/A'} />
-                             <InfoItem label="WhatsApp / Celular" value={viewingClient.phone || 'Não informado'} />
-                             <InfoItem label="E-mail de Contato" value={viewingClient.email || 'Não informado'} />
-                          </div>
-                       </section>
-
-                       <section className="space-y-4">
-                          <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-[4px] flex items-center gap-2 border-b pb-2">
-                             <ShieldCheck size={16} className="text-indigo-600" /> Responsáveis Cadastrados
-                          </h3>
-                          <div className="bg-indigo-50/50 p-6 rounded-[32px] border border-indigo-100 space-y-4">
-                             {viewingClient.guardians?.length > 0 ? viewingClient.guardians.map((g, idx) => (
-                               <div key={idx} className="flex items-center gap-4 bg-white p-4 rounded-2xl border border-indigo-100 shadow-sm">
-                                  <div className="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center font-black">{g.charAt(0)}</div>
-                                  <div>
-                                     <p className="text-sm font-black text-gray-800 uppercase">{g}</p>
-                                     <p className="text-[9px] font-bold text-indigo-400 uppercase">Responsável Financeiro</p>
-                                  </div>
-                               </div>
-                             )) : (
-                               <p className="text-xs text-gray-400 font-bold uppercase tracking-widest text-center py-4 italic">Nenhum responsável vinculado</p>
-                             )}
-                          </div>
-                       </section>
-
-                       {(viewingClient.parentName || viewingClient.parentWhatsapp || viewingClient.parentCpf || viewingClient.parentEmail) && (
-                         <section className="space-y-4">
-                            <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-[4px] flex items-center gap-2 border-b pb-2">
-                               <UserIcon size={16} className="text-emerald-600" /> Dados do Pai/Responsável
-                            </h3>
-                            <div className="grid grid-cols-1 gap-4 bg-emerald-50/50 p-6 rounded-[32px] border border-emerald-100 shadow-inner">
-                               {viewingClient.parentName && <InfoItem label="Nome do Responsável" value={viewingClient.parentName} />}
-                               {viewingClient.parentWhatsapp && <InfoItem label="WhatsApp" value={viewingClient.parentWhatsapp} />}
-                               {viewingClient.parentCpf && <InfoItem label="CPF" value={viewingClient.parentCpf} />}
-                               {viewingClient.parentEmail && <InfoItem label="E-mail" value={viewingClient.parentEmail} />}
-                            </div>
-                         </section>
-                       )}
-                    </div>
-
-                    {/* COLUNA DIREITA: SEGURANÇA ALIMENTAR E PLANOS */}
-                    <div className="lg:col-span-5 space-y-8">
-                       <section className="space-y-4">
-                          <h3 className="text-[11px] font-black text-red-500 uppercase tracking-[4px] flex items-center gap-2 border-b border-red-100 pb-2">
-                             <HeartPulse size={16} /> Segurança Alimentar
-                          </h3>
-                          <div className="bg-red-50 p-6 rounded-[32px] border-2 border-red-100 space-y-4">
-                             <div className="flex flex-wrap gap-2">
-                                {viewingClient.restrictions.length > 0 ? viewingClient.restrictions.map(res => (
-                                   <span key={res} className="bg-red-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-red-200 flex items-center gap-2 animate-pulse">
-                                      <AlertTriangle size={12} /> {res}
-                                   </span>
-                                )) : (
-                                   <span className="bg-emerald-100 text-emerald-700 px-4 py-2 rounded-xl text-[10px] font-black uppercase border border-emerald-200">Sem Restrições Conhecidas</span>
-                                )}
-                             </div>
-                             {viewingClient.dietaryNotes && (
-                               <div className="mt-4 p-4 bg-white/50 rounded-2xl border border-red-100">
-                                  <p className="text-[10px] font-black text-red-400 uppercase tracking-widest mb-1">Notas de Nutrição:</p>
-                                  <p className="text-xs font-bold text-gray-600 italic leading-relaxed">"{viewingClient.dietaryNotes}"</p>
-                               </div>
-                             )}
-                          </div>
-                       </section>
-
-                       <section className="space-y-4">
-                          <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-[4px] flex items-center gap-2 border-b pb-2">
-                             <Beef size={16} className="text-indigo-600" /> Planos de Serviço
-                          </h3>
-                          <div className="grid grid-cols-1 gap-3">
-                             {viewingClient.servicePlans.map(plan => (
-                               <div key={plan} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border-2 border-gray-100">
-                                  <div className="flex items-center gap-3">
-                                     <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600 shadow-sm"><Check size={14} strokeWidth={4} /></div>
-                                     <span className="text-xs font-black text-gray-700 uppercase tracking-widest">{plan.replace('_', ' ')}</span>
-                                  </div>
-                                  <span className="text-[8px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 uppercase tracking-widest">Ativo</span>
-                               </div>
-                             ))}
-                          </div>
-                       </section>
-                    </div>
-                 </div>
               </div>
 
               <div className="p-10 bg-gray-50 border-t flex flex-col sm:flex-row gap-4 shrink-0 shadow-[0_-15px_45px_rgba(0,0,0,0.05)]">
-                 <button onClick={() => setIsDetailModalOpen(false)} className="px-10 py-5 text-xs font-black text-gray-400 uppercase tracking-[3px] hover:text-gray-600 transition-colors">Fechar Perfil</button>
+                 <button
+                   onClick={() => {
+                     setPlanViewNotice(null);
+                     setIsDetailModalOpen(false);
+                   }}
+                   className="px-8 py-4 text-xs font-black text-white uppercase tracking-[2px] bg-slate-600 hover:bg-slate-700 rounded-[20px] transition-colors text-center"
+                 >
+                   Fechar Perfil
+                 </button>
                  <div className="flex-1 flex gap-4">
-                    <button onClick={() => { setIsDetailModalOpen(false); setConsumptionPeriod('MONTH'); setConsumptionSpecificDate(''); setHistoryClient(viewingClient); setIsHistoryModalOpen(true); }} className="flex-1 py-5 bg-white border-2 border-indigo-100 text-indigo-600 rounded-[24px] font-black uppercase tracking-[2px] text-xs shadow-sm hover:bg-indigo-50 transition-all flex items-center justify-center gap-2">
+                    <button
+                       onClick={handleSavePlanViewChanges}
+                       disabled={isSavingPlanView || !isPlanAllocationValid}
+                       className="flex-1 py-4 bg-indigo-700 text-white rounded-[20px] font-black uppercase tracking-[2px] text-xs shadow-xl shadow-indigo-100 hover:bg-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 text-center"
+                    >
+                       <Check size={18} /> {isSavingPlanView ? 'Salvando...' : 'Salvar Planos'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPlanViewNotice(null);
+                        setIsDetailModalOpen(false);
+                        setConsumptionPeriod('MONTH');
+                        setConsumptionSpecificDate('');
+                        setHistoryClient(viewingClient);
+                        setIsHistoryModalOpen(true);
+                      }}
+                      className="flex-1 py-4 bg-cyan-600 border-2 border-cyan-600 text-white rounded-[20px] font-black uppercase tracking-[2px] text-xs shadow-sm hover:bg-cyan-700 transition-all flex items-center justify-center gap-2 text-center"
+                    >
                        <History size={18} /> Ver Extrato Completo
                     </button>
                     <button
-                       onClick={handleOpenCreateStudentFromDetail}
-                       className="flex-1 py-5 bg-emerald-600 text-white rounded-[24px] font-black uppercase tracking-[2px] text-xs shadow-xl shadow-emerald-100 hover:bg-emerald-700 active:scale-95 transition-all flex items-center justify-center gap-2"
+                       onClick={() => {
+                         setPlanViewNotice(null);
+                         handleOpenCreateStudentFromDetail();
+                       }}
+                       className="flex-1 py-4 bg-emerald-600 text-white rounded-[20px] font-black uppercase tracking-[2px] text-xs shadow-xl shadow-emerald-100 hover:bg-emerald-700 active:scale-95 transition-all flex items-center justify-center gap-2 text-center"
                     >
                        <UserPlus size={18} /> Novo Aluno
                     </button>
                     <button
                        onClick={() => {
+                         setPlanViewNotice(null);
                          setIsDetailModalOpen(false);
                          handleOpenEditModal(viewingClient);
                        }}
-                       className="flex-1 py-5 bg-indigo-600 text-white rounded-[24px] font-black uppercase tracking-[2px] text-xs shadow-xl shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all flex items-center justify-center gap-2"
+                       className="flex-1 py-4 bg-violet-600 text-white rounded-[20px] font-black uppercase tracking-[2px] text-xs shadow-xl shadow-violet-100 hover:bg-violet-700 active:scale-95 transition-all flex items-center justify-center gap-2 text-center"
                     >
                        <Edit size={18} /> Editar Cadastro
                     </button>

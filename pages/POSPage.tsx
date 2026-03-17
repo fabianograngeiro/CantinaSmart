@@ -22,6 +22,13 @@ const toAbsoluteProductImageUrl = (imageUrl?: string, productName?: string) => {
   return `https://picsum.photos/seed/${encodeURIComponent(productName || 'produto')}/200`;
 };
 
+const normalizeSearchText = (value?: string) =>
+  String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
 const WEEK_DAY_OPTIONS = [
   { key: 'SEGUNDA', label: 'Seg' },
   { key: 'TERCA', label: 'Ter' },
@@ -570,10 +577,11 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
   };
 
   const clientSuggestions = useMemo(() => {
-    if (clientSearch.trim().length < 1) return [];
+    const normalizedClientSearch = normalizeSearchText(clientSearch);
+    if (!normalizedClientSearch) return [];
     return clients.filter(c => 
-      c.name.toLowerCase().includes(clientSearch.toLowerCase()) ||
-      c.registrationId.includes(clientSearch)
+      normalizeSearchText(c.name).includes(normalizedClientSearch) ||
+      normalizeSearchText(c.registrationId).includes(normalizedClientSearch)
     ).slice(0, 5);
   }, [clientSearch, clients]);
 
@@ -590,29 +598,66 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
   const filteredProducts = useMemo(() => {
     const normalizedActiveCategory = String(activeCategory || '').trim().toUpperCase();
     if (normalizedActiveCategory === 'PLANOS') return [];
+    const normalizedSearch = normalizeSearchText(productSearch);
 
-    return products.filter((p) => {
+    const salesCountByProductName = new Map<string, number>();
+    posTransactions.forEach((tx: any) => {
+      const rawItems = Array.isArray(tx?.items) ? tx.items : [];
+      if (rawItems.length > 0) {
+        rawItems.forEach((item: any) => {
+          const itemName = String(item?.name || item?.productName || '').trim().toUpperCase();
+          if (!itemName) return;
+          const qty = Number(item?.quantity || 1);
+          salesCountByProductName.set(itemName, (salesCountByProductName.get(itemName) || 0) + (Number.isFinite(qty) ? qty : 1));
+        });
+        return;
+      }
+
+      const legacyItemName = String(tx?.item || '').trim().toUpperCase();
+      if (!legacyItemName) return;
+      salesCountByProductName.set(legacyItemName, (salesCountByProductName.get(legacyItemName) || 0) + 1);
+    });
+
+    const base = products.filter((p) => {
       const productCategory = String(p.category || '').trim();
       const normalizedProductCategory = productCategory.toUpperCase();
       const isGeneralCategory = normalizedProductCategory === 'GERAL';
 
-      const matchesCategory =
-        normalizedActiveCategory === 'TODOS' ||
-        normalizedActiveCategory === 'GERAL' ||
-        normalizedProductCategory === normalizedActiveCategory ||
-        isGeneralCategory;
+      const matchesCategory = normalizedActiveCategory === 'TODOS'
+        ? true
+        : normalizedActiveCategory === 'GERAL'
+          ? isGeneralCategory
+          : (normalizedProductCategory === normalizedActiveCategory || isGeneralCategory);
 
-      const matchesSearch = p.name.toLowerCase().includes(productSearch.toLowerCase());
+      const matchesSearch = !normalizedSearch || normalizeSearchText(p.name).includes(normalizedSearch);
 
       return matchesCategory && matchesSearch;
     });
-  }, [activeCategory, productSearch, products]);
+
+    return base.sort((a, b) => {
+      const aCategory = String(a.category || '').trim().toUpperCase();
+      const bCategory = String(b.category || '').trim().toUpperCase();
+
+      if (!['TODOS', 'GERAL'].includes(normalizedActiveCategory)) {
+        const aPriority = aCategory === normalizedActiveCategory ? 0 : 1;
+        const bPriority = bCategory === normalizedActiveCategory ? 0 : 1;
+        if (aPriority !== bPriority) return aPriority - bPriority;
+      }
+
+      const aSales = salesCountByProductName.get(String(a.name || '').trim().toUpperCase()) || 0;
+      const bSales = salesCountByProductName.get(String(b.name || '').trim().toUpperCase()) || 0;
+      if (aSales !== bSales) return bSales - aSales;
+
+      return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' });
+    });
+  }, [activeCategory, productSearch, products, posTransactions]);
 
   const filteredPlans = useMemo(() => {
     const normalizedActiveCategory = String(activeCategory || '').trim().toUpperCase();
     if (normalizedActiveCategory !== 'PLANOS') return [];
+    const normalizedSearch = normalizeSearchText(productSearch);
     return availablePlans.filter((plan) =>
-      String(plan.name || '').toLowerCase().includes(String(productSearch || '').toLowerCase())
+      !normalizedSearch || normalizeSearchText(plan.name).includes(normalizedSearch)
     );
   }, [activeCategory, availablePlans, productSearch]);
 
@@ -848,6 +893,27 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
     setStudentCreditOpenCalendarId(null);
     setStudentCreditCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
     setIsServiceActionModalOpen(true);
+  };
+
+  const handlePayNegativeBalance = () => {
+    if (!selectedClient || selectedClient.type === 'COLABORADOR') return;
+
+    const currentDebt = Math.max(0, Number(-(selectedClient.balance || 0)));
+    if (currentDebt <= 0) return;
+
+    const pendingDebtInCart = cart
+      .filter((item) => item.serviceAction === 'CREDIT_STUDENT_FREE' && item.productId.startsWith('SERVICE_NEGATIVE_BALANCE_'))
+      .reduce((sum, item) => sum + Number((item.price || 0) * (item.quantity || 0)), 0);
+
+    const amountToAdd = Number((currentDebt - pendingDebtInCart).toFixed(2));
+    if (amountToAdd <= 0) return;
+
+    addServiceItemToCart(
+      `SERVICE_NEGATIVE_BALANCE_${Date.now()}`,
+      `Pagamento saldo devedor: ${selectedClient.name}`,
+      amountToAdd,
+      { serviceAction: 'CREDIT_STUDENT_FREE' }
+    );
   };
 
   const handlePayCollaboratorConsumption = () => {
@@ -1660,6 +1726,9 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
     if (method === 'SALDO') {
       if (isFinalConsumer) return alert("Venda anônima não aceita pagamento via saldo.");
       if (!selectedClient) return alert("Identifique o aluno para usar o saldo.");
+      if (isSaldoCantinaPaymentDisabled) {
+        return alert("Pagamento via Saldo Cantina desativado enquanto a quitação do saldo negativo estiver no carrinho.");
+      }
       if (!canClientUseNegativeBalance(selectedClient, numericAmount)) {
         if (!clientNegativeSalesAllowed) {
           return alert("Saldo insuficiente na carteira do aluno.");
@@ -1728,6 +1797,10 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
   };
 
   const openPartialPaymentModal = (method: PaymentMethod) => {
+    if (method === 'SALDO' && isSaldoCantinaPaymentDisabled) {
+      alert("Pagamento via Saldo Cantina desativado enquanto a quitação do saldo negativo estiver no carrinho.");
+      return;
+    }
     setActiveSplitMethod(method);
     setPartialAmount(remainingToPay.toFixed(2));
     setIsAmountModalOpen(true);
@@ -1801,6 +1874,25 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
     if (!selectedClient || selectedClient.type === 'COLABORADOR') return 0;
     return Number(((selectedClient.balance || 0) - pendingCantinaDiscount).toFixed(2));
   }, [selectedClient, pendingCantinaDiscount]);
+
+  const pendingNegativeBalancePayment = useMemo(() => {
+    if (!selectedClient || selectedClient.type === 'COLABORADOR') return 0;
+    return Number(cart
+      .filter((item) => item.serviceAction === 'CREDIT_STUDENT_FREE' && item.productId.startsWith('SERVICE_NEGATIVE_BALANCE_'))
+      .reduce((sum, item) => sum + Number((item.price || 0) * (item.quantity || 0)), 0)
+      .toFixed(2));
+  }, [selectedClient, cart]);
+
+  const negativeBalanceAmountToPay = useMemo(() => {
+    if (!selectedClient || selectedClient.type === 'COLABORADOR') return 0;
+    const currentDebt = Math.max(0, Number(-(selectedClient.balance || 0)));
+    return Number(Math.max(0, currentDebt - pendingNegativeBalancePayment).toFixed(2));
+  }, [selectedClient, pendingNegativeBalancePayment]);
+
+  const isSaldoCantinaPaymentDisabled = useMemo(() => {
+    if (!selectedClient || selectedClient.type === 'COLABORADOR') return false;
+    return pendingNegativeBalancePayment > 0;
+  }, [selectedClient, pendingNegativeBalancePayment]);
 
   const sessionPlanMiniCards = useMemo(() => {
     if (!selectedClient) return [];
@@ -1906,7 +1998,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
 
   return (
     <div className="flex flex-col lg:flex-row h-full gap-6 relative" onClick={initAudio}>
-      <div className="flex-1 flex flex-col space-y-4">
+      <div className="w-full lg:basis-[70%] lg:max-w-[70%] flex flex-col space-y-4 min-w-0">
         {/* Top Header POS */}
         <div className="bg-white p-4 rounded-xl shadow-sm border space-y-4 relative z-20">
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
@@ -2003,7 +2095,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
         </div>
 
         {/* Catalog Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4 overflow-y-auto pr-2 flex-1 max-h-[calc(100vh-380px)] lg:max-h-full pb-10">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 overflow-y-auto pr-2 flex-1 max-h-[calc(100vh-380px)] lg:max-h-full pb-10">
           {String(activeCategory || '').trim().toUpperCase() === 'PLANOS' ? (
             filteredPlans.length === 0 ? (
               <div className="col-span-full bg-white border rounded-xl p-8 text-center">
@@ -2017,15 +2109,15 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                 <button
                   key={plan.id}
                   onClick={() => addPlanConsumptionToCart(plan)}
-                  className="bg-white p-3 rounded-xl border hover:border-indigo-400 hover:shadow-md transition-all text-left group"
+                  className="bg-white p-2.5 rounded-xl border hover:border-indigo-400 hover:shadow-md transition-all text-left group"
                 >
-                  <div className="relative aspect-square mb-2 overflow-hidden rounded-lg bg-indigo-50 flex items-center justify-center">
-                    <Layers size={36} className="text-indigo-300 group-hover:text-indigo-500 transition-colors" />
+                  <div className="relative aspect-[4/3] mb-2 overflow-hidden rounded-lg bg-indigo-50 flex items-center justify-center">
+                    <Layers size={30} className="text-indigo-300 group-hover:text-indigo-500 transition-colors" />
                   </div>
-                  <p className="text-sm font-semibold text-gray-800 line-clamp-2 h-10">{plan.name}</p>
+                  <p className="text-xs font-semibold text-gray-800 line-clamp-2 h-9">{plan.name}</p>
                   <div className="flex items-center justify-between mt-2">
-                    <span className="text-[10px] text-indigo-600 font-black uppercase">Consumo por Unidade</span>
-                    <span className={`text-[10px] font-black ${remainingUnits > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                    <span className="text-[9px] text-indigo-600 font-black uppercase">Consumo un.</span>
+                    <span className={`text-[9px] font-black ${remainingUnits > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                       Saldo: {remainingUnits} un • R$ {formatCurrencyBRL(remainingValue)}
                     </span>
                   </div>
@@ -2037,18 +2129,18 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nenhum produto encontrado no catálogo</p>
             </div>
           ) : filteredProducts.map(product => (
-            <button key={product.id} onClick={() => addToCart(product)} className="bg-white p-3 rounded-xl border hover:border-indigo-400 hover:shadow-md transition-all text-left group">
-              <div className="relative aspect-square mb-2 overflow-hidden rounded-lg bg-gray-100">
+            <button key={product.id} onClick={() => addToCart(product)} className="bg-white p-2.5 rounded-xl border hover:border-indigo-400 hover:shadow-md transition-all text-left group">
+              <div className="relative aspect-[4/3] mb-2 overflow-hidden rounded-lg bg-gray-100">
                 <img src={toAbsoluteProductImageUrl(product.image, product.name)} alt={product.name} className="object-cover w-full h-full group-hover:scale-110 transition-transform" />
               </div>
-              <p className="text-sm font-semibold text-gray-800 line-clamp-2 h-10">{product.name}</p>
+              <p className="text-xs font-semibold text-gray-800 line-clamp-2 h-9">{product.name}</p>
               <div className="flex items-center justify-between mt-2 font-bold">
-                <span className="text-indigo-600">
+                <span className="text-indigo-600 text-sm">
                   {(product.unit || 'UN') === 'KG'
                     ? `R$ ${product.price.toFixed(2)}`
                     : `R$ ${product.price.toFixed(2)}`}
                 </span>
-                <span className="text-[10px] text-gray-400 font-black">
+                <span className="text-[9px] text-gray-400 font-black">
                   {(product.unit || 'UN') === 'KG' ? `R$ ${product.price.toFixed(2)}/KG` : `${product.stock} ${product.unit || 'UN'}`}
                 </span>
               </div>
@@ -2058,7 +2150,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
       </div>
 
       {/* Sidebar Checkout Panel */}
-      <div className="w-full lg:w-96 flex flex-col space-y-4 z-10">
+      <div className="w-full lg:basis-[30%] lg:max-w-[30%] flex flex-col space-y-4 z-10 min-w-0">
         {/* Identification Card */}
         <div className={`bg-white p-4 rounded-2xl shadow-sm border-2 transition-all ${selectedClient?.isBlocked ? 'border-red-500 animate-pulse' : 'border-indigo-50'}`}>
           <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Sessão de Atendimento</h3>
@@ -2141,11 +2233,28 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                    <div className="grid grid-cols-2 gap-2">
                      <div className={`p-3 rounded-xl border ${effectiveCantinaBalance < 0 ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}>
                        <p className={`text-[9px] font-black uppercase tracking-widest ${effectiveCantinaBalance < 0 ? 'text-red-600' : 'text-emerald-600'}`}>Cantina</p>
-                       <p className={`text-sm font-black mt-1 ${effectiveCantinaBalance < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
-                         R$ {effectiveCantinaBalance.toFixed(2)}
-                       </p>
+                       <div className="mt-1 flex items-center justify-between gap-2">
+                         <p className={`text-sm font-black ${effectiveCantinaBalance < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                           R$ {effectiveCantinaBalance.toFixed(2)}
+                         </p>
+                         {effectiveCantinaBalance < 0 && (
+                           <button
+                             type="button"
+                             onClick={handlePayNegativeBalance}
+                             disabled={negativeBalanceAmountToPay <= 0}
+                             className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed transition-all"
+                           >
+                             {negativeBalanceAmountToPay <= 0 ? 'No carrinho' : 'Pagar'}
+                           </button>
+                         )}
+                       </div>
                        {pendingCantinaDiscount > 0 && (
                          <p className="text-[9px] font-black text-red-500 mt-1">- R$ {pendingCantinaDiscount.toFixed(2)} pendente no carrinho</p>
+                       )}
+                       {pendingNegativeBalancePayment > 0 && (
+                         <p className="text-[9px] font-black text-emerald-700 mt-1">
+                           + R$ {pendingNegativeBalancePayment.toFixed(2)} para quitar saldo no carrinho
+                         </p>
                        )}
                      </div>
                      {sessionPlanMiniCards.length > 0 ? sessionPlanMiniCards.map((planCard) => (
@@ -2261,7 +2370,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                       icon={<Wallet size={16} />} 
                       label={selectedClient?.type === 'COLABORADOR' ? 'Créd. Colabrador' : 'Saldo Cantina'}
                       color="indigo" 
-                      disabled={isFinalConsumer || !selectedClient || selectedClient?.type === 'COLABORADOR'} 
+                      disabled={isFinalConsumer || !selectedClient || selectedClient?.type === 'COLABORADOR' || isSaldoCantinaPaymentDisabled} 
                     />
                     <PaymentButton 
                       onClick={() => openPartialPaymentModal('PIX')} 

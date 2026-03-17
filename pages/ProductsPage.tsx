@@ -7,6 +7,7 @@ import {
   TrendingUp, Scale, Archive, Barcode, Calendar, Upload
 } from 'lucide-react';
 import { ApiService } from '../services/api';
+import notificationService from '../services/notificationService';
 import { Product, User, Enterprise, Role, Category, SubCategory, ProductUnit } from '../types';
 
 interface ProductsPageProps {
@@ -22,6 +23,13 @@ const toAbsoluteProductImageUrl = (imageUrl?: string, productName?: string) => {
   if (imageUrl) return imageUrl;
   return `https://picsum.photos/seed/${encodeURIComponent(productName || 'produto')}/200`;
 };
+
+const normalizeSearchText = (value: string) =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
 
 const fileToBase64 = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -133,11 +141,17 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
 
   // Filtragem de Produtos
   const filteredProducts = useMemo(() => {
+    const normalizedSearchTerm = normalizeSearchText(searchTerm);
+
     return products.filter(p => {
       const matchesUnit = isOwner || p.enterpriseId === activeEnterprise.id;
-      const matchesSearch = 
-        p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        (p.ean && p.ean.includes(searchTerm));
+      const normalizedProductName = normalizeSearchText(p.name);
+      const eanValue = String(p.ean || '');
+      const searchDigits = String(searchTerm || '').replace(/\D/g, '');
+      const matchesSearch =
+        !normalizedSearchTerm
+        || normalizedProductName.includes(normalizedSearchTerm)
+        || (searchDigits.length > 0 && eanValue.includes(searchDigits));
       
       const categoryObj = categories.find(c => c.id === selectedCategoryId);
       const normalizedSelected = String(categoryObj?.name || '').trim().toUpperCase();
@@ -214,7 +228,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
         uploadedImageUrl = String(uploadResponse?.imageUrl || uploadedImageUrl);
       } catch (err) {
         console.error('Erro ao enviar imagem do produto:', err);
-        alert('Erro ao enviar imagem do produto. Tente novamente.');
+        notificationService.critico('Erro ao enviar imagem', 'Não foi possível enviar a imagem do produto. Tente novamente.');
         return;
       }
     }
@@ -246,32 +260,30 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
         // Atualizar Produto Existente via API
         await ApiService.updateProduct(editingProductId, productPayload);
         setProducts(prev => prev.map(p => p.id === editingProductId ? {...p, ...productPayload} : p));
-        alert('Produto atualizado com sucesso!');
+        notificationService.informativo('Produto atualizado', 'As alterações foram salvas com sucesso.');
       } else {
         // Criar Novo Produto via API
         const createdProduct = await ApiService.createProduct(productPayload);
         setProducts(prev => [createdProduct, ...prev]);
-        alert('Produto cadastrado com sucesso!');
+        notificationService.informativo('Produto cadastrado', 'Novo produto salvo com sucesso.');
       }
       setProductImageFile(null);
       setProductImagePreview('');
       setIsProductModalOpen(false);
     } catch (err) {
       console.error('Erro ao salvar produto:', err);
-      alert('Erro ao salvar produto. Tente novamente.');
+      notificationService.critico('Erro ao salvar produto', 'Tente novamente em instantes.');
     }
   };
 
   const handleDeleteProduct = async (productId: string) => {
-    if (!window.confirm('Tem certeza que deseja deletar este produto?')) return;
-    
     try {
       await ApiService.deleteProduct(productId);
       setProducts(prev => prev.filter(p => p.id !== productId));
-      alert('Produto deletado com sucesso!');
+      notificationService.informativo('Produto removido', 'Produto excluído com sucesso.');
     } catch (err) {
       console.error('Erro ao deletar produto:', err);
-      alert('Erro ao deletar produto. Tente novamente.');
+      notificationService.critico('Erro ao remover produto', 'Tente novamente em instantes.');
     }
   };
 
@@ -281,7 +293,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
 
     const exists = categories.some(c => c.name.toLowerCase() === normalizedName.toLowerCase());
     if (exists) {
-      alert('Esta categoria já existe.');
+      notificationService.alerta('Categoria duplicada', 'Esta categoria já existe.');
       return;
     }
 
@@ -295,7 +307,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
       setIsCategoryModalOpen(false);
     } catch (err) {
       console.error('Erro ao criar categoria:', err);
-      alert('Erro ao salvar categoria. Tente novamente.');
+      notificationService.critico('Erro ao salvar categoria', 'Tente novamente em instantes.');
     }
   };
 
@@ -307,12 +319,12 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
     if (!targetCategory) return;
 
     if (targetCategory.subCategories.length >= 3) {
-      alert('Limite de 3 subcategorias atingido para esta categoria.');
+      notificationService.alerta('Limite atingido', 'Esta categoria já possui 3 subcategorias.');
       return;
     }
 
     if (targetCategory.subCategories.some(sub => sub.name.toLowerCase() === normalizedName.toLowerCase())) {
-      alert('Esta subcategoria já existe.');
+      notificationService.alerta('Subcategoria duplicada', 'Esta subcategoria já existe.');
       return;
     }
 
@@ -330,7 +342,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
       setIsSubCategoryModalOpen(false);
     } catch (err) {
       console.error('Erro ao criar subcategoria:', err);
-      alert('Erro ao salvar subcategoria. Tente novamente.');
+      notificationService.critico('Erro ao salvar subcategoria', 'Tente novamente em instantes.');
     }
   };
 
@@ -558,7 +570,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
                                 const file = e.target.files?.[0] || null;
                                 if (!file) return;
                                 if (file.size > 5 * 1024 * 1024) {
-                                  alert('A imagem deve ter no máximo 5MB.');
+                                  notificationService.alerta('Imagem inválida', 'A imagem deve ter no máximo 5MB.');
                                   return;
                                 }
                                 setProductImageFile(file);
