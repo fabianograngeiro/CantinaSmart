@@ -105,6 +105,20 @@ type ScheduledMessage = {
   error?: string | null;
 };
 
+type AiHumanHandoffRequest = {
+  id: string;
+  chatJid: string;
+  chatId: string;
+  contactName: string;
+  messageId: string;
+  incomingText: string;
+  createdAt: number;
+  expiresAt: number;
+  decisionAt?: number;
+  status: 'pending' | 'accepted' | 'rejected' | 'expired';
+  decisionReason?: string;
+};
+
 type AiProvider = 'openai' | 'gemini' | 'groq';
 type AiContextActionType = 'RESPONDER_CLIENTE' | 'ATENDIMENTO_HUMANO';
 type AiContextRoutingMode = 'DIRECT' | 'INTENT_SWITCH';
@@ -282,6 +296,9 @@ class WhatsAppSessionManager {
   private static readonly LEGACY_AI_CONFIG_FILE_PATH = path.resolve(__dirname, '../data/whatsapp-ai-config.json');
   private static readonly AI_AUDIT_MAX_ITEMS = 300;
   private static readonly AI_AGENT_AUTO_RESUME_MS = 6 * 60 * 60 * 1000;
+  private static readonly AI_HUMAN_HANDOFF_WAIT_MS = 3 * 60 * 1000;
+  private static readonly AI_HUMAN_HANDOFF_AUTO_ACCEPT_MS = 2 * 60 * 1000;
+  private static readonly AI_HUMAN_HANDOFF_TTL_MS = 30 * 60 * 1000;
 
   private sock: any = null;
   private state: SessionState = 'DISCONNECTED';
@@ -390,6 +407,11 @@ class WhatsAppSessionManager {
   private aiConversationSessions = new Map<string, AiConversationSession>();
   private aiDataCache = new Map<string, AiDataCacheEntry>();
   private aiAuditLog: AiAuditEntry[] = [];
+  private humanLastResponseAtByChat = new Map<string, number>();
+  private aiHumanHandoffTimersByChat = new Map<string, ReturnType<typeof setTimeout>>();
+  private aiHumanHandoffRequestsById = new Map<string, AiHumanHandoffRequest>();
+  private aiHumanHandoffPendingIdByChat = new Map<string, string>();
+  private aiHumanHandoffAutoAcceptInFlight = false;
 
   constructor() {
     this.loadPersistedChatHistory().catch((err) => {
@@ -407,6 +429,10 @@ class WhatsAppSessionManager {
       });
       this.pruneExpiredAiConversationSessions();
       this.processAiAgentAutoResumeTimers();
+      this.pruneExpiredAiHumanHandoffRequests();
+      this.processAiHumanHandoffAutoAccept().catch((err) => {
+        this.logWarn('Falha ao autoaceitar solicitações pendentes de handoff IA.', err instanceof Error ? err.message : err);
+      });
     }, 5000);
   }
 
@@ -508,6 +534,13 @@ class WhatsAppSessionManager {
     this.aiDataCache.clear();
     this.aiAgentAutoResumeAtByChat.clear();
     this.backendSentMessageIds.clear();
+    this.humanLastResponseAtByChat.clear();
+    this.aiHumanHandoffRequestsById.clear();
+    this.aiHumanHandoffPendingIdByChat.clear();
+    for (const timer of Array.from(this.aiHumanHandoffTimersByChat.values())) {
+      clearTimeout(timer);
+    }
+    this.aiHumanHandoffTimersByChat.clear();
   }
 
   private rememberBackendSentMessageId(msgId: string) {
@@ -576,6 +609,277 @@ class WhatsAppSessionManager {
         this.logWarn('Falha ao persistir reativação automática do agente IA.', err instanceof Error ? err.message : err);
       });
     }
+  }
+
+  private markHumanInteraction(chatJid: string, timestampMs = Date.now()) {
+    if (!chatJid) return;
+    this.humanLastResponseAtByChat.set(chatJid, Number(timestampMs) || Date.now());
+  }
+
+  private pruneExpiredAiHumanHandoffRequests() {
+    const now = Date.now();
+    let changed = false;
+    for (const [id, item] of Array.from(this.aiHumanHandoffRequestsById.entries())) {
+      if (item.status !== 'pending') continue;
+      if (!Number.isFinite(item.expiresAt) || item.expiresAt > now) continue;
+      item.status = 'expired';
+      item.decisionAt = now;
+      item.decisionReason = 'request_expired';
+      if (this.aiHumanHandoffPendingIdByChat.get(item.chatJid) === id) {
+        this.aiHumanHandoffPendingIdByChat.delete(item.chatJid);
+      }
+      changed = true;
+    }
+    if (changed) {
+      this.logInfo('Solicitações pendentes de handoff IA expiradas automaticamente.', {
+        totalPending: Array.from(this.aiHumanHandoffRequestsById.values()).filter((entry) => entry.status === 'pending').length
+      });
+    }
+  }
+
+  private clearAiHumanHandoffForChat(chatJid: string, reason: string) {
+    const pendingId = this.aiHumanHandoffPendingIdByChat.get(chatJid);
+    if (!pendingId) return;
+    const pending = this.aiHumanHandoffRequestsById.get(pendingId);
+    if (!pending || pending.status !== 'pending') {
+      this.aiHumanHandoffPendingIdByChat.delete(chatJid);
+      return;
+    }
+    pending.status = 'rejected';
+    pending.decisionAt = Date.now();
+    pending.decisionReason = reason;
+    this.aiHumanHandoffPendingIdByChat.delete(chatJid);
+  }
+
+  private isLikelyNoReplyNeededMessage(message: string) {
+    const normalized = this.normalizeSearchText(message);
+    if (!normalized) return true;
+    const noReplyPatterns = [
+      /^ok+$/,
+      /^obrigad[oa]s?$/,
+      /^valeu$/,
+      /^blz$/,
+      /^beleza$/,
+      /^show$/,
+      /^👍+$/,
+      /^🙏+$/,
+      /^boa noite$/,
+      /^bom dia$/,
+      /^boa tarde$/,
+    ];
+    if (noReplyPatterns.some((pattern) => pattern.test(normalized))) return true;
+    return normalized.length <= 2;
+  }
+
+  private async shouldRequestAiHumanHandoff(chatJid: string, incomingText: string) {
+    const text = String(incomingText || '').trim();
+    if (!text) return { shouldRequest: false, reason: 'empty_message' };
+    if (this.isLikelyNoReplyNeededMessage(text)) {
+      return { shouldRequest: false, reason: 'message_does_not_require_response' };
+    }
+
+    const heuristicIntent = this.isFinancialIntentMessage(text)
+      || this.shouldAutoSendClientReportPdf(text)
+      || /(\?|quero|preciso|ajuda|duvida|dúvida|saldo|consumo|relatorio|relatório|pedido|valor|como|quando|onde|problema|suporte)/i.test(text);
+
+    const provider: AiProvider = this.aiConfig.provider === 'gemini'
+      ? 'gemini'
+      : this.aiConfig.provider === 'groq'
+        ? 'groq'
+        : 'openai';
+    const tokenOpenAi = String(this.aiConfig.openAiToken || '').trim();
+    const tokenGemini = String(this.aiConfig.geminiToken || '').trim();
+    const tokenGroq = String(this.aiConfig.groqToken || '').trim();
+    const model = String(this.aiConfig.model || '').trim();
+
+    const canUseAi =
+      (provider === 'openai' && Boolean(tokenOpenAi))
+      || (provider === 'gemini' && Boolean(tokenGemini))
+      || (provider === 'groq' && Boolean(tokenGroq));
+
+    if (!canUseAi) {
+      return { shouldRequest: heuristicIntent, reason: heuristicIntent ? 'heuristic_positive_without_ai' : 'heuristic_negative_without_ai' };
+    }
+
+    const selectorSystem = [
+      'Você classifica se uma mensagem de cliente precisa atendimento automático por IA.',
+      'Retorne APENAS JSON válido no formato {"shouldRespond":boolean,"reason":"string","confidence":number}.',
+      'Use shouldRespond=true quando houver pergunta, pedido, dúvida, solicitação de suporte, saldo, consumo ou relatório.',
+      'Use shouldRespond=false para mensagens de cortesia sem solicitação objetiva.',
+    ].join(' ');
+
+    const selectorUser = JSON.stringify({
+      chatId: this.toExternalChatId(chatJid),
+      message: text,
+      businessHoursMode: 'inside_business_hours',
+      heuristicsSuggestRespond: heuristicIntent,
+    });
+
+    try {
+      let raw = '';
+      if (provider === 'openai' && tokenOpenAi) {
+        raw = await this.callOpenAiJson(selectorSystem, selectorUser, tokenOpenAi, model || 'gpt-4.1-mini');
+      } else if (provider === 'gemini' && tokenGemini) {
+        raw = await this.callGeminiJson(selectorSystem, selectorUser, tokenGemini, model || 'gemini-2.0-flash');
+      } else if (provider === 'groq' && tokenGroq) {
+        raw = await this.callGroqJson(selectorSystem, selectorUser, tokenGroq, model || 'llama-3.1-8b-instant');
+      }
+      const parsed = this.extractJsonObject(raw);
+      const shouldRespond = parsed?.shouldRespond === true || String(parsed?.shouldRespond || '').toLowerCase() === 'true';
+      const reason = String(parsed?.reason || '').trim() || (shouldRespond ? 'ai_positive' : 'ai_negative');
+      return { shouldRequest: shouldRespond, reason };
+    } catch (err) {
+      this.logWarn('Falha ao classificar handoff IA; aplicando heurística local.', err instanceof Error ? err.message : err);
+      return { shouldRequest: heuristicIntent, reason: heuristicIntent ? 'heuristic_positive_after_ai_error' : 'heuristic_negative_after_ai_error' };
+    }
+  }
+
+  private scheduleAiHumanHandoffReview(chatJid: string, messageId: string, incomingText: string, receivedAtMs: number) {
+    if (!chatJid || !incomingText) return;
+    const currentTimer = this.aiHumanHandoffTimersByChat.get(chatJid);
+    if (currentTimer) {
+      clearTimeout(currentTimer);
+      this.aiHumanHandoffTimersByChat.delete(chatJid);
+    }
+
+    const timer = setTimeout(async () => {
+      this.aiHumanHandoffTimersByChat.delete(chatJid);
+      try {
+        const lastHumanAt = Number(this.humanLastResponseAtByChat.get(chatJid) || 0);
+        if (Number.isFinite(lastHumanAt) && lastHumanAt > receivedAtMs) {
+          this.clearAiHumanHandoffForChat(chatJid, 'human_replied_before_ai');
+          return;
+        }
+
+        const targetClient = this.findClientByChatJid(chatJid);
+        const hoursCheck = this.isOutsideEnterpriseBusinessHours(chatJid, targetClient);
+        if (hoursCheck.outside) return;
+        if (this.aiAgentEnabledChats.has(chatJid)) return;
+        if (this.aiHumanHandoffPendingIdByChat.get(chatJid)) return;
+
+        const analysis = await this.shouldRequestAiHumanHandoff(chatJid, incomingText);
+        if (!analysis.shouldRequest) return;
+
+        const existing = this.chatMap.get(chatJid);
+        const contactName = String(
+          existing?.name
+          || targetClient?.name
+          || this.getPhoneFromJid(chatJid)
+        ).trim() || this.getPhoneFromJid(chatJid);
+
+        const id = `ai_handoff_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+        const request: AiHumanHandoffRequest = {
+          id,
+          chatJid,
+          chatId: this.toExternalChatId(chatJid),
+          contactName,
+          messageId,
+          incomingText: String(incomingText || '').trim(),
+          createdAt: Date.now(),
+          expiresAt: Date.now() + WhatsAppSessionManager.AI_HUMAN_HANDOFF_TTL_MS,
+          status: 'pending',
+          decisionReason: analysis.reason,
+        };
+        this.aiHumanHandoffRequestsById.set(id, request);
+        this.aiHumanHandoffPendingIdByChat.set(chatJid, id);
+        this.logInfo('Solicitação de aprovação humana para IA criada.', {
+          chatId: request.chatId,
+          contactName: request.contactName,
+          reason: analysis.reason,
+        });
+      } catch (err) {
+        this.logWarn('Falha ao avaliar handoff IA após timeout de 3 minutos.', err instanceof Error ? err.message : err);
+      }
+    }, WhatsAppSessionManager.AI_HUMAN_HANDOFF_WAIT_MS);
+
+    this.aiHumanHandoffTimersByChat.set(chatJid, timer);
+  }
+
+  listPendingAiHumanHandoffRequests() {
+    this.pruneExpiredAiHumanHandoffRequests();
+    return Array.from(this.aiHumanHandoffRequestsById.values())
+      .filter((item) => item.status === 'pending')
+      .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+      .map((item) => ({
+        id: item.id,
+        chatId: item.chatId,
+        contactName: item.contactName,
+        messagePreview: item.incomingText,
+        createdAt: item.createdAt,
+        expiresAt: item.expiresAt,
+      }));
+  }
+
+  private async processAiHumanHandoffAutoAccept() {
+    if (this.aiHumanHandoffAutoAcceptInFlight) return;
+    this.aiHumanHandoffAutoAcceptInFlight = true;
+    try {
+      this.pruneExpiredAiHumanHandoffRequests();
+      const now = Date.now();
+      const shouldAutoAccept = Array.from(this.aiHumanHandoffRequestsById.values())
+        .filter((item) =>
+          item.status === 'pending'
+          && Number.isFinite(item.createdAt)
+          && (now - Number(item.createdAt)) >= WhatsAppSessionManager.AI_HUMAN_HANDOFF_AUTO_ACCEPT_MS
+        )
+        .sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0));
+
+      for (const request of shouldAutoAccept) {
+        try {
+          await this.decideAiHumanHandoffRequest(request.id, true, 'auto_timeout_without_human_decision');
+          this.logInfo('Handoff IA autoaceito por ausência de decisão humana em 2 minutos.', {
+            chatId: request.chatId,
+            contactName: request.contactName,
+          });
+        } catch (err) {
+          this.logWarn('Falha ao autoaceitar handoff IA pendente.', err instanceof Error ? err.message : err);
+        }
+      }
+    } finally {
+      this.aiHumanHandoffAutoAcceptInFlight = false;
+    }
+  }
+
+  async decideAiHumanHandoffRequest(id: string, accept: boolean, decisionReason?: string) {
+    this.pruneExpiredAiHumanHandoffRequests();
+    const targetId = String(id || '').trim();
+    if (!targetId) throw new Error('Solicitação inválida.');
+    const request = this.aiHumanHandoffRequestsById.get(targetId);
+    if (!request || request.status !== 'pending') {
+      throw new Error('Solicitação não encontrada ou já finalizada.');
+    }
+
+    request.status = accept ? 'accepted' : 'rejected';
+    request.decisionAt = Date.now();
+    request.decisionReason = String(
+      decisionReason
+      || (accept ? 'accepted_by_human' : 'rejected_by_human')
+    ).trim();
+    if (this.aiHumanHandoffPendingIdByChat.get(request.chatJid) === request.id) {
+      this.aiHumanHandoffPendingIdByChat.delete(request.chatJid);
+    }
+
+    if (!accept) {
+      return {
+        success: true,
+        id: request.id,
+        accepted: false,
+        chatId: request.chatId,
+      };
+    }
+
+    this.aiAgentEnabledChats.add(request.chatJid);
+    this.aiAgentAutoResumeAtByChat.delete(request.chatJid);
+    await this.persistChatHistory();
+    await this.maybeHandleIncomingAiReply(request.chatJid, request.messageId, request.incomingText);
+
+    return {
+      success: true,
+      id: request.id,
+      accepted: true,
+      chatId: request.chatId,
+      aiAgentEnabled: true,
+    };
   }
 
   private logInfo(message: string, meta?: unknown) {
@@ -5446,12 +5750,16 @@ class WhatsAppSessionManager {
           this.refreshProfilePicture(remoteJid).catch(() => {});
 
           if (fromMe && !this.isBackendSentMessageId(msgId)) {
+            this.markHumanInteraction(remoteJid, timestamp * 1000);
+            this.clearAiHumanHandoffForChat(remoteJid, 'human_message_from_device');
             await this.disableAiAgentTemporarily(remoteJid, 'human_device');
           }
 
           const aiInput = String(body || sttTranscript || '').trim();
           if (!fromMe && aiInput && shouldProcessAiForChat) {
             await this.maybeHandleIncomingAiReply(remoteJid, msgId, aiInput);
+          } else if (!fromMe && aiInput) {
+            this.scheduleAiHumanHandoffReview(remoteJid, msgId, aiInput, timestamp * 1000);
           }
         }
       });
@@ -5788,6 +6096,13 @@ class WhatsAppSessionManager {
       if (this.aiConversationSessions.delete(jid)) existedSession = true;
       this.aiAgentEnabledChats.delete(jid);
       this.aiAgentAutoResumeAtByChat.delete(jid);
+      this.humanLastResponseAtByChat.delete(jid);
+      this.clearAiHumanHandoffForChat(jid, 'chat_deleted');
+      const timer = this.aiHumanHandoffTimersByChat.get(jid);
+      if (timer) {
+        clearTimeout(timer);
+        this.aiHumanHandoffTimersByChat.delete(jid);
+      }
       this.chatLabelMap.delete(jid);
       this.profilePictureMap.delete(jid);
       this.clearAiDataCacheForChat(jid);
@@ -5858,6 +6173,10 @@ class WhatsAppSessionManager {
         options?.disableAiAgentOnHumanSend
         || (options?.source === 'human')
       );
+      if (options?.source === 'human') {
+        this.markHumanInteraction(jid, Date.now());
+        this.clearAiHumanHandoffForChat(jid, 'human_message_from_panel');
+      }
       const canPauseAiForChat = this.aiAgentEnabledChats.has(jid)
         || this.isAiAgentCoolingDown(jid)
         || Boolean(this.aiConfig.onlyOutsideBusinessHours);
@@ -5884,6 +6203,10 @@ class WhatsAppSessionManager {
         options?.disableAiAgentOnHumanSend
         || (options?.source === 'human')
       );
+      if (options?.source === 'human') {
+        this.markHumanInteraction(jid, Date.now());
+        this.clearAiHumanHandoffForChat(jid, 'human_message_from_panel');
+      }
       const canPauseAiForChat = this.aiAgentEnabledChats.has(jid)
         || this.isAiAgentCoolingDown(jid)
         || Boolean(this.aiConfig.onlyOutsideBusinessHours);
@@ -5961,6 +6284,10 @@ class WhatsAppSessionManager {
       options?.disableAiAgentOnHumanSend
       || (options?.source === 'human')
     );
+    if (options?.source === 'human') {
+      this.markHumanInteraction(sentJid, Date.now());
+      this.clearAiHumanHandoffForChat(sentJid, 'human_message_from_panel');
+    }
     const canPauseAiForChat = this.aiAgentEnabledChats.has(sentJid)
       || this.isAiAgentCoolingDown(sentJid)
       || Boolean(this.aiConfig.onlyOutsideBusinessHours);
