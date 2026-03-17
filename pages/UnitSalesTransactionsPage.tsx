@@ -33,6 +33,7 @@ type ExtendedTransactionRecord = TransactionRecord & {
   raw?: any;
   clientId?: string | null;
   planId?: string;
+  referenceDate?: string;
   quantity?: number;
   unitPrice?: number;
   description?: string;
@@ -68,6 +69,23 @@ const formatDateBr = (dateStr?: string) => {
   const parsed = parseDateOnly(dateStr);
   if (!parsed) return '';
   return parsed.toLocaleDateString('pt-BR');
+};
+
+const resolveTransactionReferenceDate = (tx: any): string => {
+  const fromPayload = String(tx?.deliveryDate || tx?.scheduledDate || tx?.mealDate || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(fromPayload)) return fromPayload;
+
+  const description = String(tx?.description || tx?.item || '');
+  const isoMatch = description.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+  if (isoMatch?.[1]) return isoMatch[1];
+
+  const brMatch = description.match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/);
+  if (brMatch) {
+    const [, dd, mm, yyyy] = brMatch;
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  return '';
 };
 
 const normalizeSearchText = (value?: string) =>
@@ -217,6 +235,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
             const total = Number(tx?.total ?? tx?.amount ?? tx?.value ?? 0);
             const executionSource = resolveExecutionSource(tx);
+            const referenceDate = resolveTransactionReferenceDate(tx);
 
             return {
               id: String(tx?.id || `tx_${Date.now()}`),
@@ -230,6 +249,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
               total: Number.isFinite(total) ? total : 0,
               status: executionSource === 'SISTEMA' ? 'SISTEMA' : 'USUÁRIO',
               executionSource,
+              referenceDate,
               raw: tx,
               clientId: tx?.clientId || null,
               planId: tx?.planId,
@@ -920,11 +940,12 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   }, [normalizedTransactions]);
 
   const exportToCSV = () => {
-    const headers = ["ID", "Data", "Hora", "Cliente", "Plano", "Itens Detalhados", "Tipo", "Metodo", "Valor", "Status"];
+    const headers = ["ID", "Data", "Hora", "Referência", "Cliente", "Plano", "Itens Detalhados", "Tipo", "Metodo", "Valor", "Status"];
     const rows = filteredTransactions.map(t => [
       t.id,
       t.date,
       t.time,
+      formatDateBr(t.referenceDate) || '-',
       t.client,
       t.plan,
       formatTransactionItemsForExport(t),
@@ -957,10 +978,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       format: 'a4'
     });
 
-    const tableColumn = ["ID", "Data/Hora", "Cliente", "Plano", "Itens Detalhados", "Tipo", "Valor", "Status"];
+    const tableColumn = ["ID", "Data/Hora", "Referência", "Cliente", "Plano", "Itens Detalhados", "Tipo", "Valor", "Status"];
     const tableRows = filteredTransactions.map(t => [
       t.id,
       `${formatDateBr(t.date)} ${t.time}`,
+      formatDateBr(t.referenceDate) || '-',
       t.client,
       t.plan,
       formatTransactionItemsForExport(t),
@@ -1197,21 +1219,22 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
            <table className="w-full text-left table-fixed">
               <thead className="bg-gray-50 text-[9px] font-black text-gray-400 uppercase tracking-[2px] border-b">
                  <tr>
-                    <th className="px-4 py-6 w-[12%]">ID / Data</th>
-                    <th className="px-4 py-6 w-[13%]">Cliente</th>
+                    <th className="px-4 py-6 w-[11%]">ID / Data</th>
+                    <th className="px-4 py-6 w-[9%]">Referência</th>
+                    <th className="px-4 py-6 w-[12%]">Cliente</th>
                     <th className="px-4 py-6 w-[8%]">Plano / Origem</th>
-                    <th className="px-4 py-6 w-[15%]">Itens</th>
+                    <th className="px-4 py-6 w-[14%]">Itens</th>
                     <th className="px-4 py-6 w-[8%]">Tipo</th>
-                    <th className="px-4 py-6 w-[9%]">Movimentação</th>
-                    <th className="px-4 py-6 w-[10%] text-right">Valor Final</th>
+                    <th className="px-4 py-6 w-[8%]">Movimentação</th>
+                    <th className="px-4 py-6 w-[9%] text-right">Valor Final</th>
                     <th className="px-4 py-6 w-[8%] text-center">Status</th>
-                    <th className="px-4 py-6 w-[17%] text-right">Ações</th>
+                    <th className="px-4 py-6 w-[13%] text-right">Ações</th>
                  </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 text-sm">
                  {filteredTransactions.length === 0 ? (
                    <tr>
-                     <td colSpan={9} className="px-8 py-20 text-center text-gray-300 font-black uppercase text-xs tracking-widest">Nenhum registro corresponde aos filtros</td>
+                     <td colSpan={10} className="px-8 py-20 text-center text-gray-300 font-black uppercase text-xs tracking-widest">Nenhum registro corresponde aos filtros</td>
                    </tr>
                  ) : filteredTransactions.map(row => (
                    <tr key={row.id} className="hover:bg-indigo-50/30 transition-colors group">
@@ -1224,6 +1247,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                                {String(row.method || '').toUpperCase() !== 'PLANO' ? ` • ${row.time}` : ''}
                             </span>
                          </div>
+                      </td>
+                      <td className="px-4 py-6 align-top">
+                         <span className="text-[11px] font-black text-gray-700 uppercase tracking-tight">
+                           {formatDateBr(row.referenceDate) || '-'}
+                         </span>
                       </td>
                       <td className="px-4 py-6 align-top">
                          <div className="flex items-center gap-3">
