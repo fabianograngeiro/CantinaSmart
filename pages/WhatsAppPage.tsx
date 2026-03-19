@@ -22,15 +22,20 @@ import {
   Video,
   MoreVertical,
   LayoutDashboard,
-  Megaphone,
   Settings2,
   Bot,
-  GitBranch
+  GitBranch,
+  Wallet,
+  UtensilsCrossed,
+  CalendarDays,
+  CheckCheck
 } from 'lucide-react';
-import { Client, Enterprise, User } from '../types';
+import { Client, Enterprise, Plan, User } from '../types';
 import ApiService from '../services/api';
 import WhatsAppQrConnector from '../components/WhatsAppQrConnector';
 import notificationService from '../services/notificationService';
+import { formatPhoneWithCountryTag } from '../utils/phone';
+import CentralDisparos from '../components/whatsapp-disparos/CentralDisparos';
 
 interface WhatsAppPageProps {
   currentUser: User;
@@ -137,6 +142,50 @@ type ReportPeriodMode = 'WEEKLY' | 'BIWEEKLY' | 'CUSTOM';
 type CrmView = 'DASHBOARD' | 'CONVERSAS' | 'CONTATOS' | 'CAMPANHAS' | 'AI_CONFIG' | 'AI_FLOW' | 'CONTA';
 type CampaignMode = 'BROADCAST' | 'RECURRING' | 'FOLLOWUP';
 type CampaignAudience = 'ALL' | 'ALUNO' | 'COLABORADOR' | `LABEL:${string}`;
+type CampaignSubTab = 'NOVA_CAMPANHA' | 'GERENCIAR_CAMPANHA';
+type PlanConsumptionDispatchFrequency = 'MONTHLY' | 'WEEKLY';
+type PlanConsumptionDispatchRecipientKind = 'COLABORADOR_RELATORIO' | 'RESPONSAVEL_RELATORIO';
+
+type PlanConsumptionPdfPlanRow = {
+  studentName: string;
+  classLabel: string;
+  planName: string;
+  unitValue: number;
+  consumedQty: number;
+  consumedSubtotal: number;
+  currentBalance: number;
+  prepaid: boolean;
+};
+
+type PlanConsumptionPdfTransactionRow = {
+  studentName: string;
+  dateLabel: string;
+  timeLabel: string;
+  timestamp: number;
+  description: string;
+  planName: string;
+  movementType: 'CONSUMO' | 'CREDITO' | 'OUTRO';
+  amount: number;
+};
+
+type PlanConsumptionRecipientStudentProfile = {
+  id: string;
+  name: string;
+  classLabel: string;
+  type: 'ALUNO' | 'COLABORADOR';
+};
+
+type PlanConsumptionRecipientReportProfile = {
+  kind: 'RESPONSAVEL' | 'COLABORADOR';
+  responsibleName: string;
+  contactName: string;
+  contactPhone: string;
+  students: PlanConsumptionRecipientStudentProfile[];
+  planRows: PlanConsumptionPdfPlanRow[];
+  transactionRows: PlanConsumptionPdfTransactionRow[];
+  totalConsumption: number;
+  totalCredits: number;
+};
 
 type CampaignStep = {
   id: number;
@@ -160,6 +209,41 @@ type CampaignReport = {
   withSignature: boolean;
   hasAttachment: boolean;
   status: 'ENVIADA' | 'AGENDADA' | 'PARCIAL' | 'ERRO';
+  paused?: boolean;
+};
+
+type PlanConsumptionDispatchRecipient = {
+  phone: string;
+  chatId: string;
+  contactName: string;
+  message: string;
+  detailLines: string[];
+  targetCount: number;
+  kindSet: PlanConsumptionDispatchRecipientKind[];
+  variableValues: Record<string, string>;
+  reportProfile: PlanConsumptionRecipientReportProfile;
+};
+
+type PlanConsumptionDispatchPreview = {
+  generatedAt: number;
+  periodStart: number;
+  periodEnd: number;
+  periodLabel: string;
+  recipients: PlanConsumptionDispatchRecipient[];
+  collaboratorCount: number;
+  responsibleCount: number;
+};
+
+type PlanConsumptionDispatchReport = {
+  id: string;
+  createdAt: number;
+  mode: 'NOW' | 'SCHEDULED';
+  frequency: PlanConsumptionDispatchFrequency;
+  recipients: number;
+  sentCount: number;
+  scheduledCount: number;
+  failedCount: number;
+  periodLabel: string;
 };
 
 type AiProvider = 'openai' | 'gemini' | 'groq';
@@ -235,13 +319,14 @@ type AiFlowVisualNode = {
   subSwitchId?: number;
 };
 
-type WhatsTab = 'CRM' | 'SESSION_QR';
+type WhatsTab = 'CRM' | 'DISPAROS' | 'SESSION_QR';
 const WHATSAPP_SIGNATURE_ENABLED_KEY = 'whatsapp_signature_enabled';
 const WHATSAPP_SIGNATURE_NAME_KEY = 'whatsapp_signature_name';
 const NEW_CHAT_COUNTRY_CODE_KEY = 'whatsapp_new_chat_country_code';
 const WHATSAPP_QUICK_REPLIES_KEY = 'whatsapp_quick_replies';
 const WHATSAPP_AI_CONFIG_KEY = 'whatsapp_ai_config';
 const WHATSAPP_CAMPAIGN_REPORTS_KEY = 'whatsapp_campaign_reports';
+const WHATSAPP_PLAN_CONSUMPTION_REPORTS_KEY = 'whatsapp_plan_consumption_reports';
 
 const normalizeSearchValue = (value?: string) =>
   String(value || '')
@@ -249,6 +334,27 @@ const normalizeSearchValue = (value?: string) =>
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
+
+const normalizeTimestampMs = (value: unknown): number | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value <= 0) return null;
+    return value < 1e11 ? Math.round(value * 1000) : Math.round(value);
+  }
+
+  const text = String(value).trim();
+  if (!text) return null;
+
+  if (/^\d+(\.\d+)?$/.test(text)) {
+    const num = Number(text);
+    if (!Number.isFinite(num) || num <= 0) return null;
+    return num < 1e11 ? Math.round(num * 1000) : Math.round(num);
+  }
+
+  const parsed = new Date(text).getTime();
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+};
 
 const isSubsequenceMatch = (text: string, query: string) => {
   if (!query) return true;
@@ -312,6 +418,47 @@ const formatMessageBodyForDisplay = (msg: ChatMessage) => {
 };
 
 const PT_WEEKDAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
+const WEEKLY_DISPATCH_OPTIONS = [
+  { value: 1, label: 'Segunda-feira' },
+  { value: 2, label: 'Terça-feira' },
+  { value: 3, label: 'Quarta-feira' },
+  { value: 4, label: 'Quinta-feira' },
+  { value: 5, label: 'Sexta-feira' },
+  { value: 6, label: 'Sábado' },
+  { value: 0, label: 'Domingo' },
+];
+const CAMPAIGN_RECURRING_VARIABLES = [
+  { key: '{nome_completo_alunos}', label: 'Nome completo aluno(s)' },
+  { key: '{turma_completa}', label: 'Turma completa' },
+  { key: '{primeiro_nome_responsavel}', label: 'Primeiro nome responsável' },
+  { key: '{nome_responsavel}', label: 'Nome responsável' },
+  { key: '{data_inicial_consumo}', label: 'Data inicial do consumo' },
+  { key: '{data_final_consumo}', label: 'Data final do consumo' },
+  { key: '{data_consumos}', label: 'Data de consumos' },
+  { key: '{saldo_und_atual}', label: 'Saldo und. atual' },
+  { key: '{relatorio_consumo}', label: 'Relatório de consumo' },
+  { key: '{nome_plano}', label: 'Nome plano' },
+  { key: '{valor_unidade_plano}', label: 'Valor unidade plano' },
+  { key: '{quantidade_plano}', label: 'Quantidade plano' },
+  { key: '{subtotal_plano}', label: 'Subtotal plano' },
+  { key: '{periodo_referencia}', label: 'Período de referência' },
+] as const;
+const CAMPAIGN_RECURRING_VARIABLE_EXAMPLES: Record<string, string> = {
+  nome_completo_alunos: 'Eloah Vitória, Victor Grangeiro',
+  turma_completa: '4º Ano A',
+  primeiro_nome_responsavel: 'Fabiano',
+  nome_responsavel: 'Fabiano Grangeiro',
+  data_inicial_consumo: '01/03/2026',
+  data_final_consumo: '31/03/2026',
+  data_consumos: '02/03/2026, 05/03/2026, 09/03/2026',
+  saldo_und_atual: '12',
+  relatorio_consumo: '02/03 • Lanche • R$ 12,00 | 05/03 • Almoço • R$ 18,00 | 09/03 • Lanche • R$ 10,00',
+  nome_plano: 'Lanche Fixo, Almoço Fixo',
+  valor_unidade_plano: 'R$ 15,00',
+  quantidade_plano: '20',
+  subtotal_plano: 'R$ 300,00',
+  periodo_referencia: '01/03/2026 a 31/03/2026',
+};
 const AI_AUDIT_REASON_LABEL: Record<string, string> = {
   SECURITY_DESTRUCTIVE: 'Segurança: ação destrutiva',
   PRIVACY_OUT_OF_SCOPE: 'Privacidade: fora do escopo',
@@ -343,6 +490,13 @@ const getPlanCardTone = (planKey: string, balance: number) => {
   }
 
   const normalized = String(planKey || '').trim().toUpperCase();
+  if (normalized === 'PREPAGO' && Number(balance) < 10) {
+    return {
+      container: 'border-rose-200 bg-rose-50',
+      title: 'text-rose-700',
+      value: 'text-rose-700',
+    };
+  }
   if (normalized === 'PREPAGO') {
     return {
       container: 'border-indigo-200 bg-indigo-50',
@@ -584,6 +738,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     lastError: null,
   });
   const [clients, setClients] = useState<Client[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
   const [search, setSearch] = useState('');
   const [selectedPhones, setSelectedPhones] = useState<string[]>([]);
   const [message, setMessage] = useState('Olá! Este é um comunicado da cantina.');
@@ -606,6 +761,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const [aiAgentEnabledForChat, setAiAgentEnabledForChat] = useState(false);
   const [isUpdatingAiAgentForChat, setIsUpdatingAiAgentForChat] = useState(false);
   const [chatAttachment, setChatAttachment] = useState<ChatAttachment | null>(null);
+  const [selectedStudentConsumedToday, setSelectedStudentConsumedToday] = useState<boolean | null>(null);
+  const [isLoadingStudentConsumedToday, setIsLoadingStudentConsumedToday] = useState(false);
   const [scheduleAt, setScheduleAt] = useState('');
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [scheduledItems, setScheduledItems] = useState<ScheduledItem[]>([]);
@@ -633,17 +790,38 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const [quickReplies, setQuickReplies] = useState<string[]>([]);
   const [quickReplyInput, setQuickReplyInput] = useState('');
   const [campaignName, setCampaignName] = useState('');
+  const [campaignSubTab, setCampaignSubTab] = useState<CampaignSubTab>('NOVA_CAMPANHA');
   const [campaignMode, setCampaignMode] = useState<CampaignMode>('BROADCAST');
   const [campaignAudience, setCampaignAudience] = useState<CampaignAudience>('ALL');
-  const [campaignMessage, setCampaignMessage] = useState('Olá {Nome}! 👋 Temos uma novidade especial para você.');
+  const [campaignMessage, setCampaignMessage] = useState('Olá {primeiro_nome_responsavel}! 👋 Temos uma novidade especial para você.');
   const [campaignStartAt, setCampaignStartAt] = useState('');
   const [campaignSendNow, setCampaignSendNow] = useState(true);
   const [campaignRecurringFrequency, setCampaignRecurringFrequency] = useState<'DAILY' | 'WEEKLY' | 'MONTHLY'>('WEEKLY');
   const [campaignOccurrences, setCampaignOccurrences] = useState(4);
   const [campaignIntervalSeconds, setCampaignIntervalSeconds] = useState(2);
+  const [campaignIntervalMinSeconds, setCampaignIntervalMinSeconds] = useState(2);
+  const [campaignIntervalMaxSeconds, setCampaignIntervalMaxSeconds] = useState(5);
   const [campaignUseSignature, setCampaignUseSignature] = useState(true);
   const [campaignAttachment, setCampaignAttachment] = useState<ChatAttachment | null>(null);
   const [campaignReports, setCampaignReports] = useState<CampaignReport[]>([]);
+  const [campaignRecurringTargetResponsible, setCampaignRecurringTargetResponsible] = useState(true);
+  const [campaignRecurringTargetCollaborator, setCampaignRecurringTargetCollaborator] = useState(true);
+  const [planConsumptionMessage, setPlanConsumptionMessage] = useState(
+    'Olá {primeiro_nome_responsavel}, segue o fechamento do período {periodo_referencia}.'
+  );
+  const [planConsumptionFrequency, setPlanConsumptionFrequency] = useState<PlanConsumptionDispatchFrequency>('MONTHLY');
+  const [planConsumptionMonthlyDay, setPlanConsumptionMonthlyDay] = useState(7);
+  const [planConsumptionMonthlyStartDay, setPlanConsumptionMonthlyStartDay] = useState(1);
+  const [planConsumptionMonthlyEndDay, setPlanConsumptionMonthlyEndDay] = useState(7);
+  const [planConsumptionWeeklyDay, setPlanConsumptionWeeklyDay] = useState(1);
+  const [planConsumptionWeeklyStartDay, setPlanConsumptionWeeklyStartDay] = useState(1);
+  const [planConsumptionWeeklyEndDay, setPlanConsumptionWeeklyEndDay] = useState(5);
+  const [planConsumptionSendTime, setPlanConsumptionSendTime] = useState('09:00');
+  const [planConsumptionIntervalSeconds, setPlanConsumptionIntervalSeconds] = useState(3);
+  const [planConsumptionUseSignature, setPlanConsumptionUseSignature] = useState(true);
+  const [planConsumptionPreview, setPlanConsumptionPreview] = useState<PlanConsumptionDispatchPreview | null>(null);
+  const [planConsumptionReports, setPlanConsumptionReports] = useState<PlanConsumptionDispatchReport[]>([]);
+  const [isLaunchingPlanConsumptionDispatch, setIsLaunchingPlanConsumptionDispatch] = useState(false);
   const [campaignSteps, setCampaignSteps] = useState<CampaignStep[]>([
     { id: 1, title: 'Boas-vindas', delayDays: 0, message: 'Olá {Nome}! 👋 Bem-vindo(a). Estamos felizes em ter você por aqui.' },
     { id: 2, title: 'Check-in', delayDays: 2, message: 'Oi {Nome}, passando para saber se conseguiu ver nossa última mensagem.' },
@@ -681,6 +859,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const contactsImportInputRef = useRef<HTMLInputElement | null>(null);
   const messagesViewportRef = useRef<HTMLDivElement | null>(null);
   const messagesBottomRef = useRef<HTMLDivElement | null>(null);
+  const campaignMessageTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const shouldAutoScrollRef = useRef(true);
   const aiFlowDragRef = useRef<{
     nodeId: string;
@@ -807,6 +986,11 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     localStorage.setItem(WHATSAPP_CAMPAIGN_REPORTS_KEY, JSON.stringify(items));
   };
 
+  const persistPlanConsumptionReports = (items: PlanConsumptionDispatchReport[]) => {
+    setPlanConsumptionReports(items);
+    localStorage.setItem(WHATSAPP_PLAN_CONSUMPTION_REPORTS_KEY, JSON.stringify(items));
+  };
+
   const resolveClientPhone = (client: Client) => {
     const candidates = [
       (client as any).parentWhatsapp,
@@ -893,7 +1077,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     }
     try {
       const data = await ApiService.getWhatsAppChats();
-      const nextChats = Array.isArray(data?.chats) ? data.chats : [];
+      const nextChats = (Array.isArray(data?.chats) ? data.chats : []).map((chat: ChatSummary) => ({
+        ...chat,
+        lastTimestamp: normalizeTimestampMs((chat as any)?.lastTimestamp) || 0,
+      }));
       setChats(nextChats);
       const backendChatIds = new Set(nextChats.map((chat: ChatSummary) => chat.chatId));
       setDraftChats((prev) => prev.filter((draft) => {
@@ -917,7 +1104,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     }
     try {
       const data = await ApiService.getWhatsAppChatMessages(chatId, 100);
-      const nextMessages = Array.isArray(data?.messages) ? data.messages : [];
+      const nextMessages = (Array.isArray(data?.messages) ? data.messages : []).map((msg: ChatMessage) => ({
+        ...msg,
+        timestamp: normalizeTimestampMs((msg as any)?.timestamp) || 0,
+      }));
       setMessages(nextMessages);
       setAudioTranscriptions((prev) => {
         const validIds = new Set(nextMessages.map((msg: ChatMessage) => String(msg.id || '')));
@@ -1026,22 +1216,26 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const loadData = async () => {
     if (!activeEnterprise) {
       setClients([]);
+      setPlans([]);
       setLoading(false);
       return;
     }
 
     setLoading(true);
     try {
-      const [clientsData] = await Promise.all([
+      const [clientsData, plansData] = await Promise.all([
         ApiService.getClients(activeEnterprise.id),
+        ApiService.getPlans(activeEnterprise.id).catch(() => []),
         refreshStatus(),
         loadAiAudit(20),
         loadAiHandoffRequests(),
       ]);
       setClients(Array.isArray(clientsData) ? clientsData : []);
+      setPlans(Array.isArray(plansData) ? plansData : []);
     } catch (err) {
       console.error('Erro ao carregar página WhatsApp:', err);
       setClients([]);
+      setPlans([]);
     } finally {
       setLoading(false);
     }
@@ -1050,6 +1244,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   useEffect(() => {
     if (!activeEnterprise) {
       setClients([]);
+      setPlans([]);
       setLoading(false);
       return;
     }
@@ -1064,6 +1259,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     const storedQuickRepliesRaw = localStorage.getItem(WHATSAPP_QUICK_REPLIES_KEY);
     const storedAiConfigRaw = localStorage.getItem(WHATSAPP_AI_CONFIG_KEY);
     const storedCampaignReportsRaw = localStorage.getItem(WHATSAPP_CAMPAIGN_REPORTS_KEY);
+    const storedPlanConsumptionReportsRaw = localStorage.getItem(WHATSAPP_PLAN_CONSUMPTION_REPORTS_KEY);
     const normalizedStoredName = String(storedName || '');
     const normalizedStoredEnabled = storedEnabled === 'true';
     let parsedQuickReplies: string[] = [];
@@ -1103,6 +1299,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
             status: ['ENVIADA', 'AGENDADA', 'PARCIAL', 'ERRO'].includes(String(item?.status || ''))
               ? String(item.status) as CampaignReport['status']
               : 'ERRO',
+            paused: Boolean(item?.paused),
           }))
             .filter((item: CampaignReport) => Boolean(item.id))
             .slice(0, 100)
@@ -1110,6 +1307,28 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       setCampaignReports(normalized);
     } catch {
       setCampaignReports([]);
+    }
+
+    try {
+      const parsed = JSON.parse(String(storedPlanConsumptionReportsRaw || '[]'));
+      const normalized = Array.isArray(parsed)
+        ? parsed.map((item: any) => ({
+            id: String(item?.id || ''),
+            createdAt: Number(item?.createdAt || Date.now()),
+            mode: String(item?.mode || 'NOW') === 'SCHEDULED' ? 'SCHEDULED' : 'NOW',
+            frequency: String(item?.frequency || 'MONTHLY') === 'WEEKLY' ? 'WEEKLY' : 'MONTHLY',
+            recipients: Number(item?.recipients || 0),
+            sentCount: Number(item?.sentCount || 0),
+            scheduledCount: Number(item?.scheduledCount || 0),
+            failedCount: Number(item?.failedCount || 0),
+            periodLabel: String(item?.periodLabel || '-'),
+          }))
+            .filter((item: PlanConsumptionDispatchReport) => Boolean(item.id))
+            .slice(0, 100)
+        : [];
+      setPlanConsumptionReports(normalized);
+    } catch {
+      setPlanConsumptionReports([]);
     }
 
     let parsedAiConfig = getDefaultAiConfig();
@@ -1128,6 +1347,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     setSavedAiConfig(parsedAiConfig);
     setSelectedAiContextId(parsedAiConfig.contexts[0]?.id || null);
   }, []);
+
+  useEffect(() => {
+    const startDay = Math.min(28, Math.max(1, Number(activeEnterprise?.collaboratorPaymentStartDay || 1) || 1));
+    const dueDay = Math.min(28, Math.max(1, Number(activeEnterprise?.collaboratorPaymentDueDay || 7) || 7));
+    setPlanConsumptionMonthlyStartDay(startDay);
+    setPlanConsumptionMonthlyEndDay(dueDay);
+    setPlanConsumptionMonthlyDay(dueDay);
+  }, [activeEnterprise?.collaboratorPaymentStartDay, activeEnterprise?.collaboratorPaymentDueDay]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1167,21 +1394,21 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   }, [status.connected, activeTab]);
 
   useEffect(() => {
-    if (activeTab !== 'CRM') return undefined;
-
     const timer = window.setInterval(async () => {
       if (pollingInFlightRef.current) return;
       pollingInFlightRef.current = true;
 
       try {
         await refreshStatus();
-        await loadAiAudit(20);
-        await loadAiHandoffRequests();
-        if (status.connected) {
-          await loadChats(false);
-          if (selectedChatId) {
-            await loadMessages(selectedChatId, false);
-            await loadSchedules(selectedChatId);
+        if (activeTab === 'CRM') {
+          await loadAiAudit(20);
+          await loadAiHandoffRequests();
+          if (status.connected) {
+            await loadChats(false);
+            if (selectedChatId) {
+              await loadMessages(selectedChatId, false);
+              await loadSchedules(selectedChatId);
+            }
           }
         }
       } finally {
@@ -1443,6 +1670,56 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       };
     });
   }, [selectedStudent]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      if (!selectedStudent?.id) {
+        setSelectedStudentConsumedToday(null);
+        return;
+      }
+      try {
+        setIsLoadingStudentConsumedToday(true);
+        const txList = await ApiService.getTransactions({ clientId: selectedStudent.id });
+        const list = Array.isArray(txList) ? txList : [];
+        const today = new Date();
+        const hasTodayConsumption = list.some((tx: any) => {
+          const type = String(tx?.type || '').toUpperCase();
+          if (type !== 'CONSUMO') return false;
+          const raw = String(tx?.timestamp || tx?.date || '');
+          if (!raw) return false;
+          const parsed = new Date(raw);
+          if (!Number.isFinite(parsed.getTime()) && String(tx?.date || '')) {
+            const fromDate = new Date(`${String(tx.date)}T00:00:00`);
+            if (!Number.isFinite(fromDate.getTime())) return false;
+            return fromDate.toDateString() === today.toDateString();
+          }
+          return parsed.toDateString() === today.toDateString();
+        });
+        if (!cancelled) setSelectedStudentConsumedToday(hasTodayConsumption);
+      } catch {
+        if (!cancelled) setSelectedStudentConsumedToday(null);
+      } finally {
+        if (!cancelled) setIsLoadingStudentConsumedToday(false);
+      }
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedStudent?.id]);
+
+  const handleQuickChargeLowBalance = () => {
+    if (!selectedChat) return;
+    const aluno = selectedStudent?.name || selectedChatClient?.name || 'aluno';
+    const saldo = Number(selectedStudent?.balance || selectedChatClient?.balance || 0);
+    const responsible = selectedChat.displayName || resolveResponsibleName(selectedChatClient || undefined) || 'responsável';
+    const nextMessage = `Olá ${responsible}, o saldo do aluno ${aluno} é de R$ ${saldo.toFixed(2)}. Deseja recarregar?`;
+    setChatReply(nextMessage);
+    notificationService.informativo('Mensagem sugerida', 'Texto de cobrança preenchido no campo de resposta.');
+  };
 
   const handleSendConsumptionReport = async () => {
     if (!selectedChatId) {
@@ -1754,7 +2031,11 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         id: chat.chatId,
         title: `Conversa com ${chat.displayName}`,
         subtitle: chat.lastMessage || 'Sem mensagem',
-        when: new Date(Number(chat.lastTimestamp || 0)).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }),
+        when: (() => {
+          const ts = normalizeTimestampMs(chat.lastTimestamp);
+          if (!ts) return 'Sem data';
+          return new Date(ts).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+        })(),
       })),
     [visibleChats]
   );
@@ -1786,7 +2067,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   }, [chats]);
 
   const formatLastInteractionLabel = (timestamp?: number) => {
-    const ts = Number(timestamp || 0);
+    const ts = normalizeTimestampMs(timestamp);
     if (!ts) return 'Sem interação';
     const date = new Date(ts);
     if (!Number.isFinite(date.getTime())) return 'Sem interação';
@@ -2055,23 +2336,67 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     [selectedChat, recipients]
   );
 
-  const replaceCampaignVariables = (template: string, name: string) => {
-    const value = String(template || '');
-    const now = new Date();
-    return value
-      .replace(/\{Nome\}/gi, String(name || 'Cliente'))
-      .replace(/\{Sobrenome\}/gi, String(name || 'Cliente').split(' ').slice(1).join(' ') || '')
-      .replace(/\{Data\}/gi, now.toLocaleDateString('pt-BR'));
+  const getFirstName = (value: string) => String(value || '').trim().split(/\s+/).filter(Boolean)[0] || '';
+
+  const applyTemplateVariables = (
+    template: string,
+    values: Record<string, string | number | null | undefined>
+  ) => {
+    let output = String(template || '');
+    Object.entries(values).forEach(([key, rawValue]) => {
+      const safeKey = String(key || '').trim();
+      if (!safeKey) return;
+      const value = String(rawValue ?? '-');
+      const normalizedKey = safeKey.replace(/^\{|\}$/g, '').trim();
+      const escapedNormalized = normalizedKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      output = output.replace(new RegExp(`\\{${escapedNormalized}\\}`, 'gi'), value);
+      if (safeKey.startsWith('{') && safeKey.endsWith('}')) {
+        const escapedFull = safeKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        output = output.replace(new RegExp(escapedFull, 'gi'), value);
+      }
+    });
+    return output;
   };
 
+  const replaceCampaignVariables = (
+    template: string,
+    name: string,
+    extraValues: Record<string, string | number | null | undefined> = {}
+  ) => {
+    const now = new Date();
+    const fullName = String(name || 'Responsável');
+    const firstName = getFirstName(fullName) || fullName;
+    return applyTemplateVariables(template, {
+      Nome: fullName,
+      Sobrenome: fullName.split(' ').slice(1).join(' ') || '',
+      Data: now.toLocaleDateString('pt-BR'),
+      nome_responsavel: fullName,
+      primeiro_nome_responsavel: firstName,
+      data_inicial_consumo: '-',
+      data_final_consumo: '-',
+      periodo_referencia: '-',
+      ...extraValues,
+    });
+  };
+
+  const recurringPreviewExampleValues = useMemo(() => {
+    const firstRecipientValues = planConsumptionPreview?.recipients?.[0]?.variableValues || {};
+    return {
+      ...CAMPAIGN_RECURRING_VARIABLE_EXAMPLES,
+      ...firstRecipientValues,
+      periodo_referencia: planConsumptionPreview?.periodLabel || CAMPAIGN_RECURRING_VARIABLE_EXAMPLES.periodo_referencia,
+    };
+  }, [planConsumptionPreview]);
+
   const getCampaignTargetPhones = () => {
+    const toUnique = (values: string[]) => Array.from(new Set(values.map(normalizePhone).filter((phone) => phone.length >= 10)));
     if (campaignAudience === 'ALL') {
-      return recipients.map((entry) => entry.phone);
+      return toUnique(recipients.map((entry) => entry.phone));
     }
     if (campaignAudience === 'ALUNO' || campaignAudience === 'COLABORADOR') {
-      return recipients
+      return toUnique(recipients
         .filter((entry) => String(entry.client.type || '').toUpperCase() === campaignAudience)
-        .map((entry) => entry.phone);
+        .map((entry) => entry.phone));
     }
     if (String(campaignAudience).startsWith('LABEL:')) {
       const labelName = String(campaignAudience).slice('LABEL:'.length);
@@ -2086,12 +2411,1235 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     return [];
   };
 
+  const getRandomCampaignIntervalSeconds = () => {
+    const min = Math.max(0, Number(campaignIntervalMinSeconds || 0));
+    const max = Math.max(min, Number(campaignIntervalMaxSeconds || 0));
+    if (max <= min) return min;
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  };
+
+  const insertCampaignTokenAtCursor = (token: string) => {
+    const textarea = campaignMessageTextareaRef.current;
+    const safeToken = String(token || '');
+    const currentValue = campaignMode === 'RECURRING' ? planConsumptionMessage : campaignMessage;
+    const applyNextValue = (value: string) => {
+      if (campaignMode === 'RECURRING') {
+        setPlanConsumptionMessage(value);
+        return;
+      }
+      setCampaignMessage(value);
+    };
+    if (!safeToken) return;
+    if (!textarea) {
+      applyNextValue(`${currentValue}${currentValue ? ' ' : ''}${safeToken}`);
+      return;
+    }
+    const start = textarea.selectionStart ?? currentValue.length;
+    const end = textarea.selectionEnd ?? currentValue.length;
+    const nextValue = `${currentValue.slice(0, start)}${safeToken}${currentValue.slice(end)}`;
+    applyNextValue(nextValue);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const cursor = start + safeToken.length;
+      textarea.setSelectionRange(cursor, cursor);
+    });
+  };
+
+  const formatCurrencyBr = (value: number) =>
+    Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  const formatPlanConsumptionOutgoingMessage = (rawMessage: string) => {
+    const trimmedMessage = String(rawMessage || '').trim();
+    const trimmedSignature = String(signatureName || '').trim();
+    if (!trimmedMessage) return '';
+    if (!planConsumptionUseSignature || !signatureEnabled || !trimmedSignature) return trimmedMessage;
+    return `*${trimmedSignature}:*\n${trimmedMessage}`;
+  };
+
+  const clampMonthDay = (value: number) => Math.min(28, Math.max(1, Number(value || 1) || 1));
+
+  const buildPlanConsumptionPeriod = (referenceDate = new Date()) => {
+    const reference = new Date(referenceDate);
+
+    if (planConsumptionFrequency === 'WEEKLY') {
+      const startWeekDay = Math.min(6, Math.max(0, Number(planConsumptionWeeklyStartDay || 1) || 1));
+      const endWeekDay = Math.min(6, Math.max(0, Number(planConsumptionWeeklyEndDay || 5) || 5));
+
+      const closedEnd = new Date(reference);
+      closedEnd.setHours(23, 59, 59, 999);
+      let backwardToEnd = (closedEnd.getDay() - endWeekDay + 7) % 7;
+      if (backwardToEnd === 0) {
+        backwardToEnd = 7;
+      }
+      closedEnd.setDate(closedEnd.getDate() - backwardToEnd);
+      closedEnd.setHours(23, 59, 59, 999);
+
+      const closedStart = new Date(closedEnd);
+      let daysSpan = (endWeekDay - startWeekDay + 7) % 7;
+      if (daysSpan === 0) {
+        daysSpan = 6;
+      }
+      closedStart.setDate(closedStart.getDate() - daysSpan);
+      closedStart.setHours(0, 0, 0, 0);
+
+      const periodLabel = `${formatDatePt(closedStart)} a ${formatDatePt(closedEnd)}`;
+      return { closedStart, closedEnd, periodLabel };
+    }
+
+    const startDay = clampMonthDay(planConsumptionMonthlyStartDay);
+    const endDay = clampMonthDay(planConsumptionMonthlyEndDay);
+
+    const buildMonthDate = (
+      year: number,
+      month: number,
+      day: number,
+      hour: number,
+      minute: number,
+      second: number,
+      millisecond: number
+    ) => {
+      const monthLastDay = new Date(year, month + 1, 0).getDate();
+      const safeDay = Math.min(day, monthLastDay);
+      return new Date(year, month, safeDay, hour, minute, second, millisecond);
+    };
+
+    let closedEnd = buildMonthDate(reference.getFullYear(), reference.getMonth(), endDay, 23, 59, 59, 999);
+    if (reference.getTime() <= closedEnd.getTime()) {
+      closedEnd = buildMonthDate(reference.getFullYear(), reference.getMonth() - 1, endDay, 23, 59, 59, 999);
+    }
+
+    const closedStart = buildMonthDate(
+      closedEnd.getFullYear(),
+      closedEnd.getMonth() + (startDay > endDay ? -1 : 0),
+      startDay,
+      0,
+      0,
+      0,
+      0
+    );
+
+    const periodLabel = `${formatDatePt(closedStart)} a ${formatDatePt(closedEnd)}`;
+    return { closedStart, closedEnd, periodLabel };
+  };
+
+  const getNextPlanConsumptionRunAt = () => {
+    const now = new Date();
+    const [hourRaw, minuteRaw] = String(planConsumptionSendTime || '09:00').split(':');
+    const hour = Math.min(23, Math.max(0, Number(hourRaw || 9) || 9));
+    const minute = Math.min(59, Math.max(0, Number(minuteRaw || 0) || 0));
+
+    if (planConsumptionFrequency === 'WEEKLY') {
+      const weekday = Math.min(6, Math.max(0, Number(planConsumptionWeeklyDay || 1) || 1));
+      const candidate = new Date(now);
+      candidate.setHours(hour, minute, 0, 0);
+      const currentWeekDay = candidate.getDay();
+      let diff = (weekday - currentWeekDay + 7) % 7;
+      if (diff === 0 && candidate.getTime() <= now.getTime()) {
+        diff = 7;
+      }
+      candidate.setDate(candidate.getDate() + diff);
+      return candidate;
+    }
+
+    const selectedDay = Math.min(31, Math.max(1, Number(planConsumptionMonthlyDay || 1) || 1));
+    const buildMonthlyDate = (year: number, month: number) => {
+      const monthLastDay = new Date(year, month + 1, 0).getDate();
+      const finalDay = Math.min(selectedDay, monthLastDay);
+      return new Date(year, month, finalDay, hour, minute, 0, 0);
+    };
+
+    let candidate = buildMonthlyDate(now.getFullYear(), now.getMonth());
+    if (candidate.getTime() <= now.getTime()) {
+      candidate = buildMonthlyDate(now.getFullYear(), now.getMonth() + 1);
+    }
+    return candidate;
+  };
+
+  const buildPlanConsumptionDispatchTargets = async (options?: {
+    includeResponsible?: boolean;
+    includeCollaborator?: boolean;
+  }) => {
+    if (!activeEnterprise?.id) {
+      throw new Error('Empresa ativa não encontrada.');
+    }
+
+    const includeResponsible = options?.includeResponsible ?? campaignRecurringTargetResponsible;
+    const includeCollaborator = options?.includeCollaborator ?? campaignRecurringTargetCollaborator;
+    if (!includeResponsible && !includeCollaborator) {
+      throw new Error('Selecione ao menos um público para campanha recorrente: Responsável ou Colaborador.');
+    }
+
+    const { closedStart, closedEnd, periodLabel } = buildPlanConsumptionPeriod(new Date());
+    const txList = await ApiService.getTransactions({ enterpriseId: activeEnterprise.id });
+    const transactions = Array.isArray(txList) ? txList : [];
+
+    const normalizePlanKey = (value?: string) => normalizeSearchValue(value).replace(/[^a-z0-9]/g, '');
+    const formatClassLabel = (client: Client) => [String(client.class || '').trim(), String((client as any).classGrade || '').trim()]
+      .filter(Boolean)
+      .join(' / ');
+    const parseTxDate = (tx: any) => normalizeTxDate(tx);
+    const parseTxAmount = (tx: any) => Math.abs(Number(tx?.amount ?? tx?.total ?? tx?.value ?? 0) || 0);
+    const getMovementType = (tx: any): 'CONSUMO' | 'CREDITO' | 'OUTRO' => {
+      const txType = String(tx?.type || '').toUpperCase();
+      const marker = String(tx?.category || tx?.movement || tx?.plan || tx?.description || tx?.item || '').toUpperCase();
+      if (
+        txType.includes('DEBIT')
+        || txType.includes('CONSUMO')
+        || marker.includes('CONSUMO')
+        || marker.includes('COMPRA')
+        || marker.includes('SAIDA')
+      ) {
+        return 'CONSUMO';
+      }
+      if (
+        txType.includes('CREDIT')
+        || txType.includes('CREDITO')
+        || marker.includes('CREDITO')
+        || marker.includes('RECARGA')
+        || marker.includes('ENTRADA')
+      ) {
+        return 'CREDITO';
+      }
+      return 'OUTRO';
+    };
+
+    const planCatalogByKey = new Map<string, { name: string; price: number }>();
+    const planCatalogById = new Map<string, { name: string; price: number }>();
+    plans.forEach((plan) => {
+      const planName = String(plan?.name || '').trim();
+      if (!planName) return;
+      const normalized = normalizePlanKey(planName);
+      const payload = { name: planName, price: Number(plan?.price || 0) || 0 };
+      if (normalized) {
+        planCatalogByKey.set(normalized, payload);
+      }
+      const id = String(plan?.id || '').trim();
+      if (id) {
+        planCatalogById.set(id, payload);
+      }
+    });
+
+    const resolveCatalogPlan = (rawName?: string, rawPlanId?: string) => {
+      const byId = String(rawPlanId || '').trim();
+      if (byId && planCatalogById.has(byId)) {
+        return planCatalogById.get(byId) || null;
+      }
+      const normalizedName = normalizePlanKey(rawName);
+      if (normalizedName && planCatalogByKey.has(normalizedName)) {
+        return planCatalogByKey.get(normalizedName) || null;
+      }
+      return null;
+    };
+
+    const resolveTxPlanName = (tx: any) => {
+      const fromCatalog = resolveCatalogPlan(tx?.planName || tx?.plan, tx?.planId || tx?.originPlanId);
+      if (fromCatalog?.name) return fromCatalog.name;
+
+      const rawCandidates = [
+        tx?.planName,
+        tx?.plan,
+        tx?.originPlanName,
+        tx?.originPlan,
+        tx?.category,
+      ]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean);
+
+      for (const candidate of rawCandidates) {
+        const normalized = normalizePlanKey(candidate);
+        if (!normalized) continue;
+        if (normalized.includes('prepago') || normalized.includes('carteiraprepaga')) return 'Carteira Pré-paga';
+        if (normalized === 'consumo' || normalized === 'credito') continue;
+        const fromNameCatalog = resolveCatalogPlan(candidate);
+        if (fromNameCatalog?.name) return fromNameCatalog.name;
+        return formatClientPlanLabel(candidate);
+      }
+
+      const marker = String(tx?.description || tx?.item || '').trim();
+      if (normalizePlanKey(marker).includes('prepago')) return 'Carteira Pré-paga';
+      return '';
+    };
+
+    const transactionsInPeriod = transactions.filter((tx: any) => {
+      const txDate = parseTxDate(tx);
+      if (!txDate) return false;
+      return txDate.getTime() >= closedStart.getTime() && txDate.getTime() <= closedEnd.getTime();
+    });
+
+    const txByClientId = new Map<string, any[]>();
+    transactionsInPeriod.forEach((tx: any) => {
+      const clientId = String(tx?.clientId || tx?.studentId || tx?.contactId || '').trim();
+      if (!clientId) return;
+      const current = txByClientId.get(clientId) || [];
+      current.push(tx);
+      txByClientId.set(clientId, current);
+    });
+    txByClientId.forEach((list) => {
+      list.sort((a, b) => {
+        const aTs = parseTxDate(a)?.getTime() || 0;
+        const bTs = parseTxDate(b)?.getTime() || 0;
+        return aTs - bTs;
+      });
+    });
+
+    type InternalPlanRow = {
+      key: string;
+      planName: string;
+      unitValue: number;
+      consumedQty: number;
+      consumedSubtotal: number;
+      currentBalance: number;
+      prepaid: boolean;
+    };
+
+    type InternalClientDataset = {
+      id: string;
+      name: string;
+      classLabel: string;
+      type: 'ALUNO' | 'COLABORADOR';
+      planRows: InternalPlanRow[];
+      transactionRows: PlanConsumptionPdfTransactionRow[];
+      totalConsumption: number;
+      totalCredits: number;
+    };
+
+    const buildClientDataset = (client: Client, type: 'ALUNO' | 'COLABORADOR'): InternalClientDataset => {
+      const classLabel = formatClassLabel(client);
+      const planRowsMap = new Map<string, InternalPlanRow>();
+
+      const ensurePlanRow = (
+        rawPlanName: string,
+        options?: Partial<InternalPlanRow> & { sourcePlanId?: string }
+      ): InternalPlanRow | null => {
+        const isPrepaid = normalizePlanKey(rawPlanName).includes('prepago') || normalizePlanKey(rawPlanName).includes('carteiraprepaga');
+        const normalizedKey = isPrepaid ? 'prepago' : normalizePlanKey(rawPlanName);
+        if (!normalizedKey) return null;
+
+        const catalogPlan = resolveCatalogPlan(rawPlanName, options?.sourcePlanId);
+        const defaultName = isPrepaid ? 'Carteira Pré-paga' : (catalogPlan?.name || formatClientPlanLabel(rawPlanName || 'PLANO'));
+        const current = planRowsMap.get(normalizedKey) || {
+          key: normalizedKey,
+          planName: defaultName,
+          unitValue: Number(catalogPlan?.price || 0) || 0,
+          consumedQty: 0,
+          consumedSubtotal: 0,
+          currentBalance: isPrepaid ? Number(client.balance || 0) : 0,
+          prepaid: isPrepaid,
+        };
+
+        if (catalogPlan?.name) current.planName = catalogPlan.name;
+        if (typeof options?.planName === 'string' && String(options.planName).trim()) current.planName = String(options.planName).trim();
+        if (typeof options?.unitValue === 'number' && Number.isFinite(options.unitValue) && options.unitValue > 0) {
+          current.unitValue = options.unitValue;
+        }
+        if (typeof options?.currentBalance === 'number' && Number.isFinite(options.currentBalance)) {
+          current.currentBalance = options.currentBalance;
+        }
+        if (typeof options?.consumedQty === 'number' && Number.isFinite(options.consumedQty)) {
+          current.consumedQty = options.consumedQty;
+        }
+        if (typeof options?.consumedSubtotal === 'number' && Number.isFinite(options.consumedSubtotal)) {
+          current.consumedSubtotal = options.consumedSubtotal;
+        }
+        if (typeof options?.prepaid === 'boolean') {
+          current.prepaid = options.prepaid;
+        }
+
+        planRowsMap.set(normalizedKey, current);
+        return current;
+      };
+
+      const servicePlans = Array.isArray(client.servicePlans) ? client.servicePlans : [];
+      servicePlans.forEach((planName) => {
+        if (String(planName || '').trim()) {
+          const catalog = resolveCatalogPlan(planName);
+          ensurePlanRow(String(planName), {
+            unitValue: Number(catalog?.price || 0) || undefined,
+            prepaid: normalizePlanKey(planName).includes('prepago'),
+          });
+        }
+      });
+
+      const selectedPlansConfig = Array.isArray((client as any)?.selectedPlansConfig)
+        ? ((client as any).selectedPlansConfig as any[])
+        : [];
+      selectedPlansConfig.forEach((config) => {
+        const rawPlanName = String(config?.planName || config?.name || config?.planId || '').trim();
+        if (!rawPlanName) return;
+        const catalog = resolveCatalogPlan(rawPlanName, String(config?.planId || '').trim());
+        const unitValue = Number(config?.planPrice ?? config?.price ?? config?.value ?? catalog?.price ?? 0) || 0;
+        ensurePlanRow(rawPlanName, {
+          sourcePlanId: String(config?.planId || '').trim() || undefined,
+          unitValue: unitValue > 0 ? unitValue : undefined,
+        });
+      });
+
+      const planBalances = client.planCreditBalances || {};
+      Object.values(planBalances).forEach((entry: any) => {
+        const rawPlanName = String(entry?.planName || '').trim() || String(entry?.planId || '').trim();
+        if (!rawPlanName) return;
+        const catalog = resolveCatalogPlan(rawPlanName, String(entry?.planId || '').trim());
+        ensurePlanRow(rawPlanName, {
+          sourcePlanId: String(entry?.planId || '').trim() || undefined,
+          unitValue: Number(catalog?.price || 0) || undefined,
+          currentBalance: Number(entry?.balance || 0) || 0,
+        });
+      });
+
+      const prepaidBalance = Number(client.balance || 0) || 0;
+      if (servicePlans.some((planName) => normalizePlanKey(planName).includes('prepago')) || Math.abs(prepaidBalance) > 0.0001) {
+        ensurePlanRow('PREPAGO', {
+          currentBalance: prepaidBalance,
+          prepaid: true,
+        });
+      }
+
+      const clientTransactions = txByClientId.get(String(client.id || '').trim()) || [];
+      const transactionRows: PlanConsumptionPdfTransactionRow[] = [];
+
+      clientTransactions.forEach((tx: any) => {
+        const txDate = parseTxDate(tx);
+        if (!txDate) return;
+
+        const amount = parseTxAmount(tx);
+        const movementType = getMovementType(tx);
+        const planName = resolveTxPlanName(tx);
+        const description = String(tx?.description || tx?.item || tx?.category || tx?.plan || 'Movimentação');
+        const dateLabel = txDate.toLocaleDateString('pt-BR');
+        const timeLabel = txDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+        if (planName) {
+          const row = ensurePlanRow(planName, {
+            unitValue: Number(resolveCatalogPlan(planName, tx?.planId)?.price || 0) || undefined,
+          });
+          if (row && movementType === 'CONSUMO') {
+            const qtyRaw = Number(tx?.quantity ?? tx?.qty ?? tx?.units ?? 1);
+            const quantity = Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1;
+            row.consumedQty += quantity;
+            row.consumedSubtotal += amount;
+          }
+        } else if (movementType === 'CONSUMO') {
+          const prepaidRow = ensurePlanRow('PREPAGO', { prepaid: true, currentBalance: prepaidBalance });
+          if (prepaidRow) {
+            const qtyRaw = Number(tx?.quantity ?? tx?.qty ?? tx?.units ?? 1);
+            const quantity = Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1;
+            prepaidRow.consumedQty += quantity;
+            prepaidRow.consumedSubtotal += amount;
+          }
+        }
+
+        transactionRows.push({
+          studentName: String(client.name || '').trim() || 'Contato',
+          dateLabel,
+          timeLabel,
+          timestamp: txDate.getTime(),
+          description,
+          planName: planName || (normalizePlanKey(description).includes('prepago') ? 'Carteira Pré-paga' : '-'),
+          movementType,
+          amount,
+        });
+      });
+
+      const planRows = Array.from(planRowsMap.values()).sort((a, b) =>
+        a.planName.localeCompare(b.planName, 'pt-BR', { sensitivity: 'base' })
+      );
+      const totalConsumption = transactionRows
+        .filter((row) => row.movementType === 'CONSUMO')
+        .reduce((acc, row) => acc + row.amount, 0);
+      const totalCredits = transactionRows
+        .filter((row) => row.movementType === 'CREDITO')
+        .reduce((acc, row) => acc + row.amount, 0);
+
+      return {
+        id: String(client.id || ''),
+        name: String(client.name || '').trim() || 'Contato',
+        classLabel,
+        type,
+        planRows,
+        transactionRows,
+        totalConsumption,
+        totalCredits,
+      };
+    };
+
+    const buildRecipientVariableValues = (
+      profile: PlanConsumptionRecipientReportProfile,
+      fallbackResponsibleName: string
+    ): Record<string, string> => {
+      const studentNames = profile.students.map((student) => student.name).filter(Boolean);
+      const classSummary = Array.from(new Set(profile.students.map((student) => student.classLabel).filter(Boolean))).join(' | ');
+      const planNames = Array.from(new Set(profile.planRows.map((row) => row.planName).filter(Boolean)));
+      const unitLabels = Array.from(
+        new Set(
+          profile.planRows
+            .filter((row) => Number(row.unitValue || 0) > 0)
+            .map((row) => `${row.planName}: ${formatCurrencyBr(Number(row.unitValue || 0))}`)
+        )
+      );
+      const totalPlanQty = profile.planRows.reduce((acc, row) => acc + Number(row.consumedQty || 0), 0);
+      const subtotalPlans = profile.planRows.reduce((acc, row) => acc + Number(row.consumedSubtotal || 0), 0);
+      const fixedPlanBalanceMoney = profile.planRows
+        .filter((row) => !row.prepaid)
+        .reduce((acc, row) => acc + Number(row.currentBalance || 0), 0);
+      const fixedPlanBalanceUnits = profile.planRows
+        .filter((row) => !row.prepaid)
+        .reduce((acc, row) => {
+          const unitValue = Number(row.unitValue || 0);
+          const moneyBalance = Number(row.currentBalance || 0);
+          if (!Number.isFinite(unitValue) || unitValue <= 0) return acc;
+          return acc + (moneyBalance / unitValue);
+        }, 0);
+      const prepaidBalance = profile.planRows
+        .filter((row) => row.prepaid)
+        .reduce((acc, row) => acc + Number(row.currentBalance || 0), 0);
+      const consumptionDates = Array.from(new Set(profile.transactionRows.map((row) => row.dateLabel).filter(Boolean)));
+      const summaryRows = profile.transactionRows
+        .slice(0, 8)
+        .map((row) => `${row.dateLabel} ${row.timeLabel} • ${row.studentName} • ${row.planName} • ${formatCurrencyBr(row.amount)}`);
+      const responsibleName = String(profile.responsibleName || fallbackResponsibleName || '').trim() || 'Responsável';
+      const formattedUnits = Number(fixedPlanBalanceUnits || 0).toLocaleString('pt-BR', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+      });
+      const hasFixedPlanBalance = Math.abs(fixedPlanBalanceMoney) > 0.0001;
+      const hasPrepaidBalance = Math.abs(prepaidBalance) > 0.0001;
+      const saldoAtualParts: string[] = [];
+      if (hasFixedPlanBalance) {
+        saldoAtualParts.push(`Planos: ${formattedUnits} un. (${formatCurrencyBr(fixedPlanBalanceMoney)})`);
+      }
+      if (hasPrepaidBalance) {
+        saldoAtualParts.push(`Pré-paga: ${formatCurrencyBr(prepaidBalance)}`);
+      }
+      const saldoAtual = saldoAtualParts.join(' | ') || '-';
+
+      return {
+        nome_completo_alunos: studentNames.join(', ') || profile.contactName,
+        turma_completa: classSummary || '-',
+        primeiro_nome_responsavel: getFirstName(responsibleName) || responsibleName,
+        nome_responsavel: responsibleName,
+        data_inicial_consumo: formatDatePt(closedStart),
+        data_final_consumo: formatDatePt(closedEnd),
+        data_consumos: consumptionDates.join(', ') || periodLabel,
+        saldo_und_atual: saldoAtual || '-',
+        relatorio_consumo: summaryRows.join(' | ') || 'Sem movimentações no período selecionado.',
+        nome_plano: planNames.join(', ') || 'Sem plano ativo',
+        valor_unidade_plano: unitLabels.join(' | ') || '-',
+        quantidade_plano: String(totalPlanQty || 0),
+        subtotal_plano: formatCurrencyBr(subtotalPlans || 0),
+        periodo_referencia: periodLabel,
+      };
+    };
+
+    const mergeRecipientProfiles = (
+      current: PlanConsumptionRecipientReportProfile | null,
+      incoming: PlanConsumptionRecipientReportProfile | null
+    ): PlanConsumptionRecipientReportProfile | null => {
+      if (!current) return incoming;
+      if (!incoming) return current;
+      const studentMap = new Map<string, PlanConsumptionRecipientStudentProfile>();
+      [...current.students, ...incoming.students].forEach((student) => {
+        const key = String(student.id || student.name || '').trim();
+        if (!key) return;
+        if (!studentMap.has(key)) studentMap.set(key, student);
+      });
+      return {
+        kind: current.kind === 'RESPONSAVEL' || incoming.kind === 'RESPONSAVEL' ? 'RESPONSAVEL' : 'COLABORADOR',
+        responsibleName: current.kind === 'RESPONSAVEL' ? current.responsibleName : (incoming.responsibleName || current.responsibleName),
+        contactName: current.contactName || incoming.contactName,
+        contactPhone: current.contactPhone || incoming.contactPhone,
+        students: Array.from(studentMap.values()),
+        planRows: [...current.planRows, ...incoming.planRows],
+        transactionRows: [...current.transactionRows, ...incoming.transactionRows].sort((a, b) => a.timestamp - b.timestamp),
+        totalConsumption: Number(current.totalConsumption || 0) + Number(incoming.totalConsumption || 0),
+        totalCredits: Number(current.totalCredits || 0) + Number(incoming.totalCredits || 0),
+      };
+    };
+
+    const recipientMap = new Map<string, {
+      phone: string;
+      contactName: string;
+      chunks: string[];
+      targetCount: number;
+      kindSet: Set<PlanConsumptionDispatchRecipientKind>;
+      variableValues: Record<string, string>;
+      reportProfile: PlanConsumptionRecipientReportProfile | null;
+    }>();
+
+    const mergeVariables = (base: Record<string, string>, patch: Record<string, string>) => {
+      const next = { ...base };
+      Object.entries(patch).forEach(([key, value]) => {
+        const normalized = String(value || '').trim();
+        if (!normalized) return;
+        if (normalized === '-' && String(next[key] || '').trim()) return;
+        next[key] = normalized;
+      });
+      return next;
+    };
+
+    const addRecipientChunk = (
+      phone: string,
+      contactName: string,
+      kind: PlanConsumptionDispatchRecipientKind,
+      chunkLines: string[],
+      targetCount = 1,
+      variableValues: Record<string, string> = {},
+      reportProfile: PlanConsumptionRecipientReportProfile | null = null
+    ) => {
+      const normalizedPhone = normalizePhone(phone);
+      if (!normalizedPhone) return;
+      const current = recipientMap.get(normalizedPhone) || {
+        phone: normalizedPhone,
+        contactName: String(contactName || '').trim() || normalizedPhone,
+        chunks: [],
+        targetCount: 0,
+        kindSet: new Set<PlanConsumptionDispatchRecipientKind>(),
+        variableValues: {},
+        reportProfile: null,
+      };
+      const validLines = chunkLines.map((line) => String(line || '').trim()).filter(Boolean);
+      if (validLines.length > 0) {
+        current.chunks.push(validLines.join('\n'));
+      }
+      current.kindSet.add(kind);
+      current.targetCount += Math.max(0, Number(targetCount || 0));
+      current.variableValues = mergeVariables(current.variableValues, variableValues);
+      current.reportProfile = mergeRecipientProfiles(current.reportProfile, reportProfile);
+      recipientMap.set(normalizedPhone, current);
+    };
+
+    if (includeCollaborator) {
+      clients
+        .filter((client) => String(client.type || '').toUpperCase() === 'COLABORADOR')
+        .forEach((collaborator) => {
+          const phone = resolveClientPhone(collaborator);
+          if (!phone) return;
+          const dataset = buildClientDataset(collaborator, 'COLABORADOR');
+          const hasData = dataset.planRows.length > 0 || dataset.transactionRows.length > 0 || Math.abs(Number(collaborator.balance || 0)) > 0.0001;
+          if (!hasData) return;
+
+          const reportProfile: PlanConsumptionRecipientReportProfile = {
+            kind: 'COLABORADOR',
+            responsibleName: dataset.name,
+            contactName: dataset.name,
+            contactPhone: normalizePhone(phone),
+            students: [{ id: dataset.id, name: dataset.name, classLabel: dataset.classLabel, type: 'COLABORADOR' }],
+            planRows: dataset.planRows.map((row) => ({
+              studentName: dataset.name,
+              classLabel: dataset.classLabel || '-',
+              planName: row.planName,
+              unitValue: Number(row.unitValue || 0),
+              consumedQty: Number(row.consumedQty || 0),
+              consumedSubtotal: Number(row.consumedSubtotal || 0),
+              currentBalance: Number(row.currentBalance || 0),
+              prepaid: Boolean(row.prepaid),
+            })),
+            transactionRows: dataset.transactionRows,
+            totalConsumption: Number(dataset.totalConsumption || 0),
+            totalCredits: Number(dataset.totalCredits || 0),
+          };
+
+          const variableValues = buildRecipientVariableValues(reportProfile, dataset.name);
+          const lines = [
+            `👤 Colaborador: ${dataset.name}`,
+            `Período: ${periodLabel}`,
+            `Total consumido: ${formatCurrencyBr(reportProfile.totalConsumption)}`,
+            '📄 Relatório completo em PDF anexado.',
+          ];
+
+          addRecipientChunk(
+            phone,
+            dataset.name,
+            'COLABORADOR_RELATORIO',
+            lines,
+            1,
+            variableValues,
+            reportProfile
+          );
+        });
+    }
+
+    const responsibleGroups = new Map<string, {
+      responsibleName: string;
+      students: InternalClientDataset[];
+    }>();
+
+    if (includeResponsible) {
+      clients
+        .filter((client) => String(client.type || '').toUpperCase() === 'ALUNO')
+        .forEach((student) => {
+          const responsiblePhone = resolveClientPhone(student);
+          if (!responsiblePhone) return;
+
+          const dataset = buildClientDataset(student, 'ALUNO');
+          const hasData = dataset.planRows.length > 0 || dataset.transactionRows.length > 0 || Math.abs(Number(student.balance || 0)) > 0.0001;
+          if (!hasData) return;
+
+          const normalizedPhone = normalizePhone(responsiblePhone);
+          const existing = responsibleGroups.get(normalizedPhone) || {
+            responsibleName: resolveResponsibleName(student) || dataset.name || normalizedPhone,
+            students: [],
+          };
+          existing.students.push(dataset);
+          responsibleGroups.set(normalizedPhone, existing);
+        });
+
+      responsibleGroups.forEach((group, phone) => {
+        const planRows: PlanConsumptionPdfPlanRow[] = group.students.flatMap((student) =>
+          student.planRows.map((row) => ({
+            studentName: student.name,
+            classLabel: student.classLabel || '-',
+            planName: row.planName,
+            unitValue: Number(row.unitValue || 0),
+            consumedQty: Number(row.consumedQty || 0),
+            consumedSubtotal: Number(row.consumedSubtotal || 0),
+            currentBalance: Number(row.currentBalance || 0),
+            prepaid: Boolean(row.prepaid),
+          }))
+        );
+        const transactionRows = group.students
+          .flatMap((student) => student.transactionRows.map((row) => ({ ...row, studentName: student.name })))
+          .sort((a, b) => a.timestamp - b.timestamp);
+        const totalConsumption = group.students.reduce((acc, student) => acc + Number(student.totalConsumption || 0), 0);
+        const totalCredits = group.students.reduce((acc, student) => acc + Number(student.totalCredits || 0), 0);
+
+        const reportProfile: PlanConsumptionRecipientReportProfile = {
+          kind: 'RESPONSAVEL',
+          responsibleName: group.responsibleName,
+          contactName: group.responsibleName,
+          contactPhone: normalizePhone(phone),
+          students: group.students.map((student) => ({
+            id: student.id,
+            name: student.name,
+            classLabel: student.classLabel,
+            type: 'ALUNO',
+          })),
+          planRows,
+          transactionRows,
+          totalConsumption,
+          totalCredits,
+        };
+
+        const variableValues = buildRecipientVariableValues(reportProfile, group.responsibleName);
+        const lines = [
+          `👨‍👩‍👧‍👦 Responsável: ${group.responsibleName}`,
+          `Período: ${periodLabel}`,
+          `Alunos no relatório: ${group.students.map((student) => student.name).join(', ')}`,
+          `Total consumido: ${formatCurrencyBr(totalConsumption)}`,
+          '📄 Relatório completo em PDF anexado.',
+        ];
+
+        addRecipientChunk(
+          phone,
+          group.responsibleName,
+          'RESPONSAVEL_RELATORIO',
+          lines,
+          group.students.length,
+          variableValues,
+          reportProfile
+        );
+      });
+    }
+
+    const recipients: PlanConsumptionDispatchRecipient[] = Array.from(recipientMap.values())
+      .map((entry) => {
+        if (!entry.reportProfile) return null;
+        const baseTemplate = String(planConsumptionMessage || '').trim()
+          || 'Olá {primeiro_nome_responsavel}, segue o fechamento do período {periodo_referencia}.';
+        const templateWithPdfHint = /pdf/i.test(baseTemplate)
+          ? baseTemplate
+          : `${baseTemplate}\n\n📄 O relatório completo está em PDF neste envio.`;
+        const baseMessage = replaceCampaignVariables(templateWithPdfHint, entry.contactName, entry.variableValues);
+        const finalMessage = formatPlanConsumptionOutgoingMessage(
+          [baseMessage, ...entry.chunks].filter(Boolean).join('\n')
+        );
+
+        return {
+          phone: entry.phone,
+          chatId: `${entry.phone}@c.us`,
+          contactName: entry.contactName,
+          message: finalMessage,
+          detailLines: entry.chunks,
+          targetCount: entry.targetCount,
+          kindSet: Array.from(entry.kindSet.values()),
+          variableValues: entry.variableValues,
+          reportProfile: entry.reportProfile,
+        } as PlanConsumptionDispatchRecipient;
+      })
+      .filter(Boolean) as PlanConsumptionDispatchRecipient[];
+
+    recipients.sort((a, b) => a.contactName.localeCompare(b.contactName, 'pt-BR', { sensitivity: 'base' }));
+
+    return {
+      generatedAt: Date.now(),
+      periodStart: closedStart.getTime(),
+      periodEnd: closedEnd.getTime(),
+      periodLabel,
+      recipients,
+      collaboratorCount: recipients.filter((item) => item.kindSet.includes('COLABORADOR_RELATORIO')).length,
+      responsibleCount: recipients.filter((item) => item.kindSet.includes('RESPONSAVEL_RELATORIO')).length,
+    } as PlanConsumptionDispatchPreview;
+  };
+
+  const buildPlanConsumptionPdfAttachment = (
+    recipient: PlanConsumptionDispatchRecipient,
+    periodLabelOverride?: string
+  ): ChatAttachment => {
+    const profile = recipient.reportProfile;
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const generatedAt = new Date();
+
+    const formatNumber = (value: number) => Number(value || 0).toLocaleString('pt-BR', {
+      minimumFractionDigits: Number.isInteger(Number(value || 0)) ? 0 : 2,
+      maximumFractionDigits: 2,
+    });
+
+    const safeFileName = String(profile.contactName || 'relatorio')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .toLowerCase();
+
+    const periodLabel = periodLabelOverride || recipient.variableValues?.periodo_referencia || '-';
+    const leftX = 28;
+
+    const classifyTxKind = (row: PlanConsumptionPdfTransactionRow): 'CREDITO' | 'CONSUMO' | 'ESTORNO' | 'CREDITO_ESTORNO' | 'OUTRO' => {
+      const text = normalizeSearchValue(`${row.description} ${row.planName}`);
+      const hasEstorno = text.includes('estorno');
+      if (hasEstorno && row.movementType === 'CREDITO') return 'CREDITO_ESTORNO';
+      if (hasEstorno) return 'ESTORNO';
+      if (row.movementType === 'CREDITO') return 'CREDITO';
+      if (row.movementType === 'CONSUMO') return 'CONSUMO';
+      return 'OUTRO';
+    };
+
+    doc.setFillColor(37, 99, 235);
+    doc.rect(0, 0, pageWidth, 20, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.text('EXTRATO DE TRANSAÇÕES DA UNIDADE', leftX, 14);
+
+    doc.setTextColor(31, 41, 55);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.text(activeEnterprise?.name || 'Cantina', leftX, 40);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    const enterpriseInfo = [
+      activeEnterprise?.attachedSchoolName ? `Escola: ${activeEnterprise.attachedSchoolName}` : null,
+      activeEnterprise?.phone1 ? `Contato: ${formatPhoneWithCountryTag(activeEnterprise.phone1, '-')}` : null,
+      activeEnterprise?.address ? activeEnterprise.address : null,
+    ].filter(Boolean).join(' • ');
+    const enterpriseLines = doc.splitTextToSize(enterpriseInfo || '-', pageWidth - (leftX * 2));
+    doc.text(enterpriseLines, leftX, 54);
+
+    const contactY = 54 + ((enterpriseLines.length - 1) * 10) + 12;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.text(`Responsável/Contato: ${profile.contactName || '-'}`, leftX, contactY);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    const contactDetails = [
+      `Telefone: ${formatPhoneWithCountryTag(profile.contactPhone, '-')}`,
+      `Perfil: ${profile.kind === 'RESPONSAVEL' ? 'Responsável' : 'Colaborador'}`,
+      `Período: ${periodLabel}`,
+    ].join(' • ');
+    doc.text(contactDetails, leftX, contactY + 12);
+    const studentsLine = `Aluno(s) relacionado(s): ${profile.students.map((item) => item.name).join(', ') || '-'}`;
+    doc.text(doc.splitTextToSize(studentsLine, pageWidth - (leftX * 2)), leftX, contactY + 24);
+    doc.text(`Gerado em: ${generatedAt.toLocaleString('pt-BR')}`, pageWidth - leftX, contactY + 12, { align: 'right' });
+
+    const totalCredits = profile.transactionRows
+      .filter((row) => {
+        const kind = classifyTxKind(row);
+        return kind === 'CREDITO' || kind === 'CREDITO_ESTORNO';
+      })
+      .reduce((acc, row) => acc + Math.abs(Number(row.amount || 0)), 0);
+    const totalConsumption = profile.transactionRows
+      .filter((row) => {
+        const kind = classifyTxKind(row);
+        return kind === 'CONSUMO' || kind === 'ESTORNO';
+      })
+      .reduce((acc, row) => acc + Math.abs(Number(row.amount || 0)), 0);
+    const finalBalance = totalCredits - totalConsumption;
+
+    const cardsTopY = contactY + 34;
+
+    const groupedByPlan = new Map<string, PlanConsumptionPdfTransactionRow[]>();
+    profile.transactionRows.forEach((row) => {
+      const planName = String(row.planName || '').trim() || 'PRÉ-PAGA';
+      if (!groupedByPlan.has(planName)) groupedByPlan.set(planName, []);
+      groupedByPlan.get(planName)!.push(row);
+    });
+
+    const tableColumn = ['Data/Hora', 'Descrição', 'Tipo', 'Valor', 'Status'];
+    const tableRows: any[] = [];
+    const orderedPlans = Array.from(groupedByPlan.keys()).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    const planSummaryCards: Array<{ planName: string; consumedText: string; balanceText: string; isPrepaid: boolean }> = [];
+
+    const drawPlanSummaryCards = (y: number) => {
+      if (planSummaryCards.length === 0) return y;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(30, 64, 175);
+      doc.text('Resumo por plano', leftX, y);
+
+      const cardWidth = 170;
+      const cardHeight = 52;
+      const gapX = 8;
+      const gapY = 8;
+      const cols = 3;
+      const startY = y + 6;
+
+      planSummaryCards.forEach((summary, index) => {
+        const row = Math.floor(index / cols);
+        const col = index % cols;
+        const cardX = leftX + col * (cardWidth + gapX);
+        const cardY = startY + row * (cardHeight + gapY);
+
+        if (summary.isPrepaid) {
+          doc.setFillColor(255, 247, 237);
+          doc.setDrawColor(251, 146, 60);
+        } else {
+          doc.setFillColor(239, 246, 255);
+          doc.setDrawColor(96, 165, 250);
+        }
+        doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 6, 6, 'FD');
+
+        doc.setTextColor(30, 41, 59);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.2);
+        const titleLines = doc.splitTextToSize(summary.planName, cardWidth - 12);
+        doc.text(titleLines[0] || '-', cardX + 6, cardY + 14);
+
+        doc.setTextColor(51, 65, 85);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.6);
+        const consumedLines = doc.splitTextToSize(summary.consumedText, cardWidth - 12);
+        doc.text(consumedLines[0] || '-', cardX + 6, cardY + 29);
+        const balanceLines = doc.splitTextToSize(summary.balanceText, cardWidth - 12);
+        doc.text(balanceLines[0] || '-', cardX + 6, cardY + 42);
+      });
+
+      const rows = Math.ceil(planSummaryCards.length / cols);
+      return startY + rows * cardHeight + (rows - 1) * gapY;
+    };
+
+    orderedPlans.forEach((planName) => {
+      const planRows = groupedByPlan.get(planName) || [];
+      const planRowsForCurrentPlan = profile.planRows.filter(
+        (row) => normalizeSearchValue(row.planName) === normalizeSearchValue(planName)
+      );
+      const consumedQty = planRowsForCurrentPlan.reduce((acc, row) => acc + Number(row.consumedQty || 0), 0);
+      const consumedSubtotal = planRowsForCurrentPlan.reduce((acc, row) => acc + Number(row.consumedSubtotal || 0), 0);
+      const isPrepaidPlan = planRowsForCurrentPlan.some((row) => Boolean(row.prepaid))
+        || planName.toUpperCase().includes('PRÉ-PAGA')
+        || planName.toUpperCase().includes('PREPAGA');
+
+      if (isPrepaidPlan) {
+        const currentBalanceMoney = planRowsForCurrentPlan.reduce((acc, row) => acc + Number(row.currentBalance || 0), 0);
+        planSummaryCards.push({
+          planName,
+          consumedText: `Consumo: ${formatCurrencyBr(consumedSubtotal)}`,
+          balanceText: `Saldo atual: ${formatCurrencyBr(currentBalanceMoney)}`,
+          isPrepaid: true,
+        });
+        tableRows.push([
+          {
+            content: `PLANO: ${planName}`,
+            colSpan: 5,
+            styles: { fillColor: [219, 234, 254], textColor: [30, 64, 175], fontStyle: 'bold', halign: 'left' },
+          },
+        ]);
+      } else {
+        // Para planos fixos, o saldo armazenado no backend está em R$.
+        // Convertemos para unidades usando o preço unitário do plano quando disponível.
+        const currentBalanceMoney = planRowsForCurrentPlan.reduce((acc, row) => acc + Number(row.currentBalance || 0), 0);
+        const unitValues = planRowsForCurrentPlan
+          .map((row) => Number(row.unitValue || 0))
+          .filter((value) => Number.isFinite(value) && value > 0);
+        const avgUnitValue = unitValues.length > 0
+          ? unitValues.reduce((acc, value) => acc + value, 0) / unitValues.length
+          : 0;
+        const currentBalanceQty = avgUnitValue > 0 ? (currentBalanceMoney / avgUnitValue) : 0;
+        planSummaryCards.push({
+          planName,
+          consumedText: `Consumido: ${formatNumber(consumedQty)} un. (${formatCurrencyBr(consumedSubtotal)})`,
+          balanceText: `Saldo atual: ${formatNumber(currentBalanceQty)} un. (${formatCurrencyBr(currentBalanceMoney)})`,
+          isPrepaid: false,
+        });
+        tableRows.push([
+          {
+            content: `PLANO: ${planName}`,
+            colSpan: 5,
+            styles: { fillColor: [219, 234, 254], textColor: [30, 64, 175], fontStyle: 'bold', halign: 'left' },
+          },
+        ]);
+      }
+
+      planRows
+        .slice()
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .forEach((row) => {
+          const txKind = classifyTxKind(row);
+          const typeLabel = txKind === 'ESTORNO'
+            ? 'ESTORNO'
+            : txKind === 'CREDITO_ESTORNO'
+              ? 'CRÉDITO/ESTORNO'
+              : row.movementType;
+          const isCredit = txKind === 'CREDITO' || txKind === 'CREDITO_ESTORNO';
+          const amountLabel = `${isCredit ? '+' : '-'} ${formatCurrencyBr(Math.abs(Number(row.amount || 0)))}`;
+          const referenceDateLabel = row.dateLabel || '-';
+          const description = txKind === 'CREDITO_ESTORNO'
+            ? `[CRÉDITO DE ESTORNO • Ref. ${referenceDateLabel}] ${row.description || '-'}`
+            : txKind === 'ESTORNO'
+              ? `[ESTORNO] ${row.description || '-'}`
+              : row.description || '-';
+          tableRows.push([
+            `${row.dateLabel} ${row.timeLabel}`,
+            description,
+            typeLabel,
+            amountLabel,
+            'Concluída',
+          ]);
+        });
+    });
+
+    const tableStartY = drawPlanSummaryCards(cardsTopY) + 10;
+
+    autoTable(doc, {
+      startY: tableStartY,
+      margin: { left: leftX, right: leftX },
+      head: [tableColumn],
+      body: tableRows.length > 0 ? tableRows : [['-', 'Sem movimentações no período', '-', 'R$ 0,00', '-']],
+      styles: {
+        fontSize: 8.2,
+        cellPadding: 3,
+        textColor: [30, 41, 59],
+        overflow: 'linebreak',
+      },
+      headStyles: {
+        fillColor: [30, 41, 59],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+      },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: {
+        0: { cellWidth: 86 },
+        1: { cellWidth: 302 },
+        2: { cellWidth: 78, halign: 'center' },
+        3: { cellWidth: 86, halign: 'right' },
+        4: { cellWidth: 72, halign: 'center' },
+      },
+      didParseCell: (hook) => {
+        if (hook.section !== 'body') return;
+        const row = hook.row.raw as any[];
+        if (Array.isArray(row) && row.length > 0 && row[0]?.colSpan) return;
+        const rawType = normalizeSearchValue(String(row?.[2] || '')).toUpperCase();
+        if (rawType.includes('ESTORNO') && !rawType.includes('CREDITO')) {
+          if (hook.column.index === 2 || hook.column.index === 3) {
+            hook.cell.styles.textColor = [180, 83, 9];
+          }
+        } else if (rawType.includes('CONSUMO') || rawType.includes('DEBIT')) {
+          if (hook.column.index === 2 || hook.column.index === 3) {
+            hook.cell.styles.textColor = [185, 28, 28];
+          }
+        } else if (rawType.includes('CREDITO')) {
+          if (hook.column.index === 2 || hook.column.index === 3) {
+            hook.cell.styles.textColor = [21, 128, 61];
+          }
+        }
+      },
+    });
+
+    const tableFinalY = (doc as any).lastAutoTable?.finalY || tableStartY + 8;
+    let totalsY = tableFinalY + 8;
+    const totalCardHeight = 44;
+    if (totalsY + totalCardHeight > doc.internal.pageSize.getHeight() - 24) {
+      doc.addPage();
+      totalsY = 28;
+    }
+    const totalCardWidth = 170;
+    const totalGap = 8;
+    const drawTotalCard = (x: number, y: number, title: string, value: string, tone: 'green' | 'red' | 'blue') => {
+      if (tone === 'green') {
+        doc.setFillColor(236, 253, 245);
+        doc.setDrawColor(134, 239, 172);
+        doc.setTextColor(21, 128, 61);
+      } else if (tone === 'red') {
+        doc.setFillColor(254, 242, 242);
+        doc.setDrawColor(252, 165, 165);
+        doc.setTextColor(185, 28, 28);
+      } else {
+        doc.setFillColor(239, 246, 255);
+        doc.setDrawColor(147, 197, 253);
+        doc.setTextColor(30, 64, 175);
+      }
+      doc.roundedRect(x, y, totalCardWidth, totalCardHeight, 6, 6, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.4);
+      doc.text(title, x + 8, y + 14);
+      doc.setFontSize(13.5);
+      doc.text(value, x + 8, y + 31);
+    };
+    drawTotalCard(leftX, totalsY, 'Total Créditos', formatCurrencyBr(totalCredits), 'green');
+    drawTotalCard(leftX + totalCardWidth + totalGap, totalsY, 'Total Consumo', formatCurrencyBr(totalConsumption), 'red');
+    drawTotalCard(leftX + (totalCardWidth * 2) + (totalGap * 2), totalsY, 'Saldo Final', formatCurrencyBr(finalBalance), 'blue');
+
+    const pageCount = (doc as any).internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i += 1) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.text(
+        `Página ${i} de ${pageCount} • Cantina Smart • Relatório automático recorrente`,
+        pageWidth - leftX,
+        doc.internal.pageSize.getHeight() - 10,
+        { align: 'right' }
+      );
+    }
+
+    return {
+      mediaType: 'document',
+      base64Data: doc.output('datauristring'),
+      mimeType: 'application/pdf',
+      fileName: `relatorio_planos_${safeFileName || 'contato'}_${generatedAt.toISOString().slice(0, 10)}.pdf`,
+    };
+  };
+
+  const handleLaunchPlanConsumptionDispatch = async (mode: 'NOW' | 'SCHEDULED') => {
+    if (!status.connected) {
+      setFeedback('Conecte o WhatsApp antes de disparar mensagens.');
+      return;
+    }
+    if (!activeEnterprise?.id) {
+      setFeedback('Empresa ativa não encontrada.');
+      return;
+    }
+
+    setIsLaunchingPlanConsumptionDispatch(true);
+    try {
+      const preview = await buildPlanConsumptionDispatchTargets();
+      setPlanConsumptionPreview(preview);
+
+      if (preview.recipients.length === 0) {
+        setFeedback('Nenhum destinatário elegível para envio neste momento.');
+        return;
+      }
+
+      const baseScheduleAt = getNextPlanConsumptionRunAt();
+      let sentCount = 0;
+      let scheduledCount = 0;
+      let failedCount = 0;
+
+      if (mode === 'NOW') {
+        for (let i = 0; i < preview.recipients.length; i += 1) {
+          const recipient = preview.recipients[i];
+          try {
+            const reportAttachment = buildPlanConsumptionPdfAttachment(recipient, preview.periodLabel);
+            await ApiService.sendWhatsAppMediaToChat(recipient.chatId, recipient.message, reportAttachment);
+            sentCount += 1;
+          } catch {
+            failedCount += 1;
+          }
+          if (i < preview.recipients.length - 1) {
+            const waitSeconds = getRandomCampaignIntervalSeconds();
+            if (waitSeconds > 0) {
+              await sleep(waitSeconds * 1000);
+            }
+          }
+        }
+      } else {
+        let cumulativeSeconds = 0;
+        for (let i = 0; i < preview.recipients.length; i += 1) {
+          const recipient = preview.recipients[i];
+          const scheduleAt = new Date(baseScheduleAt);
+          if (i > 0) {
+            cumulativeSeconds += getRandomCampaignIntervalSeconds();
+          }
+          scheduleAt.setSeconds(scheduleAt.getSeconds() + cumulativeSeconds);
+          try {
+            const reportAttachment = buildPlanConsumptionPdfAttachment(recipient, preview.periodLabel);
+            await ApiService.scheduleWhatsAppMessage({
+              chatId: recipient.chatId,
+              message: recipient.message,
+              scheduleAt: scheduleAt.toISOString(),
+              attachment: reportAttachment,
+            });
+            scheduledCount += 1;
+          } catch {
+            failedCount += 1;
+          }
+        }
+      }
+
+      const report: PlanConsumptionDispatchReport = {
+        id: `plan_consumo_${Date.now()}`,
+        createdAt: Date.now(),
+        mode,
+        frequency: planConsumptionFrequency,
+        recipients: preview.recipients.length,
+        sentCount,
+        scheduledCount,
+        failedCount,
+        periodLabel: preview.periodLabel,
+      };
+      persistPlanConsumptionReports([report, ...planConsumptionReports].slice(0, 100));
+
+      if (mode === 'NOW') {
+        setFeedback(`Relatórios em PDF enviados: ${sentCount}/${preview.recipients.length}.`);
+      } else {
+        const nextLabel = baseScheduleAt.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+        setFeedback(`Relatórios em PDF agendados para ${nextLabel} (${scheduledCount} envio(s)).`);
+      }
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Falha ao disparar relatório recorrente.');
+    } finally {
+      setIsLaunchingPlanConsumptionDispatch(false);
+    }
+  };
+
+  const planConsumptionNextRunAt = useMemo(
+    () => getNextPlanConsumptionRunAt(),
+    [planConsumptionFrequency, planConsumptionWeeklyDay, planConsumptionMonthlyDay, planConsumptionSendTime]
+  );
+
   const formatChatTime = (timestamp?: number) => {
-    const ts = Number(timestamp || 0);
+    const ts = normalizeTimestampMs(timestamp);
     if (!ts) return '';
     const date = new Date(ts);
     if (!Number.isFinite(date.getTime())) return '';
-    return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(date);
+  };
+
+  const isSameCalendarDay = (a?: number, b?: number) => {
+    const aTs = normalizeTimestampMs(a);
+    const bTs = normalizeTimestampMs(b);
+    if (!aTs || !bTs) return false;
+    const aDate = new Date(aTs);
+    const bDate = new Date(bTs);
+    if (!Number.isFinite(aDate.getTime()) || !Number.isFinite(bDate.getTime())) return false;
+    return aDate.toDateString() === bDate.toDateString();
+  };
+
+  const formatChatDayDivider = (timestamp?: number) => {
+    const ts = normalizeTimestampMs(timestamp);
+    if (!ts) return '';
+    const date = new Date(ts);
+    if (!Number.isFinite(date.getTime())) return '';
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (date.toDateString() === today.toDateString()) return 'Hoje';
+    if (date.toDateString() === yesterday.toDateString()) return 'Ontem';
+    return new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+    }).format(date);
   };
 
   const toggleRecipient = (phone: string, checked: boolean) => {
@@ -2260,12 +3808,16 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       return;
     }
 
-    const phones = getCampaignTargetPhones();
-    if (phones.length === 0) {
+    const phones = campaignMode === 'RECURRING' ? [] : getCampaignTargetPhones();
+    if (campaignMode !== 'RECURRING' && phones.length === 0) {
       setFeedback('Nenhum contato encontrado para o público selecionado.');
       return;
     }
-    if (campaignMode !== 'FOLLOWUP' && !String(campaignMessage || '').trim()) {
+    if (campaignMode === 'RECURRING' && !String(planConsumptionMessage || '').trim()) {
+      setFeedback('Digite a mensagem da campanha recorrente.');
+      return;
+    }
+    if (campaignMode !== 'FOLLOWUP' && campaignMode !== 'RECURRING' && !String(campaignMessage || '').trim()) {
       setFeedback('Digite a mensagem da campanha antes de salvar e disparar.');
       return;
     }
@@ -2281,8 +3833,6 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         return;
       }
 
-      const intervalSeconds = Math.max(0, Number(campaignIntervalSeconds || 0));
-      const intervalMs = intervalSeconds * 1000;
       const attachmentPayload = campaignAttachment
         ? {
             mediaType: campaignAttachment.mediaType,
@@ -2295,6 +3845,9 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       let sentCount = 0;
       let scheduledCount = 0;
       let failedCount = 0;
+      let reportTargetCount = phones.length;
+      let reportAudience = campaignAudience;
+      let reportPeriodLabel = '';
 
       const deliverNow = async (phone: string, finalMessage: string) => {
         const chatId = `${phone}@c.us`;
@@ -2314,7 +3867,80 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         });
       };
 
-      if (campaignMode === 'BROADCAST') {
+      if (campaignMode === 'RECURRING') {
+        const preview = await buildPlanConsumptionDispatchTargets({
+          includeResponsible: campaignRecurringTargetResponsible,
+          includeCollaborator: campaignRecurringTargetCollaborator,
+        });
+        setPlanConsumptionPreview(preview);
+        if (preview.recipients.length === 0) {
+          setFeedback('Nenhum responsável/colaborador encontrado para a campanha recorrente.');
+          return;
+        }
+
+        reportTargetCount = preview.recipients.length;
+        reportAudience = campaignRecurringTargetResponsible && campaignRecurringTargetCollaborator
+          ? 'ALL'
+          : campaignRecurringTargetResponsible
+            ? 'ALUNO'
+            : 'COLABORADOR';
+        reportPeriodLabel = preview.periodLabel;
+
+        if (campaignSendNow) {
+          for (let i = 0; i < preview.recipients.length; i += 1) {
+            const recipient = preview.recipients[i];
+            try {
+              const reportAttachment = buildPlanConsumptionPdfAttachment(recipient, preview.periodLabel);
+              await ApiService.sendWhatsAppMediaToChat(recipient.chatId, recipient.message, reportAttachment);
+              sentCount += 1;
+            } catch {
+              failedCount += 1;
+            }
+            if (i < preview.recipients.length - 1) {
+              const waitSeconds = getRandomCampaignIntervalSeconds();
+              if (waitSeconds > 0) {
+                await sleep(waitSeconds * 1000);
+              }
+            }
+          }
+        } else {
+          const startAt = getNextPlanConsumptionRunAt();
+          let cumulativeSeconds = 0;
+          for (let i = 0; i < preview.recipients.length; i += 1) {
+            const recipient = preview.recipients[i];
+            if (i > 0) {
+              cumulativeSeconds += getRandomCampaignIntervalSeconds();
+            }
+            const scheduleDate = new Date(startAt);
+            scheduleDate.setSeconds(scheduleDate.getSeconds() + cumulativeSeconds);
+            try {
+              const reportAttachment = buildPlanConsumptionPdfAttachment(recipient, preview.periodLabel);
+              await ApiService.scheduleWhatsAppMessage({
+                chatId: recipient.chatId,
+                message: recipient.message,
+                scheduleAt: scheduleDate.toISOString(),
+                attachment: reportAttachment,
+              });
+              scheduledCount += 1;
+            } catch {
+              failedCount += 1;
+            }
+          }
+        }
+
+        const recurringReport: PlanConsumptionDispatchReport = {
+          id: `plan_consumo_${Date.now()}`,
+          createdAt: Date.now(),
+          mode: campaignSendNow ? 'NOW' : 'SCHEDULED',
+          frequency: planConsumptionFrequency,
+          recipients: preview.recipients.length,
+          sentCount,
+          scheduledCount,
+          failedCount,
+          periodLabel: preview.periodLabel,
+        };
+        persistPlanConsumptionReports([recurringReport, ...planConsumptionReports].slice(0, 100));
+      } else if (campaignMode === 'BROADCAST') {
         if (campaignSendNow) {
           for (let i = 0; i < phones.length; i += 1) {
             const phone = phones[i];
@@ -2327,44 +3953,25 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
             } catch {
               failedCount += 1;
             }
-            if (i < phones.length - 1 && intervalMs > 0) {
-              await sleep(intervalMs);
+            if (i < phones.length - 1) {
+              const waitSeconds = getRandomCampaignIntervalSeconds();
+              if (waitSeconds > 0) {
+                await sleep(waitSeconds * 1000);
+              }
             }
           }
         } else {
+          let cumulativeSeconds = 0;
           for (let i = 0; i < phones.length; i += 1) {
             const phone = phones[i];
             const finalMessage = formatCampaignOutgoingMessage(
               replaceCampaignVariables(campaignMessage, campaignPreviewName)
             );
             const scheduleDate = new Date(baseDate);
-            scheduleDate.setSeconds(scheduleDate.getSeconds() + (i * intervalSeconds));
-            try {
-              await scheduleDelivery(`${phone}@c.us`, finalMessage, scheduleDate);
-              scheduledCount += 1;
-            } catch {
-              failedCount += 1;
+            if (i > 0) {
+              cumulativeSeconds += getRandomCampaignIntervalSeconds();
             }
-          }
-        }
-      } else if (campaignMode === 'RECURRING') {
-        const occurrences = Math.max(1, Number(campaignOccurrences || 1));
-        const frequency = campaignRecurringFrequency;
-        for (let occurrenceIndex = 0; occurrenceIndex < occurrences; occurrenceIndex += 1) {
-          const cycleDate = new Date(baseDate);
-          if (occurrenceIndex > 0) {
-            if (frequency === 'DAILY') cycleDate.setDate(cycleDate.getDate() + occurrenceIndex);
-            if (frequency === 'WEEKLY') cycleDate.setDate(cycleDate.getDate() + (occurrenceIndex * 7));
-            if (frequency === 'MONTHLY') cycleDate.setMonth(cycleDate.getMonth() + occurrenceIndex);
-          }
-
-          for (let i = 0; i < phones.length; i += 1) {
-            const phone = phones[i];
-            const finalMessage = formatCampaignOutgoingMessage(
-              replaceCampaignVariables(campaignMessage, campaignPreviewName)
-            );
-            const scheduleDate = new Date(cycleDate);
-            scheduleDate.setSeconds(scheduleDate.getSeconds() + (i * intervalSeconds));
+            scheduleDate.setSeconds(scheduleDate.getSeconds() + cumulativeSeconds);
             try {
               await scheduleDelivery(`${phone}@c.us`, finalMessage, scheduleDate);
               scheduledCount += 1;
@@ -2380,15 +3987,17 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           return;
         }
 
+        let followupCumulativeSeconds = 0;
         for (let stepIndex = 0; stepIndex < steps.length; stepIndex += 1) {
           const step = steps[stepIndex];
           for (let phoneIndex = 0; phoneIndex < phones.length; phoneIndex += 1) {
             const phone = phones[phoneIndex];
             const scheduleDate = new Date(baseDate);
             scheduleDate.setDate(scheduleDate.getDate() + Math.max(0, Number(step.delayDays || 0)));
-            scheduleDate.setSeconds(
-              scheduleDate.getSeconds() + ((stepIndex * phones.length + phoneIndex) * intervalSeconds)
-            );
+            if ((stepIndex * phones.length + phoneIndex) > 0) {
+              followupCumulativeSeconds += getRandomCampaignIntervalSeconds();
+            }
+            scheduleDate.setSeconds(scheduleDate.getSeconds() + followupCumulativeSeconds);
             const finalMessage = formatCampaignOutgoingMessage(
               replaceCampaignVariables(step.message, campaignPreviewName)
             );
@@ -2406,16 +4015,17 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         id: `cmp_${Date.now()}`,
         name: String(campaignName || '').trim(),
         mode: campaignMode,
-        audience: campaignAudience,
+        audience: reportAudience,
         createdAt: Date.now(),
         startAt: baseDate.getTime(),
-        targetCount: phones.length,
+        targetCount: reportTargetCount,
         sentCount,
         scheduledCount,
         failedCount,
-        intervalSeconds,
+        intervalSeconds: Math.max(0, Math.round((Number(campaignIntervalMinSeconds || 0) + Number(campaignIntervalMaxSeconds || 0)) / 2)),
         withSignature: Boolean(campaignUseSignature && signatureEnabled && String(signatureName || '').trim()),
-        hasAttachment: Boolean(attachmentPayload),
+        hasAttachment: campaignMode === 'RECURRING' ? true : Boolean(attachmentPayload),
+        paused: false,
         status: (
           failedCount === 0
             ? (sentCount > 0 && scheduledCount === 0 ? 'ENVIADA' : 'AGENDADA')
@@ -2426,9 +4036,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       persistCampaignReports([report, ...campaignReports].slice(0, 100));
 
       if (report.status === 'ENVIADA') {
-        setFeedback(`Campanha "${campaignName}" enviada (${sentCount}/${phones.length}).`);
+        setFeedback(`Campanha "${campaignName}" enviada (${sentCount}/${reportTargetCount}).`);
       } else if (report.status === 'AGENDADA') {
-        setFeedback(`Campanha "${campaignName}" agendada com sucesso (${scheduledCount} item(ns)).`);
+        const suffix = reportPeriodLabel ? ` • período ${reportPeriodLabel}` : '';
+        setFeedback(`Campanha "${campaignName}" agendada com sucesso (${scheduledCount} item(ns)).${suffix}`);
       } else {
         setFeedback(`Campanha "${campaignName}" concluída com falhas (${failedCount} falha(s)).`);
       }
@@ -3055,11 +4666,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
   useEffect(() => {
     if (activeTab !== 'CRM') return;
+    if (crmView === 'CAMPANHAS') {
+      setCrmView('CONVERSAS');
+      return;
+    }
     if (
       crmView === 'DASHBOARD'
       || crmView === 'CONVERSAS'
       || crmView === 'CONTATOS'
-      || crmView === 'CAMPANHAS'
       || crmView === 'AI_CONFIG'
       || crmView === 'AI_FLOW'
       || crmView === 'CONTA'
@@ -3386,10 +5000,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="flex items-center justify-center h-96 dark:bg-zinc-900/60 rounded-2xl">
         <div className="text-center space-y-4">
           <div className="animate-spin inline-block w-8 h-8 border-4 border-emerald-600 border-t-transparent rounded-full"></div>
-          <p className="text-gray-600 font-medium">Carregando integração WhatsApp...</p>
+          <p className="text-gray-600 dark:text-zinc-300 font-medium">Carregando integração WhatsApp...</p>
         </div>
       </div>
     );
@@ -3399,39 +5013,49 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     signatureEnabled !== savedSignatureEnabled
     || signatureName !== savedSignatureName
   );
+  const normalizedBackendError = String(status.lastError || '').toLowerCase();
+  const isBackendOffline = (
+    status.state === 'ERROR'
+    && (
+      normalizedBackendError.includes('backend')
+      || normalizedBackendError.includes('failed to fetch')
+      || normalizedBackendError.includes('connection refused')
+      || normalizedBackendError.includes('err_connection_refused')
+    )
+  );
 
   return (
-    <div className="space-y-6 p-6 rounded-[30px] bg-gradient-to-b from-cyan-50/60 via-white to-emerald-50/40 animate-in fade-in duration-500">
+    <div className="whatsapp-shell space-y-6 p-6 rounded-[30px] bg-gradient-to-b from-cyan-50/60 via-white to-emerald-50/40 animate-in fade-in duration-500 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-900 dark:text-zinc-100">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="rounded-2xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-white px-3 py-2 shadow-sm">
+        <div className="rounded-2xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-white px-3 py-2 shadow-sm dark:border-emerald-500/30 dark:from-zinc-900 dark:to-zinc-900 dark:shadow-none">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Sessão</p>
-            <p className={`text-sm font-black ${status.connected ? 'text-emerald-600' : 'text-gray-600'}`}>
+            <p className={`text-sm font-black ${status.connected ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-600 dark:text-zinc-300'}`}>
               {status.connected ? 'Conectado' : status.state}
             </p>
           </div>
         </div>
-        <div className="rounded-2xl border-2 border-cyan-200 bg-gradient-to-br from-cyan-50 to-white px-3 py-2 shadow-sm">
+        <div className="rounded-2xl border-2 border-cyan-200 bg-gradient-to-br from-cyan-50 to-white px-3 py-2 shadow-sm dark:border-cyan-500/30 dark:from-zinc-900 dark:to-zinc-900 dark:shadow-none">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Clientes com Telefone</p>
-            <p className="text-sm font-black text-gray-800">{recipients.length}</p>
+            <p className="text-sm font-black text-gray-800 dark:text-zinc-100">{recipients.length}</p>
           </div>
         </div>
-        <div className="rounded-2xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 to-white px-3 py-2 shadow-sm">
+        <div className="rounded-2xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 to-white px-3 py-2 shadow-sm dark:border-indigo-500/30 dark:from-zinc-900 dark:to-zinc-900 dark:shadow-none">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Conversas Ativas</p>
-            <p className="text-sm font-black text-gray-800">{visibleChats.length}</p>
+            <p className="text-sm font-black text-gray-800 dark:text-zinc-100">{visibleChats.length}</p>
           </div>
         </div>
-        <div className="rounded-2xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-white px-3 py-2 shadow-sm">
+        <div className="rounded-2xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-white px-3 py-2 shadow-sm dark:border-amber-500/30 dark:from-zinc-900 dark:to-zinc-900 dark:shadow-none">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Não Lidas</p>
-            <p className="text-sm font-black text-amber-600">{unreadCount}</p>
+            <p className="text-sm font-black text-amber-600 dark:text-amber-400">{unreadCount}</p>
           </div>
         </div>
       </div>
 
-      <div className="bg-white/95 rounded-[24px] border-2 border-cyan-200 p-2 grid grid-cols-2 md:grid-cols-5 gap-2 shadow-sm">
+      <div className="bg-white/95 rounded-[24px] border-2 border-cyan-200 p-2 grid grid-cols-2 md:grid-cols-5 gap-2 shadow-sm dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
         <button
           onClick={() => {
             setActiveTab('CRM');
@@ -3439,8 +5063,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           }}
           className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest ${
             activeTab === 'CRM' && crmView === 'CONVERSAS'
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white'
-              : 'bg-slate-50 text-gray-500'
+              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
+              : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
           }`}
         >
           Conversas
@@ -3452,21 +5076,18 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           }}
           className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest ${
             activeTab === 'CRM' && crmView === 'DASHBOARD'
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white'
-              : 'bg-slate-50 text-gray-500'
+              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
+              : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
           }`}
         >
           Dashboard
         </button>
         <button
-          onClick={() => {
-            setActiveTab('CRM');
-            setCrmView('CAMPANHAS');
-          }}
+          onClick={() => setActiveTab('DISPAROS')}
           className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest ${
-            activeTab === 'CRM' && crmView === 'CAMPANHAS'
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white'
-              : 'bg-slate-50 text-gray-500'
+            activeTab === 'DISPAROS'
+              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
+              : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
           }`}
         >
           Disparos
@@ -3475,8 +5096,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           onClick={() => setActiveTab('SESSION_QR')}
           className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest ${
             activeTab === 'SESSION_QR'
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white'
-              : 'bg-slate-50 text-gray-500'
+              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
+              : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
           }`}
         >
           QR Code
@@ -3488,8 +5109,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           }}
           className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest ${
             activeTab === 'CRM' && crmView === 'AI_CONFIG'
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white'
-              : 'bg-slate-50 text-gray-500'
+              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
+              : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
           }`}
         >
           Configurações
@@ -3497,7 +5118,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       </div>
 
       {activeTab === 'CRM' && (
-        <div className="rounded-[28px] border-2 border-cyan-200 bg-white/95 overflow-hidden shadow-md">
+        <div className="rounded-[28px] border-2 border-cyan-200 bg-white/95 overflow-hidden shadow-md dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
           <div className="grid grid-cols-1 min-h-[76vh]">
             <aside className="hidden border-r-2 border-cyan-100 bg-gradient-to-b from-white to-cyan-50/20 p-4 flex-col">
               <div className="flex items-center gap-3 px-2 py-2">
@@ -3535,14 +5156,6 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                 </button>
                 <button
                   type="button"
-                  onClick={() => setCrmView('CAMPANHAS')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${crmView === 'CAMPANHAS' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'text-slate-600 hover:bg-cyan-50'}`}
-                >
-                  <Megaphone size={16} />
-                  Campanhas
-                </button>
-                <button
-                  type="button"
                   onClick={() => setCrmView('AI_CONFIG')}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${crmView === 'AI_CONFIG' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'text-slate-600 hover:bg-cyan-50'}`}
                 >
@@ -3576,44 +5189,55 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
             </aside>
 
             <div className={`flex flex-col min-h-0 ${crmView === 'CONVERSAS' ? 'overflow-hidden' : ''}`}>
-              <div className="px-5 py-4 border-b-2 border-cyan-100 bg-white flex items-center gap-3">
+              <div className="px-5 py-4 border-b-2 border-cyan-100 bg-white flex items-center gap-3 dark:bg-zinc-900/80 dark:border-white/10">
                 <div className="relative flex-1">
                   <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     value={chatSearchName}
                     onChange={(e) => setChatSearchName(e.target.value)}
                     placeholder="Pesquisar conversas, contatos ou leads..."
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-slate-50"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-slate-50 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
                   />
                 </div>
-                <span className="px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-black uppercase tracking-widest">
+                <span className="px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-black uppercase tracking-widest dark:bg-zinc-900 dark:text-zinc-300">
                   {crmView === 'DASHBOARD' ? 'Painel' : crmView === 'CONVERSAS' ? 'Atendimento' : 'Configuração'}
+                </span>
+                <span
+                  className={`px-3 py-2 rounded-xl text-xs font-black uppercase tracking-widest inline-flex items-center gap-2 ${
+                    isBackendOffline
+                      ? 'bg-rose-100 text-rose-700 border border-rose-200'
+                      : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                  }`}
+                  title={isBackendOffline ? (status.lastError || 'Backend offline') : 'Backend do WhatsApp conectado'}
+                >
+                  <span className={`w-2 h-2 rounded-full ${isBackendOffline ? 'bg-rose-500' : 'bg-emerald-500'}`} />
+                  {isBackendOffline ? 'Backend Offline' : 'Backend Online'}
                 </span>
               </div>
 
               {crmView === 'DASHBOARD' && (
-                <div className="p-5 bg-slate-50/60 space-y-4 overflow-y-auto">
+                <div className="p-5 bg-slate-50/60 space-y-4 overflow-y-auto dark:bg-zinc-900/70">
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                    <div className="rounded-2xl border border-cyan-100 bg-white p-4">
+                    <div className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
                       <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Total de Conversas</p>
                       <p className="mt-2 text-3xl font-black text-slate-900">{crmTotalConversations}</p>
                     </div>
-                    <div className="rounded-2xl border border-cyan-100 bg-white p-4">
+                    <div className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
                       <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Novos Leads</p>
                       <p className="mt-2 text-3xl font-black text-slate-900">{crmNewLeads}</p>
                     </div>
-                    <div className="rounded-2xl border border-cyan-100 bg-white p-4">
+                    <div className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
                       <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Taxa de Resposta</p>
                       <p className="mt-2 text-3xl font-black text-slate-900">{crmResponseRate}%</p>
                     </div>
-                    <div className="rounded-2xl border border-cyan-100 bg-white p-4">
+                    <div className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
                       <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Sessões Ativas</p>
                       <p className="mt-2 text-3xl font-black text-slate-900">{crmActiveSessions}</p>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-                    <section className="xl:col-span-8 rounded-2xl border border-cyan-100 bg-white p-4">
+                    <section className="xl:col-span-8 rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
                       <p className="text-2xl font-black text-slate-900">Visão de Volume de Mensagens</p>
                       <p className="text-sm font-semibold text-slate-500">Tendência de atividade por dia da semana</p>
                       <div className="mt-4 grid grid-cols-7 gap-2 items-end h-44">
@@ -3625,7 +5249,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         ))}
                       </div>
                     </section>
-                    <section className="xl:col-span-4 rounded-2xl border border-cyan-100 bg-white p-4">
+                    <section className="xl:col-span-4 rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
                       <p className="text-2xl font-black text-slate-900">Distribuição de Leads</p>
                       <div className="mt-4 space-y-2">
                         <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
@@ -3656,7 +5280,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                   </div>
 
                   <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-                    <section className="rounded-2xl border border-cyan-100 bg-white p-4">
+                    <section className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
                       <p className="text-2xl font-black text-slate-900">Atividade Recente</p>
                       <div className="mt-3 space-y-3">
                         {crmRecentActivities.length === 0 ? (
@@ -3670,7 +5294,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         ))}
                       </div>
                     </section>
-                    <section className="rounded-2xl border border-cyan-100 bg-white p-4">
+                    <section className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-2xl font-black text-slate-900">Auditoria AI</p>
                         <span className="px-2 py-1 rounded-full bg-rose-50 text-rose-600 text-[10px] font-black uppercase tracking-widest">
@@ -3705,7 +5329,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         ))}
                       </div>
                     </section>
-                    <section className="rounded-2xl border border-cyan-100 bg-white p-4">
+                    <section className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
                       <p className="text-2xl font-black text-slate-900">Contatos com Pendência</p>
                       <div className="mt-3 space-y-3">
                         {crmTopContacts.length === 0 ? (
@@ -3718,6 +5342,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         ))}
                       </div>
                     </section>
+
                   </div>
                 </div>
               )}
@@ -3725,8 +5350,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
               {crmView === 'CONVERSAS' && (
                 <div className="flex-1 min-h-0 h-[calc(100vh-190px)] max-h-[calc(100vh-190px)] overflow-hidden">
                   <div className="h-full overflow-hidden grid grid-cols-1 xl:grid-cols-[360px_1fr_300px]">
-                  <section className="border-r-2 border-cyan-100 flex flex-col min-h-0 h-full overflow-hidden">
-                    <div className="p-4 border-b-2 border-cyan-100 space-y-3 bg-slate-50/70">
+                  <section className="border-r-2 border-cyan-100 flex flex-col min-h-0 h-full overflow-hidden dark:border-white/10">
+                    <div className="p-4 border-b-2 border-cyan-100 space-y-3 bg-slate-50/70 dark:bg-zinc-900/70 dark:border-white/10">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Conversas ({crmVisibleChats.length})</p>
                         <button
@@ -3746,21 +5371,21 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         <button
                           type="button"
                           onClick={() => setCrmFilter('ALL')}
-                          className={`px-3 py-1 rounded-full text-xs font-black ${crmFilter === 'ALL' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600'}`}
+                          className={`px-3 py-1 rounded-full text-xs font-black ${crmFilter === 'ALL' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300'}`}
                         >
                           Todas
                         </button>
                         <button
                           type="button"
                           onClick={() => setCrmFilter('UNREAD')}
-                          className={`px-3 py-1 rounded-full text-xs font-black ${crmFilter === 'UNREAD' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600'}`}
+                          className={`px-3 py-1 rounded-full text-xs font-black ${crmFilter === 'UNREAD' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300'}`}
                         >
                           Não lidas
                         </button>
                         <button
                           type="button"
                           onClick={() => setCrmFilter('WAITING')}
-                          className={`px-3 py-1 rounded-full text-xs font-black ${crmFilter === 'WAITING' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600'}`}
+                          className={`px-3 py-1 rounded-full text-xs font-black ${crmFilter === 'WAITING' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300'}`}
                         >
                           Aguardando
                         </button>
@@ -3768,19 +5393,19 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                     </div>
 
                     {aiHandoffRequests.length > 0 && (
-                      <div className="border-b border-amber-200 bg-amber-50/70 px-3 py-3 space-y-2">
+                      <div className="border-b border-amber-200 bg-amber-50/70 px-3 py-3 space-y-2 dark:bg-zinc-900/70 dark:border-amber-500/30">
                         <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">
                           Aprovação de atendimento IA pendente
                         </p>
                         <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
                           {aiHandoffRequests.map((request) => (
-                            <div key={request.id} className="rounded-xl border border-amber-200 bg-white px-3 py-2">
-                              <p className="text-xs font-black text-slate-800 truncate">{request.contactName || request.chatId}</p>
-                              <p className="text-[11px] font-semibold text-slate-500 truncate mt-0.5">
+                            <div key={request.id} className="rounded-xl border border-amber-200 bg-white px-3 py-2 dark:bg-[#121214] dark:border-amber-500/30">
+                              <p className="text-xs font-black text-slate-800 dark:text-zinc-100 truncate">{request.contactName || request.chatId}</p>
+                              <p className="text-[11px] font-semibold text-slate-500 dark:text-zinc-400 truncate mt-0.5">
                                 {formatChatPreviewText(request.messagePreview) || 'Mensagem recebida'}
                               </p>
                               <div className="mt-2 flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-bold text-slate-500">
+                                <span className="text-[10px] font-bold text-slate-500 dark:text-zinc-400">
                                   {Number.isFinite(Number(request.createdAt))
                                     ? new Date(Number(request.createdAt)).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
                                     : ''}
@@ -3789,7 +5414,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                   <button
                                     type="button"
                                     onClick={() => handleAiHandoffDecision(request, false)}
-                                    className="px-2 py-1 rounded-lg border border-slate-300 bg-white text-[10px] font-black uppercase tracking-wide text-slate-600 hover:bg-slate-50"
+                                    className="px-2 py-1 rounded-lg border border-slate-300 bg-white text-[10px] font-black uppercase tracking-wide text-slate-600 hover:bg-slate-50 dark:bg-zinc-900 dark:text-zinc-300 dark:border-white/10 dark:hover:bg-zinc-800"
                                   >
                                     Recusar
                                   </button>
@@ -3810,27 +5435,62 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
                     <div className="flex-1 min-h-0 overflow-y-auto">
                       {crmVisibleChats.length === 0 ? (
-                        <div className="text-center text-sm font-semibold text-slate-500 p-8">Nenhuma conversa encontrada.</div>
+                        <div className="text-center text-sm font-semibold text-slate-500 dark:text-zinc-400 p-8">Nenhuma conversa encontrada.</div>
                       ) : (
                         crmVisibleChats.map((chat) => (
                           <div
                             key={chat.chatId}
-                            className={`w-full px-4 py-3 border-b border-cyan-50 transition ${selectedChatId === chat.chatId ? 'bg-emerald-50 border-l-4 border-l-emerald-500' : 'bg-white hover:bg-cyan-50/60'}`}
+                            className={`w-full px-4 py-3 border-b border-cyan-50 transition ${
+                              selectedChatId === chat.chatId
+                                ? 'bg-emerald-50 border-l-4 border-l-emerald-500 dark:bg-emerald-900/20'
+                                : 'bg-white hover:bg-cyan-50/60 dark:bg-[#121214] dark:hover:bg-zinc-900'
+                            }`}
                           >
                             <div className="flex items-start justify-between gap-2">
                               <button
                                 type="button"
                                 onClick={() => handleSelectChat(chat.chatId)}
-                                className="min-w-0 text-left flex-1"
+                                className="min-w-0 text-left flex-1 flex items-start gap-3"
                               >
-                                <p className="text-lg font-black text-slate-800 truncate">{chat.displayName}</p>
-                                <p className="text-sm font-semibold text-slate-500 truncate">{formatChatPreviewText(chat.lastMessage) || 'Sem mensagem'}</p>
+                                <div className="w-11 h-11 rounded-xl bg-cyan-100 text-cyan-700 flex items-center justify-center shrink-0 overflow-hidden">
+                                  {chat.avatarUrl ? (
+                                    <img src={chat.avatarUrl} alt={chat.displayName} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <span className="font-black text-base">{String(chat.displayName || '?').charAt(0).toUpperCase()}</span>
+                                  )}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <p className="text-lg font-black text-slate-800 dark:text-zinc-100 truncate">{chat.displayName}</p>
+                                    {chat.initiatedByClient && (
+                                      <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[9px] font-black uppercase tracking-widest shrink-0">
+                                        Cliente
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="mt-0.5 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
+                                    <Users size={11} />
+                                    <span>{String(chat.contactType || 'CONTATO').toUpperCase()}</span>
+                                    {chat.responsibleName && (
+                                      <>
+                                        <span className="text-slate-300 dark:text-zinc-600">•</span>
+                                        <span className="truncate max-w-[120px]" title={`Resp.: ${chat.responsibleName}`}>Resp. {chat.responsibleName}</span>
+                                      </>
+                                    )}
+                                  </div>
+                                  <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400 truncate mt-1">{formatChatPreviewText(chat.lastMessage) || 'Sem mensagem'}</p>
+                                </div>
                               </button>
                               <div className="shrink-0 text-right">
                                 <p className="text-xs font-bold text-emerald-600">{formatChatTime(chat.lastTimestamp)}</p>
                                 {chat.unreadCount > 0 && (
-                                  <span className="inline-flex items-center justify-center mt-1 min-w-5 h-5 px-1 rounded-full bg-emerald-500 text-white text-[10px] font-black">
+                                  <span className="inline-flex items-center justify-center mt-1 min-w-5 h-5 px-1 rounded-full bg-emerald-500 text-white text-[10px] font-black shadow-sm">
                                     {chat.unreadCount}
+                                  </span>
+                                )}
+                                {chat.unreadCount === 0 && (
+                                  <span className="inline-flex items-center justify-center mt-1 text-emerald-500">
+                                    <CheckCircle2 size={14} />
                                   </span>
                                 )}
                                 <div className="mt-1 flex items-center justify-end gap-1">
@@ -3863,31 +5523,31 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                     </div>
                   </section>
 
-                  <section className="flex flex-col min-h-0 h-full overflow-hidden bg-slate-50/70">
+                  <section className="flex flex-col min-h-0 h-full overflow-hidden bg-slate-50/70 dark:bg-zinc-950/60">
                     {!selectedChat ? (
-                      <div className="flex-1 flex items-center justify-center text-slate-500 font-semibold">
+                      <div className="flex-1 flex items-center justify-center text-slate-500 dark:text-zinc-400 font-semibold">
                         Selecione uma conversa para abrir o CRM.
                       </div>
                     ) : (
                       <>
-                        <div className="px-5 py-4 bg-white border-b-2 border-cyan-100 flex items-center justify-between">
+                        <div className="px-5 py-4 bg-white border-b-2 border-cyan-100 flex items-center justify-between dark:bg-zinc-900/80 dark:border-white/10">
                           <div>
-                            <p className="text-2xl font-black text-slate-900">{selectedChat.displayName}</p>
+                            <p className="text-2xl font-black text-slate-900 dark:text-zinc-100">{selectedChat.displayName}</p>
                             <div className="flex items-center gap-2 mt-1">
                               <p className="text-sm font-bold text-emerald-600">{status.connected ? 'Online' : 'Offline'}</p>
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${
                                 aiAgentEnabledForChat
                                   ? 'bg-emerald-100 text-emerald-700'
-                                  : 'bg-slate-100 text-slate-500'
+                                  : 'bg-slate-100 text-slate-500 dark:bg-zinc-900 dark:text-zinc-400'
                               }`}>
                                 IA {aiAgentEnabledForChat ? 'Auto ON' : 'Auto OFF'}
                               </span>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2 text-slate-500">
-                            <button className="p-2 rounded-lg hover:bg-cyan-50" type="button"><PhoneCall size={16} /></button>
-                            <button className="p-2 rounded-lg hover:bg-cyan-50" type="button"><Video size={16} /></button>
-                            <button className="p-2 rounded-lg hover:bg-cyan-50" type="button"><MoreVertical size={16} /></button>
+                          <div className="flex items-center gap-2 text-slate-500 dark:text-zinc-400">
+                            <button className="p-2 rounded-lg hover:bg-cyan-50 dark:hover:bg-zinc-800" type="button"><PhoneCall size={16} /></button>
+                            <button className="p-2 rounded-lg hover:bg-cyan-50 dark:hover:bg-zinc-800" type="button"><Video size={16} /></button>
+                            <button className="p-2 rounded-lg hover:bg-cyan-50 dark:hover:bg-zinc-800" type="button"><MoreVertical size={16} /></button>
                           </div>
                         </div>
 
@@ -3897,146 +5557,192 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                           className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2"
                         >
                           {messagesLoading ? (
-                            <div className="text-center text-sm font-semibold text-slate-500 py-8">Carregando mensagens...</div>
+                            <div className="text-center text-sm font-semibold text-slate-500 dark:text-zinc-400 py-8">Carregando mensagens...</div>
                           ) : messages.length === 0 ? (
-                            <div className="text-center text-sm font-semibold text-slate-500 py-8">Sem mensagens neste chat.</div>
+                            <div className="text-center text-sm font-semibold text-slate-500 dark:text-zinc-400 py-8">Sem mensagens neste chat.</div>
                           ) : (
-                            messages.map((msg) => (
-                              <div
-                                key={msg.id}
-                                className={`max-w-[78%] px-4 py-3 rounded-2xl text-sm font-medium shadow-sm ${
-                                  msg.fromMe
-                                    ? 'ml-auto bg-emerald-500 text-white rounded-br-md'
-                                    : 'mr-auto bg-white border border-cyan-100 text-slate-800 rounded-bl-md'
-                                }`}
-                              >
-                                {msg.mediaType === 'image' && msg.mediaDataUrl && (
-                                  <a href={msg.mediaDataUrl} target="_blank" rel="noreferrer" className="block mb-2">
-                                    <img
-                                      src={msg.mediaDataUrl}
-                                      alt={msg.fileName || 'Imagem'}
-                                      className="max-h-72 w-auto rounded-xl border border-white/20"
-                                    />
-                                  </a>
-                                )}
-
-                                {msg.mediaType === 'audio' && (
-                                  <div className="mb-2">
-                                    {msg.mediaDataUrl ? (
-                                      <audio controls className="w-full" src={msg.mediaDataUrl}>
-                                        Seu navegador não suporta áudio.
-                                      </audio>
-                                    ) : (
-                                      <div className="text-xs font-semibold opacity-80 mb-2">
-                                        Áudio recebido (pré-visualização indisponível).
-                                      </div>
-                                    )}
-                                    <div className="mt-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleTranscribeAudioMessage(msg)}
-                                        disabled={Boolean(audioTranscriptions[msg.id]?.loading)}
-                                        className={`px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wide ${
-                                          msg.fromMe
-                                            ? 'bg-white/20 hover:bg-white/30 disabled:bg-white/10 text-white'
-                                            : 'bg-cyan-50 hover:bg-cyan-100 disabled:bg-cyan-50/60 text-cyan-700 border border-cyan-200'
-                                        }`}
-                                      >
-                                        {audioTranscriptions[msg.id]?.loading ? 'Transcrevendo...' : 'Transcrever'}
-                                      </button>
+                            messages.map((msg, index) => {
+                              const previous = index > 0 ? messages[index - 1] : null;
+                              const hasValidTimestamp = Boolean(normalizeTimestampMs(msg.timestamp));
+                              const showDateDivider = hasValidTimestamp && (index === 0 || !isSameCalendarDay(msg.timestamp, previous?.timestamp));
+                              return (
+                                <React.Fragment key={msg.id}>
+                                  {showDateDivider && (
+                                    <div className="flex justify-center py-2">
+                                      <span className="px-3 py-1 rounded-full bg-slate-200 text-slate-600 text-[11px] font-bold shadow-sm dark:bg-zinc-800 dark:text-zinc-300">
+                                        {formatChatDayDivider(msg.timestamp)}
+                                      </span>
                                     </div>
-                                    {String(audioTranscriptions[msg.id]?.text || '').trim() && (
-                                      <div className={`mt-2 p-2 rounded-lg text-xs whitespace-pre-wrap break-words ${
+                                  )}
+                                  <div
+                                    className={`relative max-w-[70%] px-4 py-3 rounded-2xl text-sm font-medium shadow-sm ${
+                                      msg.fromMe
+                                        ? 'ml-auto bg-emerald-500 text-white rounded-br-md'
+                                        : 'mr-auto bg-white border border-cyan-100 text-slate-800 rounded-bl-md dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100'
+                                    }`}
+                                  >
+                                    <span
+                                      className={`absolute top-3 w-0 h-0 ${
                                         msg.fromMe
-                                          ? 'bg-white/15 border border-white/25 text-white'
-                                          : 'bg-white border border-cyan-200 text-slate-700'
-                                      }`}>
-                                        <p className="font-black uppercase tracking-wide text-[10px] mb-1 opacity-80">Transcrição</p>
-                                        <p>{audioTranscriptions[msg.id]?.text}</p>
-                                      </div>
-                                    )}
-                                    {audioTranscriptions[msg.id]?.error && (
-                                      <p className={`mt-2 text-[11px] font-semibold ${
-                                        msg.fromMe ? 'text-rose-100' : 'text-rose-600'
-                                      }`}>
-                                        {audioTranscriptions[msg.id]?.error}
-                                      </p>
-                                    )}
-                                  </div>
-                                )}
-                                {msg.mediaType === 'document' && (
-                                  <div className="mb-2">
-                                    {msg.mediaDataUrl ? (
-                                      <a
-                                        href={msg.mediaDataUrl}
-                                        download={msg.fileName || 'arquivo'}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black ${
-                                          msg.fromMe
-                                            ? 'bg-white/20 hover:bg-white/30 text-white'
-                                            : 'bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border border-cyan-200'
-                                        }`}
-                                      >
-                                        <FileText size={14} />
-                                        {msg.fileName || 'Abrir arquivo'}
-                                      </a>
-                                    ) : (
-                                      <div className="text-xs font-semibold opacity-80">
-                                        Arquivo recebido: {msg.fileName || 'documento'}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-
-                                {msg.location && (
-                                  <div className={`mb-2 rounded-xl border p-2 ${msg.fromMe ? 'border-white/30 bg-white/15' : 'border-cyan-200 bg-cyan-50'}`}>
-                                    {msg.location.mapThumbnailDataUrl && (
-                                      <img
-                                        src={msg.location.mapThumbnailDataUrl}
-                                        alt="Mapa"
-                                        className="w-full max-w-xs rounded-lg mb-2 border border-white/20"
-                                      />
-                                    )}
-                                    <p className="text-xs font-black">
-                                      {msg.location.name || 'Localização'}
-                                    </p>
-                                    {msg.location.address && (
-                                      <p className="text-xs mt-1 opacity-80 break-words">{msg.location.address}</p>
-                                    )}
-                                    <a
-                                      href={msg.location.url || `https://www.google.com/maps?q=${encodeURIComponent(`${msg.location.latitude},${msg.location.longitude}`)}`}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className={`inline-flex mt-2 px-2 py-1 rounded-lg text-[11px] font-black ${
-                                        msg.fromMe
-                                          ? 'bg-white/20 hover:bg-white/30 text-white'
-                                          : 'bg-white border border-cyan-200 text-cyan-700 hover:bg-cyan-100'
+                                          ? '-right-2 border-l-[10px] border-l-emerald-500 border-t-[7px] border-t-transparent border-b-[7px] border-b-transparent'
+                                          : '-left-2 border-r-[10px] border-r-white border-t-[7px] border-t-transparent border-b-[7px] border-b-transparent dark:border-r-zinc-900'
                                       }`}
-                                    >
-                                      Abrir mapa
-                                    </a>
-                                  </div>
-                                )}
+                                    />
+                                    {msg.mediaType === 'image' && msg.mediaDataUrl && (
+                                      <a href={msg.mediaDataUrl} target="_blank" rel="noreferrer" className="block mb-2">
+                                        <img
+                                          src={msg.mediaDataUrl}
+                                          alt={msg.fileName || 'Imagem'}
+                                          className="max-h-72 w-auto rounded-xl border border-white/20"
+                                        />
+                                      </a>
+                                    )}
 
-                                {formatMessageBodyForDisplay(msg) && (
-                                  <p className="whitespace-pre-wrap break-words">{formatMessageBodyForDisplay(msg)}</p>
-                                )}
-                              </div>
-                            ))
+                                    {msg.mediaType === 'audio' && (
+                                      <div className="mb-2">
+                                        {msg.mediaDataUrl ? (
+                                          <audio controls className="w-full" src={msg.mediaDataUrl}>
+                                            Seu navegador não suporta áudio.
+                                          </audio>
+                                        ) : (
+                                          <div className="text-xs font-semibold opacity-80 mb-2">
+                                            Áudio recebido (pré-visualização indisponível).
+                                          </div>
+                                        )}
+                                        <div className="mt-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleTranscribeAudioMessage(msg)}
+                                            disabled={Boolean(audioTranscriptions[msg.id]?.loading)}
+                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wide ${
+                                              msg.fromMe
+                                                ? 'bg-white/20 hover:bg-white/30 disabled:bg-white/10 text-white'
+                                                : 'bg-cyan-50 hover:bg-cyan-100 disabled:bg-cyan-50/60 text-cyan-700 border border-cyan-200'
+                                            }`}
+                                          >
+                                            {audioTranscriptions[msg.id]?.loading ? 'Transcrevendo...' : 'Transcrever'}
+                                          </button>
+                                        </div>
+                                        {String(audioTranscriptions[msg.id]?.text || '').trim() && (
+                                          <div className={`mt-2 p-2 rounded-lg text-xs whitespace-pre-wrap break-words ${
+                                            msg.fromMe
+                                              ? 'bg-white/15 border border-white/25 text-white'
+                                              : 'bg-white border border-cyan-200 text-slate-700 dark:bg-zinc-800 dark:border-white/10 dark:text-zinc-200'
+                                          }`}>
+                                            <p className="font-black uppercase tracking-wide text-[10px] mb-1 opacity-80">Transcrição</p>
+                                            <p>{audioTranscriptions[msg.id]?.text}</p>
+                                          </div>
+                                        )}
+                                        {audioTranscriptions[msg.id]?.error && (
+                                          <p className={`mt-2 text-[11px] font-semibold ${
+                                            msg.fromMe ? 'text-rose-100' : 'text-rose-600'
+                                          }`}>
+                                            {audioTranscriptions[msg.id]?.error}
+                                          </p>
+                                        )}
+                                      </div>
+                                    )}
+                                    {msg.mediaType === 'document' && (
+                                      <div className="mb-2">
+                                        {msg.mediaDataUrl ? (
+                                          <a
+                                            href={msg.mediaDataUrl}
+                                            download={msg.fileName || 'arquivo'}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black ${
+                                              msg.fromMe
+                                                ? 'bg-white/20 hover:bg-white/30 text-white'
+                                                : 'bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border border-cyan-200'
+                                            }`}
+                                          >
+                                            <FileText size={14} />
+                                            {msg.fileName || 'Abrir arquivo'}
+                                          </a>
+                                        ) : (
+                                          <div className="text-xs font-semibold opacity-80">
+                                            Arquivo recebido: {msg.fileName || 'documento'}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {msg.location && (
+                                      <div className={`mb-2 rounded-xl border p-2 ${msg.fromMe ? 'border-white/30 bg-white/15' : 'border-cyan-200 bg-cyan-50'}`}>
+                                        {msg.location.mapThumbnailDataUrl && (
+                                          <img
+                                            src={msg.location.mapThumbnailDataUrl}
+                                            alt="Mapa"
+                                            className="w-full max-w-xs rounded-lg mb-2 border border-white/20"
+                                          />
+                                        )}
+                                        <p className="text-xs font-black">
+                                          {msg.location.name || 'Localização'}
+                                        </p>
+                                        {msg.location.address && (
+                                          <p className="text-xs mt-1 opacity-80 break-words">{msg.location.address}</p>
+                                        )}
+                                        <a
+                                          href={msg.location.url || `https://www.google.com/maps?q=${encodeURIComponent(`${msg.location.latitude},${msg.location.longitude}`)}`}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className={`inline-flex mt-2 px-2 py-1 rounded-lg text-[11px] font-black ${
+                                            msg.fromMe
+                                              ? 'bg-white/20 hover:bg-white/30 text-white'
+                                              : 'bg-white border border-cyan-200 text-cyan-700 hover:bg-cyan-100'
+                                          }`}
+                                        >
+                                          Abrir mapa
+                                        </a>
+                                      </div>
+                                    )}
+
+                                    {formatMessageBodyForDisplay(msg) && (
+                                      <p className="whitespace-pre-wrap break-words">{formatMessageBodyForDisplay(msg)}</p>
+                                    )}
+
+                                    <div className={`mt-2 flex items-center justify-end gap-1 text-[10px] ${
+                                      msg.fromMe ? 'text-white/75' : 'text-slate-400 dark:text-zinc-500'
+                                    }`}>
+                                      <span>{formatChatTime(msg.timestamp)}</span>
+                                      {msg.fromMe && <CheckCheck size={12} className="text-sky-200" />}
+                                    </div>
+                                  </div>
+                                </React.Fragment>
+                              );
+                            })
                           )}
                           <div ref={messagesBottomRef} />
                         </div>
 
-                        <div className="shrink-0 p-4 border-t-2 border-cyan-100 bg-white flex items-end gap-2">
-                          <label className="p-3 rounded-xl border-2 border-cyan-100 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 cursor-pointer">
+                        <div className="shrink-0 p-4 border-t-2 border-cyan-100 bg-white dark:bg-zinc-900/85 dark:border-white/10">
+                          {chatAttachment && (
+                            <div className="mb-3 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 flex items-center justify-between gap-2 dark:bg-zinc-900 dark:border-cyan-500/30">
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-black uppercase tracking-widest text-cyan-700">Anexo pronto para envio</p>
+                                <p className="text-xs font-semibold text-slate-700 dark:text-zinc-300 truncate">
+                                  {chatAttachment.fileName || 'arquivo'} • {chatAttachment.mediaType}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setChatAttachment(null)}
+                                className="p-1.5 rounded-lg border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 dark:bg-zinc-900 dark:border-rose-500/30 dark:hover:bg-zinc-800"
+                                title="Remover anexo"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          )}
+                          <div className="flex items-end gap-2">
+                          <label className="p-3 rounded-xl border-2 border-cyan-100 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 cursor-pointer dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-zinc-800">
                             <Paperclip size={15} />
                             <input type="file" className="hidden" onChange={handleAttachFile} />
                           </label>
                           <button
                             type="button"
                             onClick={() => setIsScheduleModalOpen(true)}
-                            className="p-3 rounded-xl border-2 border-cyan-100 bg-cyan-50 hover:bg-cyan-100 text-cyan-700"
+                            className="p-3 rounded-xl border-2 border-cyan-100 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-zinc-800"
                             title="Agendar mensagem"
                           >
                             <CalendarClock size={15} />
@@ -4045,7 +5751,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             type="button"
                             onClick={handleImproveChatReply}
                             disabled={isImprovingChatReply || !chatReply.trim()}
-                            className="p-3 rounded-xl border-2 border-cyan-100 bg-cyan-50 hover:bg-cyan-100 disabled:opacity-50 text-cyan-700"
+                            className="p-3 rounded-xl border-2 border-cyan-100 bg-cyan-50 hover:bg-cyan-100 disabled:opacity-50 text-cyan-700 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-zinc-800"
                             title="Melhorar texto com IA"
                           >
                             <RefreshCw size={15} className={isImprovingChatReply ? 'animate-spin' : ''} />
@@ -4057,7 +5763,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             className={`p-3 rounded-xl border-2 disabled:opacity-50 ${
                               aiAgentEnabledForChat
                                 ? 'border-emerald-300 bg-emerald-100 text-emerald-700'
-                                : 'border-cyan-100 bg-cyan-50 text-cyan-700 hover:bg-cyan-100'
+                                : 'border-cyan-100 bg-cyan-50 text-cyan-700 hover:bg-cyan-100 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-zinc-800'
                             }`}
                             title={aiAgentEnabledForChat ? 'Desativar agente IA automático' : 'Ativar agente IA automático'}
                           >
@@ -4068,7 +5774,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             value={chatReply}
                             onChange={(e) => setChatReply(e.target.value)}
                             placeholder="Digite uma mensagem..."
-                            className="flex-1 px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm"
+                            className="flex-1 px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
                           />
                           <button
                             type="button"
@@ -4078,20 +5784,21 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                           >
                             <Send size={15} />
                           </button>
+                          </div>
                         </div>
                       </>
                     )}
                   </section>
 
-                  <aside className="p-5 bg-white border-l-2 border-cyan-100 min-h-0 h-full overflow-y-auto">
+                  <aside className="p-5 bg-white border-l-2 border-cyan-100 min-h-0 h-full overflow-y-auto dark:bg-zinc-900/75 dark:border-white/10">
                     {selectedChat ? (
                       <div className="space-y-5">
                         <div className="text-center">
                           <div className="w-20 h-20 mx-auto rounded-full bg-cyan-100 flex items-center justify-center text-cyan-700 text-2xl font-black">
                             {String(selectedChat.displayName || '?').charAt(0).toUpperCase()}
                           </div>
-                          <p className="mt-3 text-2xl font-black text-slate-900">{selectedChat.displayName}</p>
-                          <p className="text-sm font-semibold text-slate-500">+{selectedChat.phone}</p>
+                          <p className="mt-3 text-2xl font-black text-slate-900 dark:text-zinc-100">{selectedChat.displayName}</p>
+                          <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400">+{selectedChat.phone}</p>
                         </div>
 
                         <div className="space-y-2">
@@ -4104,18 +5811,46 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                 </span>
                               ))
                             ) : (
-                              <span className="text-xs font-semibold text-slate-400">Sem etiquetas</span>
+                              <span className="text-xs font-semibold text-slate-400 dark:text-zinc-500">Sem etiquetas</span>
                             )}
                           </div>
                         </div>
 
                         <div className="space-y-2">
                           <p className="text-[11px] uppercase tracking-widest font-black text-slate-500">Saldos de planos</p>
+                          {selectedStudent && (
+                            <div className="rounded-xl border border-cyan-100 bg-cyan-50/60 px-3 py-2 flex items-center justify-between">
+                              <div>
+                                <p className="text-[11px] font-black uppercase tracking-widest text-slate-600">Status do aluno hoje</p>
+                                <p className="text-xs font-semibold text-slate-500 dark:text-zinc-400">{selectedStudent.name}</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`inline-flex w-2.5 h-2.5 rounded-full ${
+                                    selectedStudentConsumedToday === null
+                                      ? 'bg-slate-300'
+                                      : selectedStudentConsumedToday
+                                        ? 'bg-emerald-500'
+                                        : 'bg-rose-500'
+                                  }`}
+                                />
+                                <span className="text-xs font-black text-slate-700 dark:text-zinc-200">
+                                  {isLoadingStudentConsumedToday
+                                    ? 'Verificando...'
+                                    : selectedStudentConsumedToday === null
+                                      ? 'Sem dados'
+                                      : selectedStudentConsumedToday
+                                        ? 'Consumiu hoje'
+                                        : 'Não consumiu hoje'}
+                                </span>
+                              </div>
+                            </div>
+                          )}
                           {relatedStudents.length > 1 && (
                             <select
                               value={selectedStudentId}
                               onChange={(e) => setSelectedStudentId(e.target.value)}
-                              className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 bg-white text-sm font-semibold text-slate-700 outline-none focus:border-cyan-400"
+                              className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 bg-white text-sm font-semibold text-slate-700 outline-none focus:border-cyan-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
                             >
                               <option value="">Selecione o aluno</option>
                               {relatedStudents.map((student) => (
@@ -4128,24 +5863,43 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                           {selectedStudent && selectedStudentPlanSummary.length > 0 ? (
                             selectedStudentPlanSummary.map((item) => {
                               const tone = getPlanCardTone(item.key, item.numericBalance);
+                              const normalizedKey = String(item.key || '').toUpperCase();
+                              const isPrepaid = normalizedKey === 'PREPAGO';
+                              const isLowPrepaid = isPrepaid && Number(item.numericBalance) < 10;
                               return (
                                 <div key={item.key} className={`rounded-xl border px-3 py-2 ${tone.container}`}>
-                                  <p className={`text-[11px] font-black uppercase tracking-widest ${tone.title}`}>{item.label}</p>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <span className={`inline-flex w-7 h-7 rounded-lg items-center justify-center bg-white/80 ${tone.title}`}>
+                                        {isPrepaid ? <Wallet size={14} /> : <UtensilsCrossed size={14} />}
+                                      </span>
+                                      <p className={`text-[11px] font-black uppercase tracking-widest truncate ${tone.title}`}>{item.label}</p>
+                                    </div>
+                                    {isLowPrepaid && (
+                                      <button
+                                        type="button"
+                                        onClick={handleQuickChargeLowBalance}
+                                        className="px-2 py-1 rounded-lg border border-emerald-300 bg-emerald-500 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-600"
+                                      >
+                                        Cobrar saldo
+                                      </button>
+                                    )}
+                                  </div>
                                   <p className={`text-sm font-black mt-1 ${tone.value}`}>{item.value}</p>
                                 </div>
                               );
                             })
                           ) : (
-                            <p className="text-xs font-semibold text-slate-400">Selecione um aluno para visualizar saldos.</p>
+                            <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500">Selecione um aluno para visualizar saldos.</p>
                           )}
                         </div>
 
-                        <div className="space-y-2 pt-2 border-t border-cyan-100">
+                        <div className="space-y-2 pt-2 border-t border-cyan-100 dark:border-white/10">
                           <p className="text-[11px] uppercase tracking-widest font-black text-slate-500">Relatório do contato</p>
                           <select
                             value={reportPeriodMode}
                             onChange={(e) => setReportPeriodMode(e.target.value as ReportPeriodMode)}
-                            className="w-full px-3 py-2 rounded-xl border-2 border-blue-100 bg-blue-50/40 text-xs font-black text-slate-700 outline-none focus:border-blue-400"
+                            className="w-full px-3 py-2 rounded-xl border-2 border-emerald-100 bg-emerald-50/40 text-xs font-black text-slate-700 outline-none focus:border-emerald-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
                           >
                             <option value="WEEKLY">Semanal</option>
                             <option value="BIWEEKLY">Quinzenal</option>
@@ -4157,13 +5911,13 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                 type="date"
                                 value={reportStartDate}
                                 onChange={(e) => setReportStartDate(e.target.value)}
-                                className="w-full px-3 py-2 rounded-xl border-2 border-blue-100 bg-white text-xs font-bold text-slate-700 outline-none focus:border-blue-400"
+                                className="w-full px-3 py-2 rounded-xl border-2 border-emerald-100 bg-white text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
                               />
                               <input
                                 type="date"
                                 value={reportEndDate}
                                 onChange={(e) => setReportEndDate(e.target.value)}
-                                className="w-full px-3 py-2 rounded-xl border-2 border-blue-100 bg-white text-xs font-bold text-slate-700 outline-none focus:border-blue-400"
+                                className="w-full px-3 py-2 rounded-xl border-2 border-emerald-100 bg-white text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
                               />
                             </div>
                           )}
@@ -4171,11 +5925,12 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             type="button"
                             onClick={handleSendConsumptionReport}
                             disabled={isSendingReport || !selectedChatClient || !['ALUNO', 'COLABORADOR'].includes(String(selectedChatClient?.type || '').toUpperCase())}
-                            className="w-full px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-[11px] font-black uppercase tracking-widest"
+                            className="w-full px-3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
                           >
+                            <CalendarDays size={13} />
                             {isSendingReport ? 'Enviando...' : 'Enviar relatório'}
                           </button>
-                          <p className="text-[11px] font-semibold text-slate-500">
+                          <p className="text-[11px] font-semibold text-slate-500 dark:text-zinc-400">
                             {selectedChatClient
                               ? `Tipo: ${String(selectedChatClient.type || '').toUpperCase()}`
                               : 'Contato sem cadastro local.'}
@@ -4183,51 +5938,83 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         </div>
                       </div>
                     ) : (
-                      <div className="text-sm font-semibold text-slate-500">Nenhum contato selecionado.</div>
+                      <div className="text-sm font-semibold text-slate-500 dark:text-zinc-400">Nenhum contato selecionado.</div>
                     )}
                   </aside>
                   </div>
                 </div>
               )}
 
-              {crmView === 'CAMPANHAS' && (
+              {false && (
                 <div className="flex-1 p-6 bg-slate-50/60 overflow-y-auto">
                   <div className="max-w-6xl mx-auto space-y-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Campanhas</p>
-                        <h3 className="text-2xl font-black text-slate-900">Nova Campanha</h3>
+                        <h3 className="text-2xl font-black text-slate-900">{campaignSubTab === 'NOVA_CAMPANHA' ? 'Nova Campanha' : 'Gerenciar Campanha'}</h3>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 bg-white rounded-xl border border-cyan-100 p-1">
                         <button
                           type="button"
-                          onClick={() => {
-                            setCampaignName('');
-                            setCampaignMessage('Olá {Nome}! 👋 Temos uma novidade especial para você.');
-                            setCampaignMode('BROADCAST');
-                            setCampaignAudience('ALL');
-                            setCampaignSendNow(true);
-                            setCampaignStartAt('');
-                            setCampaignIntervalSeconds(2);
-                            setCampaignUseSignature(true);
-                            setCampaignAttachment(null);
-                          }}
-                          className="px-4 py-2 rounded-xl border border-slate-300 text-slate-600 text-xs font-black uppercase tracking-widest hover:bg-white"
+                          onClick={() => setCampaignSubTab('NOVA_CAMPANHA')}
+                          className={`px-3 py-2 rounded-lg text-[11px] font-black uppercase tracking-widest ${
+                            campaignSubTab === 'NOVA_CAMPANHA'
+                              ? 'bg-emerald-500 text-white'
+                              : 'text-slate-600 hover:bg-slate-100'
+                          }`}
                         >
-                          Descartar
+                          Nova Campanha
                         </button>
                         <button
                           type="button"
-                          onClick={handleLaunchCampaign}
-                          disabled={isCampaignLaunching}
-                          className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-300 text-white text-xs font-black uppercase tracking-widest"
+                          onClick={() => setCampaignSubTab('GERENCIAR_CAMPANHA')}
+                          className={`px-3 py-2 rounded-lg text-[11px] font-black uppercase tracking-widest ${
+                            campaignSubTab === 'GERENCIAR_CAMPANHA'
+                              ? 'bg-emerald-500 text-white'
+                              : 'text-slate-600 hover:bg-slate-100'
+                          }`}
                         >
-                          {isCampaignLaunching ? 'Salvando...' : 'Salvar e Disparar'}
+                          Gerenciar Campanha
                         </button>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4">
+                    {campaignSubTab === 'NOVA_CAMPANHA' && (
+                      <>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCampaignName('');
+                          setCampaignMessage('Olá {primeiro_nome_responsavel}, segue o relatório de consumo do período {periodo_referencia}.');
+                          setPlanConsumptionMessage('Olá {primeiro_nome_responsavel}, segue o relatório de consumo do período {periodo_referencia}.');
+                          setCampaignMode('BROADCAST');
+                          setCampaignAudience('ALL');
+                          setCampaignSendNow(true);
+                          setCampaignStartAt('');
+                          setCampaignIntervalSeconds(2);
+                          setCampaignIntervalMinSeconds(2);
+                          setCampaignIntervalMaxSeconds(5);
+                          setCampaignUseSignature(true);
+                          setCampaignAttachment(null);
+                          setCampaignRecurringTargetResponsible(true);
+                          setCampaignRecurringTargetCollaborator(true);
+                        }}
+                        className="px-4 py-2 rounded-xl border border-slate-300 text-slate-600 text-xs font-black uppercase tracking-widest hover:bg-white"
+                      >
+                        Descartar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleLaunchCampaign}
+                        disabled={isCampaignLaunching}
+                        className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-300 text-white text-xs font-black uppercase tracking-widest"
+                      >
+                        {isCampaignLaunching ? 'Salvando...' : 'Salvar e Disparar'}
+                      </button>
+                    </div>
+
+                    <div className="space-y-4">
                       <section className="rounded-2xl border border-cyan-100 bg-white p-5 space-y-4">
                         <div className="space-y-1.5">
                           <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">Nome da Campanha</label>
@@ -4256,7 +6043,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                               className={`p-4 rounded-xl border-2 text-left ${campaignMode === 'RECURRING' ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white'}`}
                             >
                               <p className="text-base font-black text-slate-900">Recorrente</p>
-                              <p className="text-xs font-semibold text-slate-500 mt-1">Envios diários, semanais ou mensais.</p>
+                              <p className="text-xs font-semibold text-slate-500 mt-1">Envios mensais ou semanais com período configurável.</p>
                             </button>
                             <button
                               type="button"
@@ -4271,22 +6058,32 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div className="space-y-1.5">
-                            <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">Segmentação do Público</label>
-                            <select
-                              value={campaignAudience}
-                              onChange={(e) => setCampaignAudience(e.target.value as CampaignAudience)}
-                              className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
-                            >
-                              <option value="ALL">Todos os contatos</option>
-                              <option value="ALUNO">Somente alunos</option>
-                              <option value="COLABORADOR">Somente colaboradores</option>
-                              {campaignAvailableLabels.map((label) => (
-                                <option key={label} value={`LABEL:${label}`}>Etiqueta: {label}</option>
-                              ))}
-                            </select>
-                            <p className="text-xs font-semibold text-slate-500">
-                              {getCampaignTargetPhones().length} contato(s) no público atual.
-                            </p>
+                            <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                              {campaignMode === 'RECURRING' ? 'Público recorrente' : 'Segmentação do Público'}
+                            </label>
+                            {campaignMode === 'RECURRING' ? (
+                              <div className="rounded-xl border border-cyan-100 bg-cyan-50/40 px-3 py-2.5 text-sm font-semibold text-slate-700">
+                                Defina o público no bloco de recorrência (Responsável, Colaborador ou Todos).
+                              </div>
+                            ) : (
+                              <>
+                                <select
+                                  value={campaignAudience}
+                                  onChange={(e) => setCampaignAudience(e.target.value as CampaignAudience)}
+                                  className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                                >
+                                  <option value="ALL">Todos (responsáveis e colaboradores)</option>
+                                  <option value="ALUNO">Somente responsáveis</option>
+                                  <option value="COLABORADOR">Somente colaboradores</option>
+                                  {campaignAvailableLabels.map((label) => (
+                                    <option key={label} value={`LABEL:${label}`}>Etiqueta: {label}</option>
+                                  ))}
+                                </select>
+                                <p className="text-xs font-semibold text-slate-500">
+                                  {getCampaignTargetPhones().length} responsável(is)/colaborador(es) no público atual.
+                                </p>
+                              </>
+                            )}
                           </div>
 
                           <div className="space-y-1.5">
@@ -4318,19 +6115,32 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                           <div className="space-y-1.5">
-                            <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
-                              Intervalo entre mensagens (segundos)
-                            </label>
+                            <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">Intervalo inicial (segundos)</label>
                             <input
                               type="number"
                               min={0}
                               max={600}
-                              value={campaignIntervalSeconds}
-                              onChange={(e) => setCampaignIntervalSeconds(Math.max(0, Number(e.target.value) || 0))}
+                              value={campaignIntervalMinSeconds}
+                              onChange={(e) => setCampaignIntervalMinSeconds(Math.max(0, Number(e.target.value) || 0))}
                               className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
                             />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">Intervalo final (segundos)</label>
+                            <input
+                              type="number"
+                              min={0}
+                              max={600}
+                              value={campaignIntervalMaxSeconds}
+                              onChange={(e) => setCampaignIntervalMaxSeconds(Math.max(0, Number(e.target.value) || 0))}
+                              className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            />
+                            <p className="text-[11px] font-semibold text-slate-500">
+                              O sistema usará um intervalo aleatório entre início e fim para cada envio.
+                            </p>
                           </div>
 
                           <div className="space-y-1.5">
@@ -4378,36 +6188,167 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         )}
 
                         {campaignMode === 'RECURRING' && (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="rounded-2xl border border-cyan-100 bg-cyan-50/20 p-3 space-y-3">
                             <div className="space-y-1.5">
-                              <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">Frequência</label>
-                              <select
-                                value={campaignRecurringFrequency}
-                                onChange={(e) => setCampaignRecurringFrequency(e.target.value as 'DAILY' | 'WEEKLY' | 'MONTHLY')}
-                                className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
-                              >
-                                <option value="DAILY">Diária</option>
-                                <option value="WEEKLY">Semanal</option>
-                                <option value="MONTHLY">Mensal</option>
-                              </select>
+                              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Público recorrente</p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-cyan-200 bg-white text-xs font-black text-slate-700">
+                                  <input
+                                    type="checkbox"
+                                    checked={campaignRecurringTargetResponsible}
+                                    onChange={(e) => setCampaignRecurringTargetResponsible(e.target.checked)}
+                                  />
+                                  Responsável
+                                </label>
+                                <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-cyan-200 bg-white text-xs font-black text-slate-700">
+                                  <input
+                                    type="checkbox"
+                                    checked={campaignRecurringTargetCollaborator}
+                                    onChange={(e) => setCampaignRecurringTargetCollaborator(e.target.checked)}
+                                  />
+                                  Colaborador
+                                </label>
+                                <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-cyan-200 bg-white text-xs font-black text-slate-700">
+                                  <input
+                                    type="checkbox"
+                                    checked={campaignRecurringTargetResponsible && campaignRecurringTargetCollaborator}
+                                    onChange={(e) => {
+                                      setCampaignRecurringTargetResponsible(e.target.checked);
+                                      setCampaignRecurringTargetCollaborator(e.target.checked);
+                                    }}
+                                  />
+                                  Todos
+                                </label>
+                              </div>
                             </div>
+
                             <div className="space-y-1.5">
-                              <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">Ocorrências</label>
-                              <input
-                                type="number"
-                                min={1}
-                                max={30}
-                                value={campaignOccurrences}
-                                onChange={(e) => setCampaignOccurrences(Math.max(1, Number(e.target.value) || 1))}
-                                className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
-                              />
+                              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Frequência do relatório</p>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setPlanConsumptionFrequency('MONTHLY')}
+                                  className={`px-3 py-2 rounded-xl text-xs font-black uppercase tracking-widest ${
+                                    planConsumptionFrequency === 'MONTHLY' ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600'
+                                  }`}
+                                >
+                                  Mensal
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPlanConsumptionFrequency('WEEKLY')}
+                                  className={`px-3 py-2 rounded-xl text-xs font-black uppercase tracking-widest ${
+                                    planConsumptionFrequency === 'WEEKLY' ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600'
+                                  }`}
+                                >
+                                  Semanal
+                                </button>
+                              </div>
                             </div>
+
+                            {planConsumptionFrequency === 'MONTHLY' ? (
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <label className="space-y-1">
+                                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Início do consumo (dia)</span>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={28}
+                                    value={planConsumptionMonthlyStartDay}
+                                    onChange={(e) => setPlanConsumptionMonthlyStartDay(clampMonthDay(Number(e.target.value)))}
+                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold bg-white"
+                                  />
+                                </label>
+                                <label className="space-y-1">
+                                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Final do consumo (dia)</span>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={28}
+                                    value={planConsumptionMonthlyEndDay}
+                                    onChange={(e) => setPlanConsumptionMonthlyEndDay(clampMonthDay(Number(e.target.value)))}
+                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold bg-white"
+                                  />
+                                </label>
+                                <label className="space-y-1">
+                                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Dia do envio (mês)</span>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={31}
+                                    value={planConsumptionMonthlyDay}
+                                    onChange={(e) => setPlanConsumptionMonthlyDay(Math.min(31, Math.max(1, Number(e.target.value) || 1)))}
+                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold bg-white"
+                                  />
+                                </label>
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                <label className="space-y-1">
+                                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Início (dia da semana)</span>
+                                  <select
+                                    value={planConsumptionWeeklyStartDay}
+                                    onChange={(e) => setPlanConsumptionWeeklyStartDay(Number(e.target.value))}
+                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold bg-white"
+                                  >
+                                    {WEEKLY_DISPATCH_OPTIONS.map((option) => (
+                                      <option key={`start_${option.value}`} value={option.value}>{option.label}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="space-y-1">
+                                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Final (dia da semana)</span>
+                                  <select
+                                    value={planConsumptionWeeklyEndDay}
+                                    onChange={(e) => setPlanConsumptionWeeklyEndDay(Number(e.target.value))}
+                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold bg-white"
+                                  >
+                                    {WEEKLY_DISPATCH_OPTIONS.map((option) => (
+                                      <option key={`end_${option.value}`} value={option.value}>{option.label}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="space-y-1">
+                                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Dia do envio</span>
+                                  <select
+                                    value={planConsumptionWeeklyDay}
+                                    onChange={(e) => setPlanConsumptionWeeklyDay(Number(e.target.value))}
+                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold bg-white"
+                                  >
+                                    {WEEKLY_DISPATCH_OPTIONS.map((option) => (
+                                      <option key={option.value} value={option.value}>{option.label}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="space-y-1">
+                                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Hora do envio</span>
+                                  <input
+                                    type="time"
+                                    value={planConsumptionSendTime}
+                                    onChange={(e) => setPlanConsumptionSendTime(e.target.value)}
+                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold bg-white"
+                                  />
+                                </label>
+                              </div>
+                            )}
+
+                            <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-xs font-semibold text-blue-900">
+                              Fechamento base em <span className="font-black">Ajustes &gt; Pagamento</span>:
+                              início <span className="font-black">{Math.min(28, Math.max(1, Number(activeEnterprise?.collaboratorPaymentStartDay || 1) || 1))}</span>
+                              {' '}e vencimento <span className="font-black">{Math.min(28, Math.max(1, Number(activeEnterprise?.collaboratorPaymentDueDay || 7) || 7))}</span>.
+                            </div>
+
+                            <p className="text-xs font-semibold text-slate-500">
+                              O envio recorrente usa automaticamente o período configurado e anexa o relatório em PDF no disparo.
+                            </p>
                           </div>
                         )}
 
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
-                            <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Sequência da Campanha</p>
+                            <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                              {campaignMode === 'FOLLOWUP' ? 'Sequência da Campanha' : 'Mensagem da Campanha'}
+                            </p>
                             {campaignMode === 'FOLLOWUP' && (
                               <button
                                 type="button"
@@ -4458,169 +6399,284 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                               ))}
                             </div>
                           ) : (
-                            <textarea
-                              rows={5}
-                              value={campaignMessage}
-                              onChange={(e) => setCampaignMessage(e.target.value)}
-                              placeholder="Digite a mensagem da campanha..."
-                              className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-white"
-                            />
+                            <div className="space-y-2">
+                              <textarea
+                                ref={campaignMessageTextareaRef}
+                                rows={6}
+                                value={campaignMode === 'RECURRING' ? planConsumptionMessage : campaignMessage}
+                                onChange={(e) => {
+                                  if (campaignMode === 'RECURRING') {
+                                    setPlanConsumptionMessage(e.target.value);
+                                    return;
+                                  }
+                                  setCampaignMessage(e.target.value);
+                                }}
+                                placeholder={
+                                  campaignMode === 'RECURRING'
+                                    ? 'Exemplo (demonstração): Olá {primeiro_nome_responsavel}, segue o resumo de {periodo_referencia} para {nome_completo_alunos}.'
+                                    : 'Digite a mensagem da campanha...'
+                                }
+                                className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-white placeholder:text-slate-400"
+                              />
+                              {campaignMode === 'RECURRING' && (
+                                <p className="text-[11px] font-semibold text-slate-500">
+                                  Dica: use as variáveis abaixo para montar a mensagem dinâmica do relatório.
+                                </p>
+                              )}
+                            </div>
                           )}
 
                           <div className="flex flex-wrap gap-2">
-                            {['{Nome}', '{Sobrenome}', '{Data}'].map((token) => (
-                              <button
-                                key={token}
-                                type="button"
-                                onClick={() => {
-                                  if (campaignMode === 'FOLLOWUP') {
-                                    const first = campaignSteps[0];
-                                    if (!first) return;
-                                    handleCampaignStepChange(first.id, { message: `${first.message}${first.message ? ' ' : ''}${token}` });
-                                    return;
-                                  }
-                                  setCampaignMessage((prev) => `${prev}${prev ? ' ' : ''}${token}`);
-                                }}
-                                className="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-black"
-                              >
-                                {token}
-                              </button>
-                            ))}
+                            {campaignMode === 'RECURRING' ? (
+                              CAMPAIGN_RECURRING_VARIABLES.map((variable) => (
+                                <button
+                                  key={variable.key}
+                                  type="button"
+                                  onClick={() => insertCampaignTokenAtCursor(variable.key)}
+                                  className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-black border border-emerald-200 hover:bg-emerald-100"
+                                  title={variable.label}
+                                >
+                                  {variable.key}
+                                </button>
+                              ))
+                            ) : (
+                              ['{Nome}', '{Sobrenome}', '{Data}'].map((token) => (
+                                <button
+                                  key={token}
+                                  type="button"
+                                  onClick={() => {
+                                    if (campaignMode === 'FOLLOWUP') {
+                                      const first = campaignSteps[0];
+                                      if (!first) return;
+                                      handleCampaignStepChange(first.id, { message: `${first.message}${first.message ? ' ' : ''}${token}` });
+                                      return;
+                                    }
+                                    setCampaignMessage((prev) => `${prev}${prev ? ' ' : ''}${token}`);
+                                  }}
+                                  className="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-black"
+                                >
+                                  {token}
+                                </button>
+                              ))
+                            )}
                           </div>
+                          {campaignMode === 'RECURRING' && (
+                            <div className="rounded-xl border border-cyan-100 bg-cyan-50/30 p-3 space-y-2">
+                              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                                Exemplo de cada variável
+                              </p>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                                {CAMPAIGN_RECURRING_VARIABLES.map((variable) => {
+                                  const keyName = variable.key.replace(/^\{|\}$/g, '');
+                                  const exampleValue = recurringPreviewExampleValues[keyName] || '-';
+                                  return (
+                                    <p key={`example_${variable.key}`} className="text-xs font-semibold text-slate-700">
+                                      <span className="font-black text-emerald-700">{variable.key}</span>
+                                      {' '}= {exampleValue}
+                                    </p>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </section>
 
-                      <aside className="rounded-2xl border border-cyan-100 bg-white p-4 space-y-3">
-                        <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Pré-visualização</p>
-                        <div className="rounded-2xl overflow-hidden border border-emerald-200">
-                          <div className="bg-emerald-700 px-3 py-2 text-white">
-                            <p className="text-sm font-black">{campaignPreviewName} (prévia)</p>
-                            <p className="text-[11px] font-semibold text-emerald-100">online</p>
-                          </div>
-                          <div className="p-3 bg-[#efe4dc] min-h-[300px] flex flex-col gap-2">
-                            {campaignMode === 'FOLLOWUP' ? (
-                              campaignSteps.filter((step) => String(step.message || '').trim()).slice(0, 2).map((step) => (
-                                <div key={step.id} className="max-w-[92%] rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-700">
-                                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600 mb-1">
-                                    {step.delayDays === 0 ? 'Imediata' : `${step.delayDays} dia(s) depois`}
-                                  </p>
-                                  {replaceCampaignVariables(step.message, campaignPreviewName)}
-                                </div>
-                              ))
-                            ) : (
-                              <div className="max-w-[92%] rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-700">
-                                {replaceCampaignVariables(campaignMessage, campaignPreviewName)}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <p className="text-xs font-semibold text-slate-500">
-                          Variáveis ativas: <span className="font-black">{'{Nome}'}</span>, <span className="font-black">{'{Sobrenome}'}</span> e <span className="font-black">{'{Data}'}</span>.
-                        </p>
-                      </aside>
                     </div>
+                      </>
+                    )}
 
-                    <section className="rounded-2xl border border-cyan-100 bg-white p-5 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Gerenciar campanhas</p>
-                          <h4 className="text-lg font-black text-slate-900">Relatório de envios</h4>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => persistCampaignReports([])}
-                          disabled={campaignReports.length === 0}
-                          className="px-3 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-black uppercase tracking-widest hover:bg-slate-50 disabled:opacity-60"
-                        >
-                          Limpar histórico
-                        </button>
+                    {campaignSubTab === 'GERENCIAR_CAMPANHA' && (
+                      <div className="space-y-4">
+                        <section className="rounded-2xl border border-cyan-100 bg-white p-5 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Gerenciar campanhas</p>
+                              <h4 className="text-lg font-black text-slate-900">Campanhas criadas</h4>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => persistCampaignReports([])}
+                              disabled={campaignReports.length === 0}
+                              className="px-3 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-black uppercase tracking-widest hover:bg-slate-50 disabled:opacity-60"
+                            >
+                              Limpar campanhas
+                            </button>
+                          </div>
+
+                          {campaignReports.length === 0 ? (
+                            <p className="text-sm font-semibold text-slate-500">Nenhuma campanha criada ainda.</p>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="min-w-full text-sm">
+                                <thead>
+                                  <tr className="text-left text-[11px] uppercase tracking-widest text-slate-500 border-b border-slate-100">
+                                    <th className="py-2 pr-3 font-black">Campanha</th>
+                                    <th className="py-2 pr-3 font-black">Público</th>
+                                    <th className="py-2 pr-3 font-black">Início</th>
+                                    <th className="py-2 pr-3 font-black">Status</th>
+                                    <th className="py-2 pr-3 font-black">Resultado</th>
+                                    <th className="py-2 pr-3 font-black">Ações</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {campaignReports.map((item) => (
+                                    <tr key={item.id} className="border-b border-slate-100 last:border-b-0">
+                                      <td className="py-2 pr-3">
+                                        <p className="font-black text-slate-800">{item.name}</p>
+                                        <p className="text-xs font-semibold text-slate-500">
+                                          {item.mode === 'BROADCAST' ? 'Envio Único' : item.mode === 'RECURRING' ? 'Recorrente' : 'Follow-up'}
+                                          {' • '}
+                                          intervalo médio {item.intervalSeconds}s
+                                          {item.hasAttachment ? ' • com anexo' : ''}
+                                          {item.withSignature ? ' • com assinatura' : ''}
+                                        </p>
+                                      </td>
+                                      <td className="py-2 pr-3 font-semibold text-slate-600">
+                                        {item.audience === 'ALL'
+                                          ? 'Todos'
+                                          : item.audience === 'ALUNO'
+                                            ? 'Responsáveis'
+                                            : item.audience === 'COLABORADOR'
+                                              ? 'Colaboradores'
+                                              : `Etiqueta: ${String(item.audience).replace('LABEL:', '')}`}
+                                      </td>
+                                      <td className="py-2 pr-3 font-semibold text-slate-600">{new Date(item.startAt).toLocaleString('pt-BR')}</td>
+                                      <td className="py-2 pr-3">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <span className={`px-2 py-1 rounded-full text-[11px] font-black ${
+                                            item.status === 'ENVIADA'
+                                              ? 'bg-emerald-100 text-emerald-700'
+                                              : item.status === 'AGENDADA'
+                                                ? 'bg-cyan-100 text-cyan-700'
+                                                : item.status === 'PARCIAL'
+                                                  ? 'bg-amber-100 text-amber-700'
+                                                  : 'bg-rose-100 text-rose-700'
+                                          }`}>
+                                            {item.status}
+                                          </span>
+                                          {item.paused && (
+                                            <span className="px-2 py-1 rounded-full text-[11px] font-black bg-amber-100 text-amber-700">
+                                              PAUSADA
+                                            </span>
+                                          )}
+                                        </div>
+                                      </td>
+                                      <td className="py-2 pr-3">
+                                        <p className="text-xs font-semibold text-slate-600">
+                                          Alvo: <span className="font-black">{item.targetCount}</span>
+                                        </p>
+                                        <p className="text-xs font-semibold text-slate-600">
+                                          Enviadas: <span className="font-black text-emerald-700">{item.sentCount}</span> •
+                                          Agendadas: <span className="font-black text-cyan-700"> {item.scheduledCount}</span> •
+                                          Falhas: <span className="font-black text-rose-700"> {item.failedCount}</span>
+                                        </p>
+                                      </td>
+                                      <td className="py-2 pr-3">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setCampaignName(item.name);
+                                              setCampaignMode(item.mode);
+                                              setCampaignAudience(item.audience);
+                                              setCampaignIntervalMinSeconds(item.intervalSeconds);
+                                              setCampaignIntervalMaxSeconds(item.intervalSeconds);
+                                              setCampaignUseSignature(item.withSignature);
+                                              setCampaignSendNow(item.status === 'ENVIADA');
+                                              setCampaignRecurringTargetResponsible(item.audience === 'ALL' || item.audience === 'ALUNO');
+                                              setCampaignRecurringTargetCollaborator(item.audience === 'ALL' || item.audience === 'COLABORADOR');
+                                              setCampaignSubTab('NOVA_CAMPANHA');
+                                              setFeedback(`Campanha "${item.name}" carregada para edição.`);
+                                            }}
+                                            className="px-2 py-1 rounded-lg text-[11px] font-black text-cyan-700 hover:bg-cyan-50"
+                                          >
+                                            Editar
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              persistCampaignReports(
+                                                campaignReports.map((report) => (
+                                                  report.id === item.id
+                                                    ? { ...report, paused: !report.paused }
+                                                    : report
+                                                ))
+                                              )
+                                            }
+                                            className={`px-2 py-1 rounded-lg text-[11px] font-black ${
+                                              item.paused
+                                                ? 'text-emerald-700 hover:bg-emerald-50'
+                                                : 'text-amber-700 hover:bg-amber-50'
+                                            }`}
+                                          >
+                                            {item.paused ? 'Retomar' : 'Pausar'}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => persistCampaignReports(campaignReports.filter((report) => report.id !== item.id))}
+                                            className="p-1 rounded text-rose-600 hover:bg-rose-50"
+                                            title="Excluir campanha"
+                                          >
+                                            <Trash2 size={14} />
+                                          </button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </section>
+
+                        <section className="rounded-2xl border border-cyan-100 bg-white p-5 space-y-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Histórico recorrente</p>
+                              <h4 className="text-lg font-black text-slate-900">Recorrente (relatório em PDF)</h4>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => persistPlanConsumptionReports([])}
+                              disabled={planConsumptionReports.length === 0}
+                              className="px-3 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-black uppercase tracking-widest hover:bg-slate-50 disabled:opacity-60"
+                            >
+                              Limpar histórico
+                            </button>
+                          </div>
+
+                          {planConsumptionReports.length === 0 ? (
+                            <p className="text-sm font-semibold text-slate-500">Nenhum envio recorrente registrado ainda.</p>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="min-w-full text-sm">
+                                <thead>
+                                  <tr className="text-left text-[11px] uppercase tracking-widest text-slate-500 border-b border-slate-100">
+                                    <th className="py-2 pr-3 font-black">Data</th>
+                                    <th className="py-2 pr-3 font-black">Modo</th>
+                                    <th className="py-2 pr-3 font-black">Período</th>
+                                    <th className="py-2 pr-3 font-black">Resultado</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {planConsumptionReports.map((item) => (
+                                    <tr key={item.id} className="border-b border-slate-100 last:border-b-0">
+                                      <td className="py-2 pr-3 font-semibold text-slate-600">{new Date(item.createdAt).toLocaleString('pt-BR')}</td>
+                                      <td className="py-2 pr-3 font-semibold text-slate-600">{item.mode === 'NOW' ? 'Enviado agora' : 'Agendado'}</td>
+                                      <td className="py-2 pr-3 font-semibold text-slate-600">{item.periodLabel}</td>
+                                      <td className="py-2 pr-3 text-xs font-semibold text-slate-600">
+                                        {item.sentCount} enviadas • {item.scheduledCount} agendadas • {item.failedCount} falhas
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </section>
                       </div>
-
-                      {campaignReports.length === 0 ? (
-                        <p className="text-sm font-semibold text-slate-500">Nenhum disparo registrado ainda.</p>
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <table className="min-w-full text-sm">
-                            <thead>
-                              <tr className="text-left text-[11px] uppercase tracking-widest text-slate-500 border-b border-slate-100">
-                                <th className="py-2 pr-3 font-black">Campanha</th>
-                                <th className="py-2 pr-3 font-black">Status</th>
-                                <th className="py-2 pr-3 font-black">Público</th>
-                                <th className="py-2 pr-3 font-black">Início</th>
-                                <th className="py-2 pr-3 font-black">Resultado</th>
-                                <th className="py-2 pr-3 font-black">Ações</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {campaignReports.map((item) => (
-                                <tr key={item.id} className="border-b border-slate-100 last:border-b-0">
-                                  <td className="py-2 pr-3">
-                                    <p className="font-black text-slate-800">{item.name}</p>
-                                    <p className="text-xs font-semibold text-slate-500">
-                                      {item.mode} • intervalo {item.intervalSeconds}s
-                                      {item.hasAttachment ? ' • com anexo' : ''}
-                                      {item.withSignature ? ' • com assinatura' : ''}
-                                    </p>
-                                  </td>
-                                  <td className="py-2 pr-3">
-                                    <span className={`px-2 py-1 rounded-full text-[11px] font-black ${
-                                      item.status === 'ENVIADA'
-                                        ? 'bg-emerald-100 text-emerald-700'
-                                        : item.status === 'AGENDADA'
-                                          ? 'bg-cyan-100 text-cyan-700'
-                                          : item.status === 'PARCIAL'
-                                            ? 'bg-amber-100 text-amber-700'
-                                            : 'bg-rose-100 text-rose-700'
-                                    }`}>
-                                      {item.status}
-                                    </span>
-                                  </td>
-                                  <td className="py-2 pr-3 font-semibold text-slate-600">{item.audience}</td>
-                                  <td className="py-2 pr-3 font-semibold text-slate-600">{new Date(item.startAt).toLocaleString('pt-BR')}</td>
-                                  <td className="py-2 pr-3">
-                                    <p className="text-xs font-semibold text-slate-600">
-                                      Alvo: <span className="font-black">{item.targetCount}</span>
-                                    </p>
-                                    <p className="text-xs font-semibold text-slate-600">
-                                      Enviadas: <span className="font-black text-emerald-700">{item.sentCount}</span> •
-                                      Agendadas: <span className="font-black text-cyan-700"> {item.scheduledCount}</span> •
-                                      Falhas: <span className="font-black text-rose-700"> {item.failedCount}</span>
-                                    </p>
-                                  </td>
-                                  <td className="py-2 pr-3">
-                                    <div className="flex items-center gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setCampaignName(item.name);
-                                          setCampaignMode(item.mode);
-                                          setCampaignAudience(item.audience);
-                                          setCampaignIntervalSeconds(item.intervalSeconds);
-                                          setCampaignUseSignature(item.withSignature);
-                                          setCampaignSendNow(item.status === 'ENVIADA');
-                                          setFeedback(`Campanha "${item.name}" carregada para edição.`);
-                                        }}
-                                        className="px-2 py-1 rounded-lg text-[11px] font-black text-cyan-700 hover:bg-cyan-50"
-                                      >
-                                        Reutilizar
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => persistCampaignReports(campaignReports.filter((report) => report.id !== item.id))}
-                                        className="p-1 rounded text-rose-600 hover:bg-rose-50"
-                                        title="Excluir relatório"
-                                      >
-                                        <Trash2 size={14} />
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </section>
+                    )}
                   </div>
                 </div>
               )}
@@ -5311,6 +7367,25 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                     </div>
                   </div>
 
+                  <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="rounded-2xl border border-cyan-100 bg-white px-4 py-3">
+                      <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Total de contatos</p>
+                      <p className="mt-1 text-2xl font-black text-slate-900">{crmContactRows.length}</p>
+                    </div>
+                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 px-4 py-3">
+                      <p className="text-[11px] font-black uppercase tracking-widest text-emerald-700">Ativos</p>
+                      <p className="mt-1 text-2xl font-black text-emerald-700">
+                        {crmContactRows.filter((row) => row.statusLabel === 'ACTIVE').length}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-100/70 px-4 py-3">
+                      <p className="text-[11px] font-black uppercase tracking-widest text-slate-600">Inativos</p>
+                      <p className="mt-1 text-2xl font-black text-slate-700">
+                        {crmContactRows.filter((row) => row.statusLabel === 'INACTIVE').length}
+                      </p>
+                    </div>
+                  </section>
+
                   <section className="rounded-2xl border border-cyan-100 bg-white p-4 space-y-3">
                     <div className="grid grid-cols-1 lg:grid-cols-[1fr_170px_auto] gap-3 items-center">
                       <div className="relative">
@@ -5426,12 +7501,28 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                       ) : initials}
                                     </div>
                                     <div className="min-w-0">
-                                      <p className="text-base font-black text-slate-800 truncate">{row.client.name}</p>
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <p className="text-base font-black text-slate-800 truncate">{row.client.name}</p>
+                                        <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                                          String(row.client.type || '').toUpperCase() === 'COLABORADOR'
+                                            ? 'bg-violet-100 text-violet-700'
+                                            : 'bg-indigo-100 text-indigo-700'
+                                        }`}>
+                                          {String(row.client.type || '').toUpperCase() === 'COLABORADOR' ? 'Colaborador' : 'Aluno'}
+                                        </span>
+                                      </div>
                                       <p className="text-xs font-semibold text-slate-500 truncate">{row.client.email || '-'}</p>
+                                      {!!resolveResponsibleName(row.client) && (
+                                        <p className="text-[11px] font-bold text-emerald-700 truncate">
+                                          Responsável: {resolveResponsibleName(row.client)}
+                                        </p>
+                                      )}
                                     </div>
                                   </div>
                                 </td>
-                                <td className="px-4 py-3 align-top text-sm font-bold text-slate-700">+{row.phone || '-'}</td>
+                                <td className="px-4 py-3 align-top text-sm font-bold text-slate-700">
+                                  {row.phone ? formatPhoneWithCountryTag(row.phone, true) : '-'}
+                                </td>
                                 <td className="px-4 py-3 align-top">
                                   <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-black ${row.statusLabel === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
                                     {row.statusLabel === 'ACTIVE' ? 'Ativo' : 'Inativo'}
@@ -5733,6 +7824,12 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         </div>
       )}
 
+      {activeTab === 'DISPAROS' && (
+        <div className="py-2">
+          <CentralDisparos activeEnterprise={activeEnterprise} />
+        </div>
+      )}
+
       {activeTab === 'SESSION_QR' && (
         <div className="py-2">
           <WhatsAppQrConnector variant="session" />
@@ -5830,6 +7927,18 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                       className="w-full pl-10 pr-4 py-3 rounded-2xl border-2 border-gray-100 focus:border-indigo-500 outline-none text-sm font-medium"
                     />
                   </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 text-[10px] font-black uppercase tracking-widest">
+                      Resultados: {agendaClients.length}
+                    </span>
+                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                      selectedAgendaClientId
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : 'bg-slate-100 text-slate-500'
+                    }`}>
+                      {selectedAgendaClientId ? '1 selecionado' : 'Nenhum selecionado'}
+                    </span>
+                  </div>
                   <div className="max-h-[62vh] overflow-y-auto rounded-2xl border border-gray-100">
                     {agendaClients.length === 0 ? (
                       <div className="p-6 text-center text-sm font-semibold text-gray-500">Nenhum cliente encontrado na agenda.</div>
@@ -5840,16 +7949,37 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         const samePerson =
                           normalizeSearchValue(responsibleName) === normalizeSearchValue(studentName);
 
+                        const isSelected = selectedAgendaClientId === client.id;
+
                         return (
-                        <label key={client.id} className="flex items-start gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 cursor-pointer hover:bg-indigo-50/40">
+                        <label
+                          key={client.id}
+                          className={`flex items-start gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 cursor-pointer transition ${
+                            isSelected
+                              ? 'bg-emerald-50'
+                              : 'hover:bg-indigo-50/40'
+                          }`}
+                        >
                           <input
                             type="checkbox"
-                            checked={selectedAgendaClientId === client.id}
+                            checked={isSelected}
                             onChange={() => setSelectedAgendaClientId(client.id)}
                             className="w-4 h-4 mt-0.5"
                           />
-                          <div className="min-w-0">
-                            <p className="text-base font-black text-gray-800 truncate">{primaryName || studentName}</p>
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isSelected ? 'bg-emerald-200 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                            <span className="font-black text-sm">{String(primaryName || studentName || '?').charAt(0).toUpperCase()}</span>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <p className="text-base font-black text-gray-800 truncate">{primaryName || studentName}</p>
+                              <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                                String(client.type || '').toUpperCase() === 'COLABORADOR'
+                                  ? 'bg-violet-100 text-violet-700'
+                                  : 'bg-indigo-100 text-indigo-700'
+                              }`}>
+                                {String(client.type || '').toUpperCase() === 'COLABORADOR' ? 'Colaborador' : 'Aluno'}
+                              </span>
+                            </div>
                             {hasResponsible && !samePerson ? (
                               <>
                                 <p className="text-sm text-emerald-700 font-black truncate">

@@ -108,7 +108,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUser }) => {
 
   if (isSuperAdmin) {
     return (
-      <div className="dash-shell">
+      <div className="dash-shell reports-shell">
         <header className="dash-header">
           <div>
             <div className="flex items-center gap-3 mb-2">
@@ -214,7 +214,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUser }) => {
   }
 
   return (
-    <div className="dash-shell">
+    <div className="dash-shell reports-shell">
       
       {/* Header Executivo */}
       <header className="dash-header">

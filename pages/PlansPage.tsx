@@ -20,10 +20,10 @@ const PlansPage: React.FC<PlansPageProps> = ({ activeEnterprise }) => {
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="dash-shell plans-shell max-w-[1400px] min-h-screen flex items-center justify-center">
         <div className="text-center space-y-4">
           <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full"></div>
-          <p className="text-gray-600 font-medium">Carregando planos...</p>
+          <p className="text-gray-600 dark:text-zinc-300 font-medium">Carregando planos...</p>
         </div>
       </div>
     );
@@ -235,7 +235,7 @@ const PlansPage: React.FC<PlansPageProps> = ({ activeEnterprise }) => {
   }, [inlineSelectionType, allProducts, allRecipes, formData.items, pickerSearchTerm, pickerCategory]);
 
   return (
-    <div className="p-6 space-y-8 max-w-[1400px] mx-auto min-h-screen pb-20">
+    <div className="dash-shell plans-shell space-y-8 max-w-[1400px] min-h-screen">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="space-y-1">
           <button onClick={() => navigate('/enterprises')} className="flex items-center gap-2 text-xs font-black text-indigo-600 uppercase tracking-widest mb-2 hover:translate-x-[-4px] transition-transform">

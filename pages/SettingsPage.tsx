@@ -83,10 +83,10 @@ const RECEIPT_FONT_SIZE_LABELS: Record<ReceiptFontSize, string> = {
 const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, activeEnterprise }) => {
   if (!activeEnterprise) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="settings-shell min-h-[24rem] flex items-center justify-center rounded-2xl">
         <div className="text-center space-y-4">
           <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full"></div>
-          <p className="text-gray-600 font-medium">Carregando configurações...</p>
+          <p className="text-gray-600 dark:text-zinc-300 font-medium">Carregando configurações...</p>
         </div>
       </div>
     );
@@ -289,7 +289,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
   const activeServiceDaysCount = Object.values(openingHours).filter(day => !day.closed).length;
 
   return (
-    <div className="space-y-6 p-6 animate-in fade-in duration-500">
+    <div className="settings-shell space-y-6 p-6 animate-in fade-in duration-500">
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-black text-gray-800 tracking-tight uppercase">Ajustes da Unidade</h1>
         <p className="text-gray-400 text-[10px] font-black uppercase tracking-[2px]">
@@ -297,7 +297,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
         </p>
       </div>
 
-      <div className="bg-white rounded-[28px] border border-gray-100 shadow-sm p-3 grid grid-cols-2 lg:grid-cols-4 gap-2">
+      <div className="bg-white rounded-[28px] border border-gray-100 shadow-sm p-3 grid grid-cols-2 lg:grid-cols-4 gap-2 dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
         <button onClick={() => setActiveTab('FINANCEIRO')} className={`px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest ${activeTab === 'FINANCEIRO' ? 'bg-indigo-600 text-white' : 'bg-gray-50 text-gray-500'}`}>Pagamento</button>
         <button onClick={() => setActiveTab('ATENDIMENTO')} className={`px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest ${activeTab === 'ATENDIMENTO' ? 'bg-indigo-600 text-white' : 'bg-gray-50 text-gray-500'}`}>Atendimento</button>
         <button onClick={() => setActiveTab('SALDO')} className={`px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest ${activeTab === 'SALDO' ? 'bg-indigo-600 text-white' : 'bg-gray-50 text-gray-500'}`}>Saldo/Negativo</button>
@@ -306,7 +306,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
-          <div className="bg-white rounded-[32px] shadow-sm border border-gray-100 p-8 space-y-6">
+          <div className="bg-white rounded-[32px] shadow-sm border border-gray-100 p-8 space-y-6 dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
             {activeTab === 'FINANCEIRO' && (
               <div className="space-y-6">
                 <div className="flex items-center gap-3 pb-4 border-b-2 border-indigo-100">
@@ -832,7 +832,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
         </div>
 
         <div className="lg:col-span-1">
-          <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-[32px] border-2 border-indigo-100 p-6 space-y-6">
+          <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-[32px] border-2 border-indigo-100 p-6 space-y-6 dark:from-zinc-900 dark:to-zinc-900 dark:border-white/10 dark:ring-1 dark:ring-white/5">
             <div>
               <h3 className="text-[11px] font-black text-indigo-900 uppercase tracking-widest mb-3 flex items-center gap-2">
                 <Settings size={16} />

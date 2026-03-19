@@ -7,7 +7,7 @@ import {
   UserCircle, Globe, ClipboardList, 
   Sparkles, Beef, Store, Calendar,
   LogOut, Menu, DollarSign, MessageCircle,
-  Truck, Settings, AlertTriangle, X, Plus, Check // Ícones adicionais
+  Truck, Settings, AlertTriangle, X, Plus, Check, Sun, Moon // Ícones adicionais
 } from 'lucide-react';
 
 // Pages
@@ -38,6 +38,7 @@ import SettingsPage from './pages/SettingsPage';
 import FinancialPage from './pages/FinancialPage';
 import WhatsAppPage from './pages/WhatsAppPage';
 import NotificationCenter from './components/NotificationCenter';
+import { useTheme } from './components/ThemeProvider';
 
 
 import { Enterprise, Role, User, TransactionRecord } from './types';
@@ -309,6 +310,7 @@ const ClientPortalPageWrapper: React.FC<{ currentUser?: any }> = ({ currentUser 
 const AppContent: React.FC<any> = (props) => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { theme, toggleTheme, isDark } = useTheme();
   const {
     isAuthenticated, needsSetup, handleSetupComplete, currentUser,
     isSuperAdmin, isOwner, isAdminUnit, isRestaurant, isCantina,
@@ -330,7 +332,7 @@ const AppContent: React.FC<any> = (props) => {
   }, [isAuthenticated, isPortalUser, location.pathname]);
 
   return (
-      <div className="flex h-screen bg-gray-50 overflow-hidden text-gray-900 font-['Inter'] relative">
+      <div className="flex h-screen bg-gray-50 dark:bg-[#0c0c0e] overflow-hidden text-gray-900 dark:text-zinc-100 font-['Inter'] relative">
         <NotificationCenter />
         
         {!isAuthenticated ? (
@@ -352,8 +354,8 @@ const AppContent: React.FC<any> = (props) => {
         ) : (
           // Admin users - com sidebar completo
           <>
-            <aside className={`${isSidebarOpen ? 'w-64' : 'w-20'} bg-slate-900 text-white transition-all duration-300 flex flex-col hidden md:flex z-50 shadow-2xl`}>
-              <div className="p-5 flex items-center justify-between border-b border-slate-800/50">
+            <aside className={`${isSidebarOpen ? 'w-64' : 'w-20'} bg-slate-900 dark:bg-zinc-950 text-white transition-all duration-300 flex flex-col hidden md:flex z-50 shadow-2xl border-r border-slate-800/40 dark:border-white/5`}>
+              <div className="p-5 flex items-center justify-between border-b border-slate-800/50 dark:border-white/5">
                 {isSidebarOpen ? (
                   <span className="text-xl font-black tracking-tight flex items-center gap-2">
                     <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center shadow-lg">CS</div>
@@ -362,7 +364,7 @@ const AppContent: React.FC<any> = (props) => {
                 ) : (
                   <div className="w-10 h-10 bg-indigo-500 rounded-lg flex items-center justify-center mx-auto shadow-lg font-black">CS</div>
                 )}
-                <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-1 hover:bg-slate-800 rounded-md transition-colors"><Menu size={20} /></button>
+                <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-1 hover:bg-slate-800 dark:hover:bg-white/5 rounded-md transition-colors"><Menu size={20} /></button>
               </div>
 
               <nav className="flex-1 mt-4 px-3 space-y-1 overflow-y-auto scrollbar-hide pb-10">
@@ -379,7 +381,7 @@ const AppContent: React.FC<any> = (props) => {
                 )}
 
                 {isAdminUnit && (
-                  <div className="pt-4 pb-2 space-y-1 border-t border-slate-800/30 mt-4">
+                  <div className="pt-4 pb-2 space-y-1 border-t border-slate-800/30 dark:border-white/5 mt-4">
                     <p className={`text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Minha Unidade</p>
                     
                     {/* MENU EXCLUSIVO PARA CANTINA */}
@@ -408,7 +410,7 @@ const AppContent: React.FC<any> = (props) => {
                 )}
 
                 {!isSuperAdmin && (
-                  <div className="py-4 border-t border-slate-800/50 mt-4 space-y-1">
+                  <div className="py-4 border-t border-slate-800/50 dark:border-white/5 mt-4 space-y-1">
                     <p className={`text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Operacional</p>
                     {resolvedPermissions.canAccessPOS && <SidebarItem icon={<ShoppingCart size={20} />} label="Vender (PDV)" to="/pos" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessClients && <SidebarItem icon={<Users size={20} />} label="Clientes" to="/clients" isOpen={isSidebarOpen} />}
@@ -418,7 +420,7 @@ const AppContent: React.FC<any> = (props) => {
                 )}
               </nav>
 
-              <div className="p-4 border-t border-slate-800 space-y-2">
+              <div className="p-4 border-t border-slate-800 dark:border-white/5 space-y-2">
                 {/* Botão para trocar unidade (apenas para OWNER) */}
                 {isOwner && (
                   <button 
@@ -447,9 +449,9 @@ const AppContent: React.FC<any> = (props) => {
               </div>
             </aside>
 
-            <main className="flex-1 flex flex-col overflow-hidden relative">
-              <header className="h-16 bg-white border-b flex items-center justify-between px-6 shadow-sm z-40 md:flex hidden shrink-0">
-                <h2 className="text-[10px] font-black text-gray-800 uppercase tracking-[3px] flex items-center gap-2">
+            <main className="flex-1 flex flex-col overflow-hidden relative bg-white dark:bg-zinc-900/50">
+              <header className="h-16 bg-white/95 dark:bg-zinc-900/90 border-b border-slate-200 dark:border-white/5 flex items-center justify-between px-6 shadow-sm z-40 md:flex hidden shrink-0">
+                <h2 className="text-[10px] font-black text-gray-800 dark:text-slate-200 uppercase tracking-[3px] flex items-center gap-2">
                   {isSuperAdmin ? (
                     <><Globe size={14} className="text-indigo-600" /> Console Global</>
                   ) : (
@@ -457,8 +459,16 @@ const AppContent: React.FC<any> = (props) => {
                   )}
                 </h2>
                 <div className="flex items-center space-x-3">
+                  <button
+                    onClick={toggleTheme}
+                    className="h-10 w-10 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-200 flex items-center justify-center hover:border-indigo-400 dark:hover:border-indigo-500 hover:text-indigo-600 transition-all"
+                    title={isDark ? 'Ativar modo claro' : 'Ativar modo escuro'}
+                    aria-label={isDark ? 'Ativar modo claro' : 'Ativar modo escuro'}
+                  >
+                    {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+                  </button>
                   <div className="text-right">
-                    <p className="text-xs font-black text-gray-900 leading-none uppercase">{currentUser?.name || 'Usuário'}</p>
+                    <p className="text-xs font-black text-gray-900 dark:text-slate-100 leading-none uppercase">{currentUser?.name || 'Usuário'}</p>
                     <p className="text-[9px] text-indigo-600 font-black uppercase mt-1 tracking-widest">{currentUser?.role.replace('_', ' ') || 'CARREGANDO'}</p>
                   </div>
                   <img 
@@ -469,7 +479,7 @@ const AppContent: React.FC<any> = (props) => {
                 </div>
               </header>
 
-              <div className="flex-1 overflow-y-auto bg-gray-50 scrollbar-hide">
+              <div className="flex-1 overflow-y-auto bg-gray-50 dark:bg-zinc-900/50 scrollbar-hide">
                 <Routes>
                   <Route path="/" element={<DashboardPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
                   <Route path="/pos" element={resolvedPermissions.canAccessPOS ? (isRestaurant ? <RestaurantPOSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <POSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} />) : <Navigate to="/" />} />
@@ -506,24 +516,24 @@ const AppContent: React.FC<any> = (props) => {
         {/* Modal de Seleção de Empresa para OWNER */}
         {isAuthenticated && isOwner && !activeEnterprise && !isOnEnterprisesPage && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-            <div className="bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl border animate-in zoom-in-95 duration-200">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-2xl w-full shadow-2xl border border-slate-200 dark:border-slate-700 animate-in zoom-in-95 duration-200">
               <div className="flex items-center gap-3 mb-6">
-                <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center">
+                <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-500/20 rounded-2xl flex items-center justify-center">
                   <Building className="text-indigo-600" size={24} />
                 </div>
                 <div>
-                  <h3 className="text-xl font-black text-gray-800">Selecione uma Unidade</h3>
-                  <p className="text-xs text-gray-500 font-medium">Escolha qual unidade você deseja acessar</p>
+                  <h3 className="text-xl font-black text-gray-800 dark:text-slate-100">Selecione uma Unidade</h3>
+                  <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Escolha qual unidade você deseja acessar</p>
                 </div>
               </div>
 
               {availableEnterprises.length === 0 ? (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <div className="text-center py-12">
+                  <div className="w-16 h-16 bg-amber-100 dark:bg-amber-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
                     <AlertTriangle className="text-amber-600" size={32} />
                   </div>
-                  <h4 className="text-lg font-black text-gray-800 mb-2">Nenhuma Unidade Cadastrada</h4>
-                  <p className="text-sm text-gray-600 mb-6">
+                  <h4 className="text-lg font-black text-gray-800 dark:text-slate-100 mb-2">Nenhuma Unidade Cadastrada</h4>
+                  <p className="text-sm text-gray-600 dark:text-slate-300 mb-6">
                     Você ainda não possui nenhuma unidade cadastrada no sistema.
                   </p>
                   <Link
@@ -544,10 +554,10 @@ const AppContent: React.FC<any> = (props) => {
                           setActiveEnterprise(enterprise);
                           setShowEnterpriseSelector(false);
                         }}
-                        className="w-full p-4 border-2 border-gray-200 rounded-2xl hover:border-indigo-500 hover:bg-indigo-50 transition-all text-left group"
+                        className="w-full p-4 border-2 border-gray-200 dark:border-slate-700 rounded-2xl hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-all text-left group"
                       >
                         <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 bg-white border-2 border-gray-200 rounded-xl flex items-center justify-center group-hover:border-indigo-500 transition-all">
+                          <div className="w-12 h-12 bg-white dark:bg-slate-800 border-2 border-gray-200 dark:border-slate-700 rounded-xl flex items-center justify-center group-hover:border-indigo-500 transition-all">
                             {enterprise.type === 'RESTAURANTE' ? (
                               <Store className="text-indigo-600" size={24} />
                             ) : (
@@ -555,8 +565,8 @@ const AppContent: React.FC<any> = (props) => {
                             )}
                           </div>
                           <div className="flex-1">
-                            <h4 className="text-base font-black text-gray-800">{enterprise.name}</h4>
-                            <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">
+                            <h4 className="text-base font-black text-gray-800 dark:text-slate-100">{enterprise.name}</h4>
+                            <p className="text-xs text-gray-500 dark:text-slate-400 font-bold uppercase tracking-wider">
                               {enterprise.type === 'RESTAURANTE' ? 'Restaurante' : 'Cantina'}
                               {enterprise.attachedSchoolName && ` • ${enterprise.attachedSchoolName}`}
                             </p>
@@ -567,11 +577,11 @@ const AppContent: React.FC<any> = (props) => {
                     ))}
                   </div>
 
-                  <div className="flex gap-3 pt-4 border-t">
+                  <div className="flex gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
                     <Link
                       to="/enterprises"
                       onClick={() => setShowEnterpriseSelector(false)}
-                      className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold text-sm hover:bg-gray-200 transition-all flex items-center justify-center gap-2"
+                      className="flex-1 px-4 py-3 bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-100 rounded-xl font-bold text-sm hover:bg-gray-200 dark:hover:bg-slate-700 transition-all flex items-center justify-center gap-2"
                     >
                       <Plus size={18} />
                       Criar Nova Unidade
@@ -590,7 +600,7 @@ const SidebarItem: React.FC<any> = ({ icon, label, to, isOpen }) => {
   const location = useLocation();
   const isActive = location.pathname === to;
   return (
-    <Link to={to} className={`flex items-center p-3 rounded-xl transition-all duration-200 group ${isActive ? 'bg-indigo-600 text-white shadow-xl' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${!isOpen && 'justify-center'}`}>
+    <Link to={to} className={`flex items-center p-3 rounded-xl transition-all duration-200 group border-l-2 ${isActive ? 'bg-indigo-600/90 dark:bg-white/5 text-white border-emerald-400 shadow-xl' : 'text-zinc-400 border-transparent hover:bg-slate-800 dark:hover:bg-white/5 hover:text-white'} ${!isOpen && 'justify-center'}`}>
       <div className={`${isActive ? 'text-white' : 'group-hover:scale-110 transition-transform'}`}>{icon}</div>
       {isOpen && <span className="ml-3 font-bold text-[13px] tracking-tight">{label}</span>}
     </Link>

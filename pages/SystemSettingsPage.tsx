@@ -53,27 +53,27 @@ const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({ currentUser }) 
   };
 
   return (
-    <div className="space-y-6">
+    <div className="system-settings-shell space-y-6 p-6 animate-in fade-in duration-500">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-black text-gray-800 flex items-center gap-2">
+        <h1 className="text-2xl font-black text-gray-800 dark:text-zinc-100 flex items-center gap-2">
           <Settings className="text-indigo-600" />
           Configurações do Sistema
         </h1>
-        <p className="text-sm text-gray-500 font-medium mt-1">
+        <p className="text-sm text-gray-500 dark:text-zinc-400 font-medium mt-1">
           Gerenciamento e controle do sistema
         </p>
       </div>
 
       {/* Info Card */}
-      <div className="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-3xl p-6">
+      <div className="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-3xl p-6 dark:from-zinc-900 dark:to-zinc-900 dark:border-white/10 dark:ring-1 dark:ring-white/5">
         <div className="flex items-start gap-4">
-          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm">
+          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm dark:bg-zinc-800">
             <Shield className="text-indigo-600" size={24} />
           </div>
           <div className="flex-1">
-            <h3 className="text-lg font-black text-gray-800 mb-2">Área Restrita - SUPERADMIN</h3>
-            <p className="text-sm text-gray-600 leading-relaxed">
+            <h3 className="text-lg font-black text-gray-800 dark:text-zinc-100 mb-2">Área Restrita - SUPERADMIN</h3>
+            <p className="text-sm text-gray-600 dark:text-zinc-300 leading-relaxed">
               Esta área contém configurações críticas do sistema. As ações realizadas aqui afetam 
               todos os usuários e empresas da plataforma. Proceda com cautela.
             </p>
@@ -82,13 +82,13 @@ const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({ currentUser }) 
       </div>
 
       {/* Database Management */}
-      <div className="bg-white rounded-3xl border shadow-sm overflow-hidden">
-        <div className="p-6 border-b bg-gray-50">
+      <div className="bg-white rounded-3xl border shadow-sm overflow-hidden dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
+        <div className="p-6 border-b bg-gray-50 dark:bg-zinc-900 dark:border-white/10">
           <div className="flex items-center gap-3">
-            <Database className="text-gray-700" size={24} />
+            <Database className="text-gray-700 dark:text-zinc-300" size={24} />
             <div>
-              <h2 className="text-lg font-black text-gray-800">Gerenciamento da Database</h2>
-              <p className="text-xs text-gray-500 font-medium">Controle total do banco de dados</p>
+              <h2 className="text-lg font-black text-gray-800 dark:text-zinc-100">Gerenciamento da Database</h2>
+              <p className="text-xs text-gray-500 dark:text-zinc-400 font-medium">Controle total do banco de dados</p>
             </div>
           </div>
         </div>
@@ -140,44 +140,44 @@ const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({ currentUser }) 
                   incluindo empresas, usuários, produtos, clientes, planos, fornecedores, pedidos, transações e ingredientes.
                 </p>
                 
-                <div className="bg-white border border-red-200 rounded-xl p-4 mb-4">
+                <div className="bg-white border border-red-200 rounded-xl p-4 mb-4 dark:bg-zinc-900 dark:border-rose-500/30">
                   <p className="text-xs font-black text-red-900 uppercase tracking-widest mb-2">⚠️ Dados que serão apagados:</p>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="flex items-center gap-2">
                       <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>
-                      <span className="text-xs font-bold text-gray-700">Empresas</span>
+                      <span className="text-xs font-bold text-gray-700 dark:text-zinc-300">Empresas</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>
-                      <span className="text-xs font-bold text-gray-700">Usuários</span>
+                      <span className="text-xs font-bold text-gray-700 dark:text-zinc-300">Usuários</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>
-                      <span className="text-xs font-bold text-gray-700">Produtos</span>
+                      <span className="text-xs font-bold text-gray-700 dark:text-zinc-300">Produtos</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>
-                      <span className="text-xs font-bold text-gray-700">Clientes</span>
+                      <span className="text-xs font-bold text-gray-700 dark:text-zinc-300">Clientes</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>
-                      <span className="text-xs font-bold text-gray-700">Planos</span>
+                      <span className="text-xs font-bold text-gray-700 dark:text-zinc-300">Planos</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>
-                      <span className="text-xs font-bold text-gray-700">Fornecedores</span>
+                      <span className="text-xs font-bold text-gray-700 dark:text-zinc-300">Fornecedores</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>
-                      <span className="text-xs font-bold text-gray-700">Pedidos</span>
+                      <span className="text-xs font-bold text-gray-700 dark:text-zinc-300">Pedidos</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>
-                      <span className="text-xs font-bold text-gray-700">Transações</span>
+                      <span className="text-xs font-bold text-gray-700 dark:text-zinc-300">Transações</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>
-                      <span className="text-xs font-bold text-gray-700">Ingredientes</span>
+                      <span className="text-xs font-bold text-gray-700 dark:text-zinc-300">Ingredientes</span>
                     </div>
                   </div>
                 </div>
@@ -212,13 +212,13 @@ const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({ currentUser }) 
       {/* Modal de Confirmação de Reset */}
       {isResetModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border-4 border-red-500 animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border-4 border-red-500 animate-in zoom-in-95 duration-200 dark:bg-zinc-900 dark:border-rose-500/40">
             <div className="flex items-center gap-3 mb-6">
               <div className="w-12 h-12 bg-red-100 rounded-2xl flex items-center justify-center">
                 <AlertTriangle className="text-red-600" size={24} />
               </div>
               <div>
-                <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight">Resetar Database</h3>
+                <h3 className="text-xl font-black text-gray-800 dark:text-zinc-100 uppercase tracking-tight">Resetar Database</h3>
                 <p className="text-xs text-red-600 font-bold uppercase tracking-widest">Ação irreversível</p>
               </div>
             </div>
@@ -235,14 +235,14 @@ const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({ currentUser }) 
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-black text-gray-600 uppercase tracking-widest">
+                <label className="text-xs font-black text-gray-600 dark:text-zinc-400 uppercase tracking-widest">
                   Digite "RESETAR TUDO" para confirmar:
                 </label>
                 <input
                   type="text"
                   value={resetConfirmText}
                   onChange={(e) => setResetConfirmText(e.target.value)}
-                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl font-bold text-center uppercase focus:border-red-500 focus:outline-none"
+                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl font-bold text-center uppercase focus:border-red-500 focus:outline-none dark:bg-zinc-800 dark:border-white/10 dark:text-zinc-100"
                   placeholder="RESETAR TUDO"
                 />
               </div>

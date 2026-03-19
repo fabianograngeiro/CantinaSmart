@@ -11,15 +11,16 @@ import {
   Building, ChevronDown, CheckCircle2, Store, ListFilter,
   Tag, UserCircle, Eye, X, Trash2, Pencil
 } from 'lucide-react';
-import { Enterprise, TransactionRecord } from '../types';
+import { Client, Enterprise, TransactionRecord } from '../types';
 import { ApiService } from '../services/api';
+import { formatPhoneWithCountryTag } from '../utils/phone';
 
 interface UnitSalesTransactionsPageProps {
   activeEnterprise: Enterprise;
   transactions: TransactionRecord[];
 }
 
-type TimeFilter = 'ALLTIME' | 'TODAY' | '7DAYS' | 'MONTH' | 'YEAR' | 'CUSTOM';
+type TimeFilter = 'TODAY' | '7DAYS' | 'MONTH' | 'YEAR' | 'CUSTOM';
 type TransactionType = 'ALL' | 'CONSUMO' | 'VENDA_BALCAO' | 'CREDITO';
 type EditCartItem = {
   id: string;
@@ -158,16 +159,16 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="dash-shell transactions-shell max-w-[1600px] min-h-screen flex items-center justify-center">
         <div className="text-center space-y-4">
           <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full"></div>
-          <p className="text-gray-600 font-medium">Carregando transações...</p>
+          <p className="text-gray-600 dark:text-zinc-300 font-medium">Carregando transações...</p>
         </div>
       </div>
     );
   }
 
-  const [timeFilter, setTimeFilter] = useState<TimeFilter>('ALLTIME');
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>('TODAY');
   const [typeFilter, setTypeFilter] = useState<TransactionType>('ALL');
   const [planFilter, setPlanFilter] = useState<string>('ALL');
   const [startDate, setStartDate] = useState('');
@@ -175,6 +176,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTransaction, setSelectedTransaction] = useState<ExtendedTransactionRecord | null>(null);
   const [backendTransactions, setBackendTransactions] = useState<ExtendedTransactionRecord[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [editingTransaction, setEditingTransaction] = useState<ExtendedTransactionRecord | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -271,6 +273,26 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
     loadBackendTransactions();
   }, [activeEnterprise?.id, reloadTransactionsKey]);
+
+  useEffect(() => {
+    const enterpriseId = activeEnterprise?.id;
+    if (!enterpriseId) {
+      setClients([]);
+      return;
+    }
+    let mounted = true;
+    ApiService.getClients(enterpriseId)
+      .then((list) => {
+        if (!mounted) return;
+        setClients(Array.isArray(list) ? list : []);
+      })
+      .catch((err) => {
+        console.error('Erro ao carregar clientes para relatório de transações:', err);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [activeEnterprise?.id]);
 
   useEffect(() => {
     const enterpriseId = activeEnterprise?.id;
@@ -394,6 +416,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
   const parseTransactionDate = (row: ExtendedTransactionRecord): Date | null => {
     return parseDateOnly(row?.date);
+  };
+
+  const readTxAmount = (tx: any) => {
+    const raw = Number(tx?.amount ?? tx?.total ?? tx?.value ?? 0);
+    return Number.isFinite(raw) ? raw : 0;
   };
 
   const isCreditTransaction = (row: ExtendedTransactionRecord | null) => {
@@ -875,8 +902,6 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
       if (!rowDate) {
         matchesTime = false;
-      } else if (timeFilter === 'ALLTIME') {
-        matchesTime = true;
       } else if (timeFilter === 'TODAY') {
         matchesTime = rowDate >= todayStart && rowDate <= todayEnd;
       } else if (timeFilter === '7DAYS') {
@@ -911,7 +936,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   const totalConsumptionDiscountFiltered = useMemo(() => {
     return filteredTransactions
       .filter((t) => t.type === 'CONSUMO')
-      .reduce((sum, t) => sum + Number(t.total || t.value || 0), 0);
+      .reduce((sum, t) => sum + readTxAmount(t), 0);
   }, [filteredTransactions]);
 
   const monthlyTicketAverage = useMemo(() => {
@@ -925,14 +950,14 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
     if (monthlySales.length === 0) return 0;
 
-    const totalSales = monthlySales.reduce((sum, tx) => sum + Number(tx.total || tx.value || 0), 0);
+    const totalSales = monthlySales.reduce((sum, tx) => sum + readTxAmount(tx), 0);
     return totalSales / monthlySales.length;
   }, [sourceTransactions]);
 
   const ticketAverageRevenueFiltered = useMemo(() => {
     const revenueTransactions = filteredTransactions.filter((t) => t.type === 'CREDITO' || t.type === 'VENDA_BALCAO');
     if (revenueTransactions.length === 0) return 0;
-    const total = revenueTransactions.reduce((sum, t) => sum + Number(t.total || t.value || 0), 0);
+    const total = revenueTransactions.reduce((sum, t) => sum + readTxAmount(t), 0);
     return total / revenueTransactions.length;
   }, [filteredTransactions]);
 
@@ -953,7 +978,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       formatTransactionItemsForExport(t),
       t.type,
       t.method,
-      (t.value || t.total || 0).toFixed(2),
+      readTxAmount(t).toFixed(2),
       t.status
     ]);
 
@@ -980,75 +1005,448 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       format: 'a4'
     });
 
-    const tableColumn = ["ID", "Data/Hora", "Referência", "Cliente", "Plano", "Itens Detalhados", "Tipo", "Valor", "Status"];
-    const tableRows = filteredTransactions.map(t => [
-      t.id,
-      `${formatDateBr(t.date)} ${t.time}`,
-      formatDateBr(t.referenceDate) || '-',
-      t.client,
-      t.plan,
-      formatTransactionItemsForExport(t),
-      t.type.replace('_', ' '),
-      (t.value || t.total || 0) > 0 ? `R$ ${(t.value || t.total || 0).toFixed(2)}` : 'BAIXA PACOTE',
-      t.status
-    ]);
+    const formatCurrencyBr = (value: number) =>
+      `R$ ${Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const formatNumber = (value: number) =>
+      Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
-    // Cabeçalho da Empresa
-    doc.setFontSize(18);
-    doc.setTextColor(79, 70, 229); // Indigo 600
-    doc.text(activeEnterprise.name, 14, 15);
-    
-    doc.setFontSize(10);
-    doc.setTextColor(100);
+    const safePlanName = (value?: string) => {
+      const normalized = String(value || '').trim();
+      if (!normalized) return 'PRÉ-PAGA';
+      const upper = normalized.toUpperCase();
+      if (['AVULSO', 'N/A', 'SEM PLANO', 'PREPAGO', 'PRÉ-PAGA', 'GERAL'].includes(upper)) return 'PRÉ-PAGA';
+      return normalized;
+    };
+
+    const periodLabel = timeFilter === 'TODAY'
+      ? 'Hoje'
+      : timeFilter === '7DAYS'
+        ? '7 Dias'
+        : timeFilter === 'MONTH'
+          ? 'Mês'
+          : timeFilter === 'YEAR'
+            ? 'Ano'
+            : 'Customizado';
+    const typeFilterLabel = typeFilter === 'ALL'
+      ? 'Todos'
+      : typeFilter === 'CREDITO'
+        ? 'Crédito'
+        : typeFilter === 'CONSUMO'
+          ? 'Consumo'
+          : 'Venda balcão';
+    const planFilterLabel = planFilter === 'ALL' ? 'Todos' : String(planFilter || '').replace(/_/g, ' ');
+
+    const reportClientIds = new Set(
+      filteredTransactions
+        .map((tx) => String(tx.clientId || '').trim())
+        .filter(Boolean)
+    );
+    const reportClients = clients.filter((client) => reportClientIds.has(String(client.id)));
+
+    const studentsInReport = reportClients.filter((client) => String(client.type).toUpperCase() === 'ALUNO');
+    const responsibleNames = Array.from(new Set(
+      studentsInReport
+        .map((client) => String(client.parentName || '').trim())
+        .filter(Boolean)
+    ));
+    const studentNames = Array.from(new Set(studentsInReport.map((client) => String(client.name || '').trim()).filter(Boolean)));
+    const planUnitPriceByName = new Map<string, number>();
+    (Array.isArray(editPlans) ? editPlans : []).forEach((plan: any) => {
+      const key = normalizeSearchText(String(plan?.name || ''));
+      if (!key) return;
+      const price = Number(plan?.price || 0);
+      if (Number.isFinite(price) && price > 0) {
+        planUnitPriceByName.set(key, price);
+      }
+    });
+    const responsibleContacts = Array.from(
+      new Map(
+        studentsInReport
+          .map((student) => {
+            const name = String(student.parentName || '').trim();
+            const phone = String(student.parentWhatsapp || student.guardianPhone || '').trim();
+            if (!name && !phone) return null;
+            return [`${name}|${phone}`, { name, phone }];
+          })
+          .filter(Boolean) as Array<[string, { name: string; phone: string }]>
+      ).values()
+    );
+
+    const creditByPlanMap = new Map<string, number>();
+    const consumedQtyByPlanMap = new Map<string, number>();
+    const consumedValueByPlanMap = new Map<string, number>();
+    const planGroups = new Map<string, ExtendedTransactionRecord[]>();
+    const isReversalTx = (tx: ExtendedTransactionRecord) => {
+      const description = normalizeSearchText(String(tx.description || tx.item || tx.raw?.description || ''));
+      return description.includes('estorno');
+    };
+    const classifyTxKind = (tx: ExtendedTransactionRecord): 'CREDITO' | 'CONSUMO' | 'ESTORNO' | 'CREDITO_ESTORNO' => {
+      const isReversal = isReversalTx(tx);
+      if (isReversal && tx.type === 'CREDITO') return 'CREDITO_ESTORNO';
+      if (isReversal) return 'ESTORNO';
+      if (tx.type === 'CREDITO') return 'CREDITO';
+      return 'CONSUMO';
+    };
+
+    filteredTransactions.forEach((tx) => {
+      const amount = readTxAmount(tx);
+      const planName = safePlanName(tx.plan);
+      const kind = classifyTxKind(tx);
+      if (!planGroups.has(planName)) planGroups.set(planName, []);
+      planGroups.get(planName)!.push(tx);
+
+      if (kind === 'CREDITO' || kind === 'CREDITO_ESTORNO') {
+        creditByPlanMap.set(planName, (creditByPlanMap.get(planName) || 0) + amount);
+      }
+      if (kind === 'CONSUMO' || kind === 'ESTORNO') {
+        const itemDetails = getTransactionItemDetails(tx);
+        const qty = itemDetails.length > 0
+          ? itemDetails.reduce((acc, item) => acc + Number(item.quantity || 0), 0)
+          : Math.max(1, Number(tx.quantity || 1));
+        consumedQtyByPlanMap.set(planName, (consumedQtyByPlanMap.get(planName) || 0) + qty);
+        consumedValueByPlanMap.set(planName, (consumedValueByPlanMap.get(planName) || 0) + Math.abs(amount));
+      }
+    });
+
+    const resolvePlanCurrentBalanceInfo = (planName: string) => {
+      const normalizedPlan = normalizeSearchText(planName);
+      if (normalizedPlan === normalizeSearchText('PRÉ-PAGA') || normalizedPlan === normalizeSearchText('PREPAGA')) {
+        const saldoCantina = reportClients.reduce((acc, client) => acc + Number(client.balance || 0), 0);
+        const consumedTotal = Number(consumedValueByPlanMap.get(planName) || 0);
+        return {
+          mode: 'PREPAGA' as const,
+          consumedTotal,
+          saldoQty: 0,
+          saldoValue: saldoCantina,
+        };
+      }
+
+      let saldoMoney = 0;
+      reportClients.forEach((client) => {
+        const balances = (client as any)?.planCreditBalances || {};
+        Object.values(balances).forEach((entry: any) => {
+          const entryName = normalizeSearchText(String(entry?.planName || ''));
+          if (entryName === normalizedPlan) {
+            saldoMoney += Number(entry?.balance || 0);
+          }
+        });
+      });
+
+      const planRows = (planGroups.get(planName) || []);
+      const creditedRows = planRows.filter((tx) => {
+        const kind = classifyTxKind(tx);
+        return kind === 'CREDITO' || kind === 'CREDITO_ESTORNO';
+      });
+      let unitAccumulator = 0;
+      let qtyAccumulator = 0;
+      creditedRows.forEach((tx) => {
+        const qty = Math.max(1, Number(tx.quantity || tx.raw?.quantity || 1));
+        const amount = Math.abs(readTxAmount(tx));
+        if (qty > 0 && amount > 0) {
+          unitAccumulator += amount;
+          qtyAccumulator += qty;
+        }
+      });
+      const definedPlanUnit = Number(planUnitPriceByName.get(normalizedPlan) || 0);
+      const unitValue = definedPlanUnit > 0
+        ? definedPlanUnit
+        : (qtyAccumulator > 0 ? (unitAccumulator / qtyAccumulator) : 0);
+      const saldoValue = Number(saldoMoney || 0);
+      const saldoQty = unitValue > 0 ? (saldoValue / unitValue) : 0;
+      const consumedQty = Number(consumedQtyByPlanMap.get(planName) || 0);
+      const consumedTotalRaw = Number(consumedValueByPlanMap.get(planName) || 0);
+      const consumedTotal = consumedTotalRaw > 0 ? consumedTotalRaw : (consumedQty * unitValue);
+
+      return {
+        mode: 'PLANO' as const,
+        consumedQty,
+        consumedTotal,
+        saldoQty,
+        saldoValue,
+      };
+    };
+
+    const totalCredits = filteredTransactions
+      .filter((tx) => {
+        const kind = classifyTxKind(tx);
+        return kind === 'CREDITO' || kind === 'CREDITO_ESTORNO';
+      })
+      .reduce((acc, tx) => acc + Math.abs(readTxAmount(tx)), 0);
+    const totalConsumption = filteredTransactions
+      .filter((tx) => {
+        const kind = classifyTxKind(tx);
+        return kind === 'CONSUMO' || kind === 'ESTORNO';
+      })
+      .reduce((acc, tx) => acc + Math.abs(readTxAmount(tx)), 0);
+    const finalBalance = totalCredits - totalConsumption;
+
+    doc.setFillColor(37, 99, 235);
+    doc.rect(0, 0, 297, 16, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text('EXTRATO DE TRANSAÇÕES DA UNIDADE', 14, 10.4);
+
+    const logoSize = 16;
+    const logoX = 14;
+    const logoY = 20;
+    doc.setDrawColor(203, 213, 225);
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(logoX, logoY, logoSize, logoSize, 2, 2, 'FD');
+    const enterpriseLogo = String((activeEnterprise as any)?.logo || '').trim();
+    if (enterpriseLogo.startsWith('data:image/')) {
+      try {
+        const imageType = enterpriseLogo.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+        doc.addImage(enterpriseLogo, imageType, logoX + 1.1, logoY + 1.1, logoSize - 2.2, logoSize - 2.2);
+      } catch {
+        doc.setTextColor(51, 65, 85);
+        doc.setFontSize(8.5);
+        doc.setFont('helvetica', 'bold');
+        doc.text('CA', logoX + (logoSize / 2), logoY + 10, { align: 'center' });
+      }
+    } else {
+      doc.setTextColor(51, 65, 85);
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'bold');
+      doc.text('CA', logoX + (logoSize / 2), logoY + 10, { align: 'center' });
+    }
+
+    doc.setTextColor(15, 23, 42);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(15);
+    doc.text(activeEnterprise.name, logoX + logoSize + 4, 26.8);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.6);
     const enterpriseInfo = [
       activeEnterprise.attachedSchoolName ? `Escola: ${activeEnterprise.attachedSchoolName}` : null,
-      activeEnterprise.address ? `Endereço: ${activeEnterprise.address}` : null,
-      activeEnterprise.phone1 ? `WhatsApp: ${activeEnterprise.phone1}` : null
-    ].filter(Boolean).join(' | ');
-    
-    doc.text(enterpriseInfo, 14, 20);
+      activeEnterprise.phone1 ? `Contato: ${formatPhoneWithCountryTag(activeEnterprise.phone1, '-')}` : null,
+      activeEnterprise.address ? activeEnterprise.address : null,
+    ].filter(Boolean).join(' • ');
+    const enterpriseInfoLines = doc.splitTextToSize(enterpriseInfo || '-', 247);
+    doc.text(enterpriseInfoLines, logoX + logoSize + 4, 32.5);
+    const enterpriseBottomY = 32.5 + ((enterpriseInfoLines.length - 1) * 3.9);
 
-    doc.setDrawColor(230);
-    doc.line(14, 23, 283, 23);
+    const infoBoxY = enterpriseBottomY + 4;
+    const infoBoxHeight = 23;
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(14, infoBoxY, 269, infoBoxHeight, 2.5, 2.5, 'FD');
 
-    doc.setFontSize(14);
-    doc.setTextColor(0);
-    doc.text("Relatório de Consumo e Vendas da Unidade", 14, 32);
-    
-    doc.setFontSize(9);
-    doc.setTextColor(100);
-    const periodLabel = timeFilter === 'ALLTIME'
-      ? 'Todos'
-      : timeFilter === 'TODAY'
-        ? 'Hoje'
-        : timeFilter === '7DAYS'
-          ? '7 Dias'
-          : timeFilter === 'MONTH'
-            ? 'Mês'
-            : timeFilter === 'YEAR'
-              ? 'Ano'
-              : 'Customizado';
-    doc.text(`Filtros: Período: ${periodLabel} | Tipo: ${typeFilter} | Plano: ${planFilter}`, 14, 37);
+    doc.setTextColor(15, 23, 42);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.7);
+    doc.text(`Responsável(is): ${responsibleNames.join(', ') || '-'}`, 17, infoBoxY + 6.3);
 
-    // Resumo financeiro do relatório PDV
-    doc.setDrawColor(224, 231, 255);
-    doc.setFillColor(248, 250, 255);
-    doc.roundedRect(14, 40, 269, 12, 2, 2, 'FD');
-    doc.setFontSize(9);
-    doc.setTextColor(31, 41, 55);
-    doc.text(`Total Receitas: R$ ${totalRevenueFiltered.toFixed(2)}`, 18, 47.5);
-    doc.text(`Total Consumo: R$ ${totalConsumptionDiscountFiltered.toFixed(2)}`, 108, 47.5);
-    doc.text(`Ticket Médio (Receitas): R$ ${ticketAverageRevenueFiltered.toFixed(2)}`, 193, 47.5);
+    const responsibleLine = responsibleContacts.length > 0
+      ? responsibleContacts.map((resp) => `${resp.name || 'Responsável'} (${formatPhoneWithCountryTag(resp.phone, '-')})`).join(' | ')
+      : '-';
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.2);
+    const respLines = doc.splitTextToSize(`Contato responsável: ${responsibleLine}`, 175);
+    doc.text(respLines.slice(0, 2), 17, infoBoxY + 11.3);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.1);
+    const studentLabel = `Aluno(s): ${studentNames.join(', ') || '-'}`;
+    const studentLabelLines = doc.splitTextToSize(studentLabel, 82);
+    doc.text(studentLabelLines.slice(0, 2), 196, infoBoxY + 7.2);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.1);
+    doc.text(`Filtro: ${periodLabel} | Tipo: ${typeFilterLabel} | Plano: ${planFilterLabel}`, 14, infoBoxY + infoBoxHeight + 6);
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 283, infoBoxY + infoBoxHeight + 6, { align: 'right' });
+
+    const summaryTopY = infoBoxY + infoBoxHeight + 9;
+
+    const tableColumn = ['Data/Hora', 'Descrição', 'Tipo', 'Valor', 'Status'];
+    const orderedPlans = Array.from(planGroups.keys()).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    const tableRows: any[] = [];
+    const planSummaryCards: Array<{ planName: string; consumedText: string; balanceText: string; isPrepaid: boolean }> = [];
+
+    const drawPlanSummaryCards = (x: number, y: number) => {
+      if (planSummaryCards.length === 0) return y;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(30, 64, 175);
+      doc.text('Resumo por plano', x, y);
+
+      const cardWidth = 85;
+      const cardHeight = 21;
+      const gapX = 6;
+      const gapY = 5;
+      const cols = 3;
+      const startY = y + 4;
+
+      planSummaryCards.forEach((summary, index) => {
+        const row = Math.floor(index / cols);
+        const col = index % cols;
+        const cardX = x + col * (cardWidth + gapX);
+        const cardY = startY + row * (cardHeight + gapY);
+
+        if (summary.isPrepaid) {
+          doc.setFillColor(255, 247, 237);
+          doc.setDrawColor(251, 146, 60);
+        } else {
+          doc.setFillColor(239, 246, 255);
+          doc.setDrawColor(96, 165, 250);
+        }
+        doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 2.5, 2.5, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(30, 41, 59);
+        const title = doc.splitTextToSize(summary.planName, cardWidth - 6);
+        doc.text(title[0] || '-', cardX + 3, cardY + 5.8);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.4);
+        doc.setTextColor(51, 65, 85);
+        const consumedLines = doc.splitTextToSize(summary.consumedText, cardWidth - 6);
+        doc.text(consumedLines[0] || '-', cardX + 3, cardY + 11.5);
+        const balanceLines = doc.splitTextToSize(summary.balanceText, cardWidth - 6);
+        doc.text(balanceLines[0] || '-', cardX + 3, cardY + 16.8);
+      });
+
+      const rows = Math.ceil(planSummaryCards.length / cols);
+      return startY + rows * cardHeight + (rows - 1) * gapY;
+    };
+
+    orderedPlans.forEach((planName) => {
+      const entries = (planGroups.get(planName) || []).slice().sort((a, b) => {
+        const ad = parseTransactionDate(a)?.getTime() || 0;
+        const bd = parseTransactionDate(b)?.getTime() || 0;
+        return bd - ad;
+      });
+      const balanceInfo = resolvePlanCurrentBalanceInfo(planName);
+
+      const consumedText = balanceInfo.mode === 'PREPAGA'
+        ? `Consumo: ${formatCurrencyBr(balanceInfo.consumedTotal)}`
+        : `Consumido: ${formatNumber(balanceInfo.consumedQty || 0)} un. (${formatCurrencyBr(balanceInfo.consumedTotal)})`;
+      const balanceText = balanceInfo.mode === 'PREPAGA'
+        ? `Saldo atual: ${formatCurrencyBr(balanceInfo.saldoValue)}`
+        : `Saldo atual: ${formatNumber(balanceInfo.saldoQty || 0)} un. (${formatCurrencyBr(Number(balanceInfo.saldoValue || 0))})`;
+      planSummaryCards.push({
+        planName,
+        consumedText,
+        balanceText,
+        isPrepaid: balanceInfo.mode === 'PREPAGA',
+      });
+
+      tableRows.push([
+        {
+          content: `PLANO: ${planName}`,
+          colSpan: 5,
+          styles: {
+            fillColor: [219, 234, 254],
+            textColor: [30, 64, 175],
+            fontStyle: 'bold',
+            minCellHeight: 7.2,
+            halign: 'left',
+          },
+        },
+      ]);
+
+      entries.forEach((t) => {
+        const amount = readTxAmount(t);
+        const kind = classifyTxKind(t);
+        const isCredit = kind === 'CREDITO' || kind === 'CREDITO_ESTORNO';
+        const valueLabel = `${isCredit ? '+' : '-'} R$ ${Math.abs(amount).toFixed(2)}`;
+        const baseDescription = formatTransactionItemsForExport(t) || String(t.description || t.item || '-');
+        const referenceDateLabel = formatDateBr(t.referenceDate) || formatDateBr(t.date) || '-';
+        const decoratedDescription = kind === 'ESTORNO'
+          ? `[ESTORNO] ${baseDescription}`
+          : kind === 'CREDITO_ESTORNO'
+            ? `[CRÉDITO DE ESTORNO • Ref. ${referenceDateLabel}] ${baseDescription}`
+            : baseDescription;
+        const typeLabel = kind === 'ESTORNO'
+          ? 'ESTORNO'
+          : kind === 'CREDITO_ESTORNO'
+            ? 'CRÉDITO/ESTORNO'
+            : t.type.replace('_', ' ');
+        tableRows.push([
+          `${formatDateBr(t.date)} ${t.time}`,
+          decoratedDescription,
+          typeLabel,
+          valueLabel,
+          t.status,
+        ]);
+      });
+    });
+
+    const tableStartY = drawPlanSummaryCards(14, summaryTopY) + 6;
 
     autoTable(doc, {
       head: [tableColumn],
       body: tableRows,
-      startY: 55,
+      startY: tableStartY,
       theme: 'grid',
-      styles: { fontSize: 8, cellPadding: 3 },
-      headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [245, 247, 250] }
+      styles: { fontSize: 8, cellPadding: 2.8, overflow: 'linebreak' },
+      headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
+      columnStyles: {
+        0: { cellWidth: 28 },
+        1: { cellWidth: 150 },
+        2: { cellWidth: 27, halign: 'center' },
+        3: { cellWidth: 28, halign: 'right' },
+        4: { cellWidth: 30, halign: 'center' },
+      },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      didParseCell: (hook) => {
+        if (hook.section !== 'body') return;
+        const row = hook.row.raw as any[];
+        if (Array.isArray(row) && row.length === 1 && row[0]?.colSpan) return;
+        const rawType = String((row?.[2] || '')).toUpperCase();
+        const normalizedType = normalizeSearchText(rawType).toUpperCase();
+        if (normalizedType.includes('ESTORNO') && !normalizedType.includes('CREDITO')) {
+          if (hook.column.index === 2 || hook.column.index === 3) {
+            hook.cell.styles.textColor = [180, 83, 9];
+          }
+        } else if (normalizedType.includes('CONSUMO') || normalizedType.includes('DEBIT')) {
+          if (hook.column.index === 2 || hook.column.index === 3) {
+            hook.cell.styles.textColor = [185, 28, 28];
+          }
+        } else if (normalizedType.includes('CREDITO')) {
+          if (hook.column.index === 2 || hook.column.index === 3) {
+            hook.cell.styles.textColor = [21, 128, 61];
+          }
+        }
+      },
     });
+
+    const tableFinalY = (doc as any).lastAutoTable?.finalY || tableStartY + 8;
+    const cardYBase = tableFinalY + 6;
+    const cardHeight = 14;
+    const cardWidth = 86;
+    const pageBottom = doc.internal.pageSize.getHeight() - 14;
+    const totalsY = (cardYBase + cardHeight > pageBottom) ? 194 : cardYBase;
+    if (totalsY === 194) {
+      doc.addPage();
+    }
+    const drawTotalCard = (x: number, y: number, title: string, value: string, tone: 'green' | 'red' | 'blue') => {
+      if (tone === 'green') {
+        doc.setFillColor(236, 253, 245);
+        doc.setDrawColor(134, 239, 172);
+        doc.setTextColor(21, 128, 61);
+      } else if (tone === 'red') {
+        doc.setFillColor(254, 242, 242);
+        doc.setDrawColor(252, 165, 165);
+        doc.setTextColor(185, 28, 28);
+      } else {
+        doc.setFillColor(239, 246, 255);
+        doc.setDrawColor(147, 197, 253);
+        doc.setTextColor(30, 64, 175);
+      }
+      doc.roundedRect(x, y, cardWidth, cardHeight, 2.8, 2.8, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.1);
+      doc.text(title, x + 3.5, y + 5.2);
+      doc.setFontSize(10.2);
+      doc.text(value, x + 3.5, y + 10.7);
+    };
+
+    drawTotalCard(14, totalsY, 'Total Créditos', formatCurrencyBr(totalCredits), 'green');
+    drawTotalCard(105, totalsY, 'Total Consumo', formatCurrencyBr(totalConsumption), 'red');
+    drawTotalCard(196, totalsY, 'Saldo Final', formatCurrencyBr(finalBalance), 'blue');
 
     const pageCount = (doc as any).internal.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
@@ -1067,7 +1465,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   };
 
   return (
-    <div className="dash-shell">
+    <div className="dash-shell transactions-shell">
       
       {/* Header Contextual */}
       <header className="dash-header">
@@ -1187,7 +1585,6 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                     onChange={e => setTimeFilter(e.target.value as TimeFilter)}
                     className="w-full px-5 py-3 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-black text-[10px] uppercase tracking-widest appearance-none cursor-pointer"
                   >
-                     <option value="ALLTIME">Todos os períodos</option>
                      <option value="TODAY">Hoje</option>
                      <option value="7DAYS">Últimos 7 dias</option>
                      <option value="MONTH">Mês Atual</option>
@@ -1361,7 +1758,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       </div>
 
       {/* SUMÁRIO RÁPIDO NO RODAPÉ */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-in fade-in duration-700">
+      <div className="grid grid-cols-1 gap-6 animate-in fade-in duration-700">
          <QuickSummaryCard label="Total Receitas R$" value={`R$ ${totalRevenueFiltered.toFixed(2)}`} sub="Entradas conforme filtros selecionados" icon={<Store />} color="bg-emerald-600" />
          <QuickSummaryCard label="Total Descontos de Consumos R$" value={`R$ ${totalConsumptionDiscountFiltered.toFixed(2)}`} sub="Saídas de consumo conforme filtros" icon={<Sparkles />} color="bg-indigo-600" />
          <QuickSummaryCard label="Ticket Médio Mês" value={`R$ ${monthlyTicketAverage.toFixed(2)}`} sub="Vendas do mês (balcão)" icon={<DollarSign />} color="bg-slate-900" />
@@ -1880,16 +2277,16 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 };
 
 const QuickSummaryCard = ({ label, value, sub, icon, color }: any) => (
-  <div className={`${color} w-full p-5 rounded-[28px] text-white shadow-xl flex items-center justify-between group overflow-hidden relative border-b-4 border-black/10 min-h-[120px]`}>
+  <div className={`${color} w-full p-8 rounded-[40px] text-white shadow-2xl flex items-center justify-between group overflow-hidden relative border-b-8 border-black/10`}>
      <div className="relative z-10">
-        <p className="text-[9px] font-black uppercase tracking-[2px] opacity-70 mb-1">{label}</p>
-        <p className="text-2xl font-black tracking-tight mb-0.5 leading-none">{value}</p>
-        <p className="text-[9px] font-bold opacity-50 uppercase tracking-wide leading-tight">{sub}</p>
+        <p className="text-[10px] font-black uppercase tracking-[3px] opacity-60 mb-2">{label}</p>
+        <p className="text-3xl font-black tracking-tighter mb-1">{value}</p>
+        <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest">{sub}</p>
      </div>
-     <div className="p-3 bg-white/10 rounded-2xl backdrop-blur-md relative z-10 group-hover:scale-105 transition-transform duration-300">
-        {React.cloneElement(icon as React.ReactElement, { size: 24 })}
+     <div className="p-5 bg-white/10 rounded-[28px] backdrop-blur-md relative z-10 group-hover:scale-110 transition-transform duration-500">
+        {React.cloneElement(icon as React.ReactElement, { size: 32 })}
      </div>
-     <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full -mr-12 -mt-12 blur-xl"></div>
+     <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-2xl"></div>
   </div>
 );
 

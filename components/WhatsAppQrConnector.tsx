@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, MessageCircle, Power, QrCode, RefreshCw, Settings, X, Clock3, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, MessageCircle, Power, QrCode, RefreshCw, Settings, Clock3, CheckCircle2 } from 'lucide-react';
 import ApiService from '../services/api';
 
 type WhatsAppQrSnapshot = {
@@ -40,6 +40,8 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
   const [endDateInput, setEndDateInput] = useState('');
   const [syncFullHistory, setSyncFullHistory] = useState(true);
   const hasInitializedRef = useRef(false);
+  const isLoadingStatusRef = useRef(false);
+  const hasLoggedOfflineRef = useRef(false);
 
   const STORAGE_KEYS = {
     sessionName: 'whatsapp_session_name',
@@ -50,9 +52,24 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
     syncFullHistory: 'whatsapp_session_sync_full_history',
   } as const;
 
+  const isBackendUnreachableError = (err: unknown) => {
+    if (!err) return false;
+    const message = String((err as any)?.message || err).toLowerCase();
+    return (
+      message.includes('failed to fetch')
+      || message.includes('networkerror')
+      || message.includes('err_connection_refused')
+      || message.includes('backend do whatsapp indisponivel')
+      || message.includes('backend do whatsapp indisponível')
+    );
+  };
+
   const loadStatus = async () => {
+    if (isLoadingStatusRef.current) return;
+    isLoadingStatusRef.current = true;
     try {
       const snapshot = await ApiService.getWhatsAppQr();
+      hasLoggedOfflineRef.current = false;
       setStatus({
         state: snapshot?.state || 'DISCONNECTED',
         connected: Boolean(snapshot?.connected),
@@ -66,13 +83,24 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
         syncFullHistory: Boolean(snapshot?.syncFullHistory),
       });
     } catch (err) {
-      console.error('Erro ao buscar status do WhatsApp:', err);
+      const unreachable = isBackendUnreachableError(err);
+      if (!unreachable || !hasLoggedOfflineRef.current) {
+        if (unreachable) {
+          console.warn('Backend do WhatsApp indisponível no momento.');
+          hasLoggedOfflineRef.current = true;
+        } else {
+          console.error('Erro ao buscar status do WhatsApp:', err);
+        }
+      }
       setStatus((prev) => ({
         ...prev,
         state: 'ERROR',
-        lastError: err instanceof Error ? err.message : 'Falha ao buscar status do WhatsApp.',
+        lastError: unreachable
+          ? 'Backend do WhatsApp indisponível (http://localhost:3001). Verifique se o servidor backend está em execução.'
+          : (err instanceof Error ? err.message : 'Falha ao buscar status do WhatsApp.'),
       }));
     } finally {
+      isLoadingStatusRef.current = false;
       setLoading(false);
     }
   };
@@ -112,7 +140,9 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
           syncFullHistory: Boolean(snapshot?.syncFullHistory),
         });
       } catch (err) {
-        console.error('Erro ao inicializar sessão do WhatsApp:', err);
+        if (!isBackendUnreachableError(err)) {
+          console.error('Erro ao inicializar sessão do WhatsApp:', err);
+        }
         await loadStatus();
       } finally {
         setLoading(false);
@@ -134,10 +164,10 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
   useEffect(() => {
     const interval = window.setInterval(() => {
       loadStatus();
-    }, 4000);
+    }, isBackendUnreachableError(status.lastError) ? 12000 : 4000);
 
     return () => window.clearInterval(interval);
-  }, []);
+  }, [status.lastError]);
 
   const handleStart = async () => {
     const normalizedSessionName = String(sessionName || '').trim();
@@ -233,6 +263,7 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
         : status.state === 'ERROR'
           ? 'Erro na sessão'
           : 'Desconectado';
+  const formLocked = status.connected;
 
   const canGenerateQr = Boolean(
     String(sessionName || '').trim()
@@ -248,6 +279,7 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
     : 'custom';
 
   const handleSyncHistorySelection = (value: string) => {
+    if (formLocked) return;
     if (value === 'custom') {
       setPeriodMode('range');
       return;
@@ -258,78 +290,81 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
 
   if (variant === 'session') {
     return (
-      <section className="max-w-3xl mx-auto rounded-[28px] border border-emerald-100 bg-white shadow-[0_20px_60px_rgba(2,6,23,0.12)] overflow-hidden">
-        <div className="px-6 py-5 border-b border-slate-200 flex items-start justify-between">
+      <section className="max-w-3xl mx-auto rounded-[28px] border border-emerald-100 bg-white shadow-[0_20px_60px_rgba(2,6,23,0.12)] overflow-hidden dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
+        <div className="px-6 py-5 border-b border-slate-200 flex items-start justify-between dark:border-white/10 dark:bg-zinc-900/70">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
               <Settings size={20} />
             </div>
             <div>
-              <h3 className="text-3xl font-black text-slate-800 leading-tight">Session Settings</h3>
-              <p className="text-sm font-semibold text-slate-500">Configure your WhatsApp integration</p>
+              <h3 className="text-3xl font-black text-slate-800 dark:text-zinc-100 leading-tight">Configuração da Sessão</h3>
+              <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400">Configure a conexão do WhatsApp da unidade</p>
             </div>
           </div>
-          <button type="button" className="p-3 rounded-xl bg-slate-100 text-slate-500">
-            <X size={18} />
-          </button>
+          <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest ${formLocked ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300'}`}>
+            {formLocked ? 'Campos bloqueados' : 'Edição liberada'}
+          </span>
         </div>
 
-        <div className="p-6 space-y-5 bg-gradient-to-b from-white to-slate-50/70">
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 flex items-center justify-between">
+        <div className="p-6 space-y-5 bg-gradient-to-b from-white to-slate-50/70 dark:from-[#121214] dark:to-zinc-900">
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 flex items-center justify-between dark:bg-zinc-900/80 dark:border-emerald-500/30">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center">
                 <CheckCircle2 size={22} />
               </div>
               <div>
-                <p className="text-xl font-black text-slate-800">Connection Status</p>
+                <p className="text-xl font-black text-slate-800 dark:text-zinc-100">Status da Conexão</p>
                 <p className="text-sm font-semibold text-emerald-600">
-                  {status.connected ? 'WhatsApp Connected Successfully' : statusLabel}
+                  {status.connected ? 'WhatsApp conectado com sucesso' : statusLabel}
                 </p>
               </div>
             </div>
             <span className={`px-4 py-1 rounded-full text-xs font-black uppercase tracking-widest ${status.connected ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
-              {status.connected ? 'Live' : 'Offline'}
+              {status.connected ? 'Online' : 'Offline'}
             </span>
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-2xl font-black text-slate-800">Name the Session</label>
+            <label className="text-2xl font-black text-slate-800 dark:text-zinc-100">Nome da sessão</label>
             <input
               value={sessionName}
               onChange={(e) => setSessionName(e.target.value)}
+              disabled={formLocked}
               placeholder="Ex: Vendas São Paulo"
-              className="w-full px-4 py-3 rounded-2xl border-2 border-slate-200 focus:border-emerald-400 outline-none text-3xl font-semibold text-slate-800 bg-white"
+              className="w-full px-4 py-3 rounded-2xl border-2 border-slate-200 focus:border-emerald-400 outline-none text-2xl font-semibold text-slate-800 bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
             />
           </div>
 
-          <label className="flex items-center justify-between rounded-2xl border-2 border-slate-200 bg-white px-4 py-3">
+          <label className="flex items-center justify-between rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 dark:bg-zinc-900 dark:border-white/10">
             <div>
-              <p className="text-2xl font-black text-slate-800">Sync Full History</p>
-              <p className="text-sm font-semibold text-slate-500">Inclui etiquetas, foto de perfil e demais dados da conversa.</p>
+              <p className="text-2xl font-black text-slate-800 dark:text-zinc-100">Sincronizar conversa completa</p>
+              <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400">Inclui etiquetas, foto de perfil e demais dados da conversa.</p>
             </div>
             <button
               type="button"
+              disabled={formLocked}
               onClick={() => setSyncFullHistory((prev) => !prev)}
-              className={`relative inline-flex h-8 w-16 items-center rounded-full transition-colors ${syncFullHistory ? 'bg-emerald-500' : 'bg-slate-300'}`}
+              className={`relative inline-flex h-8 w-16 items-center rounded-full transition-colors ${syncFullHistory ? 'bg-emerald-500' : 'bg-slate-300'} disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${syncFullHistory ? 'translate-x-9' : 'translate-x-1'}`} />
             </button>
           </label>
 
           <div className="space-y-1.5">
-            <label className="text-2xl font-black text-slate-800">Sync History</label>
+            <label className="text-2xl font-black text-slate-800 dark:text-zinc-100">Período de sincronização</label>
             <div className="relative">
               <Clock3 size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <select
                 value={syncHistorySelection}
                 onChange={(e) => handleSyncHistorySelection(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 rounded-2xl border-2 border-slate-200 focus:border-emerald-400 outline-none text-2xl font-semibold text-slate-700 bg-white"
+                disabled={formLocked}
+                className="w-full pl-10 pr-4 py-3 rounded-2xl border-2 border-slate-200 focus:border-emerald-400 outline-none text-2xl font-semibold text-slate-700 bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
               >
-                <option value="7">Last 7 days</option>
-                <option value="15">Last 15 days</option>
-                <option value="30">Last 30 days</option>
-                <option value="60">Last 60 days</option>
-                <option value="custom">Custom period</option>
+                <option value="7">Últimos 7 dias</option>
+                <option value="15">Últimos 15 dias</option>
+                <option value="30">Últimos 30 dias</option>
+                <option value="60">Últimos 60 dias</option>
+                <option value="custom">Período personalizado</option>
               </select>
             </div>
             {periodMode === 'range' && (
@@ -338,51 +373,53 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
                   type="date"
                   value={startDateInput}
                   onChange={(e) => setStartDateInput(e.target.value)}
-                  className="px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-400 outline-none text-sm font-semibold"
+                  disabled={formLocked}
+                  className="px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-400 outline-none text-sm font-semibold disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
                 />
                 <input
                   type="date"
                   value={endDateInput}
                   onChange={(e) => setEndDateInput(e.target.value)}
-                  className="px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-400 outline-none text-sm font-semibold"
+                  disabled={formLocked}
+                  className="px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-400 outline-none text-sm font-semibold disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
                 />
               </div>
             )}
-            <p className="text-xs font-semibold text-slate-500">
-              Historical data sync may take several minutes depending on message volume.
+            <p className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
+              A sincronização pode levar alguns minutos, conforme o volume de mensagens.
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 min-h-[260px] flex items-center justify-center">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 min-h-[260px] flex items-center justify-center dark:bg-zinc-900 dark:border-white/10">
             {loading ? (
               <div className="text-center space-y-3">
                 <div className="animate-spin inline-block w-8 h-8 border-4 border-emerald-600 border-t-transparent rounded-full"></div>
-                <p className="text-sm font-medium text-gray-600">Carregando status do WhatsApp...</p>
+                <p className="text-sm font-medium text-gray-600 dark:text-zinc-300">Carregando status do WhatsApp...</p>
               </div>
             ) : status.connected ? (
               <div className="text-center space-y-3">
                 <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
                   <MessageCircle size={28} />
                 </div>
-                <p className="text-sm font-black text-gray-800">Sessão conectada</p>
-                <p className="text-xs font-medium text-gray-500">O QR Code foi ocultado porque a sessão já está ativa.</p>
+                <p className="text-sm font-black text-gray-800 dark:text-zinc-100">Sessão conectada</p>
+                <p className="text-xs font-medium text-gray-500 dark:text-zinc-400">O QR Code foi ocultado porque a sessão já está ativa.</p>
               </div>
             ) : status.qrDataUrl ? (
               <img
                 src={status.qrDataUrl}
                 alt="QR Code do WhatsApp"
-                className="w-64 h-64 rounded-xl bg-white p-3 border border-gray-200"
+                className="w-64 h-64 rounded-xl bg-white p-3 border border-gray-200 dark:bg-zinc-900 dark:border-white/10"
               />
             ) : (
-              <div className="text-center space-y-3">
-                <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
-                  <MessageCircle size={28} />
-                </div>
-                <p className="text-sm font-black text-gray-800">{statusLabel}</p>
-                <p className="text-xs font-medium text-gray-500">Clique em "Save Changes" para iniciar e gerar QR.</p>
+            <div className="text-center space-y-3">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
+                <MessageCircle size={28} />
               </div>
-            )}
-          </div>
+              <p className="text-sm font-black text-gray-800 dark:text-zinc-100">{statusLabel}</p>
+              <p className="text-xs font-medium text-gray-500 dark:text-zinc-400">Clique em "Gerar QR Code" para iniciar o pareamento.</p>
+            </div>
+          )}
+        </div>
 
           {status.lastError && (
             <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 flex items-center gap-2">
@@ -392,11 +429,11 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
           )}
         </div>
 
-        <div className="px-6 py-5 border-t border-slate-200 bg-slate-100/80 flex items-center justify-end gap-2">
+        <div className="px-6 py-5 border-t border-slate-200 bg-slate-100/80 flex items-center justify-end gap-2 dark:bg-zinc-900 dark:border-white/10">
           <button
             type="button"
             onClick={loadStatus}
-            className="px-4 py-2 rounded-xl border border-slate-300 text-slate-600 text-sm font-black hover:bg-white"
+            className="px-4 py-2 rounded-xl border border-slate-300 text-slate-600 text-sm font-black hover:bg-white dark:bg-zinc-900 dark:text-zinc-300 dark:border-white/10 dark:hover:bg-zinc-800"
           >
             Atualizar
           </button>
@@ -416,7 +453,7 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
             className="px-6 py-2 rounded-xl bg-emerald-500 text-white text-sm font-black hover:bg-emerald-600 disabled:opacity-60 flex items-center gap-2"
           >
             <QrCode size={14} />
-            {starting ? 'Salvando...' : 'Save Changes'}
+            {starting ? 'Iniciando...' : 'Gerar QR Code'}
           </button>
         </div>
       </section>
@@ -424,16 +461,22 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
   }
 
   return (
-    <section className="rounded-[26px] border border-gray-100 bg-white p-5 shadow-sm space-y-4">
-      <div className="rounded-2xl border border-cyan-100 bg-cyan-50/40 p-4 space-y-3">
-        <p className="text-[10px] font-black uppercase tracking-widest text-cyan-700">Configuração da Sessão</p>
+    <section className="rounded-[26px] border border-gray-100 bg-white p-5 shadow-sm space-y-4 dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
+      <div className="rounded-2xl border border-cyan-100 bg-cyan-50/40 p-4 space-y-3 dark:bg-zinc-900 dark:border-cyan-500/30">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[10px] font-black uppercase tracking-widest text-cyan-700">Configuração da Sessão</p>
+          <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${formLocked ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300'}`}>
+            {formLocked ? 'Edição bloqueada' : 'Edição liberada'}
+          </span>
+        </div>
         <div className="space-y-1.5">
-          <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Nome da sessão</label>
+          <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-400">Nome da sessão</label>
           <input
             value={sessionName}
             onChange={(e) => setSessionName(e.target.value)}
+            disabled={formLocked}
             placeholder="Ex: Caixa Tarde Cantina Alfa"
-            className="w-full px-4 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-white"
+            className="w-full px-4 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
           />
         </div>
 
@@ -441,14 +484,16 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
           <button
             type="button"
             onClick={() => setPeriodMode('days')}
-            className={`px-3 py-2 rounded-xl border-2 text-xs font-black uppercase tracking-widest ${periodMode === 'days' ? 'border-cyan-400 bg-cyan-100 text-cyan-800' : 'border-gray-200 bg-white text-gray-500'}`}
+            disabled={formLocked}
+            className={`px-3 py-2 rounded-xl border-2 text-xs font-black uppercase tracking-widest disabled:opacity-60 disabled:cursor-not-allowed ${periodMode === 'days' ? 'border-cyan-400 bg-cyan-100 text-cyan-800 dark:bg-cyan-500/20 dark:text-cyan-300' : 'border-gray-200 bg-white text-gray-500 dark:bg-zinc-900 dark:text-zinc-300 dark:border-white/10'}`}
           >
             Definir por dias
           </button>
           <button
             type="button"
             onClick={() => setPeriodMode('range')}
-            className={`px-3 py-2 rounded-xl border-2 text-xs font-black uppercase tracking-widest ${periodMode === 'range' ? 'border-cyan-400 bg-cyan-100 text-cyan-800' : 'border-gray-200 bg-white text-gray-500'}`}
+            disabled={formLocked}
+            className={`px-3 py-2 rounded-xl border-2 text-xs font-black uppercase tracking-widest disabled:opacity-60 disabled:cursor-not-allowed ${periodMode === 'range' ? 'border-cyan-400 bg-cyan-100 text-cyan-800 dark:bg-cyan-500/20 dark:text-cyan-300' : 'border-gray-200 bg-white text-gray-500 dark:bg-zinc-900 dark:text-zinc-300 dark:border-white/10'}`}
           >
             Definir por calendário
           </button>
@@ -456,61 +501,65 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
 
         {periodMode === 'days' ? (
           <div className="space-y-1.5">
-            <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Quantidade de dias da sessão</label>
+            <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-400">Quantidade de dias da sessão</label>
             <input
               type="number"
               min={1}
               value={durationDays}
               onChange={(e) => setDurationDays(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-white"
+              disabled={formLocked}
+              className="w-full px-4 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
             />
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Data início</label>
+              <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-400">Data início</label>
               <input
                 type="date"
                 value={startDateInput}
                 onChange={(e) => setStartDateInput(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-white"
+                disabled={formLocked}
+                className="w-full px-4 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Data fim</label>
+              <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-400">Data fim</label>
               <input
                 type="date"
                 value={endDateInput}
                 onChange={(e) => setEndDateInput(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-white"
+                disabled={formLocked}
+                className="w-full px-4 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
               />
             </div>
           </div>
         )}
 
-        <label className="flex items-center justify-between rounded-xl border border-cyan-100 bg-white px-3 py-2.5 cursor-pointer">
+        <label className="flex items-center justify-between rounded-xl border border-cyan-100 bg-white px-3 py-2.5 cursor-pointer dark:bg-zinc-900 dark:border-white/10">
           <div className="min-w-0">
-            <p className="text-xs font-black text-gray-800 uppercase tracking-wide">Sincronizar conversa completa</p>
-            <p className="text-[11px] text-gray-500 font-semibold">Inclui histórico completo, etiquetas, foto de perfil e demais dados.</p>
+            <p className="text-xs font-black text-gray-800 dark:text-zinc-100 uppercase tracking-wide">Sincronizar conversa completa</p>
+            <p className="text-[11px] text-gray-500 dark:text-zinc-400 font-semibold">Inclui histórico completo, etiquetas, foto de perfil e demais dados.</p>
           </div>
           <input
             type="checkbox"
             checked={syncFullHistory}
             onChange={(e) => setSyncFullHistory(e.target.checked)}
-            className="w-4 h-4 accent-cyan-600"
+            disabled={formLocked}
+            className="w-4 h-4 accent-cyan-600 disabled:cursor-not-allowed"
           />
         </label>
       </div>
 
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Conexão WhatsApp</p>
-          <p className="text-sm font-black text-gray-800 mt-1">{statusLabel}</p>
+          <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-400">Conexão WhatsApp</p>
+          <p className="text-sm font-black text-gray-800 dark:text-zinc-100 mt-1">{statusLabel}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={loadStatus}
-            className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-xs font-black uppercase tracking-widest hover:bg-gray-200 flex items-center gap-2"
+            className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-xs font-black uppercase tracking-widest hover:bg-gray-200 flex items-center gap-2 dark:bg-zinc-900 dark:text-zinc-300 dark:border dark:border-white/10 dark:hover:bg-zinc-800"
           >
             <RefreshCw size={14} />
             Atualizar
@@ -534,19 +583,19 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
         </div>
       </div>
 
-      <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 min-h-[320px] flex items-center justify-center">
+      <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 min-h-[320px] flex items-center justify-center dark:bg-zinc-900 dark:border-white/10">
         {loading ? (
           <div className="text-center space-y-3">
             <div className="animate-spin inline-block w-8 h-8 border-4 border-emerald-600 border-t-transparent rounded-full"></div>
-            <p className="text-sm font-medium text-gray-600">Carregando status do WhatsApp...</p>
+            <p className="text-sm font-medium text-gray-600 dark:text-zinc-300">Carregando status do WhatsApp...</p>
           </div>
         ) : status.connected ? (
           <div className="text-center space-y-3">
             <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
               <MessageCircle size={28} />
             </div>
-            <p className="text-sm font-black text-gray-800">Sessão conectada</p>
-            <p className="text-xs font-medium text-gray-500">
+            <p className="text-sm font-black text-gray-800 dark:text-zinc-100">Sessão conectada</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-zinc-400">
               O QR Code foi ocultado porque a sessão já está ativa.
             </p>
           </div>
@@ -554,15 +603,15 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
           <img
             src={status.qrDataUrl}
             alt="QR Code do WhatsApp"
-            className="w-64 h-64 rounded-xl bg-white p-3 border border-gray-200"
+            className="w-64 h-64 rounded-xl bg-white p-3 border border-gray-200 dark:bg-zinc-900 dark:border-white/10"
           />
         ) : (
           <div className="text-center space-y-3">
             <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
               <MessageCircle size={28} />
             </div>
-            <p className="text-sm font-black text-gray-800">{statusLabel}</p>
-            <p className="text-xs font-medium text-gray-500">
+            <p className="text-sm font-black text-gray-800 dark:text-zinc-100">{statusLabel}</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-zinc-400">
               {status.connected
                 ? 'A sessão está ativa e pronta para uso.'
                 : 'Clique em "Gerar QR" para iniciar o pareamento.'}
@@ -571,12 +620,12 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
         )}
       </div>
 
-      <div className="rounded-2xl border border-gray-100 bg-white p-4 text-sm space-y-2">
-        <p><span className="font-black text-gray-700">Estado:</span> {status.state}</p>
-        <p><span className="font-black text-gray-700">Telefone:</span> {status.phoneNumber || '-'}</p>
-        <p><span className="font-black text-gray-700">Sessão:</span> {status.sessionName || '-'}</p>
-        <p><span className="font-black text-gray-700">Período:</span> {status.startDate && status.endDate ? `${status.startDate} até ${status.endDate}` : '-'}</p>
-        <p><span className="font-black text-gray-700">Sync completo:</span> {status.syncFullHistory ? 'Sim' : 'Não'}</p>
+      <div className="rounded-2xl border border-gray-100 bg-white p-4 text-sm space-y-2 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-300">
+        <p><span className="font-black text-gray-700 dark:text-zinc-100">Estado:</span> {status.state}</p>
+        <p><span className="font-black text-gray-700 dark:text-zinc-100">Telefone:</span> {status.phoneNumber || '-'}</p>
+        <p><span className="font-black text-gray-700 dark:text-zinc-100">Sessão:</span> {status.sessionName || '-'}</p>
+        <p><span className="font-black text-gray-700 dark:text-zinc-100">Período:</span> {status.startDate && status.endDate ? `${status.startDate} até ${status.endDate}` : '-'}</p>
+        <p><span className="font-black text-gray-700 dark:text-zinc-100">Sync completo:</span> {status.syncFullHistory ? 'Sim' : 'Não'}</p>
         {status.lastError && (
           <p className="text-red-600 font-bold flex items-center gap-2">
             <AlertTriangle size={14} />

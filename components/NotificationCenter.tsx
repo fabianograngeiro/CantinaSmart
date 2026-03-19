@@ -12,23 +12,23 @@ interface NotificationItem {
 
 const levelStyles: Record<NotificationLevel, { box: string; iconBox: string; icon: React.ReactNode }> = {
   informativo: {
-    box: 'border-sky-200 bg-sky-50 text-sky-900',
-    iconBox: 'bg-sky-100 text-sky-700',
+    box: 'border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-100',
+    iconBox: 'bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-100',
     icon: <Bell size={16} />,
   },
   alerta: {
-    box: 'border-amber-200 bg-amber-50 text-amber-900',
-    iconBox: 'bg-amber-100 text-amber-700',
+    box: 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-100',
+    iconBox: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-100',
     icon: <AlertTriangle size={16} />,
   },
   urgente: {
-    box: 'border-orange-200 bg-orange-50 text-orange-900',
-    iconBox: 'bg-orange-100 text-orange-700',
+    box: 'border-orange-200 bg-orange-50 text-orange-900 dark:border-orange-500/40 dark:bg-orange-500/15 dark:text-orange-100',
+    iconBox: 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-100',
     icon: <AlertTriangle size={16} />,
   },
   critico: {
-    box: 'border-red-200 bg-red-50 text-red-900',
-    iconBox: 'bg-red-100 text-red-700',
+    box: 'border-red-200 bg-red-50 text-red-900 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-100',
+    iconBox: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-100',
     icon: <ShieldAlert size={16} />,
   },
 };
@@ -97,7 +97,7 @@ const NotificationCenter: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => dismiss(item.id)}
-                  className="w-6 h-6 rounded-lg border border-black/10 bg-white/70 hover:bg-white transition-colors flex items-center justify-center shrink-0"
+                  className="w-6 h-6 rounded-lg border border-black/10 dark:border-white/10 bg-white/70 dark:bg-slate-900/60 hover:bg-white dark:hover:bg-slate-900 transition-colors flex items-center justify-center shrink-0"
                   aria-label="Fechar notificação"
                 >
                   <X size={12} />

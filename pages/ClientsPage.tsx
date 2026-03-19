@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Client, ClientPlanType, User, Enterprise, Role, Plan, TransactionRecord } from '../types';
 import ApiService from '../services/api';
+import { formatPhoneWithFlag } from '../utils/phone';
 
 interface ClientsPageProps {
   currentUser: User;
@@ -145,12 +146,7 @@ const resolveClientPhotoUrl = (photoUrl?: string, clientName?: string) => {
 };
 
 const formatPhoneNumber = (rawPhone?: string) => {
-  const digits = String(rawPhone || '').replace(/\D/g, '');
-  if (digits.length === 13 && digits.startsWith('55')) return `+55 (${digits.slice(2, 4)}) ${digits.slice(4, 9)}-${digits.slice(9)}`;
-  if (digits.length === 12 && digits.startsWith('55')) return `+55 (${digits.slice(2, 4)}) ${digits.slice(4, 8)}-${digits.slice(8)}`;
-  if (digits.length === 11) return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
-  if (digits.length === 10) return `(${digits.slice(0, 2)})${digits.slice(2, 6)}-${digits.slice(6)}`;
-  return rawPhone || 'Não informado';
+  return formatPhoneWithFlag(rawPhone, 'Não informado');
 };
 
 const formatCurrencyBRL = (value: number) => {
@@ -1909,9 +1905,6 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         <td>${row.responsavel}</td>
         <td>${row.telefone}</td>
         <td>${row.turma}</td>
-        <td>${row.planos}</td>
-        <td>${row.unidade}</td>
-        <td>R$ ${row.saldo.toFixed(2)}</td>
       </tr>
     `).join('');
 
@@ -1943,9 +1936,6 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                 <th>Responsavel/Setor</th>
                 <th>Telefone</th>
                 <th>Turma</th>
-                <th>Planos</th>
-                <th>Unidade</th>
-                <th>Saldo</th>
               </tr>
             </thead>
             <tbody>${rowsHtml}</tbody>
@@ -1959,7 +1949,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   };
 
   return (
-    <div className="space-y-6 p-6 animate-in fade-in duration-500">
+    <div className="dash-shell clients-shell animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-gray-800 tracking-tight uppercase">Gestão de Clientes</h1>
@@ -2014,27 +2004,23 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       <div className="bg-white rounded-[32px] shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
-            <thead className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b">
+            <thead className="bg-gray-50 text-xs font-black text-gray-500 uppercase tracking-widest border-b">
               <tr>
                 <th className="px-8 py-6">ID</th>
                 <th className="px-8 py-6">Cliente</th>
                 <th className="px-8 py-6">Responsável / Setor</th>
                 <th className="px-8 py-6">Telefone Responsável</th>
                 <th className="px-8 py-6">Turma</th>
-                <th className="px-8 py-6">Planos / Saldo</th>
-                <th className="px-8 py-6">Unidade</th>
                 <th className="px-8 py-6 text-center">Restrição</th>
-                <th className="px-8 py-6">Saldo Carteira</th>
                 <th className="px-8 py-6 text-right">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredClients.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-8 py-20 text-center text-gray-400 font-bold uppercase text-xs tracking-widest opacity-40">Nenhum cliente na base</td>
+                  <td colSpan={7} className="px-8 py-20 text-center text-gray-400 font-bold uppercase text-xs tracking-widest opacity-40">Nenhum cliente na base</td>
                 </tr>
               ) : filteredClients.map(client => {
-                const enterprise = enterprises.find(e => e.id === client.enterpriseId);
                 const clientRestrictions = Array.isArray(client.restrictions) ? client.restrictions : [];
                 const hasRestriction = clientRestrictions.length > 0;
                 const responsibleOrSector = client.type === 'ALUNO'
@@ -2046,122 +2032,79 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                 const responsiblePhone = client.type === 'ALUNO'
                   ? (client.parentWhatsapp || client.guardianPhone || client.phone || 'Não informado')
                   : (client.phone || client.parentWhatsapp || 'Não informado');
-                const planBalances = clientPlanBalances.get(client.id) || [];
                 return (
                   <tr key={client.id} className="hover:bg-indigo-50/30 transition-all group">
-                    <td className="px-8 py-5 font-mono text-xs font-black text-indigo-600">#{client.registrationId}</td>
+                    <td className="px-8 py-5 font-mono text-sm font-black text-indigo-600">#{client.registrationId}</td>
                     <td className="px-8 py-5">
                       <div className="flex items-center gap-4">
-                        <img src={resolveClientPhotoUrl(client.photo, client.name)} className="w-12 h-12 rounded-2xl object-cover border-2 border-white shadow-sm" />
+                        <img src={resolveClientPhotoUrl(client.photo, client.name)} className="w-14 h-14 rounded-2xl object-cover border-2 border-white shadow-sm" />
                         <div>
-                          <p className="font-black text-gray-800 text-sm leading-tight uppercase">{renderHighlightedText(client.name, searchTerm)}</p>
-                          <p className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">{client.type}</p>
+                          <p className="font-black text-gray-800 text-base leading-tight uppercase">{renderHighlightedText(client.name, searchTerm)}</p>
+                          <p className="text-xs text-gray-500 font-bold uppercase mt-0.5">{client.type}</p>
                         </div>
                       </div>
                     </td>
                     <td className="px-8 py-5">
                       <div className="space-y-1">
-                        <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest">
+                        <p className="text-xs font-black text-gray-700 uppercase tracking-widest">
                           {responsibleOrSector}
                         </p>
-                        <p className="text-[9px] font-bold text-gray-400 lowercase tracking-wide">
+                        <p className="text-[11px] font-semibold text-gray-500 lowercase tracking-wide">
                           {responsibleEmail}
                         </p>
                       </div>
                     </td>
                     <td className="px-8 py-5">
-                      <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                      <span className="text-xs font-black text-gray-600 uppercase tracking-widest">
                         {formatPhoneNumber(responsiblePhone)}
                       </span>
                     </td>
                     <td className="px-8 py-5">
                       {client.type === 'ALUNO' ? (
-                        <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">
+                        <span className="text-xs font-black text-indigo-600 uppercase tracking-widest">
                           {client.class || 'Não informado'}
                         </span>
                       ) : (
-                        <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest">—</span>
+                        <span className="text-xs font-black text-gray-300 uppercase tracking-widest">—</span>
                       )}
-                    </td>
-                    <td className="px-8 py-5">
-                      {planBalances.length > 0 ? (
-                        <div className="flex flex-col gap-2 min-w-[260px]">
-                          {planBalances.map((plan) => (
-                            <div key={`${client.id}-${plan.planName}`} className="flex flex-wrap items-center gap-2">
-                              <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg border border-indigo-100 bg-indigo-50 text-indigo-700">
-                                {plan.planName}
-                              </span>
-                              <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg border ${
-                                plan.isActive
-                                  ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
-                                  : 'border-red-100 bg-red-50 text-red-600'
-                              }`}>
-                                {plan.isActive ? 'Ativo' : 'Inativo'}
-                              </span>
-                              <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg border ${
-                                (plan.remainingValue || 0) > 0
-                                  ? 'border-indigo-100 bg-indigo-50 text-indigo-700'
-                                  : 'border-amber-100 bg-amber-50 text-amber-700'
-                              }`}>
-                                Saldo: {plan.remaining}/{plan.total} • R$ {formatCurrencyBRL(plan.remainingValue || 0)}
-                              </span>
-                              {(plan.creditValue || 0) > 0 && (
-                                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-700">
-                                  Crédito extra: R$ {formatCurrencyBRL(plan.creditValue || 0)}
-                                </span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest">Sem planos</span>
-                      )}
-                    </td>
-                    <td className="px-8 py-5">
-                      <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">
-                        {(enterprise?.name ? enterprise.name.split('-')[0] : 'Unidade') || 'Unidade'}
-                      </span>
                     </td>
                     <td className="px-8 py-5 text-center">
                       {hasRestriction ? (
                         <div className="flex justify-center">
                           <span className="p-1.5 bg-red-50 text-red-600 rounded-lg border border-red-100 animate-pulse" title={clientRestrictions.join(', ')}>
-                            <AlertTriangle size={14} />
+                            <AlertTriangle size={16} />
                           </span>
                         </div>
                       ) : (
                         <span className="text-gray-200">—</span>
                       )}
                     </td>
-                    <td className={`px-8 py-5 text-sm font-black ${(client.balance || 0) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                      R$ {(client.balance || 0).toFixed(2)}
-                    </td>
                     <td className="px-8 py-5 text-right">
                       <div className="flex items-center justify-end gap-2">
-                         <button onClick={() => handleOpenDetail(client)} className="p-3 bg-white border text-gray-400 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm" title="Ver Detalhes"><Eye size={16} /></button>
-                         <button onClick={() => { setConsumptionPeriod('MONTH'); setConsumptionSpecificDate(''); setHistoryClient(client); setIsHistoryModalOpen(true); }} className="p-3 bg-white border text-gray-400 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm" title="Histórico"><History size={16} /></button>
+                         <button onClick={() => handleOpenDetail(client)} className="p-3.5 bg-white border text-gray-500 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm" title="Ver Detalhes"><Eye size={18} /></button>
+                         <button onClick={() => { setConsumptionPeriod('MONTH'); setConsumptionSpecificDate(''); setHistoryClient(client); setIsHistoryModalOpen(true); }} className="p-3.5 bg-white border text-gray-500 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm" title="Histórico"><History size={18} /></button>
                          <button
                            onClick={() => {
                              handleOpenDetail(client);
                            }}
-                           className="p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+                           className="p-3.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
                            title="Ver Planos"
                          >
-                           <Beef size={16} />
+                           <Beef size={18} />
                          </button>
                          <button
                            onClick={() => handleOpenEditModal(client)}
-                           className="p-3 bg-white border text-indigo-500 rounded-xl hover:text-indigo-700 hover:bg-indigo-50 transition-all shadow-sm"
+                           className="p-3.5 bg-white border text-indigo-500 rounded-xl hover:text-indigo-700 hover:bg-indigo-50 transition-all shadow-sm"
                            title="Editar"
                          >
-                           <Edit size={16} />
+                           <Edit size={18} />
                          </button>
                          <button
                            onClick={() => handleDeleteClient(client)}
-                           className="p-3 bg-white border text-red-400 rounded-xl hover:text-red-600 hover:bg-red-50 transition-all shadow-sm"
+                           className="p-3.5 bg-white border text-red-400 rounded-xl hover:text-red-600 hover:bg-red-50 transition-all shadow-sm"
                            title="Excluir Cliente"
                          >
-                           <Trash2 size={16} />
+                           <Trash2 size={18} />
                          </button>
                       </div>
                     </td>

@@ -21,10 +21,10 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="orders-shell flex items-center justify-center h-96 rounded-2xl">
         <div className="text-center space-y-4">
           <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full"></div>
-          <p className="text-gray-600 font-medium">Carregando pedidos...</p>
+          <p className="text-gray-600 dark:text-zinc-300 font-medium">Carregando pedidos...</p>
         </div>
       </div>
     );
@@ -188,7 +188,7 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
   };
 
   return (
-    <div className="space-y-6">
+    <div className="orders-shell space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden">
         <div>
           <h1 className="text-2xl font-black text-gray-800 tracking-tight flex items-center gap-2">

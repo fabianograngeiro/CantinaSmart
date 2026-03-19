@@ -22,6 +22,7 @@ interface DatabaseShape {
   transactions: any[];
   orders: any[];
   ingredients: any[];
+  menus?: any[];
   whatsappStore?: {
     history?: any;
     schedules?: any;
@@ -43,6 +44,7 @@ const createEmptyDatabase = (): DatabaseShape => ({
   transactions: [],
   orders: [],
   ingredients: [],
+  menus: [],
   whatsappStore: {},
 });
 
@@ -59,6 +61,7 @@ export class Database {
   private transactions: any[] = [];
   private orders: any[] = [];
   private ingredients: any[] = [];
+  private menus: any[] = [];
   private whatsappStore: {
     history?: any;
     schedules?: any;
@@ -129,6 +132,7 @@ export class Database {
       transactions: readArrayFile('transactions.json'),
       orders: readArrayFile('orders.json'),
       ingredients: readArrayFile('ingredients.json'),
+      menus: readArrayFile('menus.json'),
     };
   }
 
@@ -152,6 +156,7 @@ export class Database {
       transactions: ensureArray(safeRaw.transactions),
       orders: ensureArray(safeRaw.orders),
       ingredients: ensureArray(safeRaw.ingredients),
+      menus: ensureArray(safeRaw.menus),
       whatsappStore: safeRaw.whatsappStore && typeof safeRaw.whatsappStore === 'object'
         ? safeRaw.whatsappStore
         : {},
@@ -189,6 +194,7 @@ export class Database {
     this.transactions = data.transactions;
     this.orders = data.orders;
     this.ingredients = data.ingredients;
+    this.menus = Array.isArray((data as any).menus) ? (data as any).menus : [];
     this.whatsappStore = (data as any).whatsappStore && typeof (data as any).whatsappStore === 'object'
       ? (data as any).whatsappStore
       : {};
@@ -208,6 +214,7 @@ export class Database {
       transactions: this.transactions,
       orders: this.orders,
       ingredients: this.ingredients,
+      menus: this.menus,
       whatsappStore: this.whatsappStore,
     };
   }
@@ -261,6 +268,7 @@ export class Database {
       console.log(`   - Clients: ${this.clients.length}`);
       console.log(`   - Plans: ${this.plans.length}`);
       console.log(`   - Suppliers: ${this.suppliers.length}`);
+      console.log(`   - Menus: ${this.menus.length}`);
     } catch (err) {
       console.error('❌ [DB] Error loading data:', err);
     }
@@ -308,9 +316,59 @@ export class Database {
       plans: this.plans.length,
       suppliers: this.suppliers.length,
       ingredients: this.ingredients.length,
+      menus: this.menus.length,
       orders: this.orders.length,
       transactions: this.transactions.length,
     };
+  }
+
+  // ===== MENUS =====
+  getMenus(enterpriseId?: string, type?: string) {
+    let result = this.menus;
+    if (enterpriseId) result = result.filter((m) => String(m.enterpriseId) === String(enterpriseId));
+    if (type) result = result.filter((m) => String(m.type || '').toUpperCase() === String(type || '').toUpperCase());
+    return result;
+  }
+
+  getMenuByEnterpriseAndType(enterpriseId: string, type: string) {
+    return this.menus.find(
+      (m) =>
+        String(m.enterpriseId) === String(enterpriseId)
+        && String(m.type || '').toUpperCase() === String(type || '').toUpperCase()
+    );
+  }
+
+  upsertMenuByEnterpriseAndType(payload: {
+    enterpriseId: string;
+    type: 'ALMOCO' | 'LANCHE' | string;
+    days: any[];
+  }) {
+    const enterpriseId = String(payload.enterpriseId || '').trim();
+    const type = String(payload.type || '').trim().toUpperCase();
+    if (!enterpriseId || !type) return null;
+
+    const normalizedDays = Array.isArray(payload.days) ? payload.days : [];
+    const index = this.menus.findIndex(
+      (m) =>
+        String(m.enterpriseId) === enterpriseId
+        && String(m.type || '').toUpperCase() === type
+    );
+
+    const nextRecord = {
+      id: index > -1 ? this.menus[index].id : `menu_${Date.now()}`,
+      enterpriseId,
+      type,
+      days: normalizedDays,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (index > -1) {
+      this.menus[index] = nextRecord;
+    } else {
+      this.menus.push(nextRecord);
+    }
+    this.saveData();
+    return nextRecord;
   }
 
   // ===== WHATSAPP STORE (persistido no database.json) =====

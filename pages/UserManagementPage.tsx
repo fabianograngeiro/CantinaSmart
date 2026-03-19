@@ -273,7 +273,7 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
   };
 
   return (
-    <div className="space-y-6">
+    <div className="users-shell space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
