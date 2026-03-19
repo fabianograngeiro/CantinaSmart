@@ -5,7 +5,7 @@ import {
   QrCode, Smartphone, PauseCircle, Clock, 
   RotateCcw, ChevronRight, ShieldAlert, UserSearch,
   UserMinus, Banknote, Wallet, CreditCard as CardIcon,
-  ArrowRight, Coins, Calculator, Layers, LayoutDashboard,
+  ArrowRight, Layers, LayoutDashboard,
   Building, TrendingUp, AlertTriangle, Package, Activity,
   ArrowUpRight, ArrowDownRight, Users, Flame, Percent, RefreshCw, Scale,
   ArrowLeft, ChevronDown
@@ -58,6 +58,19 @@ const toDateKey = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
+const createPOSSaleReference = () => {
+  const now = new Date();
+  const dateKey = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+  const randomKey = Math.random().toString(36).slice(2, 7).toUpperCase();
+  return `VEN-${dateKey}-${randomKey}`;
+};
+
+const receiptZigZagEdgeStyle: React.CSSProperties = {
+  background:
+    'linear-gradient(-45deg, #fef3c7 8px, transparent 0) 0 0/16px 12px repeat-x, linear-gradient(45deg, #fef3c7 8px, transparent 0) 8px 0/16px 12px repeat-x',
+  backgroundColor: '#ffffff',
+};
+
 interface POSPageProps {
   currentUser: UserType;
   activeEnterprise: Enterprise;
@@ -68,10 +81,10 @@ const POSPage: React.FC<POSPageProps> = ({ currentUser, activeEnterprise, onRegi
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="pos-shell min-h-[24rem] flex items-center justify-center rounded-2xl">
         <div className="text-center space-y-4">
           <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full"></div>
-          <p className="text-gray-600 font-medium">Carregando PDV...</p>
+          <p className="text-gray-600 dark:text-zinc-300 font-medium">Carregando PDV...</p>
         </div>
       </div>
     );
@@ -91,10 +104,10 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="pos-shell min-h-[24rem] flex items-center justify-center rounded-2xl">
         <div className="text-center space-y-4">
           <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full"></div>
-          <p className="text-gray-600 font-medium">Carregando monitor...</p>
+          <p className="text-gray-600 dark:text-zinc-300 font-medium">Carregando monitor...</p>
         </div>
       </div>
     );
@@ -163,7 +176,7 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
   ];
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 pb-10">
+    <div className="pos-shell space-y-6 animate-in fade-in duration-500 pb-10">
       {/* Header do Monitor com Seletor Dinâmico */}
       <div className="flex flex-col md:flex-row items-center justify-between gap-4 bg-gray-900 p-6 rounded-[32px] text-white shadow-2xl">
          <div className="flex items-center gap-4">
@@ -426,6 +439,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [isFinalConsumer, setIsFinalConsumer] = useState(false);
   const [cart, setCart] = useState<SaleItem[]>([]);
+  const [saleReference, setSaleReference] = useState<string>(() => createPOSSaleReference());
   const [activeCategory, setActiveCategory] = useState<string>('TODOS');
   const [lastScanSuccess, setLastScanSuccess] = useState(false);
   const [payments, setPayments] = useState<PaymentEntry[]>([]);
@@ -438,9 +452,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
   const [posTransactions, setPosTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Estados dos Modais de Pagamento
-  const [isCashModalOpen, setIsCashModalOpen] = useState(false);
-  const [isAmountModalOpen, setIsAmountModalOpen] = useState(false);
+  // Estado de pagamento split inline (sem modal)
   const [isServiceActionModalOpen, setIsServiceActionModalOpen] = useState(false);
   const [serviceActionType, setServiceActionType] = useState<'CREDIT_STUDENT' | 'PAY_COLLAB' | null>(null);
   const [serviceActionAmount, setServiceActionAmount] = useState<string>('');
@@ -461,8 +473,6 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
   const [studentCreditCalendarMonth, setStudentCreditCalendarMonth] = useState<Date>(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   
   const clientInputRef = useRef<HTMLInputElement>(null);
-  const cashInputRef = useRef<HTMLInputElement>(null);
-  const partialInputRef = useRef<HTMLInputElement>(null);
   const kgInputRef = useRef<HTMLInputElement>(null);
   const serviceActionInputRef = useRef<HTMLInputElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -587,13 +597,13 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
 
   useEffect(() => {
     const handleGlobalClick = () => {
-      if (!selectedClient && !isFinalConsumer && !showSuspendedPanel && !isCashModalOpen && !isAmountModalOpen && document.activeElement?.tagName !== 'INPUT') {
+      if (!selectedClient && !isFinalConsumer && !showSuspendedPanel && document.activeElement?.tagName !== 'INPUT') {
         clientInputRef.current?.focus();
       }
     };
     window.addEventListener('click', handleGlobalClick);
     return () => window.removeEventListener('click', handleGlobalClick);
-  }, [selectedClient, isFinalConsumer, showSuspendedPanel, isCashModalOpen, isAmountModalOpen]);
+  }, [selectedClient, isFinalConsumer, showSuspendedPanel]);
 
   const filteredProducts = useMemo(() => {
     const normalizedActiveCategory = String(activeCategory || '').trim().toUpperCase();
@@ -651,6 +661,14 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
       return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' });
     });
   }, [activeCategory, productSearch, products, posTransactions]);
+
+  const productsById = useMemo(() => {
+    const map = new Map<string, Product>();
+    products.forEach((product) => {
+      map.set(String(product.id), product);
+    });
+    return map;
+  }, [products]);
 
   const filteredPlans = useMemo(() => {
     const normalizedActiveCategory = String(activeCategory || '').trim().toUpperCase();
@@ -1105,6 +1123,17 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
 
   const removeFromCart = (productId: string) => {
     setCart(prev => prev.filter(item => item.productId !== productId));
+  };
+
+  const changeCartItemQuantity = (productId: string, delta: number) => {
+    setCart((prev) =>
+      prev.flatMap((item) => {
+        if (item.productId !== productId) return [item];
+        const nextQuantity = Number(item.quantity || 0) + delta;
+        if (nextQuantity <= 0) return [];
+        return [{ ...item, quantity: nextQuantity }];
+      })
+    );
   };
 
   const cartTotal = useMemo(() => cart.reduce((sum, item) => sum + (item.price * item.quantity), 0), [cart]);
@@ -1702,13 +1731,13 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
       setSelectedClient(null); 
       setProductSearch(''); 
       setIsFinalConsumer(false);
-      setIsCashModalOpen(false);
-      setIsAmountModalOpen(false);
+      setActiveSplitMethod(null);
       setCashReceived('');
       setPartialAmount('');
       setIsServiceActionModalOpen(false);
       setServiceActionType(null);
       setServiceActionAmount('');
+      setSaleReference(createPOSSaleReference());
     } catch (error) {
       console.error('Erro ao finalizar venda:', error);
       alert('Não foi possível finalizar a venda. Tente novamente.');
@@ -1750,8 +1779,6 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
     }
     
     setPayments(prev => [...prev, { method, amount: numericAmount, status: 'CONFIRMADO' }]);
-    setIsCashModalOpen(false);
-    setIsAmountModalOpen(false);
     setCashReceived('');
     setPartialAmount('');
   };
@@ -1777,6 +1804,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
       status: 'EM ESPERA'
     }, ...prev]);
     setCart([]); setSelectedClient(null); setPayments([]); setIsFinalConsumer(false);
+    setSaleReference(createPOSSaleReference());
   };
 
   const handleResume = (id: string) => {
@@ -1794,41 +1822,48 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
     setCart(sale.items);
     setSuspendedSales(prev => prev.filter(s => s.id !== id));
     setShowSuspendedPanel(false);
+    setSaleReference(`VENDA-${sale.id}`);
   };
 
-  const openPartialPaymentModal = (method: PaymentMethod) => {
+  const selectInlineSplitMethod = (method: PaymentMethod) => {
     if (method === 'SALDO' && isSaldoCantinaPaymentDisabled) {
       alert("Pagamento via Saldo Cantina desativado enquanto a quitação do saldo negativo estiver no carrinho.");
       return;
     }
     setActiveSplitMethod(method);
-    setPartialAmount(remainingToPay.toFixed(2));
-    setIsAmountModalOpen(true);
-  };
-
-  const openCashModal = () => {
-    setCashReceived('');
-    setIsCashModalOpen(true);
-  };
-
-  const closeCashModal = () => {
-    setIsCashModalOpen(false);
+    if (method === 'DINHEIRO') {
+      setCashReceived(remainingToPay > 0 ? remainingToPay.toFixed(2) : '');
+      setPartialAmount('');
+      return;
+    }
+    setPartialAmount(remainingToPay > 0 ? remainingToPay.toFixed(2) : '');
     setCashReceived('');
   };
 
-  const confirmCashSplitPayment = () => {
-    const received = cashReceivedNumeric;
-    if (received <= 0) return;
+  const applyInlineSplitPayment = () => {
+    if (!activeSplitMethod) return;
 
-    const paymentAmount = Math.min(received, remainingToPay);
+    if (activeSplitMethod === 'DINHEIRO') {
+      const received = cashReceivedNumeric;
+      if (received <= 0) return;
+      const paymentAmount = Math.min(received, remainingToPay);
+      setPayments(prev => [...prev, { method: 'DINHEIRO', amount: paymentAmount, receivedAmount: received, status: 'CONFIRMADO' }]);
+      setCashReceived('');
+      return;
+    }
 
-    // Fluxo específico de dinheiro: aceita valor recebido maior e aplica somente o saldo devedor.
-    setPayments(prev => [...prev, { method: 'DINHEIRO', amount: paymentAmount, receivedAmount: received, status: 'CONFIRMADO' }]);
-    setIsCashModalOpen(false);
-    setIsAmountModalOpen(false);
-    setCashReceived('');
-    setPartialAmount('');
+    const amount = Number(partialAmount);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    addPayment(activeSplitMethod, amount);
   };
+
+  useEffect(() => {
+    if (remainingToPay <= 0.01) {
+      setActiveSplitMethod(null);
+      setCashReceived('');
+      setPartialAmount('');
+    }
+  }, [remainingToPay]);
 
   const isFinalizeDisabled = useMemo(() => {
     const isCartEmpty = cart.length === 0;
@@ -1997,7 +2032,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
   }, [selectedClient, availablePlans, posTransactions, cart]);
 
   return (
-    <div className="flex flex-col lg:flex-row h-full gap-6 relative" onClick={initAudio}>
+    <div className="pos-shell flex flex-col lg:flex-row h-full gap-6 relative" onClick={initAudio}>
       <div className="w-full lg:basis-[70%] lg:max-w-[70%] flex flex-col space-y-4 min-w-0">
         {/* Top Header POS */}
         <div className="bg-white p-4 rounded-xl shadow-sm border space-y-4 relative z-20">
@@ -2306,55 +2341,126 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
             <span className="bg-indigo-600 text-white px-2 py-0.5 rounded-full text-[10px] font-black">{cart.length}</span>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {cart.map(item => (
-              <div key={item.productId} className="flex items-center justify-between text-sm group animate-in slide-in-from-right-2">
-                <div className="flex-1">
-                  <p className="font-bold text-gray-800">{item.name}</p>
-                  {item.serviceAction && (
-                    <p className="text-[9px] font-black uppercase tracking-widest text-indigo-500 mt-0.5">
-                      {item.serviceAction === 'CREDIT_STUDENT_FREE' && 'Crédito Livre Cantina'}
-                      {item.serviceAction === 'CREDIT_STUDENT_PLAN' && `Crédito Plano${item.planName ? ` • ${item.planName}` : ''}`}
-                      {item.serviceAction === 'PLAN_CONSUMPTION' && `Consumo Plano${item.planName ? ` • ${item.planName}` : ''}`}
-                      {item.serviceAction === 'PAY_COLLAB' && 'Pagamento Consumo Colaborador'}
-                    </p>
-                  )}
-                  {item.serviceAction === 'CREDIT_STUDENT_PLAN' && (
-                    <p className="text-[9px] text-gray-400 font-bold">
-                      {(item.selectedDates?.length || 0)} data(s) • {(item.selectedDays?.length || 0)} dia(s) da semana
-                    </p>
-                  )}
-                  <p className="text-[10px] text-gray-400 font-bold">{item.quantity}x R$ {item.price.toFixed(2)}</p>
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="rounded-2xl border border-amber-200 bg-white overflow-hidden shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
+              <div className="h-3" style={receiptZigZagEdgeStyle} />
+
+              <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-200 flex items-center justify-between">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-[0.18em] text-amber-700">Cupom de Venda</p>
+                  <p className="text-sm font-black text-amber-900 mt-0.5">{saleReference}</p>
                 </div>
-                <div className="flex items-center gap-4">
-                  <span className="font-black text-gray-700">R$ {(item.quantity * item.price).toFixed(2)}</span>
-                  <button onClick={() => removeFromCart(item.productId)} className="text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
-                </div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-amber-700 bg-amber-100/70 px-2.5 py-1 rounded-full border border-amber-200">
+                  {cart.length} item(ns)
+                </span>
               </div>
-            ))}
-            
-            {/* Split Payments List */}
-            {payments.length > 0 && (
-              <div className="pt-4 border-t space-y-2">
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                   <Layers size={12} /> Pagamentos Parciais
-                </p>
-                {payments.map((p, idx) => (
-                  <div key={idx} className="flex items-center justify-between bg-gray-50 p-2 rounded-lg border border-gray-100">
-                    <div className="flex items-center gap-2">
-                       <span className={`p-1 rounded text-white ${p.method === 'SALDO' ? 'bg-indigo-600' : p.method === 'PIX' ? 'bg-emerald-500' : p.method === 'DINHEIRO' ? 'bg-amber-500' : 'bg-blue-600'}`}>
-                          {p.method === 'SALDO' ? <Wallet size={10} /> : p.method === 'PIX' ? <Smartphone size={10} /> : p.method === 'DINHEIRO' ? <Banknote size={10} /> : <CardIcon size={10} />}
-                       </span>
-                       <span className="text-[10px] font-black text-gray-600">{p.method === 'SALDO' ? 'SALDO CANTINA' : p.method}</span>
+
+              <div className="px-4 pb-3 space-y-0">
+                {cart.map((item, index) => {
+                  const cartProduct = productsById.get(String(item.productId));
+                  const thumbnailUrl = cartProduct
+                    ? toAbsoluteProductImageUrl(cartProduct.image, cartProduct.name)
+                    : '';
+                  const isServiceItem = Boolean(item.serviceAction) || String(item.productId || '').startsWith('SERVICE_');
+
+                  return (
+                    <div
+                      key={item.productId}
+                      className={`group animate-in slide-in-from-right-2 py-3 ${index < cart.length - 1 ? 'border-b border-dashed border-gray-300' : ''}`}
+                    >
+                      <div className="h-px w-full bg-gray-100 mb-2" />
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-start gap-3 flex-1">
+                          <div className="w-10 h-10 rounded-lg overflow-hidden border border-gray-200 bg-gray-50 shrink-0 mt-0.5">
+                            {thumbnailUrl ? (
+                              <img src={thumbnailUrl} alt={item.name} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-[10px] font-black text-gray-400 uppercase">
+                                {String(item.name || '?').slice(0, 2)}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex-1">
+                            <p className="text-[15px] font-black text-gray-800 leading-tight">{item.name}</p>
+                            {item.serviceAction && (
+                              <p className="text-[9px] font-black uppercase tracking-widest text-indigo-500 mt-0.5">
+                                {item.serviceAction === 'CREDIT_STUDENT_FREE' && 'Crédito Livre Cantina'}
+                                {item.serviceAction === 'CREDIT_STUDENT_PLAN' && `Crédito Plano${item.planName ? ` • ${item.planName}` : ''}`}
+                                {item.serviceAction === 'PLAN_CONSUMPTION' && `Consumo Plano${item.planName ? ` • ${item.planName}` : ''}`}
+                                {item.serviceAction === 'PAY_COLLAB' && 'Pagamento Consumo Colaborador'}
+                              </p>
+                            )}
+                            {item.serviceAction === 'CREDIT_STUDENT_PLAN' && (
+                              <p className="text-[9px] text-gray-400 font-bold">
+                                {(item.selectedDates?.length || 0)} data(s) • {(item.selectedDays?.length || 0)} dia(s) da semana
+                              </p>
+                            )}
+
+                            {!isServiceItem ? (
+                              <div className="flex items-center gap-2 mt-1.5">
+                                <button
+                                  onClick={() => changeCartItemQuantity(item.productId, -1)}
+                                  className="w-6 h-6 rounded-md border border-indigo-200 text-indigo-600 font-black text-sm flex items-center justify-center hover:bg-indigo-50"
+                                  aria-label={`Diminuir quantidade de ${item.name}`}
+                                >
+                                  -
+                                </button>
+                                <span className="min-w-[24px] text-center text-sm font-black text-indigo-700">{item.quantity}</span>
+                                <button
+                                  onClick={() => changeCartItemQuantity(item.productId, 1)}
+                                  className="w-6 h-6 rounded-md border border-indigo-200 text-indigo-600 font-black text-sm flex items-center justify-center hover:bg-indigo-50"
+                                  aria-label={`Aumentar quantidade de ${item.name}`}
+                                >
+                                  +
+                                </button>
+                                <span className="text-sm font-black text-emerald-600 ml-1">R$ {item.price.toFixed(2)}</span>
+                              </div>
+                            ) : (
+                              <p className="text-sm font-black mt-1">
+                                <span className="text-indigo-600">{item.quantity}x</span>
+                                <span className="text-gray-400 mx-1">•</span>
+                                <span className="text-emerald-600">R$ {item.price.toFixed(2)}</span>
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                          <span className="text-lg font-black text-blue-700">R$ {(item.quantity * item.price).toFixed(2)}</span>
+                          <button onClick={() => removeFromCart(item.productId)} className="text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-black text-gray-800">R$ {p.amount.toFixed(2)}</span>
-                      <button onClick={() => removePayment(idx)} className="text-gray-300 hover:text-red-500"><X size={12} /></button>
-                    </div>
+                  );
+                })}
+                
+                {/* Split Payments List */}
+                {payments.length > 0 && (
+                  <div className="pt-5 mt-3 border-t-2 border-gray-300 space-y-2.5">
+                    <p className="text-[12px] font-black text-gray-600 uppercase tracking-widest flex items-center gap-2">
+                      <Layers size={14} /> Pagamentos Parciais
+                    </p>
+                    {payments.map((p, idx) => (
+                      <div key={idx} className="flex items-center justify-between bg-gray-50 p-3 rounded-xl border border-gray-200">
+                        <div className="flex items-center gap-2.5">
+                          <span className={`p-1.5 rounded text-white ${p.method === 'SALDO' ? 'bg-indigo-600' : p.method === 'PIX' ? 'bg-emerald-500' : p.method === 'DINHEIRO' ? 'bg-amber-500' : 'bg-blue-600'}`}>
+                            {p.method === 'SALDO' ? <Wallet size={12} /> : p.method === 'PIX' ? <Smartphone size={12} /> : p.method === 'DINHEIRO' ? <Banknote size={12} /> : <CardIcon size={12} />}
+                          </span>
+                          <span className="text-[12px] font-black text-gray-700 tracking-wide">{p.method === 'SALDO' ? 'SALDO CANTINA' : p.method}</span>
+                        </div>
+                        <div className="flex items-center gap-3.5">
+                          <span className="text-lg font-black text-indigo-700">R$ {p.amount.toFixed(2)}</span>
+                          <button onClick={() => removePayment(idx)} className="text-gray-300 hover:text-red-500"><X size={13} /></button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
-            )}
+
+              <div className="h-3 rotate-180" style={receiptZigZagEdgeStyle} />
+            </div>
           </div>
 
           {/* Payment Selection with Split Capability */}
@@ -2366,44 +2472,152 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     <PaymentButton 
-                      onClick={() => openPartialPaymentModal('SALDO')} 
+                      onClick={() => selectInlineSplitMethod('SALDO')} 
                       icon={<Wallet size={16} />} 
                       label={selectedClient?.type === 'COLABORADOR' ? 'Créd. Colabrador' : 'Saldo Cantina'}
                       color="indigo" 
+                      isSelected={activeSplitMethod === 'SALDO'}
                       disabled={isFinalConsumer || !selectedClient || selectedClient?.type === 'COLABORADOR' || isSaldoCantinaPaymentDisabled} 
                     />
                     <PaymentButton 
-                      onClick={() => openPartialPaymentModal('PIX')} 
+                      onClick={() => selectInlineSplitMethod('PIX')} 
                       icon={<Smartphone size={16} />} 
                       label="Pix" 
                       color="emerald" 
+                      isSelected={activeSplitMethod === 'PIX'}
                     />
                     <PaymentButton 
-                      onClick={openCashModal} 
+                      onClick={() => selectInlineSplitMethod('DINHEIRO')} 
                       icon={<Banknote size={16} />} 
                       label="Dinheiro" 
                       color="amber" 
+                      isSelected={activeSplitMethod === 'DINHEIRO'}
                     />
                     <PaymentButton 
-                      onClick={() => openPartialPaymentModal('DEBITO')} 
+                      onClick={() => selectInlineSplitMethod('DEBITO')} 
                       icon={<CardIcon size={16} />} 
                       label="Débito" 
                       color="blue" 
+                      isSelected={activeSplitMethod === 'DEBITO'}
                     />
                     <PaymentButton 
-                      onClick={() => openPartialPaymentModal('CREDITO')} 
+                      onClick={() => selectInlineSplitMethod('CREDITO')} 
                       icon={<CreditCard size={16} />} 
                       label="Crédito" 
                       color="purple" 
+                      isSelected={activeSplitMethod === 'CREDITO'}
                     />
                     <PaymentButton 
-                      onClick={() => openPartialPaymentModal('CREDITO_COLABORADOR')} 
+                      onClick={() => selectInlineSplitMethod('CREDITO_COLABORADOR')} 
                       icon={<Wallet size={16} />} 
                       label="Créd. Colaborador" 
                       color="amber" 
+                      isSelected={activeSplitMethod === 'CREDITO_COLABORADOR'}
                       disabled={isFinalConsumer || !selectedClient || selectedClient?.type !== 'COLABORADOR'} 
                     />
                   </div>
+
+                  {activeSplitMethod && (
+                    <div className="mt-2 p-3 rounded-xl border border-indigo-100 bg-indigo-50/60 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">
+                          Split: {activeSplitMethod === 'SALDO' ? 'Saldo Cantina' : activeSplitMethod}
+                        </p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                          Restante: R$ {remainingToPay.toFixed(2)}
+                        </p>
+                      </div>
+
+                      {activeSplitMethod === 'DINHEIRO' ? (
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Valor recebido</label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-black text-amber-500">R$</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={cashReceived}
+                              onChange={(e) => setCashReceived(e.target.value)}
+                              className="w-full pl-10 pr-3 py-2 bg-white border-2 border-amber-200 rounded-lg outline-none focus:border-amber-400 text-sm font-bold text-gray-700"
+                              placeholder="0,00"
+                            />
+                          </div>
+                          {cashReceivedNumeric >= remainingToPay && remainingToPay > 0 && (
+                            <p className="text-[11px] font-black text-emerald-600">
+                              Troco: R$ {changeAmount.toFixed(2)}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                            Valor com {activeSplitMethod}
+                          </label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-black text-indigo-500">R$</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={partialAmount}
+                              onChange={(e) => setPartialAmount(e.target.value)}
+                              className="w-full pl-10 pr-3 py-2 bg-white border-2 border-indigo-200 rounded-lg outline-none focus:border-indigo-400 text-sm font-bold text-gray-700"
+                              placeholder="0,00"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              onClick={() => setPartialAmount((remainingToPay / 2).toFixed(2))}
+                              className="py-2 bg-white hover:bg-indigo-100 border border-indigo-100 rounded-lg font-black text-[10px] text-indigo-700 uppercase tracking-widest transition-all"
+                            >
+                              Metade
+                            </button>
+                            <button
+                              onClick={() => setPartialAmount(remainingToPay.toFixed(2))}
+                              className="py-2 bg-white hover:bg-indigo-100 border border-indigo-100 rounded-lg font-black text-[10px] text-indigo-700 uppercase tracking-widest transition-all"
+                            >
+                              Total Restante
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      <button
+                        onClick={applyInlineSplitPayment}
+                        disabled={
+                          activeSplitMethod === 'DINHEIRO'
+                            ? !cashReceived || cashReceivedNumeric <= 0
+                            : (
+                                !partialAmount
+                                || parseFloat(partialAmount) <= 0
+                                || (
+                                  activeSplitMethod === 'SALDO'
+                                  && selectedClient
+                                  && !canClientUseNegativeBalance(selectedClient, parseFloat(partialAmount))
+                                )
+                              )
+                        }
+                        className={`w-full py-2.5 rounded-lg font-black uppercase tracking-widest text-[11px] transition-all ${
+                          (activeSplitMethod === 'DINHEIRO'
+                            ? !cashReceived || cashReceivedNumeric <= 0
+                            : (
+                                !partialAmount
+                                || parseFloat(partialAmount) <= 0
+                                || (
+                                  activeSplitMethod === 'SALDO'
+                                  && selectedClient
+                                  && !canClientUseNegativeBalance(selectedClient, parseFloat(partialAmount))
+                                )
+                              ))
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                            : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-[0.99]'
+                        }`}
+                      >
+                        Adicionar pagamento
+                      </button>
+                    </div>
+                  )}
                 </div>
              )}
           </div>
@@ -2411,13 +2625,13 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
           {/* Totals & Checkout Button */}
           <div className="p-4 bg-gray-900 text-white">
             <div className="flex justify-between items-center mb-1">
-              <span className="text-[10px] font-black uppercase tracking-widest text-gray-600">Total Venda</span>
-              <span className="text-2xl font-black text-indigo-400">R$ {cartTotal.toFixed(2)}</span>
+              <span className="text-xs font-black uppercase tracking-widest text-gray-500">Total Venda</span>
+              <span className="text-3xl font-black text-indigo-300">R$ {cartTotal.toFixed(2)}</span>
             </div>
             {totalPaid > 0 && (
-              <div className="flex justify-between items-center text-xs text-gray-400 mb-2">
+              <div className="flex justify-between items-center text-sm text-gray-300 mb-2 font-bold">
                  <span>Pago: R$ {totalPaid.toFixed(2)}</span>
-                 <span className={remainingToPay > 0.01 ? 'text-amber-500' : 'text-green-500'}>
+                 <span className={remainingToPay > 0.01 ? 'text-amber-400' : 'text-green-400'}>
                     {remainingToPay > 0.01 ? `Falta: R$ ${remainingToPay.toFixed(2)}` : 'TOTALMENTE PAGO'}
                  </span>
               </div>
@@ -2744,181 +2958,6 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
         </div>
       )}
 
-      {/* MODAL DE PAGAMENTO EM DINHEIRO (TROCO) */}
-      {isCashModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-sm animate-in fade-in" onClick={closeCashModal}></div>
-          <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95">
-             <div className="bg-amber-500 p-6 text-white flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                   <div className="bg-white/20 p-2 rounded-xl">
-                      <Banknote size={24} />
-                   </div>
-                   <h2 className="text-xl font-black">Dinheiro (Split)</h2>
-                </div>
-                <button onClick={closeCashModal}><X size={24} /></button>
-             </div>
-
-             <div className="p-8 space-y-8">
-                <div className="flex justify-between items-end border-b pb-4 border-gray-100">
-                   <div>
-                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Saldo a Pagar</p>
-                      <p className="text-3xl font-black text-gray-800">R$ {remainingToPay.toFixed(2)}</p>
-                   </div>
-                </div>
-
-                <div className="space-y-4">
-                   <div className="space-y-2">
-                      <label className="text-xs font-black text-gray-500 uppercase tracking-widest block text-center">Valor Recebido</label>
-                      <div className="relative">
-                         <span className="absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-black text-amber-500">R$</span>
-                         <input 
-                           ref={cashInputRef}
-                           type="number" 
-                           autoFocus
-                           placeholder="0,00"
-                           className="w-full pl-16 pr-6 py-6 bg-amber-50 border-4 border-amber-100 rounded-2xl outline-none focus:border-amber-500 text-4xl font-black text-amber-600 transition-all text-center"
-                           value={cashReceived}
-                           onChange={(e) => setCashReceived(e.target.value)}
-                         />
-                      </div>
-                   </div>
-                </div>
-
-                {cashReceivedNumeric >= remainingToPay && remainingToPay > 0 && (
-                   <div className="bg-emerald-50 p-6 rounded-3xl border-4 border-emerald-100 animate-in slide-in-from-bottom-4">
-                      <div className="flex items-center justify-between mb-2">
-                         <div className="flex items-center gap-2 text-emerald-600">
-                            <Coins size={20} />
-                            <span className="text-xs font-black uppercase tracking-widest">Troco Estimado</span>
-                         </div>
-                      </div>
-                      <p className="text-5xl font-black text-emerald-600 text-center">R$ {changeAmount.toFixed(2)}</p>
-                   </div>
-                )}
-
-             </div>
-
-             <div className="p-6 bg-gray-50 border-t flex gap-4">
-                <button onClick={closeCashModal} className="flex-1 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Voltar</button>
-                <button 
-                  disabled={!cashReceived || cashReceivedNumeric <= 0}
-                  onClick={confirmCashSplitPayment}
-                  className={`flex-[2] py-4 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2 transition-all ${
-                    !cashReceived || cashReceivedNumeric <= 0
-                      ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
-                      : 'bg-indigo-600 text-white shadow-xl shadow-indigo-100 hover:bg-indigo-700 active:scale-95'
-                  }`}
-                >
-                   Aplicar Parte do Pagto <ArrowRight size={20} />
-                </button>
-             </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL GENÉRICO PARA PAGAMENTO PARCIAL (SPLIT) */}
-      {isAmountModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-sm animate-in fade-in" onClick={() => setIsAmountModalOpen(false)}></div>
-          <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95">
-             <div className="bg-indigo-600 p-6 text-white flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                   <div className="bg-white/20 p-2 rounded-xl">
-                      <Calculator size={24} />
-                   </div>
-                   <div>
-                      <h2 className="text-xl font-black">Pagamento Parcial</h2>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-indigo-200">Método: {activeSplitMethod}</p>
-                   </div>
-                </div>
-                <button onClick={() => setIsAmountModalOpen(false)}><X size={24} /></button>
-             </div>
-
-             <div className="p-8 space-y-8">
-                {activeSplitMethod === 'SALDO' && selectedClient && (
-                  <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100 flex items-center justify-between">
-                     <div>
-                        <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Saldo Disponível</p>
-                        <p className="text-lg font-black text-indigo-700">R$ {selectedClient.balance.toFixed(2)}</p>
-                     </div>
-                     <Wallet className="text-indigo-300" size={32} />
-                  </div>
-                )}
-
-                {activeSplitMethod === 'CREDITO_COLABORADOR' && selectedClient && (
-                  <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 flex items-center justify-between">
-                     <div>
-                        <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Consumo do Mês</p>
-                        <p className="text-lg font-black text-amber-700">R$ {(selectedClient.monthlyConsumption || 0).toFixed(2)}</p>
-                     </div>
-                     <Wallet className="text-amber-300" size={32} />
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                   <label className="text-xs font-black text-gray-500 uppercase tracking-widest block text-center">Quanto deseja pagar com {activeSplitMethod}?</label>
-                   <div className="relative">
-                      <span className="absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-black text-indigo-500">R$</span>
-                      <input 
-                        ref={partialInputRef}
-                        type="number" 
-                        autoFocus
-                        className="w-full pl-16 pr-6 py-6 bg-indigo-50 border-4 border-indigo-100 rounded-2xl outline-none focus:border-indigo-500 text-4xl font-black text-indigo-600 transition-all text-center"
-                        value={partialAmount}
-                        onChange={(e) => setPartialAmount(e.target.value)}
-                      />
-                   </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                   <button 
-                     onClick={() => setPartialAmount((remainingToPay / 2).toFixed(2))}
-                     className="py-3 bg-gray-50 hover:bg-indigo-100 border border-gray-100 rounded-xl font-black text-gray-600 transition-all text-[10px] uppercase tracking-widest"
-                   >
-                     Metade (R$ {(remainingToPay/2).toFixed(2)})
-                   </button>
-                   <button 
-                     onClick={() => setPartialAmount(remainingToPay.toFixed(2))}
-                     className="py-3 bg-gray-50 hover:bg-indigo-100 border border-gray-100 rounded-xl font-black text-gray-600 transition-all text-[10px] uppercase tracking-widest"
-                   >
-                     Total Restante
-                   </button>
-                </div>
-             </div>
-
-             <div className="p-6 bg-gray-50 border-t flex gap-4">
-                <button onClick={() => setIsAmountModalOpen(false)} className="flex-1 py-4 text-xs font-black text-gray-400 uppercase tracking-widest">Cancelar</button>
-                <button 
-                  disabled={
-                    !partialAmount
-                    || parseFloat(partialAmount) <= 0
-                    || (
-                      activeSplitMethod === 'SALDO'
-                      && selectedClient
-                      && !canClientUseNegativeBalance(selectedClient, parseFloat(partialAmount))
-                    )
-                  }
-                  onClick={() => activeSplitMethod && addPayment(activeSplitMethod, parseFloat(partialAmount))}
-                  className={`flex-[2] py-4 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2 transition-all ${
-                    !partialAmount
-                    || parseFloat(partialAmount) <= 0
-                    || (
-                      activeSplitMethod === 'SALDO'
-                      && selectedClient
-                      && !canClientUseNegativeBalance(selectedClient, parseFloat(partialAmount))
-                    )
-                      ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
-                      : 'bg-indigo-600 text-white shadow-xl shadow-indigo-100 hover:bg-indigo-700 active:scale-95'
-                  }`}
-                >
-                   Confirmar Parcial <ArrowRight size={20} />
-                </button>
-             </div>
-          </div>
-        </div>
-      )}
-
       {isNegativeBalanceWarningOpen && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
           <div
@@ -3024,7 +3063,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
   );
 };
 
-const PaymentButton = ({ onClick, icon, label, color, disabled }: any) => {
+const PaymentButton = ({ onClick, icon, label, color, disabled, isSelected }: any) => {
   const colorMap: any = {
     indigo: 'border-indigo-200 text-indigo-700 hover:bg-indigo-50',
     emerald: 'border-emerald-200 text-emerald-700 hover:bg-emerald-50',
@@ -3037,12 +3076,16 @@ const PaymentButton = ({ onClick, icon, label, color, disabled }: any) => {
     <button 
       disabled={disabled}
       onClick={onClick} 
-      className={`p-2.5 rounded-xl text-[9px] font-black uppercase flex flex-col items-center gap-1 border-2 transition-all active:scale-95 ${
-        disabled ? 'bg-gray-100 text-gray-300 border-gray-100 cursor-not-allowed opacity-50' : `bg-white ${colorMap[color]}`
+      className={`w-full min-h-[62px] px-3 py-2.5 rounded-xl text-[13px] font-extrabold uppercase tracking-wide flex items-center justify-center gap-2.5 border-2 transition-all active:scale-95 ${
+        disabled
+          ? 'bg-gray-100 text-gray-300 border-gray-100 cursor-not-allowed opacity-50'
+          : isSelected
+            ? `bg-white ${colorMap[color]} ring-2 ring-offset-1 ring-indigo-300`
+            : `bg-white ${colorMap[color]}`
       }`}
     >
-      <div className="mb-0.5">{icon}</div>
-      {label}
+      <div className="shrink-0 flex items-center justify-center">{icon}</div>
+      <span className="leading-tight text-center font-extrabold">{label}</span>
     </button>
   );
 };

@@ -22,16 +22,20 @@ import {
   Video,
   MoreVertical,
   LayoutDashboard,
-  Megaphone,
   Settings2,
   Bot,
-  GitBranch
+  GitBranch,
+  Wallet,
+  UtensilsCrossed,
+  CalendarDays,
+  CheckCheck
 } from 'lucide-react';
 import { Client, Enterprise, Plan, User } from '../types';
 import ApiService from '../services/api';
 import WhatsAppQrConnector from '../components/WhatsAppQrConnector';
 import notificationService from '../services/notificationService';
 import { formatPhoneWithCountryTag } from '../utils/phone';
+import CentralDisparos from '../components/whatsapp-disparos/CentralDisparos';
 
 interface WhatsAppPageProps {
   currentUser: User;
@@ -141,7 +145,6 @@ type CampaignAudience = 'ALL' | 'ALUNO' | 'COLABORADOR' | `LABEL:${string}`;
 type CampaignSubTab = 'NOVA_CAMPANHA' | 'GERENCIAR_CAMPANHA';
 type PlanConsumptionDispatchFrequency = 'MONTHLY' | 'WEEKLY';
 type PlanConsumptionDispatchRecipientKind = 'COLABORADOR_RELATORIO' | 'RESPONSAVEL_RELATORIO';
-type RecurringPreviewAudienceFilter = 'TODOS' | 'RESPONSAVEL' | 'COLABORADOR';
 
 type PlanConsumptionPdfPlanRow = {
   studentName: string;
@@ -316,7 +319,7 @@ type AiFlowVisualNode = {
   subSwitchId?: number;
 };
 
-type WhatsTab = 'CRM' | 'SESSION_QR';
+type WhatsTab = 'CRM' | 'DISPAROS' | 'SESSION_QR';
 const WHATSAPP_SIGNATURE_ENABLED_KEY = 'whatsapp_signature_enabled';
 const WHATSAPP_SIGNATURE_NAME_KEY = 'whatsapp_signature_name';
 const NEW_CHAT_COUNTRY_CODE_KEY = 'whatsapp_new_chat_country_code';
@@ -331,6 +334,27 @@ const normalizeSearchValue = (value?: string) =>
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
+
+const normalizeTimestampMs = (value: unknown): number | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value <= 0) return null;
+    return value < 1e11 ? Math.round(value * 1000) : Math.round(value);
+  }
+
+  const text = String(value).trim();
+  if (!text) return null;
+
+  if (/^\d+(\.\d+)?$/.test(text)) {
+    const num = Number(text);
+    if (!Number.isFinite(num) || num <= 0) return null;
+    return num < 1e11 ? Math.round(num * 1000) : Math.round(num);
+  }
+
+  const parsed = new Date(text).getTime();
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+};
 
 const isSubsequenceMatch = (text: string, query: string) => {
   if (!query) return true;
@@ -466,6 +490,13 @@ const getPlanCardTone = (planKey: string, balance: number) => {
   }
 
   const normalized = String(planKey || '').trim().toUpperCase();
+  if (normalized === 'PREPAGO' && Number(balance) < 10) {
+    return {
+      container: 'border-rose-200 bg-rose-50',
+      title: 'text-rose-700',
+      value: 'text-rose-700',
+    };
+  }
   if (normalized === 'PREPAGO') {
     return {
       container: 'border-indigo-200 bg-indigo-50',
@@ -730,6 +761,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const [aiAgentEnabledForChat, setAiAgentEnabledForChat] = useState(false);
   const [isUpdatingAiAgentForChat, setIsUpdatingAiAgentForChat] = useState(false);
   const [chatAttachment, setChatAttachment] = useState<ChatAttachment | null>(null);
+  const [selectedStudentConsumedToday, setSelectedStudentConsumedToday] = useState<boolean | null>(null);
+  const [isLoadingStudentConsumedToday, setIsLoadingStudentConsumedToday] = useState(false);
   const [scheduleAt, setScheduleAt] = useState('');
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [scheduledItems, setScheduledItems] = useState<ScheduledItem[]>([]);
@@ -787,14 +820,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const [planConsumptionIntervalSeconds, setPlanConsumptionIntervalSeconds] = useState(3);
   const [planConsumptionUseSignature, setPlanConsumptionUseSignature] = useState(true);
   const [planConsumptionPreview, setPlanConsumptionPreview] = useState<PlanConsumptionDispatchPreview | null>(null);
-  const [recurringPreviewAudienceFilter, setRecurringPreviewAudienceFilter] = useState<RecurringPreviewAudienceFilter>('TODOS');
-  const [recurringPreviewSearchTerm, setRecurringPreviewSearchTerm] = useState('');
-  const [recurringPreviewStartDate, setRecurringPreviewStartDate] = useState('');
-  const [recurringPreviewEndDate, setRecurringPreviewEndDate] = useState('');
   const [planConsumptionReports, setPlanConsumptionReports] = useState<PlanConsumptionDispatchReport[]>([]);
-  const [isGeneratingPlanConsumptionPreview, setIsGeneratingPlanConsumptionPreview] = useState(false);
   const [isLaunchingPlanConsumptionDispatch, setIsLaunchingPlanConsumptionDispatch] = useState(false);
-  const [downloadingPlanConsumptionExampleKind, setDownloadingPlanConsumptionExampleKind] = useState<PlanConsumptionDispatchRecipientKind | null>(null);
   const [campaignSteps, setCampaignSteps] = useState<CampaignStep[]>([
     { id: 1, title: 'Boas-vindas', delayDays: 0, message: 'Olá {Nome}! 👋 Bem-vindo(a). Estamos felizes em ter você por aqui.' },
     { id: 2, title: 'Check-in', delayDays: 2, message: 'Oi {Nome}, passando para saber se conseguiu ver nossa última mensagem.' },
@@ -1050,7 +1077,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     }
     try {
       const data = await ApiService.getWhatsAppChats();
-      const nextChats = Array.isArray(data?.chats) ? data.chats : [];
+      const nextChats = (Array.isArray(data?.chats) ? data.chats : []).map((chat: ChatSummary) => ({
+        ...chat,
+        lastTimestamp: normalizeTimestampMs((chat as any)?.lastTimestamp) || 0,
+      }));
       setChats(nextChats);
       const backendChatIds = new Set(nextChats.map((chat: ChatSummary) => chat.chatId));
       setDraftChats((prev) => prev.filter((draft) => {
@@ -1074,7 +1104,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     }
     try {
       const data = await ApiService.getWhatsAppChatMessages(chatId, 100);
-      const nextMessages = Array.isArray(data?.messages) ? data.messages : [];
+      const nextMessages = (Array.isArray(data?.messages) ? data.messages : []).map((msg: ChatMessage) => ({
+        ...msg,
+        timestamp: normalizeTimestampMs((msg as any)?.timestamp) || 0,
+      }));
       setMessages(nextMessages);
       setAudioTranscriptions((prev) => {
         const validIds = new Set(nextMessages.map((msg: ChatMessage) => String(msg.id || '')));
@@ -1638,6 +1671,56 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     });
   }, [selectedStudent]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      if (!selectedStudent?.id) {
+        setSelectedStudentConsumedToday(null);
+        return;
+      }
+      try {
+        setIsLoadingStudentConsumedToday(true);
+        const txList = await ApiService.getTransactions({ clientId: selectedStudent.id });
+        const list = Array.isArray(txList) ? txList : [];
+        const today = new Date();
+        const hasTodayConsumption = list.some((tx: any) => {
+          const type = String(tx?.type || '').toUpperCase();
+          if (type !== 'CONSUMO') return false;
+          const raw = String(tx?.timestamp || tx?.date || '');
+          if (!raw) return false;
+          const parsed = new Date(raw);
+          if (!Number.isFinite(parsed.getTime()) && String(tx?.date || '')) {
+            const fromDate = new Date(`${String(tx.date)}T00:00:00`);
+            if (!Number.isFinite(fromDate.getTime())) return false;
+            return fromDate.toDateString() === today.toDateString();
+          }
+          return parsed.toDateString() === today.toDateString();
+        });
+        if (!cancelled) setSelectedStudentConsumedToday(hasTodayConsumption);
+      } catch {
+        if (!cancelled) setSelectedStudentConsumedToday(null);
+      } finally {
+        if (!cancelled) setIsLoadingStudentConsumedToday(false);
+      }
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedStudent?.id]);
+
+  const handleQuickChargeLowBalance = () => {
+    if (!selectedChat) return;
+    const aluno = selectedStudent?.name || selectedChatClient?.name || 'aluno';
+    const saldo = Number(selectedStudent?.balance || selectedChatClient?.balance || 0);
+    const responsible = selectedChat.displayName || resolveResponsibleName(selectedChatClient || undefined) || 'responsável';
+    const nextMessage = `Olá ${responsible}, o saldo do aluno ${aluno} é de R$ ${saldo.toFixed(2)}. Deseja recarregar?`;
+    setChatReply(nextMessage);
+    notificationService.informativo('Mensagem sugerida', 'Texto de cobrança preenchido no campo de resposta.');
+  };
+
   const handleSendConsumptionReport = async () => {
     if (!selectedChatId) {
       setFeedback('Selecione uma conversa para enviar relatório.');
@@ -1948,7 +2031,11 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         id: chat.chatId,
         title: `Conversa com ${chat.displayName}`,
         subtitle: chat.lastMessage || 'Sem mensagem',
-        when: new Date(Number(chat.lastTimestamp || 0)).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }),
+        when: (() => {
+          const ts = normalizeTimestampMs(chat.lastTimestamp);
+          if (!ts) return 'Sem data';
+          return new Date(ts).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+        })(),
       })),
     [visibleChats]
   );
@@ -1980,7 +2067,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   }, [chats]);
 
   const formatLastInteractionLabel = (timestamp?: number) => {
-    const ts = Number(timestamp || 0);
+    const ts = normalizeTimestampMs(timestamp);
     if (!ts) return 'Sem interação';
     const date = new Date(ts);
     if (!Number.isFinite(date.getTime())) return 'Sem interação';
@@ -2292,72 +2379,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     });
   };
 
-  const getRecurringPreviewRangeOptions = () => {
-    const start = String(recurringPreviewStartDate || '').trim();
-    const end = String(recurringPreviewEndDate || '').trim();
-    if (!start && !end) {
-      return {} as { periodStartDate?: string; periodEndDate?: string };
-    }
-    if (!start || !end) {
-      throw new Error('Informe data inicial e final para filtrar a pré-visualização.');
-    }
-    const startDate = new Date(`${start}T00:00:00`);
-    const endDate = new Date(`${end}T23:59:59.999`);
-    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-      throw new Error('Datas da pré-visualização são inválidas.');
-    }
-    if (startDate.getTime() > endDate.getTime()) {
-      throw new Error('Data inicial não pode ser maior que a data final.');
-    }
-    return { periodStartDate: start, periodEndDate: end };
-  };
-
-  const recurringPreviewRecipients = useMemo(() => {
-    const base = Array.isArray(planConsumptionPreview?.recipients) ? planConsumptionPreview!.recipients : [];
-    let output = [...base];
-    if (recurringPreviewAudienceFilter === 'RESPONSAVEL') {
-      output = output.filter((recipient) => recipient.kindSet.includes('RESPONSAVEL_RELATORIO'));
-    } else if (recurringPreviewAudienceFilter === 'COLABORADOR') {
-      output = output.filter((recipient) => recipient.kindSet.includes('COLABORADOR_RELATORIO'));
-    }
-    const search = normalizeSearchValue(recurringPreviewSearchTerm);
-    if (search) {
-      output = output.filter((recipient) => {
-        const studentNames = recipient.reportProfile.students.map((student) => student.name).join(' ');
-        const haystack = normalizeSearchValue(
-          `${recipient.contactName} ${recipient.reportProfile.responsibleName} ${recipient.contactPhone} ${studentNames}`
-        );
-        return haystack.includes(search);
-      });
-    }
-    return output;
-  }, [planConsumptionPreview, recurringPreviewAudienceFilter, recurringPreviewSearchTerm]);
-
-  const recurringPreviewPrimaryRecipient = recurringPreviewRecipients[0] || null;
-
   const recurringPreviewExampleValues = useMemo(() => {
-    const firstRecipientValues = recurringPreviewPrimaryRecipient?.variableValues || {};
+    const firstRecipientValues = planConsumptionPreview?.recipients?.[0]?.variableValues || {};
     return {
       ...CAMPAIGN_RECURRING_VARIABLE_EXAMPLES,
       ...firstRecipientValues,
       periodo_referencia: planConsumptionPreview?.periodLabel || CAMPAIGN_RECURRING_VARIABLE_EXAMPLES.periodo_referencia,
     };
-  }, [planConsumptionPreview, recurringPreviewPrimaryRecipient]);
-
-  const recurringPreviewName = useMemo(
-    () => recurringPreviewPrimaryRecipient?.contactName || campaignPreviewName || 'Responsável Exemplo',
-    [recurringPreviewPrimaryRecipient, campaignPreviewName]
-  );
-
-  const recurringPreviewHasResponsible = useMemo(
-    () => Boolean(recurringPreviewRecipients.some((item) => item.kindSet.includes('RESPONSAVEL_RELATORIO'))),
-    [recurringPreviewRecipients]
-  );
-
-  const recurringPreviewHasCollaborator = useMemo(
-    () => Boolean(recurringPreviewRecipients.some((item) => item.kindSet.includes('COLABORADOR_RELATORIO'))),
-    [recurringPreviewRecipients]
-  );
+  }, [planConsumptionPreview]);
 
   const getCampaignTargetPhones = () => {
     const toUnique = (values: string[]) => Array.from(new Set(values.map(normalizePhone).filter((phone) => phone.length >= 10)));
@@ -2529,8 +2558,6 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const buildPlanConsumptionDispatchTargets = async (options?: {
     includeResponsible?: boolean;
     includeCollaborator?: boolean;
-    periodStartDate?: string;
-    periodEndDate?: string;
   }) => {
     if (!activeEnterprise?.id) {
       throw new Error('Empresa ativa não encontrada.');
@@ -2542,28 +2569,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       throw new Error('Selecione ao menos um público para campanha recorrente: Responsável ou Colaborador.');
     }
 
-    let periodInfo = buildPlanConsumptionPeriod(new Date());
-    const customStart = String(options?.periodStartDate || '').trim();
-    const customEnd = String(options?.periodEndDate || '').trim();
-    if (customStart || customEnd) {
-      if (!customStart || !customEnd) {
-        throw new Error('Para pré-visualização por data, informe início e fim.');
-      }
-      const startDate = new Date(`${customStart}T00:00:00`);
-      const endDate = new Date(`${customEnd}T23:59:59.999`);
-      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-        throw new Error('Período da pré-visualização inválido.');
-      }
-      if (startDate.getTime() > endDate.getTime()) {
-        throw new Error('Data inicial da pré-visualização não pode ser maior que a data final.');
-      }
-      periodInfo = {
-        closedStart: startDate,
-        closedEnd: endDate,
-        periodLabel: `${formatDatePt(startDate)} a ${formatDatePt(endDate)}`,
-      };
-    }
-    const { closedStart, closedEnd, periodLabel } = periodInfo;
+    const { closedStart, closedEnd, periodLabel } = buildPlanConsumptionPeriod(new Date());
     const txList = await ApiService.getTransactions({ enterpriseId: activeEnterprise.id });
     const transactions = Array.isArray(txList) ? txList : [];
 
@@ -3245,6 +3251,22 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     doc.text(doc.splitTextToSize(studentsLine, pageWidth - (leftX * 2)), leftX, contactY + 24);
     doc.text(`Gerado em: ${generatedAt.toLocaleString('pt-BR')}`, pageWidth - leftX, contactY + 12, { align: 'right' });
 
+    const totalCredits = profile.transactionRows
+      .filter((row) => {
+        const kind = classifyTxKind(row);
+        return kind === 'CREDITO' || kind === 'CREDITO_ESTORNO';
+      })
+      .reduce((acc, row) => acc + Math.abs(Number(row.amount || 0)), 0);
+    const totalConsumption = profile.transactionRows
+      .filter((row) => {
+        const kind = classifyTxKind(row);
+        return kind === 'CONSUMO' || kind === 'ESTORNO';
+      })
+      .reduce((acc, row) => acc + Math.abs(Number(row.amount || 0)), 0);
+    const finalBalance = totalCredits - totalConsumption;
+
+    const cardsTopY = contactY + 34;
+
     const groupedByPlan = new Map<string, PlanConsumptionPdfTransactionRow[]>();
     profile.transactionRows.forEach((row) => {
       const planName = String(row.planName || '').trim() || 'PRÉ-PAGA';
@@ -3386,7 +3408,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         });
     });
 
-    const tableStartY = drawPlanSummaryCards(contactY + 54) + 10;
+    const tableStartY = drawPlanSummaryCards(cardsTopY) + 10;
 
     autoTable(doc, {
       startY: tableStartY,
@@ -3418,14 +3440,54 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         if (Array.isArray(row) && row.length > 0 && row[0]?.colSpan) return;
         const rawType = normalizeSearchValue(String(row?.[2] || '')).toUpperCase();
         if (rawType.includes('ESTORNO') && !rawType.includes('CREDITO')) {
-          hook.cell.styles.textColor = [180, 83, 9];
+          if (hook.column.index === 2 || hook.column.index === 3) {
+            hook.cell.styles.textColor = [180, 83, 9];
+          }
         } else if (rawType.includes('CONSUMO') || rawType.includes('DEBIT')) {
-          hook.cell.styles.textColor = [185, 28, 28];
+          if (hook.column.index === 2 || hook.column.index === 3) {
+            hook.cell.styles.textColor = [185, 28, 28];
+          }
         } else if (rawType.includes('CREDITO')) {
-          hook.cell.styles.textColor = [21, 128, 61];
+          if (hook.column.index === 2 || hook.column.index === 3) {
+            hook.cell.styles.textColor = [21, 128, 61];
+          }
         }
       },
     });
+
+    const tableFinalY = (doc as any).lastAutoTable?.finalY || tableStartY + 8;
+    let totalsY = tableFinalY + 8;
+    const totalCardHeight = 44;
+    if (totalsY + totalCardHeight > doc.internal.pageSize.getHeight() - 24) {
+      doc.addPage();
+      totalsY = 28;
+    }
+    const totalCardWidth = 170;
+    const totalGap = 8;
+    const drawTotalCard = (x: number, y: number, title: string, value: string, tone: 'green' | 'red' | 'blue') => {
+      if (tone === 'green') {
+        doc.setFillColor(236, 253, 245);
+        doc.setDrawColor(134, 239, 172);
+        doc.setTextColor(21, 128, 61);
+      } else if (tone === 'red') {
+        doc.setFillColor(254, 242, 242);
+        doc.setDrawColor(252, 165, 165);
+        doc.setTextColor(185, 28, 28);
+      } else {
+        doc.setFillColor(239, 246, 255);
+        doc.setDrawColor(147, 197, 253);
+        doc.setTextColor(30, 64, 175);
+      }
+      doc.roundedRect(x, y, totalCardWidth, totalCardHeight, 6, 6, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.4);
+      doc.text(title, x + 8, y + 14);
+      doc.setFontSize(13.5);
+      doc.text(value, x + 8, y + 31);
+    };
+    drawTotalCard(leftX, totalsY, 'Total Créditos', formatCurrencyBr(totalCredits), 'green');
+    drawTotalCard(leftX + totalCardWidth + totalGap, totalsY, 'Total Consumo', formatCurrencyBr(totalConsumption), 'red');
+    drawTotalCard(leftX + (totalCardWidth * 2) + (totalGap * 2), totalsY, 'Saldo Final', formatCurrencyBr(finalBalance), 'blue');
 
     const pageCount = (doc as any).internal.getNumberOfPages();
     for (let i = 1; i <= pageCount; i += 1) {
@@ -3446,100 +3508,6 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       mimeType: 'application/pdf',
       fileName: `relatorio_planos_${safeFileName || 'contato'}_${generatedAt.toISOString().slice(0, 10)}.pdf`,
     };
-  };
-
-  const downloadDataUriFile = (dataUri: string, fileName: string) => {
-    const href = String(dataUri || '').trim();
-    if (!href) {
-      throw new Error('Arquivo PDF inválido para download.');
-    }
-    const link = document.createElement('a');
-    link.href = href;
-    link.download = String(fileName || 'relatorio.pdf');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleDownloadPlanConsumptionExamplePdf = async (kind: PlanConsumptionDispatchRecipientKind) => {
-    setDownloadingPlanConsumptionExampleKind(kind);
-    try {
-      const preview = await buildPlanConsumptionDispatchTargets({
-        includeResponsible: campaignRecurringTargetResponsible,
-        includeCollaborator: campaignRecurringTargetCollaborator,
-        ...getRecurringPreviewRangeOptions(),
-      });
-      setPlanConsumptionPreview(preview);
-
-      const filteredRecipients = (() => {
-        let list = [...preview.recipients];
-        if (recurringPreviewAudienceFilter === 'RESPONSAVEL') {
-          list = list.filter((recipient) => recipient.kindSet.includes('RESPONSAVEL_RELATORIO'));
-        } else if (recurringPreviewAudienceFilter === 'COLABORADOR') {
-          list = list.filter((recipient) => recipient.kindSet.includes('COLABORADOR_RELATORIO'));
-        }
-        const search = normalizeSearchValue(recurringPreviewSearchTerm);
-        if (search) {
-          list = list.filter((recipient) => {
-            const studentNames = recipient.reportProfile.students.map((student) => student.name).join(' ');
-            const haystack = normalizeSearchValue(
-              `${recipient.contactName} ${recipient.reportProfile.responsibleName} ${recipient.contactPhone} ${studentNames}`
-            );
-            return haystack.includes(search);
-          });
-        }
-        return list;
-      })();
-
-      const recipient = filteredRecipients.find((item) => item.kindSet.includes(kind));
-      if (!recipient) {
-        setFeedback(
-          kind === 'RESPONSAVEL_RELATORIO'
-            ? 'Não há destinatário responsável no filtro atual da prévia para gerar o PDF.'
-            : 'Não há destinatário colaborador no filtro atual da prévia para gerar o PDF.'
-        );
-        return;
-      }
-
-      const attachment = buildPlanConsumptionPdfAttachment(recipient, preview.periodLabel);
-      downloadDataUriFile(attachment.base64Data, attachment.fileName || 'relatorio_planos.pdf');
-      setFeedback(
-        kind === 'RESPONSAVEL_RELATORIO'
-          ? 'PDF de exemplo para responsável baixado com sucesso.'
-          : 'PDF de exemplo para colaborador baixado com sucesso.'
-      );
-    } catch (err) {
-      setFeedback(err instanceof Error ? err.message : 'Falha ao baixar PDF de exemplo.');
-    } finally {
-      setDownloadingPlanConsumptionExampleKind(null);
-    }
-  };
-
-  const handleGeneratePlanConsumptionPreview = async () => {
-    if (!activeEnterprise?.id) {
-      setFeedback('Empresa ativa não encontrada.');
-      return;
-    }
-    setIsGeneratingPlanConsumptionPreview(true);
-    try {
-      const preview = await buildPlanConsumptionDispatchTargets({
-        includeResponsible: campaignRecurringTargetResponsible,
-        includeCollaborator: campaignRecurringTargetCollaborator,
-        ...getRecurringPreviewRangeOptions(),
-      });
-      setPlanConsumptionPreview(preview);
-      if (preview.recipients.length === 0) {
-        setFeedback('Nenhum destinatário encontrado para as regras do relatório recorrente.');
-      } else {
-        setFeedback(
-          `Prévia gerada: ${preview.recipients.length} contato(s) (${preview.collaboratorCount} colaborador(es), ${preview.responsibleCount} responsável(is)).`
-        );
-      }
-    } catch (err) {
-      setFeedback(err instanceof Error ? err.message : 'Falha ao gerar prévia de envio de relatório recorrente.');
-    } finally {
-      setIsGeneratingPlanConsumptionPreview(false);
-    }
   };
 
   const handleLaunchPlanConsumptionDispatch = async (mode: 'NOW' | 'SCHEDULED') => {
@@ -3640,11 +3608,38 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   );
 
   const formatChatTime = (timestamp?: number) => {
-    const ts = Number(timestamp || 0);
+    const ts = normalizeTimestampMs(timestamp);
     if (!ts) return '';
     const date = new Date(ts);
     if (!Number.isFinite(date.getTime())) return '';
-    return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(date);
+  };
+
+  const isSameCalendarDay = (a?: number, b?: number) => {
+    const aTs = normalizeTimestampMs(a);
+    const bTs = normalizeTimestampMs(b);
+    if (!aTs || !bTs) return false;
+    const aDate = new Date(aTs);
+    const bDate = new Date(bTs);
+    if (!Number.isFinite(aDate.getTime()) || !Number.isFinite(bDate.getTime())) return false;
+    return aDate.toDateString() === bDate.toDateString();
+  };
+
+  const formatChatDayDivider = (timestamp?: number) => {
+    const ts = normalizeTimestampMs(timestamp);
+    if (!ts) return '';
+    const date = new Date(ts);
+    if (!Number.isFinite(date.getTime())) return '';
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (date.toDateString() === today.toDateString()) return 'Hoje';
+    if (date.toDateString() === yesterday.toDateString()) return 'Ontem';
+    return new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+    }).format(date);
   };
 
   const toggleRecipient = (phone: string, checked: boolean) => {
@@ -4671,11 +4666,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
   useEffect(() => {
     if (activeTab !== 'CRM') return;
+    if (crmView === 'CAMPANHAS') {
+      setCrmView('CONVERSAS');
+      return;
+    }
     if (
       crmView === 'DASHBOARD'
       || crmView === 'CONVERSAS'
       || crmView === 'CONTATOS'
-      || crmView === 'CAMPANHAS'
       || crmView === 'AI_CONFIG'
       || crmView === 'AI_FLOW'
       || crmView === 'CONTA'
@@ -5002,10 +5000,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="flex items-center justify-center h-96 dark:bg-zinc-900/60 rounded-2xl">
         <div className="text-center space-y-4">
           <div className="animate-spin inline-block w-8 h-8 border-4 border-emerald-600 border-t-transparent rounded-full"></div>
-          <p className="text-gray-600 font-medium">Carregando integração WhatsApp...</p>
+          <p className="text-gray-600 dark:text-zinc-300 font-medium">Carregando integração WhatsApp...</p>
         </div>
       </div>
     );
@@ -5027,37 +5025,37 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   );
 
   return (
-    <div className="space-y-6 p-6 rounded-[30px] bg-gradient-to-b from-cyan-50/60 via-white to-emerald-50/40 animate-in fade-in duration-500">
+    <div className="whatsapp-shell space-y-6 p-6 rounded-[30px] bg-gradient-to-b from-cyan-50/60 via-white to-emerald-50/40 animate-in fade-in duration-500 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-900 dark:text-zinc-100">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="rounded-2xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-white px-3 py-2 shadow-sm">
+        <div className="rounded-2xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-white px-3 py-2 shadow-sm dark:border-emerald-500/30 dark:from-zinc-900 dark:to-zinc-900 dark:shadow-none">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Sessão</p>
-            <p className={`text-sm font-black ${status.connected ? 'text-emerald-600' : 'text-gray-600'}`}>
+            <p className={`text-sm font-black ${status.connected ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-600 dark:text-zinc-300'}`}>
               {status.connected ? 'Conectado' : status.state}
             </p>
           </div>
         </div>
-        <div className="rounded-2xl border-2 border-cyan-200 bg-gradient-to-br from-cyan-50 to-white px-3 py-2 shadow-sm">
+        <div className="rounded-2xl border-2 border-cyan-200 bg-gradient-to-br from-cyan-50 to-white px-3 py-2 shadow-sm dark:border-cyan-500/30 dark:from-zinc-900 dark:to-zinc-900 dark:shadow-none">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Clientes com Telefone</p>
-            <p className="text-sm font-black text-gray-800">{recipients.length}</p>
+            <p className="text-sm font-black text-gray-800 dark:text-zinc-100">{recipients.length}</p>
           </div>
         </div>
-        <div className="rounded-2xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 to-white px-3 py-2 shadow-sm">
+        <div className="rounded-2xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 to-white px-3 py-2 shadow-sm dark:border-indigo-500/30 dark:from-zinc-900 dark:to-zinc-900 dark:shadow-none">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Conversas Ativas</p>
-            <p className="text-sm font-black text-gray-800">{visibleChats.length}</p>
+            <p className="text-sm font-black text-gray-800 dark:text-zinc-100">{visibleChats.length}</p>
           </div>
         </div>
-        <div className="rounded-2xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-white px-3 py-2 shadow-sm">
+        <div className="rounded-2xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-white px-3 py-2 shadow-sm dark:border-amber-500/30 dark:from-zinc-900 dark:to-zinc-900 dark:shadow-none">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Não Lidas</p>
-            <p className="text-sm font-black text-amber-600">{unreadCount}</p>
+            <p className="text-sm font-black text-amber-600 dark:text-amber-400">{unreadCount}</p>
           </div>
         </div>
       </div>
 
-      <div className="bg-white/95 rounded-[24px] border-2 border-cyan-200 p-2 grid grid-cols-2 md:grid-cols-5 gap-2 shadow-sm">
+      <div className="bg-white/95 rounded-[24px] border-2 border-cyan-200 p-2 grid grid-cols-2 md:grid-cols-5 gap-2 shadow-sm dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
         <button
           onClick={() => {
             setActiveTab('CRM');
@@ -5065,8 +5063,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           }}
           className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest ${
             activeTab === 'CRM' && crmView === 'CONVERSAS'
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white'
-              : 'bg-slate-50 text-gray-500'
+              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
+              : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
           }`}
         >
           Conversas
@@ -5078,21 +5076,18 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           }}
           className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest ${
             activeTab === 'CRM' && crmView === 'DASHBOARD'
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white'
-              : 'bg-slate-50 text-gray-500'
+              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
+              : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
           }`}
         >
           Dashboard
         </button>
         <button
-          onClick={() => {
-            setActiveTab('CRM');
-            setCrmView('CAMPANHAS');
-          }}
+          onClick={() => setActiveTab('DISPAROS')}
           className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest ${
-            activeTab === 'CRM' && crmView === 'CAMPANHAS'
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white'
-              : 'bg-slate-50 text-gray-500'
+            activeTab === 'DISPAROS'
+              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
+              : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
           }`}
         >
           Disparos
@@ -5101,8 +5096,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           onClick={() => setActiveTab('SESSION_QR')}
           className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest ${
             activeTab === 'SESSION_QR'
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white'
-              : 'bg-slate-50 text-gray-500'
+              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
+              : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
           }`}
         >
           QR Code
@@ -5114,8 +5109,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           }}
           className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest ${
             activeTab === 'CRM' && crmView === 'AI_CONFIG'
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white'
-              : 'bg-slate-50 text-gray-500'
+              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
+              : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
           }`}
         >
           Configurações
@@ -5123,7 +5118,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       </div>
 
       {activeTab === 'CRM' && (
-        <div className="rounded-[28px] border-2 border-cyan-200 bg-white/95 overflow-hidden shadow-md">
+        <div className="rounded-[28px] border-2 border-cyan-200 bg-white/95 overflow-hidden shadow-md dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
           <div className="grid grid-cols-1 min-h-[76vh]">
             <aside className="hidden border-r-2 border-cyan-100 bg-gradient-to-b from-white to-cyan-50/20 p-4 flex-col">
               <div className="flex items-center gap-3 px-2 py-2">
@@ -5161,14 +5156,6 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                 </button>
                 <button
                   type="button"
-                  onClick={() => setCrmView('CAMPANHAS')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${crmView === 'CAMPANHAS' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'text-slate-600 hover:bg-cyan-50'}`}
-                >
-                  <Megaphone size={16} />
-                  Campanhas
-                </button>
-                <button
-                  type="button"
                   onClick={() => setCrmView('AI_CONFIG')}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${crmView === 'AI_CONFIG' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'text-slate-600 hover:bg-cyan-50'}`}
                 >
@@ -5202,17 +5189,17 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
             </aside>
 
             <div className={`flex flex-col min-h-0 ${crmView === 'CONVERSAS' ? 'overflow-hidden' : ''}`}>
-              <div className="px-5 py-4 border-b-2 border-cyan-100 bg-white flex items-center gap-3">
+              <div className="px-5 py-4 border-b-2 border-cyan-100 bg-white flex items-center gap-3 dark:bg-zinc-900/80 dark:border-white/10">
                 <div className="relative flex-1">
                   <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     value={chatSearchName}
                     onChange={(e) => setChatSearchName(e.target.value)}
                     placeholder="Pesquisar conversas, contatos ou leads..."
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-slate-50"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-slate-50 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
                   />
                 </div>
-                <span className="px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-black uppercase tracking-widest">
+                <span className="px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-black uppercase tracking-widest dark:bg-zinc-900 dark:text-zinc-300">
                   {crmView === 'DASHBOARD' ? 'Painel' : crmView === 'CONVERSAS' ? 'Atendimento' : 'Configuração'}
                 </span>
                 <span
@@ -5229,28 +5216,28 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
               </div>
 
               {crmView === 'DASHBOARD' && (
-                <div className="p-5 bg-slate-50/60 space-y-4 overflow-y-auto">
+                <div className="p-5 bg-slate-50/60 space-y-4 overflow-y-auto dark:bg-zinc-900/70">
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                    <div className="rounded-2xl border border-cyan-100 bg-white p-4">
+                    <div className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
                       <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Total de Conversas</p>
                       <p className="mt-2 text-3xl font-black text-slate-900">{crmTotalConversations}</p>
                     </div>
-                    <div className="rounded-2xl border border-cyan-100 bg-white p-4">
+                    <div className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
                       <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Novos Leads</p>
                       <p className="mt-2 text-3xl font-black text-slate-900">{crmNewLeads}</p>
                     </div>
-                    <div className="rounded-2xl border border-cyan-100 bg-white p-4">
+                    <div className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
                       <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Taxa de Resposta</p>
                       <p className="mt-2 text-3xl font-black text-slate-900">{crmResponseRate}%</p>
                     </div>
-                    <div className="rounded-2xl border border-cyan-100 bg-white p-4">
+                    <div className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
                       <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Sessões Ativas</p>
                       <p className="mt-2 text-3xl font-black text-slate-900">{crmActiveSessions}</p>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-                    <section className="xl:col-span-8 rounded-2xl border border-cyan-100 bg-white p-4">
+                    <section className="xl:col-span-8 rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
                       <p className="text-2xl font-black text-slate-900">Visão de Volume de Mensagens</p>
                       <p className="text-sm font-semibold text-slate-500">Tendência de atividade por dia da semana</p>
                       <div className="mt-4 grid grid-cols-7 gap-2 items-end h-44">
@@ -5262,7 +5249,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         ))}
                       </div>
                     </section>
-                    <section className="xl:col-span-4 rounded-2xl border border-cyan-100 bg-white p-4">
+                    <section className="xl:col-span-4 rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
                       <p className="text-2xl font-black text-slate-900">Distribuição de Leads</p>
                       <div className="mt-4 space-y-2">
                         <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
@@ -5293,7 +5280,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                   </div>
 
                   <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-                    <section className="rounded-2xl border border-cyan-100 bg-white p-4">
+                    <section className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
                       <p className="text-2xl font-black text-slate-900">Atividade Recente</p>
                       <div className="mt-3 space-y-3">
                         {crmRecentActivities.length === 0 ? (
@@ -5307,7 +5294,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         ))}
                       </div>
                     </section>
-                    <section className="rounded-2xl border border-cyan-100 bg-white p-4">
+                    <section className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-2xl font-black text-slate-900">Auditoria AI</p>
                         <span className="px-2 py-1 rounded-full bg-rose-50 text-rose-600 text-[10px] font-black uppercase tracking-widest">
@@ -5342,7 +5329,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         ))}
                       </div>
                     </section>
-                    <section className="rounded-2xl border border-cyan-100 bg-white p-4">
+                    <section className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
                       <p className="text-2xl font-black text-slate-900">Contatos com Pendência</p>
                       <div className="mt-3 space-y-3">
                         {crmTopContacts.length === 0 ? (
@@ -5363,8 +5350,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
               {crmView === 'CONVERSAS' && (
                 <div className="flex-1 min-h-0 h-[calc(100vh-190px)] max-h-[calc(100vh-190px)] overflow-hidden">
                   <div className="h-full overflow-hidden grid grid-cols-1 xl:grid-cols-[360px_1fr_300px]">
-                  <section className="border-r-2 border-cyan-100 flex flex-col min-h-0 h-full overflow-hidden">
-                    <div className="p-4 border-b-2 border-cyan-100 space-y-3 bg-slate-50/70">
+                  <section className="border-r-2 border-cyan-100 flex flex-col min-h-0 h-full overflow-hidden dark:border-white/10">
+                    <div className="p-4 border-b-2 border-cyan-100 space-y-3 bg-slate-50/70 dark:bg-zinc-900/70 dark:border-white/10">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Conversas ({crmVisibleChats.length})</p>
                         <button
@@ -5384,21 +5371,21 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         <button
                           type="button"
                           onClick={() => setCrmFilter('ALL')}
-                          className={`px-3 py-1 rounded-full text-xs font-black ${crmFilter === 'ALL' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600'}`}
+                          className={`px-3 py-1 rounded-full text-xs font-black ${crmFilter === 'ALL' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300'}`}
                         >
                           Todas
                         </button>
                         <button
                           type="button"
                           onClick={() => setCrmFilter('UNREAD')}
-                          className={`px-3 py-1 rounded-full text-xs font-black ${crmFilter === 'UNREAD' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600'}`}
+                          className={`px-3 py-1 rounded-full text-xs font-black ${crmFilter === 'UNREAD' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300'}`}
                         >
                           Não lidas
                         </button>
                         <button
                           type="button"
                           onClick={() => setCrmFilter('WAITING')}
-                          className={`px-3 py-1 rounded-full text-xs font-black ${crmFilter === 'WAITING' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600'}`}
+                          className={`px-3 py-1 rounded-full text-xs font-black ${crmFilter === 'WAITING' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300'}`}
                         >
                           Aguardando
                         </button>
@@ -5406,19 +5393,19 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                     </div>
 
                     {aiHandoffRequests.length > 0 && (
-                      <div className="border-b border-amber-200 bg-amber-50/70 px-3 py-3 space-y-2">
+                      <div className="border-b border-amber-200 bg-amber-50/70 px-3 py-3 space-y-2 dark:bg-zinc-900/70 dark:border-amber-500/30">
                         <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">
                           Aprovação de atendimento IA pendente
                         </p>
                         <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
                           {aiHandoffRequests.map((request) => (
-                            <div key={request.id} className="rounded-xl border border-amber-200 bg-white px-3 py-2">
-                              <p className="text-xs font-black text-slate-800 truncate">{request.contactName || request.chatId}</p>
-                              <p className="text-[11px] font-semibold text-slate-500 truncate mt-0.5">
+                            <div key={request.id} className="rounded-xl border border-amber-200 bg-white px-3 py-2 dark:bg-[#121214] dark:border-amber-500/30">
+                              <p className="text-xs font-black text-slate-800 dark:text-zinc-100 truncate">{request.contactName || request.chatId}</p>
+                              <p className="text-[11px] font-semibold text-slate-500 dark:text-zinc-400 truncate mt-0.5">
                                 {formatChatPreviewText(request.messagePreview) || 'Mensagem recebida'}
                               </p>
                               <div className="mt-2 flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-bold text-slate-500">
+                                <span className="text-[10px] font-bold text-slate-500 dark:text-zinc-400">
                                   {Number.isFinite(Number(request.createdAt))
                                     ? new Date(Number(request.createdAt)).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
                                     : ''}
@@ -5427,7 +5414,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                   <button
                                     type="button"
                                     onClick={() => handleAiHandoffDecision(request, false)}
-                                    className="px-2 py-1 rounded-lg border border-slate-300 bg-white text-[10px] font-black uppercase tracking-wide text-slate-600 hover:bg-slate-50"
+                                    className="px-2 py-1 rounded-lg border border-slate-300 bg-white text-[10px] font-black uppercase tracking-wide text-slate-600 hover:bg-slate-50 dark:bg-zinc-900 dark:text-zinc-300 dark:border-white/10 dark:hover:bg-zinc-800"
                                   >
                                     Recusar
                                   </button>
@@ -5448,27 +5435,62 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
                     <div className="flex-1 min-h-0 overflow-y-auto">
                       {crmVisibleChats.length === 0 ? (
-                        <div className="text-center text-sm font-semibold text-slate-500 p-8">Nenhuma conversa encontrada.</div>
+                        <div className="text-center text-sm font-semibold text-slate-500 dark:text-zinc-400 p-8">Nenhuma conversa encontrada.</div>
                       ) : (
                         crmVisibleChats.map((chat) => (
                           <div
                             key={chat.chatId}
-                            className={`w-full px-4 py-3 border-b border-cyan-50 transition ${selectedChatId === chat.chatId ? 'bg-emerald-50 border-l-4 border-l-emerald-500' : 'bg-white hover:bg-cyan-50/60'}`}
+                            className={`w-full px-4 py-3 border-b border-cyan-50 transition ${
+                              selectedChatId === chat.chatId
+                                ? 'bg-emerald-50 border-l-4 border-l-emerald-500 dark:bg-emerald-900/20'
+                                : 'bg-white hover:bg-cyan-50/60 dark:bg-[#121214] dark:hover:bg-zinc-900'
+                            }`}
                           >
                             <div className="flex items-start justify-between gap-2">
                               <button
                                 type="button"
                                 onClick={() => handleSelectChat(chat.chatId)}
-                                className="min-w-0 text-left flex-1"
+                                className="min-w-0 text-left flex-1 flex items-start gap-3"
                               >
-                                <p className="text-lg font-black text-slate-800 truncate">{chat.displayName}</p>
-                                <p className="text-sm font-semibold text-slate-500 truncate">{formatChatPreviewText(chat.lastMessage) || 'Sem mensagem'}</p>
+                                <div className="w-11 h-11 rounded-xl bg-cyan-100 text-cyan-700 flex items-center justify-center shrink-0 overflow-hidden">
+                                  {chat.avatarUrl ? (
+                                    <img src={chat.avatarUrl} alt={chat.displayName} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <span className="font-black text-base">{String(chat.displayName || '?').charAt(0).toUpperCase()}</span>
+                                  )}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <p className="text-lg font-black text-slate-800 dark:text-zinc-100 truncate">{chat.displayName}</p>
+                                    {chat.initiatedByClient && (
+                                      <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[9px] font-black uppercase tracking-widest shrink-0">
+                                        Cliente
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="mt-0.5 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
+                                    <Users size={11} />
+                                    <span>{String(chat.contactType || 'CONTATO').toUpperCase()}</span>
+                                    {chat.responsibleName && (
+                                      <>
+                                        <span className="text-slate-300 dark:text-zinc-600">•</span>
+                                        <span className="truncate max-w-[120px]" title={`Resp.: ${chat.responsibleName}`}>Resp. {chat.responsibleName}</span>
+                                      </>
+                                    )}
+                                  </div>
+                                  <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400 truncate mt-1">{formatChatPreviewText(chat.lastMessage) || 'Sem mensagem'}</p>
+                                </div>
                               </button>
                               <div className="shrink-0 text-right">
                                 <p className="text-xs font-bold text-emerald-600">{formatChatTime(chat.lastTimestamp)}</p>
                                 {chat.unreadCount > 0 && (
-                                  <span className="inline-flex items-center justify-center mt-1 min-w-5 h-5 px-1 rounded-full bg-emerald-500 text-white text-[10px] font-black">
+                                  <span className="inline-flex items-center justify-center mt-1 min-w-5 h-5 px-1 rounded-full bg-emerald-500 text-white text-[10px] font-black shadow-sm">
                                     {chat.unreadCount}
+                                  </span>
+                                )}
+                                {chat.unreadCount === 0 && (
+                                  <span className="inline-flex items-center justify-center mt-1 text-emerald-500">
+                                    <CheckCircle2 size={14} />
                                   </span>
                                 )}
                                 <div className="mt-1 flex items-center justify-end gap-1">
@@ -5501,31 +5523,31 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                     </div>
                   </section>
 
-                  <section className="flex flex-col min-h-0 h-full overflow-hidden bg-slate-50/70">
+                  <section className="flex flex-col min-h-0 h-full overflow-hidden bg-slate-50/70 dark:bg-zinc-950/60">
                     {!selectedChat ? (
-                      <div className="flex-1 flex items-center justify-center text-slate-500 font-semibold">
+                      <div className="flex-1 flex items-center justify-center text-slate-500 dark:text-zinc-400 font-semibold">
                         Selecione uma conversa para abrir o CRM.
                       </div>
                     ) : (
                       <>
-                        <div className="px-5 py-4 bg-white border-b-2 border-cyan-100 flex items-center justify-between">
+                        <div className="px-5 py-4 bg-white border-b-2 border-cyan-100 flex items-center justify-between dark:bg-zinc-900/80 dark:border-white/10">
                           <div>
-                            <p className="text-2xl font-black text-slate-900">{selectedChat.displayName}</p>
+                            <p className="text-2xl font-black text-slate-900 dark:text-zinc-100">{selectedChat.displayName}</p>
                             <div className="flex items-center gap-2 mt-1">
                               <p className="text-sm font-bold text-emerald-600">{status.connected ? 'Online' : 'Offline'}</p>
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${
                                 aiAgentEnabledForChat
                                   ? 'bg-emerald-100 text-emerald-700'
-                                  : 'bg-slate-100 text-slate-500'
+                                  : 'bg-slate-100 text-slate-500 dark:bg-zinc-900 dark:text-zinc-400'
                               }`}>
                                 IA {aiAgentEnabledForChat ? 'Auto ON' : 'Auto OFF'}
                               </span>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2 text-slate-500">
-                            <button className="p-2 rounded-lg hover:bg-cyan-50" type="button"><PhoneCall size={16} /></button>
-                            <button className="p-2 rounded-lg hover:bg-cyan-50" type="button"><Video size={16} /></button>
-                            <button className="p-2 rounded-lg hover:bg-cyan-50" type="button"><MoreVertical size={16} /></button>
+                          <div className="flex items-center gap-2 text-slate-500 dark:text-zinc-400">
+                            <button className="p-2 rounded-lg hover:bg-cyan-50 dark:hover:bg-zinc-800" type="button"><PhoneCall size={16} /></button>
+                            <button className="p-2 rounded-lg hover:bg-cyan-50 dark:hover:bg-zinc-800" type="button"><Video size={16} /></button>
+                            <button className="p-2 rounded-lg hover:bg-cyan-50 dark:hover:bg-zinc-800" type="button"><MoreVertical size={16} /></button>
                           </div>
                         </div>
 
@@ -5535,146 +5557,192 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                           className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2"
                         >
                           {messagesLoading ? (
-                            <div className="text-center text-sm font-semibold text-slate-500 py-8">Carregando mensagens...</div>
+                            <div className="text-center text-sm font-semibold text-slate-500 dark:text-zinc-400 py-8">Carregando mensagens...</div>
                           ) : messages.length === 0 ? (
-                            <div className="text-center text-sm font-semibold text-slate-500 py-8">Sem mensagens neste chat.</div>
+                            <div className="text-center text-sm font-semibold text-slate-500 dark:text-zinc-400 py-8">Sem mensagens neste chat.</div>
                           ) : (
-                            messages.map((msg) => (
-                              <div
-                                key={msg.id}
-                                className={`max-w-[78%] px-4 py-3 rounded-2xl text-sm font-medium shadow-sm ${
-                                  msg.fromMe
-                                    ? 'ml-auto bg-emerald-500 text-white rounded-br-md'
-                                    : 'mr-auto bg-white border border-cyan-100 text-slate-800 rounded-bl-md'
-                                }`}
-                              >
-                                {msg.mediaType === 'image' && msg.mediaDataUrl && (
-                                  <a href={msg.mediaDataUrl} target="_blank" rel="noreferrer" className="block mb-2">
-                                    <img
-                                      src={msg.mediaDataUrl}
-                                      alt={msg.fileName || 'Imagem'}
-                                      className="max-h-72 w-auto rounded-xl border border-white/20"
-                                    />
-                                  </a>
-                                )}
-
-                                {msg.mediaType === 'audio' && (
-                                  <div className="mb-2">
-                                    {msg.mediaDataUrl ? (
-                                      <audio controls className="w-full" src={msg.mediaDataUrl}>
-                                        Seu navegador não suporta áudio.
-                                      </audio>
-                                    ) : (
-                                      <div className="text-xs font-semibold opacity-80 mb-2">
-                                        Áudio recebido (pré-visualização indisponível).
-                                      </div>
-                                    )}
-                                    <div className="mt-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleTranscribeAudioMessage(msg)}
-                                        disabled={Boolean(audioTranscriptions[msg.id]?.loading)}
-                                        className={`px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wide ${
-                                          msg.fromMe
-                                            ? 'bg-white/20 hover:bg-white/30 disabled:bg-white/10 text-white'
-                                            : 'bg-cyan-50 hover:bg-cyan-100 disabled:bg-cyan-50/60 text-cyan-700 border border-cyan-200'
-                                        }`}
-                                      >
-                                        {audioTranscriptions[msg.id]?.loading ? 'Transcrevendo...' : 'Transcrever'}
-                                      </button>
+                            messages.map((msg, index) => {
+                              const previous = index > 0 ? messages[index - 1] : null;
+                              const hasValidTimestamp = Boolean(normalizeTimestampMs(msg.timestamp));
+                              const showDateDivider = hasValidTimestamp && (index === 0 || !isSameCalendarDay(msg.timestamp, previous?.timestamp));
+                              return (
+                                <React.Fragment key={msg.id}>
+                                  {showDateDivider && (
+                                    <div className="flex justify-center py-2">
+                                      <span className="px-3 py-1 rounded-full bg-slate-200 text-slate-600 text-[11px] font-bold shadow-sm dark:bg-zinc-800 dark:text-zinc-300">
+                                        {formatChatDayDivider(msg.timestamp)}
+                                      </span>
                                     </div>
-                                    {String(audioTranscriptions[msg.id]?.text || '').trim() && (
-                                      <div className={`mt-2 p-2 rounded-lg text-xs whitespace-pre-wrap break-words ${
+                                  )}
+                                  <div
+                                    className={`relative max-w-[70%] px-4 py-3 rounded-2xl text-sm font-medium shadow-sm ${
+                                      msg.fromMe
+                                        ? 'ml-auto bg-emerald-500 text-white rounded-br-md'
+                                        : 'mr-auto bg-white border border-cyan-100 text-slate-800 rounded-bl-md dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100'
+                                    }`}
+                                  >
+                                    <span
+                                      className={`absolute top-3 w-0 h-0 ${
                                         msg.fromMe
-                                          ? 'bg-white/15 border border-white/25 text-white'
-                                          : 'bg-white border border-cyan-200 text-slate-700'
-                                      }`}>
-                                        <p className="font-black uppercase tracking-wide text-[10px] mb-1 opacity-80">Transcrição</p>
-                                        <p>{audioTranscriptions[msg.id]?.text}</p>
-                                      </div>
-                                    )}
-                                    {audioTranscriptions[msg.id]?.error && (
-                                      <p className={`mt-2 text-[11px] font-semibold ${
-                                        msg.fromMe ? 'text-rose-100' : 'text-rose-600'
-                                      }`}>
-                                        {audioTranscriptions[msg.id]?.error}
-                                      </p>
-                                    )}
-                                  </div>
-                                )}
-                                {msg.mediaType === 'document' && (
-                                  <div className="mb-2">
-                                    {msg.mediaDataUrl ? (
-                                      <a
-                                        href={msg.mediaDataUrl}
-                                        download={msg.fileName || 'arquivo'}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black ${
-                                          msg.fromMe
-                                            ? 'bg-white/20 hover:bg-white/30 text-white'
-                                            : 'bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border border-cyan-200'
-                                        }`}
-                                      >
-                                        <FileText size={14} />
-                                        {msg.fileName || 'Abrir arquivo'}
-                                      </a>
-                                    ) : (
-                                      <div className="text-xs font-semibold opacity-80">
-                                        Arquivo recebido: {msg.fileName || 'documento'}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-
-                                {msg.location && (
-                                  <div className={`mb-2 rounded-xl border p-2 ${msg.fromMe ? 'border-white/30 bg-white/15' : 'border-cyan-200 bg-cyan-50'}`}>
-                                    {msg.location.mapThumbnailDataUrl && (
-                                      <img
-                                        src={msg.location.mapThumbnailDataUrl}
-                                        alt="Mapa"
-                                        className="w-full max-w-xs rounded-lg mb-2 border border-white/20"
-                                      />
-                                    )}
-                                    <p className="text-xs font-black">
-                                      {msg.location.name || 'Localização'}
-                                    </p>
-                                    {msg.location.address && (
-                                      <p className="text-xs mt-1 opacity-80 break-words">{msg.location.address}</p>
-                                    )}
-                                    <a
-                                      href={msg.location.url || `https://www.google.com/maps?q=${encodeURIComponent(`${msg.location.latitude},${msg.location.longitude}`)}`}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className={`inline-flex mt-2 px-2 py-1 rounded-lg text-[11px] font-black ${
-                                        msg.fromMe
-                                          ? 'bg-white/20 hover:bg-white/30 text-white'
-                                          : 'bg-white border border-cyan-200 text-cyan-700 hover:bg-cyan-100'
+                                          ? '-right-2 border-l-[10px] border-l-emerald-500 border-t-[7px] border-t-transparent border-b-[7px] border-b-transparent'
+                                          : '-left-2 border-r-[10px] border-r-white border-t-[7px] border-t-transparent border-b-[7px] border-b-transparent dark:border-r-zinc-900'
                                       }`}
-                                    >
-                                      Abrir mapa
-                                    </a>
-                                  </div>
-                                )}
+                                    />
+                                    {msg.mediaType === 'image' && msg.mediaDataUrl && (
+                                      <a href={msg.mediaDataUrl} target="_blank" rel="noreferrer" className="block mb-2">
+                                        <img
+                                          src={msg.mediaDataUrl}
+                                          alt={msg.fileName || 'Imagem'}
+                                          className="max-h-72 w-auto rounded-xl border border-white/20"
+                                        />
+                                      </a>
+                                    )}
 
-                                {formatMessageBodyForDisplay(msg) && (
-                                  <p className="whitespace-pre-wrap break-words">{formatMessageBodyForDisplay(msg)}</p>
-                                )}
-                              </div>
-                            ))
+                                    {msg.mediaType === 'audio' && (
+                                      <div className="mb-2">
+                                        {msg.mediaDataUrl ? (
+                                          <audio controls className="w-full" src={msg.mediaDataUrl}>
+                                            Seu navegador não suporta áudio.
+                                          </audio>
+                                        ) : (
+                                          <div className="text-xs font-semibold opacity-80 mb-2">
+                                            Áudio recebido (pré-visualização indisponível).
+                                          </div>
+                                        )}
+                                        <div className="mt-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleTranscribeAudioMessage(msg)}
+                                            disabled={Boolean(audioTranscriptions[msg.id]?.loading)}
+                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wide ${
+                                              msg.fromMe
+                                                ? 'bg-white/20 hover:bg-white/30 disabled:bg-white/10 text-white'
+                                                : 'bg-cyan-50 hover:bg-cyan-100 disabled:bg-cyan-50/60 text-cyan-700 border border-cyan-200'
+                                            }`}
+                                          >
+                                            {audioTranscriptions[msg.id]?.loading ? 'Transcrevendo...' : 'Transcrever'}
+                                          </button>
+                                        </div>
+                                        {String(audioTranscriptions[msg.id]?.text || '').trim() && (
+                                          <div className={`mt-2 p-2 rounded-lg text-xs whitespace-pre-wrap break-words ${
+                                            msg.fromMe
+                                              ? 'bg-white/15 border border-white/25 text-white'
+                                              : 'bg-white border border-cyan-200 text-slate-700 dark:bg-zinc-800 dark:border-white/10 dark:text-zinc-200'
+                                          }`}>
+                                            <p className="font-black uppercase tracking-wide text-[10px] mb-1 opacity-80">Transcrição</p>
+                                            <p>{audioTranscriptions[msg.id]?.text}</p>
+                                          </div>
+                                        )}
+                                        {audioTranscriptions[msg.id]?.error && (
+                                          <p className={`mt-2 text-[11px] font-semibold ${
+                                            msg.fromMe ? 'text-rose-100' : 'text-rose-600'
+                                          }`}>
+                                            {audioTranscriptions[msg.id]?.error}
+                                          </p>
+                                        )}
+                                      </div>
+                                    )}
+                                    {msg.mediaType === 'document' && (
+                                      <div className="mb-2">
+                                        {msg.mediaDataUrl ? (
+                                          <a
+                                            href={msg.mediaDataUrl}
+                                            download={msg.fileName || 'arquivo'}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black ${
+                                              msg.fromMe
+                                                ? 'bg-white/20 hover:bg-white/30 text-white'
+                                                : 'bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border border-cyan-200'
+                                            }`}
+                                          >
+                                            <FileText size={14} />
+                                            {msg.fileName || 'Abrir arquivo'}
+                                          </a>
+                                        ) : (
+                                          <div className="text-xs font-semibold opacity-80">
+                                            Arquivo recebido: {msg.fileName || 'documento'}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {msg.location && (
+                                      <div className={`mb-2 rounded-xl border p-2 ${msg.fromMe ? 'border-white/30 bg-white/15' : 'border-cyan-200 bg-cyan-50'}`}>
+                                        {msg.location.mapThumbnailDataUrl && (
+                                          <img
+                                            src={msg.location.mapThumbnailDataUrl}
+                                            alt="Mapa"
+                                            className="w-full max-w-xs rounded-lg mb-2 border border-white/20"
+                                          />
+                                        )}
+                                        <p className="text-xs font-black">
+                                          {msg.location.name || 'Localização'}
+                                        </p>
+                                        {msg.location.address && (
+                                          <p className="text-xs mt-1 opacity-80 break-words">{msg.location.address}</p>
+                                        )}
+                                        <a
+                                          href={msg.location.url || `https://www.google.com/maps?q=${encodeURIComponent(`${msg.location.latitude},${msg.location.longitude}`)}`}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className={`inline-flex mt-2 px-2 py-1 rounded-lg text-[11px] font-black ${
+                                            msg.fromMe
+                                              ? 'bg-white/20 hover:bg-white/30 text-white'
+                                              : 'bg-white border border-cyan-200 text-cyan-700 hover:bg-cyan-100'
+                                          }`}
+                                        >
+                                          Abrir mapa
+                                        </a>
+                                      </div>
+                                    )}
+
+                                    {formatMessageBodyForDisplay(msg) && (
+                                      <p className="whitespace-pre-wrap break-words">{formatMessageBodyForDisplay(msg)}</p>
+                                    )}
+
+                                    <div className={`mt-2 flex items-center justify-end gap-1 text-[10px] ${
+                                      msg.fromMe ? 'text-white/75' : 'text-slate-400 dark:text-zinc-500'
+                                    }`}>
+                                      <span>{formatChatTime(msg.timestamp)}</span>
+                                      {msg.fromMe && <CheckCheck size={12} className="text-sky-200" />}
+                                    </div>
+                                  </div>
+                                </React.Fragment>
+                              );
+                            })
                           )}
                           <div ref={messagesBottomRef} />
                         </div>
 
-                        <div className="shrink-0 p-4 border-t-2 border-cyan-100 bg-white flex items-end gap-2">
-                          <label className="p-3 rounded-xl border-2 border-cyan-100 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 cursor-pointer">
+                        <div className="shrink-0 p-4 border-t-2 border-cyan-100 bg-white dark:bg-zinc-900/85 dark:border-white/10">
+                          {chatAttachment && (
+                            <div className="mb-3 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 flex items-center justify-between gap-2 dark:bg-zinc-900 dark:border-cyan-500/30">
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-black uppercase tracking-widest text-cyan-700">Anexo pronto para envio</p>
+                                <p className="text-xs font-semibold text-slate-700 dark:text-zinc-300 truncate">
+                                  {chatAttachment.fileName || 'arquivo'} • {chatAttachment.mediaType}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setChatAttachment(null)}
+                                className="p-1.5 rounded-lg border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 dark:bg-zinc-900 dark:border-rose-500/30 dark:hover:bg-zinc-800"
+                                title="Remover anexo"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          )}
+                          <div className="flex items-end gap-2">
+                          <label className="p-3 rounded-xl border-2 border-cyan-100 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 cursor-pointer dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-zinc-800">
                             <Paperclip size={15} />
                             <input type="file" className="hidden" onChange={handleAttachFile} />
                           </label>
                           <button
                             type="button"
                             onClick={() => setIsScheduleModalOpen(true)}
-                            className="p-3 rounded-xl border-2 border-cyan-100 bg-cyan-50 hover:bg-cyan-100 text-cyan-700"
+                            className="p-3 rounded-xl border-2 border-cyan-100 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-zinc-800"
                             title="Agendar mensagem"
                           >
                             <CalendarClock size={15} />
@@ -5683,7 +5751,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             type="button"
                             onClick={handleImproveChatReply}
                             disabled={isImprovingChatReply || !chatReply.trim()}
-                            className="p-3 rounded-xl border-2 border-cyan-100 bg-cyan-50 hover:bg-cyan-100 disabled:opacity-50 text-cyan-700"
+                            className="p-3 rounded-xl border-2 border-cyan-100 bg-cyan-50 hover:bg-cyan-100 disabled:opacity-50 text-cyan-700 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-zinc-800"
                             title="Melhorar texto com IA"
                           >
                             <RefreshCw size={15} className={isImprovingChatReply ? 'animate-spin' : ''} />
@@ -5695,7 +5763,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             className={`p-3 rounded-xl border-2 disabled:opacity-50 ${
                               aiAgentEnabledForChat
                                 ? 'border-emerald-300 bg-emerald-100 text-emerald-700'
-                                : 'border-cyan-100 bg-cyan-50 text-cyan-700 hover:bg-cyan-100'
+                                : 'border-cyan-100 bg-cyan-50 text-cyan-700 hover:bg-cyan-100 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-zinc-800'
                             }`}
                             title={aiAgentEnabledForChat ? 'Desativar agente IA automático' : 'Ativar agente IA automático'}
                           >
@@ -5706,7 +5774,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             value={chatReply}
                             onChange={(e) => setChatReply(e.target.value)}
                             placeholder="Digite uma mensagem..."
-                            className="flex-1 px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm"
+                            className="flex-1 px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
                           />
                           <button
                             type="button"
@@ -5716,20 +5784,21 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                           >
                             <Send size={15} />
                           </button>
+                          </div>
                         </div>
                       </>
                     )}
                   </section>
 
-                  <aside className="p-5 bg-white border-l-2 border-cyan-100 min-h-0 h-full overflow-y-auto">
+                  <aside className="p-5 bg-white border-l-2 border-cyan-100 min-h-0 h-full overflow-y-auto dark:bg-zinc-900/75 dark:border-white/10">
                     {selectedChat ? (
                       <div className="space-y-5">
                         <div className="text-center">
                           <div className="w-20 h-20 mx-auto rounded-full bg-cyan-100 flex items-center justify-center text-cyan-700 text-2xl font-black">
                             {String(selectedChat.displayName || '?').charAt(0).toUpperCase()}
                           </div>
-                          <p className="mt-3 text-2xl font-black text-slate-900">{selectedChat.displayName}</p>
-                          <p className="text-sm font-semibold text-slate-500">+{selectedChat.phone}</p>
+                          <p className="mt-3 text-2xl font-black text-slate-900 dark:text-zinc-100">{selectedChat.displayName}</p>
+                          <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400">+{selectedChat.phone}</p>
                         </div>
 
                         <div className="space-y-2">
@@ -5742,18 +5811,46 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                 </span>
                               ))
                             ) : (
-                              <span className="text-xs font-semibold text-slate-400">Sem etiquetas</span>
+                              <span className="text-xs font-semibold text-slate-400 dark:text-zinc-500">Sem etiquetas</span>
                             )}
                           </div>
                         </div>
 
                         <div className="space-y-2">
                           <p className="text-[11px] uppercase tracking-widest font-black text-slate-500">Saldos de planos</p>
+                          {selectedStudent && (
+                            <div className="rounded-xl border border-cyan-100 bg-cyan-50/60 px-3 py-2 flex items-center justify-between">
+                              <div>
+                                <p className="text-[11px] font-black uppercase tracking-widest text-slate-600">Status do aluno hoje</p>
+                                <p className="text-xs font-semibold text-slate-500 dark:text-zinc-400">{selectedStudent.name}</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`inline-flex w-2.5 h-2.5 rounded-full ${
+                                    selectedStudentConsumedToday === null
+                                      ? 'bg-slate-300'
+                                      : selectedStudentConsumedToday
+                                        ? 'bg-emerald-500'
+                                        : 'bg-rose-500'
+                                  }`}
+                                />
+                                <span className="text-xs font-black text-slate-700 dark:text-zinc-200">
+                                  {isLoadingStudentConsumedToday
+                                    ? 'Verificando...'
+                                    : selectedStudentConsumedToday === null
+                                      ? 'Sem dados'
+                                      : selectedStudentConsumedToday
+                                        ? 'Consumiu hoje'
+                                        : 'Não consumiu hoje'}
+                                </span>
+                              </div>
+                            </div>
+                          )}
                           {relatedStudents.length > 1 && (
                             <select
                               value={selectedStudentId}
                               onChange={(e) => setSelectedStudentId(e.target.value)}
-                              className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 bg-white text-sm font-semibold text-slate-700 outline-none focus:border-cyan-400"
+                              className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 bg-white text-sm font-semibold text-slate-700 outline-none focus:border-cyan-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
                             >
                               <option value="">Selecione o aluno</option>
                               {relatedStudents.map((student) => (
@@ -5766,24 +5863,43 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                           {selectedStudent && selectedStudentPlanSummary.length > 0 ? (
                             selectedStudentPlanSummary.map((item) => {
                               const tone = getPlanCardTone(item.key, item.numericBalance);
+                              const normalizedKey = String(item.key || '').toUpperCase();
+                              const isPrepaid = normalizedKey === 'PREPAGO';
+                              const isLowPrepaid = isPrepaid && Number(item.numericBalance) < 10;
                               return (
                                 <div key={item.key} className={`rounded-xl border px-3 py-2 ${tone.container}`}>
-                                  <p className={`text-[11px] font-black uppercase tracking-widest ${tone.title}`}>{item.label}</p>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <span className={`inline-flex w-7 h-7 rounded-lg items-center justify-center bg-white/80 ${tone.title}`}>
+                                        {isPrepaid ? <Wallet size={14} /> : <UtensilsCrossed size={14} />}
+                                      </span>
+                                      <p className={`text-[11px] font-black uppercase tracking-widest truncate ${tone.title}`}>{item.label}</p>
+                                    </div>
+                                    {isLowPrepaid && (
+                                      <button
+                                        type="button"
+                                        onClick={handleQuickChargeLowBalance}
+                                        className="px-2 py-1 rounded-lg border border-emerald-300 bg-emerald-500 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-600"
+                                      >
+                                        Cobrar saldo
+                                      </button>
+                                    )}
+                                  </div>
                                   <p className={`text-sm font-black mt-1 ${tone.value}`}>{item.value}</p>
                                 </div>
                               );
                             })
                           ) : (
-                            <p className="text-xs font-semibold text-slate-400">Selecione um aluno para visualizar saldos.</p>
+                            <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500">Selecione um aluno para visualizar saldos.</p>
                           )}
                         </div>
 
-                        <div className="space-y-2 pt-2 border-t border-cyan-100">
+                        <div className="space-y-2 pt-2 border-t border-cyan-100 dark:border-white/10">
                           <p className="text-[11px] uppercase tracking-widest font-black text-slate-500">Relatório do contato</p>
                           <select
                             value={reportPeriodMode}
                             onChange={(e) => setReportPeriodMode(e.target.value as ReportPeriodMode)}
-                            className="w-full px-3 py-2 rounded-xl border-2 border-blue-100 bg-blue-50/40 text-xs font-black text-slate-700 outline-none focus:border-blue-400"
+                            className="w-full px-3 py-2 rounded-xl border-2 border-emerald-100 bg-emerald-50/40 text-xs font-black text-slate-700 outline-none focus:border-emerald-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
                           >
                             <option value="WEEKLY">Semanal</option>
                             <option value="BIWEEKLY">Quinzenal</option>
@@ -5795,13 +5911,13 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                 type="date"
                                 value={reportStartDate}
                                 onChange={(e) => setReportStartDate(e.target.value)}
-                                className="w-full px-3 py-2 rounded-xl border-2 border-blue-100 bg-white text-xs font-bold text-slate-700 outline-none focus:border-blue-400"
+                                className="w-full px-3 py-2 rounded-xl border-2 border-emerald-100 bg-white text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
                               />
                               <input
                                 type="date"
                                 value={reportEndDate}
                                 onChange={(e) => setReportEndDate(e.target.value)}
-                                className="w-full px-3 py-2 rounded-xl border-2 border-blue-100 bg-white text-xs font-bold text-slate-700 outline-none focus:border-blue-400"
+                                className="w-full px-3 py-2 rounded-xl border-2 border-emerald-100 bg-white text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
                               />
                             </div>
                           )}
@@ -5809,11 +5925,12 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             type="button"
                             onClick={handleSendConsumptionReport}
                             disabled={isSendingReport || !selectedChatClient || !['ALUNO', 'COLABORADOR'].includes(String(selectedChatClient?.type || '').toUpperCase())}
-                            className="w-full px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-[11px] font-black uppercase tracking-widest"
+                            className="w-full px-3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
                           >
+                            <CalendarDays size={13} />
                             {isSendingReport ? 'Enviando...' : 'Enviar relatório'}
                           </button>
-                          <p className="text-[11px] font-semibold text-slate-500">
+                          <p className="text-[11px] font-semibold text-slate-500 dark:text-zinc-400">
                             {selectedChatClient
                               ? `Tipo: ${String(selectedChatClient.type || '').toUpperCase()}`
                               : 'Contato sem cadastro local.'}
@@ -5821,14 +5938,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         </div>
                       </div>
                     ) : (
-                      <div className="text-sm font-semibold text-slate-500">Nenhum contato selecionado.</div>
+                      <div className="text-sm font-semibold text-slate-500 dark:text-zinc-400">Nenhum contato selecionado.</div>
                     )}
                   </aside>
                   </div>
                 </div>
               )}
 
-              {crmView === 'CAMPANHAS' && (
+              {false && (
                 <div className="flex-1 p-6 bg-slate-50/60 overflow-y-auto">
                   <div className="max-w-6xl mx-auto space-y-4">
                     <div className="flex items-center justify-between gap-3">
@@ -5897,7 +6014,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4">
+                    <div className="space-y-4">
                       <section className="rounded-2xl border border-cyan-100 bg-white p-5 space-y-4">
                         <div className="space-y-1.5">
                           <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">Nome da Campanha</label>
@@ -6221,53 +6338,9 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                               {' '}e vencimento <span className="font-black">{Math.min(28, Math.max(1, Number(activeEnterprise?.collaboratorPaymentDueDay || 7) || 7))}</span>.
                             </div>
 
-                            <div className="flex flex-wrap items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={handleGeneratePlanConsumptionPreview}
-                                disabled={isGeneratingPlanConsumptionPreview || isCampaignLaunching}
-                                className="px-3 py-2 rounded-xl border border-cyan-200 text-cyan-700 text-xs font-black uppercase tracking-widest hover:bg-cyan-50 disabled:opacity-60"
-                              >
-                                {isGeneratingPlanConsumptionPreview ? 'Gerando prévia...' : 'Pré-visualizar modelo final'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDownloadPlanConsumptionExamplePdf('RESPONSAVEL_RELATORIO')}
-                                disabled={
-                                  isGeneratingPlanConsumptionPreview
-                                  || isCampaignLaunching
-                                  || downloadingPlanConsumptionExampleKind !== null
-                                  || !recurringPreviewHasResponsible
-                                }
-                                className="px-3 py-2 rounded-xl border border-emerald-200 text-emerald-700 text-xs font-black uppercase tracking-widest hover:bg-emerald-50 disabled:opacity-60"
-                              >
-                                {downloadingPlanConsumptionExampleKind === 'RESPONSAVEL_RELATORIO'
-                                  ? 'Baixando PDF responsável...'
-                                  : 'Baixar PDF exemplo • Responsável'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDownloadPlanConsumptionExamplePdf('COLABORADOR_RELATORIO')}
-                                disabled={
-                                  isGeneratingPlanConsumptionPreview
-                                  || isCampaignLaunching
-                                  || downloadingPlanConsumptionExampleKind !== null
-                                  || !recurringPreviewHasCollaborator
-                                }
-                                className="px-3 py-2 rounded-xl border border-violet-200 text-violet-700 text-xs font-black uppercase tracking-widest hover:bg-violet-50 disabled:opacity-60"
-                              >
-                                {downloadingPlanConsumptionExampleKind === 'COLABORADOR_RELATORIO'
-                                  ? 'Baixando PDF colaborador...'
-                                  : 'Baixar PDF exemplo • Colaborador'}
-                              </button>
-                              {planConsumptionPreview && (
-                                <p className="text-xs font-semibold text-slate-500">
-                                  Prévia: <span className="font-black">{recurringPreviewRecipients.length}</span> filtrado(s) de{' '}
-                                  <span className="font-black">{planConsumptionPreview.recipients.length}</span> destinatário(s) • período{' '}
-                                  <span className="font-black">{planConsumptionPreview.periodLabel}</span>
-                                </p>
-                              )}
-                            </div>
+                            <p className="text-xs font-semibold text-slate-500">
+                              O envio recorrente usa automaticamente o período configurado e anexa o relatório em PDF no disparo.
+                            </p>
                           </div>
                         )}
 
@@ -6409,108 +6482,6 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         </div>
                       </section>
 
-                      <aside className="rounded-2xl border border-cyan-100 bg-white p-4 space-y-3">
-                        <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Pré-visualização</p>
-                        {campaignMode === 'RECURRING' && (
-                          <div className="rounded-xl border border-cyan-100 bg-cyan-50/30 p-3 space-y-2">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-cyan-700">
-                              Filtros da prévia (modelo WhatsApp + PDF)
-                            </p>
-                            <div className="grid grid-cols-1 gap-2">
-                              <label className="space-y-1">
-                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Destinatário</span>
-                                <select
-                                  value={recurringPreviewAudienceFilter}
-                                  onChange={(e) => setRecurringPreviewAudienceFilter(e.target.value as RecurringPreviewAudienceFilter)}
-                                  className="w-full px-2.5 py-2 rounded-lg border border-cyan-200 bg-white text-xs font-bold text-slate-700"
-                                >
-                                  <option value="TODOS">Todos</option>
-                                  <option value="RESPONSAVEL">Responsável</option>
-                                  <option value="COLABORADOR">Colaborador</option>
-                                </select>
-                              </label>
-                              <label className="space-y-1">
-                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Pesquisar contato</span>
-                                <input
-                                  value={recurringPreviewSearchTerm}
-                                  onChange={(e) => setRecurringPreviewSearchTerm(e.target.value)}
-                                  placeholder="Nome, telefone, aluno..."
-                                  className="w-full px-2.5 py-2 rounded-lg border border-cyan-200 bg-white text-xs font-semibold text-slate-700"
-                                />
-                              </label>
-                              <div className="grid grid-cols-2 gap-2">
-                                <label className="space-y-1">
-                                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Data inicial</span>
-                                  <input
-                                    type="date"
-                                    value={recurringPreviewStartDate}
-                                    onChange={(e) => setRecurringPreviewStartDate(e.target.value)}
-                                    className="w-full px-2.5 py-2 rounded-lg border border-cyan-200 bg-white text-xs font-semibold text-slate-700"
-                                  />
-                                </label>
-                                <label className="space-y-1">
-                                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Data final</span>
-                                  <input
-                                    type="date"
-                                    value={recurringPreviewEndDate}
-                                    onChange={(e) => setRecurringPreviewEndDate(e.target.value)}
-                                    className="w-full px-2.5 py-2 rounded-lg border border-cyan-200 bg-white text-xs font-semibold text-slate-700"
-                                  />
-                                </label>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                        <div className="rounded-2xl overflow-hidden border border-emerald-200">
-                          <div className="bg-emerald-700 px-3 py-2 text-white">
-                            <p className="text-sm font-black">
-                              {campaignMode === 'RECURRING' ? recurringPreviewName : campaignPreviewName} (prévia)
-                            </p>
-                            <p className="text-[11px] font-semibold text-emerald-100">online</p>
-                          </div>
-                          <div className="p-3 bg-[#efe4dc] min-h-[300px] flex flex-col gap-2">
-                            {campaignMode === 'FOLLOWUP' ? (
-                              campaignSteps.filter((step) => String(step.message || '').trim()).slice(0, 2).map((step) => (
-                                <div key={step.id} className="max-w-[92%] rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-700">
-                                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600 mb-1">
-                                    {step.delayDays === 0 ? 'Imediata' : `${step.delayDays} dia(s) depois`}
-                                  </p>
-                                  {replaceCampaignVariables(step.message, campaignPreviewName)}
-                                </div>
-                              ))
-                            ) : (
-                              <div className="max-w-[92%] rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-700">
-                                {campaignMode === 'RECURRING'
-                                  ? replaceCampaignVariables(
-                                    planConsumptionMessage,
-                                    recurringPreviewName,
-                                    recurringPreviewExampleValues
-                                  )
-                                  : replaceCampaignVariables(campaignMessage, campaignPreviewName)}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        {campaignMode === 'RECURRING' ? (
-                          <p className="text-xs font-semibold text-slate-500">
-                            Variáveis recorrentes: {CAMPAIGN_RECURRING_VARIABLES.slice(0, 4).map((item) => item.key).join(', ')}...
-                          </p>
-                        ) : (
-                          <p className="text-xs font-semibold text-slate-500">
-                            Variáveis ativas: <span className="font-black">{'{Nome}'}</span>, <span className="font-black">{'{Sobrenome}'}</span> e <span className="font-black">{'{Data}'}</span>.
-                          </p>
-                        )}
-                        {campaignMode === 'RECURRING' && recurringPreviewPrimaryRecipient?.message && (
-                          <div className="rounded-xl border border-cyan-100 bg-cyan-50/50 p-2">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-cyan-700 mb-1">
-                              Prévia real (1º destinatário)
-                            </p>
-                            <p className="text-xs font-semibold text-slate-700 whitespace-pre-wrap">
-                              {recurringPreviewPrimaryRecipient?.message || 'Nenhum destinatário encontrado para os filtros atuais.'}
-                            </p>
-                          </div>
-                        )}
-                      </aside>
                     </div>
                       </>
                     )}
@@ -7396,6 +7367,25 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                     </div>
                   </div>
 
+                  <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="rounded-2xl border border-cyan-100 bg-white px-4 py-3">
+                      <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Total de contatos</p>
+                      <p className="mt-1 text-2xl font-black text-slate-900">{crmContactRows.length}</p>
+                    </div>
+                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 px-4 py-3">
+                      <p className="text-[11px] font-black uppercase tracking-widest text-emerald-700">Ativos</p>
+                      <p className="mt-1 text-2xl font-black text-emerald-700">
+                        {crmContactRows.filter((row) => row.statusLabel === 'ACTIVE').length}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-100/70 px-4 py-3">
+                      <p className="text-[11px] font-black uppercase tracking-widest text-slate-600">Inativos</p>
+                      <p className="mt-1 text-2xl font-black text-slate-700">
+                        {crmContactRows.filter((row) => row.statusLabel === 'INACTIVE').length}
+                      </p>
+                    </div>
+                  </section>
+
                   <section className="rounded-2xl border border-cyan-100 bg-white p-4 space-y-3">
                     <div className="grid grid-cols-1 lg:grid-cols-[1fr_170px_auto] gap-3 items-center">
                       <div className="relative">
@@ -7511,12 +7501,28 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                       ) : initials}
                                     </div>
                                     <div className="min-w-0">
-                                      <p className="text-base font-black text-slate-800 truncate">{row.client.name}</p>
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <p className="text-base font-black text-slate-800 truncate">{row.client.name}</p>
+                                        <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                                          String(row.client.type || '').toUpperCase() === 'COLABORADOR'
+                                            ? 'bg-violet-100 text-violet-700'
+                                            : 'bg-indigo-100 text-indigo-700'
+                                        }`}>
+                                          {String(row.client.type || '').toUpperCase() === 'COLABORADOR' ? 'Colaborador' : 'Aluno'}
+                                        </span>
+                                      </div>
                                       <p className="text-xs font-semibold text-slate-500 truncate">{row.client.email || '-'}</p>
+                                      {!!resolveResponsibleName(row.client) && (
+                                        <p className="text-[11px] font-bold text-emerald-700 truncate">
+                                          Responsável: {resolveResponsibleName(row.client)}
+                                        </p>
+                                      )}
                                     </div>
                                   </div>
                                 </td>
-                                <td className="px-4 py-3 align-top text-sm font-bold text-slate-700">+{row.phone || '-'}</td>
+                                <td className="px-4 py-3 align-top text-sm font-bold text-slate-700">
+                                  {row.phone ? formatPhoneWithCountryTag(row.phone, true) : '-'}
+                                </td>
                                 <td className="px-4 py-3 align-top">
                                   <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-black ${row.statusLabel === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
                                     {row.statusLabel === 'ACTIVE' ? 'Ativo' : 'Inativo'}
@@ -7818,6 +7824,12 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         </div>
       )}
 
+      {activeTab === 'DISPAROS' && (
+        <div className="py-2">
+          <CentralDisparos activeEnterprise={activeEnterprise} />
+        </div>
+      )}
+
       {activeTab === 'SESSION_QR' && (
         <div className="py-2">
           <WhatsAppQrConnector variant="session" />
@@ -7915,6 +7927,18 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                       className="w-full pl-10 pr-4 py-3 rounded-2xl border-2 border-gray-100 focus:border-indigo-500 outline-none text-sm font-medium"
                     />
                   </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 text-[10px] font-black uppercase tracking-widest">
+                      Resultados: {agendaClients.length}
+                    </span>
+                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                      selectedAgendaClientId
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : 'bg-slate-100 text-slate-500'
+                    }`}>
+                      {selectedAgendaClientId ? '1 selecionado' : 'Nenhum selecionado'}
+                    </span>
+                  </div>
                   <div className="max-h-[62vh] overflow-y-auto rounded-2xl border border-gray-100">
                     {agendaClients.length === 0 ? (
                       <div className="p-6 text-center text-sm font-semibold text-gray-500">Nenhum cliente encontrado na agenda.</div>
@@ -7925,16 +7949,37 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         const samePerson =
                           normalizeSearchValue(responsibleName) === normalizeSearchValue(studentName);
 
+                        const isSelected = selectedAgendaClientId === client.id;
+
                         return (
-                        <label key={client.id} className="flex items-start gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 cursor-pointer hover:bg-indigo-50/40">
+                        <label
+                          key={client.id}
+                          className={`flex items-start gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 cursor-pointer transition ${
+                            isSelected
+                              ? 'bg-emerald-50'
+                              : 'hover:bg-indigo-50/40'
+                          }`}
+                        >
                           <input
                             type="checkbox"
-                            checked={selectedAgendaClientId === client.id}
+                            checked={isSelected}
                             onChange={() => setSelectedAgendaClientId(client.id)}
                             className="w-4 h-4 mt-0.5"
                           />
-                          <div className="min-w-0">
-                            <p className="text-base font-black text-gray-800 truncate">{primaryName || studentName}</p>
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isSelected ? 'bg-emerald-200 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                            <span className="font-black text-sm">{String(primaryName || studentName || '?').charAt(0).toUpperCase()}</span>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <p className="text-base font-black text-gray-800 truncate">{primaryName || studentName}</p>
+                              <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                                String(client.type || '').toUpperCase() === 'COLABORADOR'
+                                  ? 'bg-violet-100 text-violet-700'
+                                  : 'bg-indigo-100 text-indigo-700'
+                              }`}>
+                                {String(client.type || '').toUpperCase() === 'COLABORADOR' ? 'Colaborador' : 'Aluno'}
+                              </span>
+                            </div>
                             {hasResponsible && !samePerson ? (
                               <>
                                 <p className="text-sm text-emerald-700 font-black truncate">

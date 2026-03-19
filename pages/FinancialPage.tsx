@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Client, Enterprise } from '../types';
 import { ApiService } from '../services/api';
+import { formatPhoneWithFlag } from '../utils/phone';
 
 type TimeFilter = 'TODAY' | 'MONTH' | 'YEAR' | 'DATE';
 type EntryType = 'RECEITA' | 'DESPESA';
@@ -73,10 +74,7 @@ const formatDateBr = (dateStr?: string) => {
 };
 
 const formatPhoneNumber = (rawPhone?: string) => {
-  const digits = String(rawPhone || '').replace(/\D/g, '');
-  if (digits.length === 11) return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
-  if (digits.length === 10) return `(${digits.slice(0, 2)})${digits.slice(2, 6)}-${digits.slice(6)}`;
-  return rawPhone || 'Não informado';
+  return formatPhoneWithFlag(rawPhone, 'Não informado');
 };
 
 const normalizeUpper = (value?: string) =>
@@ -675,7 +673,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
   if (!activeEnterprise) {
     return (
       <div className="p-8">
-        <div className="bg-white rounded-2xl border p-8 text-center text-gray-500 font-bold">
+        <div className="bg-white dark:bg-[#121214] rounded-2xl border border-slate-200 dark:border-white/10 ring-1 ring-transparent dark:ring-white/5 p-8 text-center text-gray-500 dark:text-zinc-300 font-bold">
           Selecione uma unidade para acessar o Financeiro.
         </div>
       </div>
@@ -683,7 +681,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
   }
 
   return (
-    <div className="dash-shell">
+    <div className="dash-shell finance-shell">
       <header className="dash-header">
         <div>
           <h1 className="dash-title">Financeiro</h1>
@@ -702,7 +700,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
           >
             <Plus size={16} /> Inserir Despesa
           </button>
-          <button onClick={exportToCSV} className="px-4 py-2.5 rounded-xl bg-white border-2 border-gray-100 text-xs font-black uppercase tracking-widest text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+          <button onClick={exportToCSV} className="px-4 py-2.5 rounded-xl bg-white dark:bg-[#121214] border-2 border-gray-100 dark:border-white/10 text-xs font-black uppercase tracking-widest text-gray-700 dark:text-zinc-100 hover:bg-gray-50 dark:hover:bg-zinc-800 flex items-center gap-2">
             <FileSpreadsheet size={16} className="text-emerald-600" /> Exportar CSV
           </button>
           <button onClick={exportToPDF} className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-black uppercase tracking-widest hover:bg-indigo-700 flex items-center gap-2">
@@ -713,8 +711,8 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
 
       <div className="dash-filterbar grid grid-cols-1 md:grid-cols-4 gap-3">
         <div>
-          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Calendar size={12} /> Resumo - Período</label>
-          <select value={summaryTimeFilter} onChange={(e) => setSummaryTimeFilter(e.target.value as TimeFilter)} className="w-full mt-1 px-3 py-2.5 rounded-xl bg-gray-50 border-2 border-transparent focus:border-indigo-500 outline-none text-xs font-black uppercase tracking-widest">
+          <label className="text-[10px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-widest flex items-center gap-1"><Calendar size={12} /> Resumo - Período</label>
+          <select value={summaryTimeFilter} onChange={(e) => setSummaryTimeFilter(e.target.value as TimeFilter)} className="w-full mt-1 px-3 py-2.5 rounded-xl bg-gray-50 dark:bg-zinc-900 border-2 border-transparent dark:border-white/10 focus:border-indigo-500 outline-none text-xs font-black uppercase tracking-widest dark:text-zinc-100">
             <option value="TODAY">Hoje</option>
             <option value="MONTH">Mês atual</option>
             <option value="YEAR">Ano atual</option>
@@ -723,8 +721,8 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
         </div>
         {summaryTimeFilter === 'DATE' && (
           <div>
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Selecionar Data</label>
-            <input type="date" value={summarySpecificDate} onChange={(e) => setSummarySpecificDate(e.target.value)} className="w-full mt-1 px-3 py-2.5 rounded-xl bg-gray-50 border-2 border-transparent focus:border-indigo-500 outline-none text-xs font-black" />
+            <label className="text-[10px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-widest">Selecionar Data</label>
+            <input type="date" value={summarySpecificDate} onChange={(e) => setSummarySpecificDate(e.target.value)} className="w-full mt-1 px-3 py-2.5 rounded-xl bg-gray-50 dark:bg-zinc-900 border-2 border-transparent dark:border-white/10 focus:border-indigo-500 outline-none text-xs font-black dark:text-zinc-100" />
           </div>
         )}
       </div>
@@ -742,7 +740,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
             className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
               activeSectionTab === 'PENDING'
                 ? 'bg-indigo-600 text-white shadow'
-                : 'bg-white text-gray-500 hover:bg-gray-50'
+                : 'bg-white dark:bg-zinc-900 text-gray-500 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800 border border-transparent dark:border-white/10'
             }`}
           >
             Pendência e Saldo Negativo de Clientes
@@ -752,7 +750,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
             className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
               activeSectionTab === 'REMINDERS'
                 ? 'bg-indigo-600 text-white shadow'
-                : 'bg-white text-gray-500 hover:bg-gray-50'
+                : 'bg-white dark:bg-zinc-900 text-gray-500 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800 border border-transparent dark:border-white/10'
             }`}
           >
             Lembretes de Despesas
@@ -762,7 +760,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
             className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
               activeSectionTab === 'LAUNCHES'
                 ? 'bg-indigo-600 text-white shadow'
-                : 'bg-white text-gray-500 hover:bg-gray-50'
+                : 'bg-white dark:bg-zinc-900 text-gray-500 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800 border border-transparent dark:border-white/10'
             }`}
           >
             Lançamentos Financeiros

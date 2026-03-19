@@ -47,10 +47,10 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="products-shell flex items-center justify-center h-96 rounded-2xl">
         <div className="text-center space-y-4">
           <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full"></div>
-          <p className="text-gray-600 font-medium">Carregando produtos...</p>
+          <p className="text-gray-600 dark:text-zinc-300 font-medium">Carregando produtos...</p>
         </div>
       </div>
     );
@@ -352,7 +352,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
   }, [productForm.categoryId, categories]);
 
   return (
-    <div className="flex flex-col lg:flex-row h-full gap-6 p-6 animate-in fade-in duration-500 overflow-hidden">
+    <div className="products-shell flex flex-col lg:flex-row h-full gap-6 p-6 animate-in fade-in duration-500 overflow-hidden">
       
       {/* SIDEBAR INTERNA: CATEGORIA DE PRODUTOS */}
       <aside className="w-full lg:w-80 bg-white rounded-[32px] border shadow-sm flex flex-col overflow-hidden shrink-0">

@@ -571,6 +571,17 @@ export class ApiService {
     return response.json();
   }
 
+  static async searchIngredients(query: string, limit = 10) {
+    const url = new URL(`${API_URL}/ingredients/search`);
+    url.searchParams.set('q', query);
+    url.searchParams.set('limit', String(limit));
+    const response = await fetch(url.toString(), {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao buscar sugestões de ingredientes');
+    return response.json();
+  }
+
   static async getIngredient(id: string) {
     const response = await fetch(`${API_URL}/ingredients/${id}`, {
       headers: this.getHeaders(),
@@ -606,6 +617,42 @@ export class ApiService {
     });
     if (!response.ok) throw new Error('Falha ao deletar ingrediente');
     return response.json();
+  }
+
+  // ===== MENUS =====
+  static async getWeeklyMenu(enterpriseId: string, type: 'ALMOCO' | 'LANCHE') {
+    const url = new URL(`${API_URL}/menus`);
+    url.searchParams.set('enterpriseId', enterpriseId);
+    url.searchParams.set('type', type);
+    const response = await fetch(url.toString(), {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao buscar cardápio semanal');
+    return response.json();
+  }
+
+  static async saveWeeklyMenu(enterpriseId: string, type: 'ALMOCO' | 'LANCHE', days: any[]) {
+    const response = await fetch(`${API_URL}/menus`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ enterpriseId, type, days }),
+    });
+    if (!response.ok) throw new Error('Falha ao salvar cardápio semanal');
+    return response.json();
+  }
+
+  static async getAiNutritionalData(
+    foodName: string,
+    conversation: Array<{ role: 'user' | 'assistant'; text: string }> = []
+  ) {
+    const response = await fetch(`${API_URL}/ai/nutritional-data`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ foodName, conversation }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload?.message || 'Falha ao consultar dados nutricionais com IA');
+    return payload;
   }
 
   // ===== SYSTEM =====
@@ -761,6 +808,24 @@ export class ApiService {
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text || 'Falha ao enviar mensagens em lote');
+    }
+    return response.json();
+  }
+
+  static async getWhatsAppDispatchAudience(params: {
+    enterpriseId: string;
+    filter?: 'TODOS' | 'RESPONSAVEIS' | 'COLABORADORES' | 'SALDO_BAIXO' | 'PLANO_A_VENCER' | 'RELATORIO_ENTREGA';
+  }) {
+    const qs = new URLSearchParams({
+      enterpriseId: String(params.enterpriseId || ''),
+      filter: String(params.filter || 'TODOS'),
+    });
+    const response = await fetch(`${API_URL}/whatsapp/dispatch/audience?${qs.toString()}`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao buscar audiência do disparo');
     }
     return response.json();
   }

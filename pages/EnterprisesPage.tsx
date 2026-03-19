@@ -175,7 +175,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
   };
 
   return (
-    <div className="dash-shell">
+    <div className="dash-shell enterprise-shell">
       
       <header className="dash-header">
         <div className="space-y-2">

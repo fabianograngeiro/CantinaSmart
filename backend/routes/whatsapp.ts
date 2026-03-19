@@ -1,7 +1,36 @@
 import { Router, Request, Response } from 'express';
 import { whatsappSession } from '../utils/whatsappSession.js';
+import { buildDispatchAudience, DispatchAudienceFilter } from '../services/dispatchAudienceService.js';
 
 const router = Router();
+
+router.get('/dispatch/audience', async (req: Request, res: Response) => {
+  try {
+    const enterpriseId = String(req.query.enterpriseId || '').trim();
+    if (!enterpriseId) {
+      return res.status(400).json({
+        success: false,
+        message: 'enterpriseId é obrigatório.',
+      });
+    }
+
+    const filter = String(req.query.filter || 'TODOS').toUpperCase() as DispatchAudienceFilter;
+    const data = buildDispatchAudience({
+      enterpriseId,
+      filter,
+    });
+
+    res.json({
+      success: true,
+      ...data,
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao montar audiência de disparo.',
+    });
+  }
+});
 
 router.get('/ai-config', async (_req: Request, res: Response) => {
   try {

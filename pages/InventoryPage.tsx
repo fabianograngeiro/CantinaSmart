@@ -28,10 +28,10 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ currentUser, activeEnterp
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="inventory-shell min-h-screen p-6 flex items-center justify-center">
         <div className="text-center space-y-4">
           <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full"></div>
-          <p className="text-gray-600 font-medium">Carregando estoque...</p>
+          <p className="text-gray-600 dark:text-zinc-300 font-medium">Carregando estoque...</p>
         </div>
       </div>
     );
@@ -159,7 +159,7 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ currentUser, activeEnterp
   };
 
   return (
-    <div className="space-y-6 p-6 animate-in fade-in duration-500">
+    <div className="inventory-shell space-y-6 p-6 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-gray-800 tracking-tight flex items-center gap-2 uppercase">

@@ -2,18 +2,27 @@ import React, { useState, useEffect, useMemo } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { 
-  Plus, Trash2, Save, Apple, 
-  Flame, Droplets, Zap, Info, Calendar,
-  UtensilsCrossed, X, GripVertical, CheckCircle2,
+  Plus, Trash2, Save,
+  Info, Calendar,
+  UtensilsCrossed, X, CheckCircle2,
   Building, ChevronDown, RefreshCw, Utensils,
-  Edit3, Clock, Eye, Search, AlertCircle
+  Edit3, Clock, AlertCircle, CalendarDays
 } from 'lucide-react';
-import { MenuDay, MenuItem, Ingredient, User, Enterprise, Role } from '../types';
+import { MenuDay, MenuItem, Ingredient, User, Enterprise, Role, Plan } from '../types';
 import ApiService from '../services/api';
+import notificationService from '../services/notificationService';
 
 const DAYS_OF_WEEK: ('SEGUNDA' | 'TERCA' | 'QUARTA' | 'QUINTA' | 'SEXTA' | 'SABADO')[] = [
   'SEGUNDA', 'TERCA', 'QUARTA', 'QUINTA', 'SEXTA', 'SABADO'
 ];
+const SHORT_DAY_LABEL: Record<(typeof DAYS_OF_WEEK)[number], string> = {
+  SEGUNDA: 'SEG',
+  TERCA: 'TER',
+  QUARTA: 'QUA',
+  QUINTA: 'QUI',
+  SEXTA: 'SEX',
+  SABADO: 'SAB',
+};
 
 interface MenuManagementPageProps {
   type: 'ALMOCO' | 'LANCHE';
@@ -25,6 +34,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
   const [selectedUnitId, setSelectedUnitId] = useState<string>(activeEnterprise?.id || '');
   const [isLoading, setIsLoading] = useState(false);
   const [ingredientsCatalog, setIngredientsCatalog] = useState<Ingredient[]>([]);
+  const [plansCatalog, setPlansCatalog] = useState<Plan[]>([]);
   const [enterprises, setEnterprises] = useState<Enterprise[]>([]);
 
   useEffect(() => {
@@ -66,61 +76,127 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     return DAYS_OF_WEEK.map(day => ({ 
       id: Math.random().toString(36).substr(2, 9), 
       dayOfWeek: day, 
-      items: [
-        {
-          id: Math.random().toString(36).substr(2, 9),
-          name: 'Cardápio do Dia',
-          description: 'Descreva o preparo e detalhes desta opção.',
-          price: 0,
-          ingredients: []
-        },
-        {
-          id: Math.random().toString(36).substr(2, 9),
-          name: 'Cardápio do Dia',
-          description: 'Descreva o preparo e detalhes desta opção.',
-          price: 0,
-          ingredients: []
-        }
-      ] 
+      items: [] 
     }));
   };
 
   const [weeklyMenu, setWeeklyMenu] = useState<MenuDay[]>(generateInitialMenu());
+  const [menuLoaded, setMenuLoaded] = useState(false);
 
   const isOwner = currentUser.role === Role.OWNER;
 
   useEffect(() => {
-    setIsLoading(true);
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 500);
-    return () => clearTimeout(timer);
+    const normalizeMenuDays = (rawDays: any[]): MenuDay[] => {
+      const list = Array.isArray(rawDays) ? rawDays : [];
+      const mapByDay = new Map(
+        list
+          .filter((d) => d && DAYS_OF_WEEK.includes(d.dayOfWeek))
+          .map((d) => [d.dayOfWeek, d])
+      );
+
+      return DAYS_OF_WEEK.map((day) => {
+        const source = mapByDay.get(day);
+        if (!source) {
+          return {
+            id: Math.random().toString(36).substr(2, 9),
+            dayOfWeek: day,
+            items: [],
+          };
+        }
+        return {
+          id: source.id || Math.random().toString(36).substr(2, 9),
+          dayOfWeek: day,
+          items: Array.isArray(source.items) ? source.items : [],
+        };
+      });
+    };
+
+    const loadWeeklyMenu = async () => {
+      if (!selectedUnitId) {
+        setWeeklyMenu(generateInitialMenu());
+        setMenuLoaded(false);
+        return;
+      }
+
+      setMenuLoaded(false);
+      setIsLoading(true);
+      try {
+        const payload = await ApiService.getWeeklyMenu(selectedUnitId, type);
+        const nextDays = normalizeMenuDays(payload?.days || []);
+        setWeeklyMenu(nextDays);
+      } catch (error) {
+        console.error('Erro ao carregar cardápio semanal:', error);
+        setWeeklyMenu(generateInitialMenu());
+      } finally {
+        setMenuLoaded(true);
+        setIsLoading(false);
+      }
+    };
+
+    loadWeeklyMenu();
   }, [selectedUnitId, type]);
 
+  useEffect(() => {
+    if (!menuLoaded || !selectedUnitId) return;
+    const timer = setTimeout(async () => {
+      try {
+        await ApiService.saveWeeklyMenu(selectedUnitId, type, weeklyMenu);
+      } catch (error) {
+        console.error('Erro ao salvar cardápio semanal:', error);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [weeklyMenu, selectedUnitId, type, menuLoaded]);
+
   const [editingItem, setEditingItem] = useState<{ dayId: string, item: MenuItem } | null>(null);
-  const [searchIngredientId, setSearchIngredientId] = useState<string | null>(null);
+  const [quickIngredientQuery, setQuickIngredientQuery] = useState('');
+  const [quickIngredientWeight, setQuickIngredientWeight] = useState('100');
+  const [isQuickIngredientListOpen, setIsQuickIngredientListOpen] = useState(false);
+  const [quickIngredientSuggestions, setQuickIngredientSuggestions] = useState<Ingredient[]>([]);
+  const [isLoadingQuickIngredientSuggestions, setIsLoadingQuickIngredientSuggestions] = useState(false);
+  const [openPlanPickerDayId, setOpenPlanPickerDayId] = useState<string | null>(null);
+  const [newItemPlanByDay, setNewItemPlanByDay] = useState<Record<string, string>>({});
+  const [itemReplicateTarget, setItemReplicateTarget] = useState<{ dayId: string; itemId: string } | null>(null);
+  const [itemReplicateDays, setItemReplicateDays] = useState<(typeof DAYS_OF_WEEK)[number][]>([]);
+  const [ingredientReplicateTargetId, setIngredientReplicateTargetId] = useState<string | null>(null);
+  const [ingredientReplicateDays, setIngredientReplicateDays] = useState<(typeof DAYS_OF_WEEK)[number][]>([]);
 
-  const createBlankIngredient = (): Ingredient => ({
-    id: Math.random().toString(36).substr(2, 9),
-    name: '',
-    category: '',
-    unit: 'g',
-    calories: 0,
-    proteins: 0,
-    carbs: 0,
-    fats: 0
-  });
+  useEffect(() => {
+    const loadPlans = async () => {
+      if (!selectedUnitId) {
+        setPlansCatalog([]);
+        return;
+      }
+      try {
+        const data = await ApiService.getPlans(selectedUnitId);
+        const normalized = (Array.isArray(data) ? data : []).filter((plan: Plan) => plan?.isActive !== false);
+        setPlansCatalog(normalized);
+      } catch (error) {
+        console.error('Erro ao carregar planos para cardápio:', error);
+        setPlansCatalog([]);
+      }
+    };
+    loadPlans();
+  }, [selectedUnitId]);
 
-  const addItemToDay = (dayId: string) => {
+  const addItemToDay = (dayId: string, planId?: string) => {
+    if (plansCatalog.length > 0 && !planId) {
+      notificationService.alerta('Plano obrigatório', 'Selecione um plano antes de criar o cardápio.');
+      return;
+    }
+    const selectedPlan = plansCatalog.find((plan) => plan.id === planId);
+    const cardapioName = selectedPlan?.name ? selectedPlan.name : 'Nova Opção';
     const newItem: MenuItem = {
       id: Math.random().toString(36).substr(2, 9),
-      name: 'Nova Opção',
+      name: cardapioName,
       description: '',
       price: 0,
-      ingredients: []
+      ingredients: [],
+      planId: selectedPlan?.id,
     };
     setWeeklyMenu(prev => prev.map(d => d.id === dayId ? { ...d, items: [...d.items, newItem] } : d));
     setEditingItem({ dayId, item: newItem });
+    setOpenPlanPickerDayId(null);
   };
 
   const removeItemFromDay = (dayId: string, itemId: string) => {
@@ -129,70 +205,228 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     }
   };
 
-  const addIngredientToItem = () => {
-    if (!editingItem) return;
-    const newIng = createBlankIngredient();
-    setEditingItem({
-      ...editingItem,
-      item: { ...editingItem.item, ingredients: [newIng, ...editingItem.item.ingredients] }
-    });
+  const toggleItemReplicatePicker = (
+    dayId: string,
+    itemId: string,
+    currentDayOfWeek: (typeof DAYS_OF_WEEK)[number]
+  ) => {
+    const isSameTarget = itemReplicateTarget?.dayId === dayId && itemReplicateTarget?.itemId === itemId;
+    if (isSameTarget) {
+      setItemReplicateTarget(null);
+      setItemReplicateDays([]);
+      return;
+    }
+    setItemReplicateTarget({ dayId, itemId });
+    setItemReplicateDays([currentDayOfWeek]);
   };
 
-  const commitIngredientOnEnter = (ingId: string, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== 'Enter' || !editingItem) return;
-    e.preventDefault();
+  const applyItemReplication = () => {
+    if (!itemReplicateTarget) return;
+    const { dayId, itemId } = itemReplicateTarget;
+    if (itemReplicateDays.length === 0) return;
 
-    const ingredients = editingItem.item.ingredients;
-    const target = ingredients.find((ing) => ing.id === ingId);
-    if (!target || !target.name.trim()) return;
+    const dayNamesApplied: string[] = [];
 
-    const committed = { ...target, name: target.name.trim() };
-    const remaining = ingredients.filter((ing) => ing.id !== ingId && ing.name.trim() !== '');
-    const reordered = [createBlankIngredient(), ...remaining, committed];
+    setWeeklyMenu((prev) => {
+      const sourceDay = prev.find((day) => day.id === dayId);
+      const sourceItem = sourceDay?.items.find((item) => item.id === itemId);
+      if (!sourceDay || !sourceItem) return prev;
 
-    setEditingItem({
-      ...editingItem,
-      item: {
-        ...editingItem.item,
-        ingredients: reordered
-      }
+      return prev.map((day) => {
+        if (!itemReplicateDays.includes(day.dayOfWeek)) {
+          return day;
+        }
+        if (day.id === sourceDay.id) {
+          dayNamesApplied.push(day.dayOfWeek);
+          return day;
+        }
+        const alreadyExists = day.items.some((item) => {
+          const sameName = String(item.name || '').trim().toLowerCase() === String(sourceItem.name || '').trim().toLowerCase();
+          const samePlan = String(item.planId || '') === String(sourceItem.planId || '');
+          return sameName && samePlan;
+        });
+        if (alreadyExists) return day;
+
+        const replicatedItem: MenuItem = {
+          ...sourceItem,
+          id: Math.random().toString(36).substr(2, 9),
+          ingredients: sourceItem.ingredients.map((ing) => ({ ...ing, id: Math.random().toString(36).substr(2, 9) })),
+        };
+        dayNamesApplied.push(day.dayOfWeek);
+        return { ...day, items: [...day.items, replicatedItem] };
+      });
     });
-    setSearchIngredientId(reordered[0].id);
+
+    if (dayNamesApplied.length > 0) {
+      notificationService.informativo(
+        'Item replicado',
+        `Item adicionado com sucesso em: ${dayNamesApplied.map((day) => SHORT_DAY_LABEL[day as keyof typeof SHORT_DAY_LABEL] || day).join(', ')}.`
+      );
+    }
+    setItemReplicateTarget(null);
+    setItemReplicateDays([]);
   };
 
-  const updateIngredient = (ingId: string, field: keyof Ingredient, value: string | number) => {
+  const toggleIngredientReplicatePicker = (ingredientId: string) => {
     if (!editingItem) return;
-    setEditingItem({
-      ...editingItem,
-      item: {
-        ...editingItem.item,
-        ingredients: editingItem.item.ingredients.map(ing => 
-          ing.id === ingId ? { ...ing, [field]: value } : ing
-        )
-      }
-    });
+    if (ingredientReplicateTargetId === ingredientId) {
+      setIngredientReplicateTargetId(null);
+      setIngredientReplicateDays([]);
+      return;
+    }
+    setIngredientReplicateTargetId(ingredientId);
+    const currentDay = weeklyMenu.find((day) => day.id === editingItem.dayId)?.dayOfWeek;
+    setIngredientReplicateDays(currentDay ? [currentDay] : []);
   };
 
-  const autofillIngredient = (ingId: string, mockIng: Ingredient) => {
-    if (!editingItem) return;
-    setEditingItem({
-      ...editingItem,
-      item: {
-        ...editingItem.item,
-        ingredients: editingItem.item.ingredients.map(ing => 
-          ing.id === ingId ? { 
-            ...ing, 
-            name: mockIng.name, 
-            unit: mockIng.unit,
-            calories: mockIng.calories,
-            proteins: mockIng.proteins,
-            carbs: mockIng.carbs,
-            fats: mockIng.fats
-          } : ing
-        )
+  const applyIngredientReplication = () => {
+    if (!editingItem || !ingredientReplicateTargetId || ingredientReplicateDays.length === 0) return;
+
+    const sourceIngredient = editingItem.item.ingredients.find((ing) => ing.id === ingredientReplicateTargetId);
+    if (!sourceIngredient) return;
+
+    const sourceDay = weeklyMenu.find((day) => day.id === editingItem.dayId);
+    if (!sourceDay) return;
+
+    const appliedDays: string[] = [];
+
+    setWeeklyMenu((prev) => prev.map((day) => {
+      if (!ingredientReplicateDays.includes(day.dayOfWeek)) return day;
+
+      const isCurrentDay = day.id === editingItem.dayId;
+      const dayItems = [...day.items];
+
+      const targetItemIndex = dayItems.findIndex((item) => {
+        const sameName = String(item.name || '').trim().toLowerCase() === String(editingItem.item.name || '').trim().toLowerCase();
+        const samePlan = String(item.planId || '') === String(editingItem.item.planId || '');
+        return sameName && samePlan;
+      });
+
+      if (targetItemIndex >= 0) {
+        const targetItem = dayItems[targetItemIndex];
+        const ingredientExists = targetItem.ingredients.some(
+          (ing) => String(ing.name || '').trim().toLowerCase() === String(sourceIngredient.name || '').trim().toLowerCase()
+        );
+        if (ingredientExists) {
+          if (isCurrentDay) appliedDays.push(day.dayOfWeek);
+          return day;
+        }
+        dayItems[targetItemIndex] = {
+          ...targetItem,
+          ingredients: [
+            ...targetItem.ingredients,
+            { ...sourceIngredient, id: Math.random().toString(36).substr(2, 9) },
+          ],
+        };
+      } else {
+        dayItems.push({
+          ...editingItem.item,
+          id: Math.random().toString(36).substr(2, 9),
+          ingredients: [{ ...sourceIngredient, id: Math.random().toString(36).substr(2, 9) }],
+        });
       }
+
+      appliedDays.push(day.dayOfWeek);
+      return { ...day, items: dayItems };
+    }));
+
+    if (appliedDays.length > 0) {
+      notificationService.informativo(
+        'Insumo replicado',
+        `Insumo adicionado em: ${appliedDays.map((day) => SHORT_DAY_LABEL[day as keyof typeof SHORT_DAY_LABEL] || day).join(', ')}.`
+      );
+    }
+
+    setIngredientReplicateTargetId(null);
+    setIngredientReplicateDays([]);
+  };
+
+  useEffect(() => {
+    const term = String(quickIngredientQuery || '').trim();
+    if (!editingItem || !term) {
+      setQuickIngredientSuggestions([]);
+      setIsLoadingQuickIngredientSuggestions(false);
+      return;
+    }
+
+    let isCancelled = false;
+    setIsLoadingQuickIngredientSuggestions(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        const results = await ApiService.searchIngredients(term, 10);
+        if (!isCancelled) {
+          setQuickIngredientSuggestions(Array.isArray(results) ? results : []);
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          // Fallback local para manter o fluxo mesmo sem backend de busca
+          const localResults = ingredientsCatalog
+            .filter((item) => String(item.name || '').toLowerCase().includes(term.toLowerCase()))
+            .slice(0, 10);
+          setQuickIngredientSuggestions(localResults);
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingQuickIngredientSuggestions(false);
+        }
+      }
+    }, 300);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+    };
+  }, [editingItem, quickIngredientQuery, ingredientsCatalog]);
+
+  const addIngredientFromQuickForm = (catalogIngredient?: Ingredient) => {
+    if (!editingItem) return;
+    const query = String(quickIngredientQuery || '').trim();
+    if (!query) return;
+
+    const resolvedIngredient = catalogIngredient
+      || ingredientsCatalog.find((item) => String(item.name || '').trim().toLowerCase() === query.toLowerCase())
+      || ingredientsCatalog.find((item) => String(item.name || '').trim().toLowerCase().includes(query.toLowerCase()));
+
+    const weight = Math.max(1, Number(quickIngredientWeight || 0) || 100);
+    const base = resolvedIngredient || {
+      id: Math.random().toString(36).substr(2, 9),
+      name: query,
+      category: 'GERAL',
+      unit: 'g' as const,
+      calories: 0,
+      proteins: 0,
+      carbs: 0,
+      fats: 0
+    };
+
+    const factor = base.unit === 'g' || base.unit === 'ml' ? (weight / 100) : weight;
+    const suffix = base.unit === 'un' ? `${weight} un` : `${weight}${base.unit}`;
+    const ingredientToAdd: Ingredient = {
+      id: Math.random().toString(36).substr(2, 9),
+      name: `${base.name} (${suffix})`,
+      category: base.category,
+      unit: base.unit,
+      calories: Number((Number(base.calories || 0) * factor).toFixed(2)),
+      proteins: Number((Number(base.proteins || 0) * factor).toFixed(2)),
+      carbs: Number((Number(base.carbs || 0) * factor).toFixed(2)),
+      fats: Number((Number(base.fats || 0) * factor).toFixed(2)),
+    };
+
+    setEditingItem((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        item: {
+          ...prev.item,
+          ingredients: [...prev.item.ingredients, ingredientToAdd],
+        },
+      };
     });
-    setSearchIngredientId(null);
+    setQuickIngredientQuery('');
+    setQuickIngredientWeight('100');
+    setIsQuickIngredientListOpen(false);
+    setQuickIngredientSuggestions([]);
   };
 
   const removeIngredient = (ingId: string) => {
@@ -213,6 +447,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
         ? { ...d, items: d.items.map(i => i.id === editingItem.item.id ? editingItem.item : i) } 
         : d
     ));
+
     setEditingItem(null);
   };
 
@@ -227,12 +462,16 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
 
   const canSaveFicha = useMemo(() => {
     if (!editingItem) return false;
-    return Boolean(editingItem.item.name?.trim()) && Boolean(editingItem.item.description?.trim()) && editingItem.item.ingredients.length > 0;
+    return Boolean(editingItem.item.name?.trim()) && editingItem.item.ingredients.length > 0;
   }, [editingItem]);
   const editingDayLabel = useMemo(() => {
     if (!editingItem) return '';
     return weeklyMenu.find((day) => day.id === editingItem.dayId)?.dayOfWeek || '';
   }, [editingItem, weeklyMenu]);
+  const selectedPlanName = useMemo(() => {
+    if (!editingItem?.item?.planId) return '';
+    return plansCatalog.find((plan) => plan.id === editingItem.item.planId)?.name || '';
+  }, [editingItem, plansCatalog]);
 
   const selectedEnterpriseName = enterprises.find(ent => ent.id === selectedUnitId)?.name || activeEnterprise?.name || 'Unidade';
 
@@ -240,60 +479,251 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const generatedAt = new Date();
     const days = weeklyMenu.map((day) => day.dayOfWeek);
-
-    const dayAsList = (day: MenuDay) => {
-      if (day.items.length === 0) return '-';
-      return day.items
-        .map((item, itemIndex) => {
-          const ingredientsList = item.ingredients.length
-            ? item.ingredients.map((ing) => `• ${ing.name}`).join('\n')
-            : '• Composição não definida';
-          const description = item.description?.trim() || 'Sem descrição';
-          return `${itemIndex + 1}) ${item.name}\nDescrição: ${description}\nInsumos:\n${ingredientsList}`;
-        })
-        .join('\n\n');
+    const dayHeaderColors: [number, number, number][] = [
+      [30, 58, 138],   // SEG
+      [37, 99, 235],   // TER
+      [79, 70, 229],   // QUA
+      [22, 163, 74],   // QUI
+      [245, 158, 11],  // SEX
+      [124, 58, 237],  // SAB
+    ];
+    const getPlanPalette = (rawName: string) => {
+      const name = String(rawName || '').toUpperCase();
+      if (name.includes('ALMO')) {
+        return {
+          badge: [37, 99, 235] as [number, number, number],
+          cardBg: [239, 246, 255] as [number, number, number],
+          border: [147, 197, 253] as [number, number, number],
+          text: [30, 58, 138] as [number, number, number],
+        };
+      }
+      if (name.includes('LANCHE')) {
+        return {
+          badge: [245, 158, 11] as [number, number, number],
+          cardBg: [255, 251, 235] as [number, number, number],
+          border: [252, 211, 77] as [number, number, number],
+          text: [146, 64, 14] as [number, number, number],
+        };
+      }
+      if (name.includes('KIDS')) {
+        return {
+          badge: [236, 72, 153] as [number, number, number],
+          cardBg: [253, 242, 248] as [number, number, number],
+          border: [244, 114, 182] as [number, number, number],
+          text: [157, 23, 77] as [number, number, number],
+        };
+      }
+      if (name.includes('FIT') || name.includes('SAUD')) {
+        return {
+          badge: [16, 185, 129] as [number, number, number],
+          cardBg: [236, 253, 245] as [number, number, number],
+          border: [110, 231, 183] as [number, number, number],
+          text: [6, 95, 70] as [number, number, number],
+        };
+      }
+      if (name.includes('PREMIUM') || name.includes('ESPECIAL')) {
+        return {
+          badge: [124, 58, 237] as [number, number, number],
+          cardBg: [245, 243, 255] as [number, number, number],
+          border: [167, 139, 250] as [number, number, number],
+          text: [76, 29, 149] as [number, number, number],
+        };
+      }
+      return {
+        badge: [79, 70, 229] as [number, number, number],
+        cardBg: [243, 244, 246] as [number, number, number],
+        border: [209, 213, 219] as [number, number, number],
+        text: [31, 41, 55] as [number, number, number],
+      };
     };
 
-    const tableRows = [weeklyMenu.map((day) => dayAsList(day))];
+    const tableRows = [weeklyMenu.map(() => '')];
 
+    // Header premium
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, 297, 28, 'F');
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(12, 8, 15, 15, 2.5, 2.5, 'F');
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('CA', 16.2, 17.8);
+
+    doc.setTextColor(255, 255, 255);
     doc.setFontSize(16);
-    doc.text('Calendario de Cardapio Local', 14, 14);
-    doc.setFontSize(10);
-    doc.text(`Unidade: ${selectedEnterpriseName}`, 14, 20);
-    doc.text(`Tipo: ${type === 'ALMOCO' ? 'Almoco' : 'Lanche'}`, 14, 25);
+    doc.setFont('helvetica', 'bold');
+    doc.text('CALENDARIO DE CARDAPIO LOCAL', 33, 14.5);
+    doc.setFontSize(9.5);
+    doc.setFont('helvetica', 'normal');
+    doc.text(String(selectedEnterpriseName || 'CANTINA ALFA').toUpperCase(), 33, 20.5);
+
+    doc.setTextColor(31, 41, 55);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10.2);
+    doc.text(`Cardapio Semanal | Unidade: ${selectedEnterpriseName} | Refeicao: ${type === 'ALMOCO' ? 'Almoco' : 'Lanche'}`, 14, 35);
     doc.text(
       `Gerado em: ${generatedAt.toLocaleDateString('pt-BR')} ${generatedAt.toLocaleTimeString('pt-BR')}`,
-      14,
-      30
+      205,
+      35
     );
+    doc.setDrawColor(229, 231, 235);
+    doc.line(10, 38, 287, 38);
 
     autoTable(doc, {
-      startY: 36,
+      startY: 42,
       head: [days],
       body: tableRows,
       styles: {
-        fontSize: 8,
-        cellPadding: 3,
+        fontSize: 8.2,
+        cellPadding: 3.2,
         valign: 'top',
-        halign: 'center',
+        halign: 'left',
         overflow: 'linebreak',
-        lineColor: [220, 220, 220],
-        lineWidth: 0.1,
+        lineColor: [241, 245, 249],
+        lineWidth: 0,
+        minCellHeight: 110,
       },
       headStyles: {
-        fillColor: [79, 70, 229],
+        fillColor: [30, 58, 138],
         textColor: [255, 255, 255],
         fontStyle: 'bold',
         halign: 'center',
+        valign: 'middle',
+        minCellHeight: 12.8,
       },
-      theme: 'grid',
-      margin: { left: 10, right: 10, top: 36, bottom: 10 },
+      theme: 'plain',
+      margin: { left: 10, right: 10, top: 42, bottom: 20 },
       didParseCell: (data) => {
-        if (data.section === 'body' && data.cell.raw === '-') {
-          data.cell.styles.textColor = [140, 140, 140];
+        if (data.section === 'head') {
+          const color = dayHeaderColors[data.column.index] || [30, 58, 138];
+          data.cell.styles.fillColor = color;
+          data.cell.styles.textColor = [255, 255, 255];
+          data.cell.styles.fontStyle = 'bold';
+        }
+        if (data.section === 'body') {
+          data.cell.text = [''];
+        }
+      },
+      didDrawCell: (data) => {
+        if (data.section !== 'body') return;
+
+        const day = weeklyMenu[data.column.index];
+        if (!day) return;
+
+        const x = data.cell.x + 1.5;
+        const y = data.cell.y + 2;
+        const w = data.cell.width - 3;
+        const h = data.cell.height - 4;
+
+        let cursorY = y;
+        const cardGap = 2;
+
+        if (!day.items.length) {
+          // vazio também em formato de card (sem texto solto)
+          doc.setFillColor(249, 250, 251);
+          doc.setDrawColor(209, 213, 219);
+          doc.roundedRect(x, cursorY, w, 18, 1.5, 1.5, 'FD');
+          doc.setFontSize(8.5);
+          doc.setTextColor(156, 163, 175);
+          doc.setFont('helvetica', 'italic');
+          doc.text('Sem cardapio', x + 3, cursorY + 10);
+          doc.setFont('helvetica', 'normal');
+          return;
+        }
+
+        for (let i = 0; i < day.items.length; i += 1) {
+          const item = day.items[i];
+          const palette = getPlanPalette(item.name || '');
+          const badgeText = String(item.name || 'CARDAPIO').toUpperCase();
+          const description = String(item.description || '').trim();
+          const ingredients = item.ingredients.length
+            ? item.ingredients.map((ing) => ing.name)
+            : ['Composicao nao definida'];
+
+          // Estimate card height
+          const ingredientLines: string[] = [];
+          ingredients.forEach((ingredient) => {
+            const wrapped = doc.splitTextToSize(`${ingredient}`, w - 8);
+            ingredientLines.push(...wrapped.slice(0, 2));
+          });
+
+          const maxIngredientLines = 8;
+          const visibleIngredientLines = ingredientLines.slice(0, maxIngredientLines);
+          const hiddenCount = ingredientLines.length - visibleIngredientLines.length;
+          const hasDescription = Boolean(description);
+          const cardHeight = (hasDescription ? 22 : 18) + visibleIngredientLines.length * 3 + (hiddenCount > 0 ? 3 : 0);
+
+          if (cursorY + cardHeight > y + h) {
+            // evita texto solto fora do bloco
+            break;
+          }
+
+          // Card container (premium: branco com barra lateral)
+          doc.setFillColor(255, 255, 255);
+          doc.setDrawColor(226, 232, 240);
+          doc.roundedRect(x, cursorY, w, cardHeight, 2, 2, 'FD');
+          doc.setFillColor(palette.badge[0], palette.badge[1], palette.badge[2]);
+          doc.roundedRect(x, cursorY, 1.8, cardHeight, 1, 1, 'F');
+
+          // Badge (etiqueta colorida)
+          doc.setFillColor(palette.cardBg[0], palette.cardBg[1], palette.cardBg[2]);
+          doc.setDrawColor(palette.border[0], palette.border[1], palette.border[2]);
+          const badgeWidth = Math.min(w - 6, 34);
+          doc.roundedRect(x + 3, cursorY + 1.8, badgeWidth, 5.2, 1.2, 1.2, 'FD');
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7.4);
+          doc.setTextColor(palette.text[0], palette.text[1], palette.text[2]);
+          const badgeWrapped = doc.splitTextToSize(badgeText, badgeWidth - 2).slice(0, 1);
+          doc.text(badgeWrapped[0], x + 4.2, cursorY + 5.6);
+
+          // Description
+          let ingredientsTitleY = cursorY + 10.7;
+          if (hasDescription) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(6.6);
+            doc.setTextColor(107, 114, 128);
+            const descLine = doc.splitTextToSize(description, w - 8).slice(0, 1);
+            doc.text(descLine[0], x + 3, cursorY + 10.7);
+            ingredientsTitleY = cursorY + 14.2;
+          }
+
+          // Ingredients title
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(palette.text[0], palette.text[1], palette.text[2]);
+          doc.text('Insumos:', x + 3, ingredientsTitleY);
+
+          // Ingredients list with subtle circle marker
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(55, 65, 81);
+          let lineY = ingredientsTitleY + 3;
+          visibleIngredientLines.forEach((line) => {
+            doc.setFillColor(148, 163, 184);
+            doc.circle(x + 4.2, lineY - 0.9, 0.45, 'F');
+            doc.text(line, x + 5.4, lineY);
+            lineY += 3;
+          });
+          if (hiddenCount > 0) {
+            doc.setFontSize(7);
+            doc.setTextColor(107, 114, 128);
+            doc.text(`+${hiddenCount} item(ns)`, x + 2.8, lineY);
+          }
+
+          cursorY += cardHeight + cardGap;
         }
       },
     });
+
+    const footerY = doc.internal.pageSize.getHeight() - 10;
+    doc.setDrawColor(209, 213, 219);
+    doc.line(10, footerY - 4, 287, footerY - 4);
+    doc.setTextColor(107, 114, 128);
+    doc.setFontSize(8.2);
+    doc.setFont('helvetica', 'normal');
+    doc.text(
+      `Sujeito a alteracoes conforme disponibilidade de estoque • Emissao: ${generatedAt.toLocaleDateString('pt-BR')} ${generatedAt.toLocaleTimeString('pt-BR')}`,
+      14,
+      footerY
+    );
 
     const fileName = `cardapio_local_${selectedEnterpriseName
       .toLowerCase()
@@ -302,7 +732,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-[1600px] mx-auto min-h-screen pb-20">
+    <div className="dash-shell menu-shell max-w-[1600px] min-h-screen">
       {!activeEnterprise ? (
         <div className="flex items-center justify-center h-96">
           <div className="text-center space-y-4">
@@ -365,67 +795,189 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 animate-in fade-in duration-500">
           {weeklyMenu.map(day => (
             <div key={day.id} className="flex flex-col gap-4">
-              <div className="bg-white p-4 rounded-2xl border-b-4 border-indigo-500 shadow-sm flex items-center justify-between">
+              <div className="bg-white p-4 rounded-2xl border-b-4 border-indigo-500 shadow-sm flex items-center justify-between gap-2">
                 <div>
                    <h3 className="text-xs font-black text-gray-800 uppercase tracking-widest">{day.dayOfWeek}</h3>
                    <p className="text-[9px] font-bold text-gray-400 uppercase">{day.items.length} Opções</p>
                 </div>
                 <button 
-                  onClick={() => addItemToDay(day.id)}
+                  onClick={() => {
+                    if (plansCatalog.length === 0) {
+                      addItemToDay(day.id);
+                      return;
+                    }
+                    setOpenPlanPickerDayId((prev) => prev === day.id ? null : day.id);
+                    setNewItemPlanByDay((prev) => ({
+                      ...prev,
+                      [day.id]: prev[day.id] || plansCatalog[0]?.id || '',
+                    }));
+                  }}
                   className="w-8 h-8 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center hover:bg-indigo-600 hover:text-white transition-all shadow-inner"
+                  title="Adicionar opção"
                 >
                   <Plus size={18} />
                 </button>
               </div>
+              {openPlanPickerDayId === day.id && (
+                <div className="bg-white rounded-2xl border border-indigo-100 shadow-sm p-3 space-y-2">
+                  <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Escolha o plano para criar o cardápio</p>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={newItemPlanByDay[day.id] || ''}
+                      onChange={(e) => {
+                        const nextPlanId = e.target.value;
+                        setNewItemPlanByDay((prev) => ({ ...prev, [day.id]: nextPlanId }));
+                      }}
+                      className="flex-1 h-10 rounded-xl border border-gray-200 px-3 text-xs font-black uppercase tracking-wider text-gray-700 focus:outline-none focus:border-indigo-400"
+                    >
+                      {plansCatalog.length === 0 ? (
+                        <option value="">Sem planos ativos</option>
+                      ) : (
+                        plansCatalog.map((plan) => (
+                          <option key={plan.id} value={plan.id}>
+                            {plan.name}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                    <button
+                      onClick={() => addItemToDay(day.id, newItemPlanByDay[day.id])}
+                      className="h-10 px-3 rounded-xl bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700"
+                    >
+                      Criar
+                    </button>
+                  </div>
+                </div>
+              )}
 
-              <div className="space-y-4 min-h-[300px]">
+              <div className="min-h-[300px]">
                 {day.items.length === 0 ? (
                   <div className="h-full border-2 border-dashed border-gray-200 rounded-3xl flex flex-col items-center justify-center p-6 text-center opacity-40">
                      <Clock size={24} className="mb-2" />
                      <p className="text-[9px] font-black uppercase">Sem Itens</p>
                   </div>
                 ) : (
-                  day.items.map(item => (
-                    <div 
-                      key={item.id}
-                      className="bg-white rounded-3xl border border-gray-100 shadow-sm hover:shadow-xl transition-all group overflow-hidden flex flex-col"
-                    >
-                      <div className="p-4 flex-1">
-                        <div className="flex justify-between items-start mb-3">
-                           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all ml-auto">
-                              <button onClick={() => setEditingItem({ dayId: day.id, item })} className="p-1.5 bg-gray-50 text-gray-400 hover:text-indigo-600 rounded-lg"><Edit3 size={14} /></button>
-                              <button onClick={() => removeItemFromDay(day.id, item.id)} className="p-1.5 bg-gray-50 text-gray-400 hover:text-red-500 rounded-lg"><Trash2 size={14} /></button>
-                           </div>
-                        </div>
-
-                        <h4 className="font-black text-gray-800 text-sm leading-tight mb-1 uppercase tracking-tight">{item.name}</h4>
-                        <p className="text-[10px] text-gray-500 leading-tight min-h-[2.5em] mb-2">
-                           {item.description?.trim() || 'Sem descrição.'}
-                        </p>
-                        <div className="text-[10px] text-gray-500 leading-tight">
-                          <span className="font-black text-gray-600 uppercase tracking-wider">Insumos:</span>{' '}
-                          {item.ingredients.length > 0 ? item.ingredients.map(ing => ing.name).join(', ') : 'Composição não definida...'}
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-50 mt-4">
-                           <div className="flex items-center gap-1">
-                              <Flame size={10} className="text-amber-500" />
-                              <span className="text-[10px] font-bold text-gray-400">{calculateTotalNutrients(item.ingredients).calories} kcal</span>
-                           </div>
-                           <div className="flex items-center gap-1">
-                              <Info size={10} className="text-indigo-400" />
-                              <span className="text-[10px] font-bold text-gray-400">{item.ingredients.length} componentes</span>
-                           </div>
-                        </div>
-                      </div>
-                      <button 
-                        onClick={() => setEditingItem({ dayId: day.id, item })}
-                        className="w-full py-2 bg-gray-50 text-[9px] font-black text-indigo-600 uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all border-t flex items-center justify-center gap-2"
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm divide-y divide-gray-100 overflow-hidden">
+                    {day.items.map(item => (
+                      <div
+                        key={item.id}
+                        className="px-3 py-2.5 hover:bg-gray-50 transition-colors group"
                       >
-                        <Eye size={12} /> Editar Ficha
-                      </button>
-                    </div>
-                  ))
+                        <div className="flex items-start gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-black text-gray-800 uppercase tracking-tight truncate">
+                              {item.name}
+                            </p>
+                            {item.planId && (
+                              <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mt-0.5 truncate">
+                                Plano: {plansCatalog.find((plan) => plan.id === item.planId)?.name || 'Plano vinculado'}
+                              </p>
+                            )}
+                            {item.ingredients.length > 0 ? (
+                              <ul className="mt-1 space-y-0.5">
+                                {item.ingredients.slice(0, 5).map((ing) => (
+                                  <li
+                                    key={ing.id}
+                                    className="text-[11px] font-semibold text-gray-500 leading-tight list-disc list-inside truncate"
+                                  >
+                                    {ing.name}
+                                  </li>
+                                ))}
+                                {item.ingredients.length > 5 && (
+                                  <li className="text-[10px] font-bold text-gray-400 leading-tight list-none pl-4">
+                                    +{item.ingredients.length - 5} item(ns)
+                                  </li>
+                                )}
+                              </ul>
+                            ) : (
+                              <p className="text-[11px] font-semibold text-gray-500 leading-tight mt-0.5">
+                                {item.description?.trim() || 'Sem insumos definidos'}
+                              </p>
+                            )}
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="text-[11px] font-black text-amber-600 whitespace-nowrap">
+                              {calculateTotalNutrients(item.ingredients).calories} kcal
+                            </p>
+                            <div className="mt-1 flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => setEditingItem({ dayId: day.id, item })}
+                                className="p-1.5 bg-white border border-gray-200 text-gray-400 hover:text-indigo-600 rounded-lg"
+                                title="Editar ficha"
+                              >
+                                <Edit3 size={13} />
+                              </button>
+                              <button
+                                onClick={() => removeItemFromDay(day.id, item.id)}
+                                className="p-1.5 bg-white border border-gray-200 text-gray-400 hover:text-red-500 rounded-lg"
+                                title="Remover opção"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mt-2 pt-2 border-t border-indigo-100">
+                          <button
+                            onClick={() => toggleItemReplicatePicker(day.id, item.id, day.dayOfWeek)}
+                            className="w-full h-8 bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-100 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5"
+                            title="Repetir em outros dias"
+                          >
+                            <CalendarDays size={13} /> Repetir item em outros dias
+                          </button>
+                        </div>
+                        {itemReplicateTarget?.dayId === day.id && itemReplicateTarget?.itemId === item.id && (
+                          <div className="mt-2 p-3 rounded-xl border border-indigo-100 bg-indigo-50/50">
+                            <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">
+                              Repetir este item em:
+                            </p>
+                            <div className="grid grid-cols-3 gap-2">
+                              {DAYS_OF_WEEK.map((dayKey) => {
+                                const isCurrentDay = dayKey === day.dayOfWeek;
+                                const checked = itemReplicateDays.includes(dayKey);
+                                return (
+                                  <label
+                                    key={dayKey}
+                                    className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2 py-1.5 rounded-lg ${isCurrentDay ? 'bg-indigo-100 text-indigo-600' : 'bg-white text-gray-600 border border-gray-200 cursor-pointer'}`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      disabled={isCurrentDay}
+                                      onChange={() => {
+                                        setItemReplicateDays((prev) => {
+                                          if (checked) return prev.filter((v) => v !== dayKey);
+                                          return [...prev, dayKey];
+                                        });
+                                      }}
+                                    />
+                                    {SHORT_DAY_LABEL[dayKey]}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                            <div className="mt-3 flex justify-end gap-2">
+                              <button
+                                onClick={() => {
+                                  setItemReplicateTarget(null);
+                                  setItemReplicateDays([]);
+                                }}
+                                className="px-3 h-8 rounded-lg text-[10px] font-black uppercase tracking-widest text-gray-500 hover:text-gray-700"
+                              >
+                                Cancelar
+                              </button>
+                              <button
+                                onClick={applyItemReplication}
+                                className="px-3 h-8 rounded-lg bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700"
+                              >
+                                Aplicar
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             </div>
@@ -461,7 +1013,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                        <input 
                          value={editingItem.item.name}
                          onChange={(e) => setEditingItem({...editingItem, item: { ...editingItem.item, name: e.target.value }})}
-                         className="w-full text-xl font-black text-gray-800 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl px-6 py-4 outline-none transition-all"
+                         className="w-full text-xl font-black text-gray-800 text-center bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl px-6 py-4 outline-none transition-all"
                          placeholder="Ex: Frango grelhado com arroz integral"
                        />
                     </div>
@@ -476,82 +1028,210 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                     </div>
                  </div>
 
+                 <div className="space-y-2">
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Plano vinculado</label>
+                      <select
+                        value={editingItem.item.planId || ''}
+                        onChange={(e) => {
+                          const nextPlanId = e.target.value;
+                          const nextPlan = plansCatalog.find((plan) => plan.id === nextPlanId);
+                          setEditingItem({
+                            ...editingItem,
+                            item: {
+                              ...editingItem.item,
+                              planId: nextPlanId || undefined,
+                              name: nextPlan ? nextPlan.name : editingItem.item.name,
+                            },
+                          });
+                        }}
+                        className="w-full h-12 rounded-2xl border border-gray-200 px-4 text-sm font-black text-gray-700 focus:outline-none focus:border-indigo-500 bg-white"
+                      >
+                        <option value="">Sem plano vinculado</option>
+                        {plansCatalog.map((plan) => (
+                          <option key={plan.id} value={plan.id}>
+                            {plan.name}
+                          </option>
+                        ))}
+                      </select>
+                      {selectedPlanName && (
+                        <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest ml-1">
+                          Plano atual: {selectedPlanName}
+                        </p>
+                      )}
+                 </div>
+
                  {/* COMPONENTES NUTRICIONAIS */}
                  <div className="space-y-6">
                     <div className="flex items-center justify-between border-b pb-4">
                        <h3 className="text-xs font-black text-gray-800 uppercase tracking-[2px] flex items-center gap-2">
                           <Utensils size={18} className="text-indigo-600" /> Componentes e Insumos
                        </h3>
-                       <button 
-                         onClick={addIngredientToItem}
-                         className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-5 py-2.5 rounded-xl hover:bg-indigo-600 hover:text-white transition-all uppercase tracking-widest border border-indigo-100 flex items-center gap-2"
-                       >
-                         <Plus size={16} /> Adicionar Insumo
-                       </button>
+                       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Monte os insumos por item</p>
                     </div>
 
                     <div className="space-y-4">
+                       <div className="bg-indigo-50/60 border border-indigo-100 rounded-2xl p-4">
+                         <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                           <div className="md:col-span-7 relative">
+                             <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest ml-1">Nome do item</label>
+                             <input
+                               value={quickIngredientQuery}
+                               onFocus={() => setIsQuickIngredientListOpen(true)}
+                               onBlur={() => {
+                                 setTimeout(() => setIsQuickIngredientListOpen(false), 120);
+                               }}
+                               onChange={(e) => {
+                                 setQuickIngredientQuery(e.target.value);
+                                 setIsQuickIngredientListOpen(true);
+                               }}
+                               onKeyDown={(e) => {
+                                 if (e.key === 'Enter') {
+                                   e.preventDefault();
+                                   if (quickIngredientSuggestions.length > 0) {
+                                     addIngredientFromQuickForm(quickIngredientSuggestions[0]);
+                                   } else {
+                                     addIngredientFromQuickForm();
+                                   }
+                                 }
+                               }}
+                               className="mt-1 w-full bg-white border-2 border-transparent focus:border-indigo-400 rounded-xl px-4 py-2.5 text-sm font-bold text-gray-700 outline-none"
+                               placeholder="Digite para buscar na base nutricional..."
+                             />
+                             {isQuickIngredientListOpen && (
+                               <div className="absolute z-[710] left-0 right-0 mt-1 bg-white border border-indigo-100 rounded-xl shadow-xl max-h-52 overflow-y-auto">
+                                 {isLoadingQuickIngredientSuggestions && (
+                                   <div className="px-3 py-2 text-[11px] font-semibold text-gray-500">
+                                     Buscando insumos...
+                                   </div>
+                                 )}
+                                 {!isLoadingQuickIngredientSuggestions && quickIngredientSuggestions.length === 0 && quickIngredientQuery.trim() && (
+                                   <div className="px-3 py-2 text-[11px] font-semibold text-gray-500">
+                                     Nenhum insumo encontrado.
+                                   </div>
+                                 )}
+                                 {!isLoadingQuickIngredientSuggestions && quickIngredientSuggestions.map((item) => (
+                                   <button
+                                     type="button"
+                                     key={item.id}
+                                     onMouseDown={(e) => e.preventDefault()}
+                                     onClick={() => addIngredientFromQuickForm(item)}
+                                     className="w-full text-left px-3 py-2 border-b last:border-b-0 hover:bg-indigo-50"
+                                   >
+                                     <p className="text-xs font-black text-gray-800 uppercase">{item.name}</p>
+                                     <p className="text-[10px] font-semibold text-gray-500">{item.calories} kcal • {item.proteins}P • {item.carbs}C • {item.fats}G (base 100{item.unit})</p>
+                                   </button>
+                                 ))}
+                               </div>
+                             )}
+                           </div>
+                           <div className="md:col-span-2">
+                             <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest ml-1">Qtd/gramagem</label>
+                             <input
+                               type="number"
+                               min={1}
+                               value={quickIngredientWeight}
+                               onChange={(e) => setQuickIngredientWeight(e.target.value)}
+                               className="mt-1 w-full bg-white border-2 border-transparent focus:border-indigo-400 rounded-xl px-3 py-2.5 text-sm font-black text-gray-700 outline-none"
+                               placeholder="100"
+                             />
+                           </div>
+                           <div className="md:col-span-3 flex items-end">
+                             <button
+                               type="button"
+                               onClick={() => addIngredientFromQuickForm()}
+                               className="w-full text-[10px] font-black text-indigo-600 bg-white px-4 py-3 rounded-xl hover:bg-indigo-600 hover:text-white transition-all uppercase tracking-widest border border-indigo-200 flex items-center justify-center gap-2"
+                             >
+                               <Plus size={15} /> Adicionar à Lista
+                             </button>
+                           </div>
+                         </div>
+                       </div>
+
                        {editingItem.item.ingredients.length === 0 ? (
                          <div className="text-center py-16 bg-gray-50 rounded-[40px] border-2 border-dashed border-gray-200">
                             <Info size={40} className="mx-auto text-gray-300 mb-3" />
                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nenhum componente vinculado a esta opção</p>
                          </div>
                        ) : (
-                         editingItem.item.ingredients.map((ing) => (
-                           <div key={ing.id} className="bg-white p-6 rounded-[32px] border-2 border-gray-100 shadow-sm animate-in fade-in slide-in-from-right-2 group">
-                              <div className="flex items-center gap-4 mb-4 relative">
-                                 <div className="text-gray-300 group-hover:text-indigo-400 cursor-grab active:cursor-grabbing transition-colors"><GripVertical size={20} /></div>
-                                 <div className="flex-1 relative">
-                                    <div className="relative">
-                                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" size={16} />
-                                      <input 
-                                        value={ing.name}
-                                        onFocus={() => setSearchIngredientId(ing.id)}
-                                        onKeyDown={(e) => commitIngredientOnEnter(ing.id, e)}
-                                        onChange={(e) => updateIngredient(ing.id, 'name', e.target.value)}
-                                        className="w-full bg-gray-50 border-2 border-transparent rounded-2xl pl-10 pr-4 py-3 text-sm font-black text-gray-700 outline-none focus:border-indigo-400 transition-all focus:bg-white"
-                                        placeholder="Pesquisar insumo nutricional..."
-                                      />
-                                    </div>
-                                    
-                                    {searchIngredientId === ing.id && ing.name.length > 1 && (
-                                       <div className="absolute top-full left-0 w-full bg-white mt-2 border border-indigo-100 rounded-[24px] shadow-2xl z-[700] overflow-hidden max-h-60 overflow-y-auto animate-in zoom-in-95">
-                                          {ingredientsCatalog.filter(mi => mi.name.toLowerCase().includes(ing.name.toLowerCase())).map(mockIng => (
-                                             <button 
-                                                key={mockIng.id}
-                                                type="button"
-                                                onClick={() => autofillIngredient(ing.id, mockIng)}
-                                                className="w-full flex items-center justify-between p-4 hover:bg-indigo-50 border-b last:border-0 text-left transition-colors group/item"
-                                             >
-                                                <div className="flex items-center gap-3">
-                                                   <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600 group-hover/item:bg-indigo-600 group-hover/item:text-white transition-colors"><CheckCircle2 size={14}/></div>
-                                                   <div>
-                                                      <p className="text-xs font-black text-gray-800 uppercase">{mockIng.name}</p>
-                                                      <p className="text-[8px] text-gray-400 font-bold uppercase tracking-tighter">Referência base 100{mockIng.unit}</p>
-                                                   </div>
-                                                </div>
-                                                <span className="text-[10px] font-black text-indigo-600">{mockIng.calories} kcal</span>
-                                             </button>
-                                          ))}
-                                          {ingredientsCatalog.filter(mi => mi.name.toLowerCase().includes(ing.name.toLowerCase())).length === 0 && (
-                                            <div className="p-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                              Nenhum insumo encontrado
-                                            </div>
-                                          )}
-                                       </div>
-                                    )}
+                         <div className="space-y-2">
+                           {editingItem.item.ingredients.map((ing) => (
+                             <div key={ing.id} className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm">
+                               <div className="flex items-center justify-between gap-3">
+                                 <div className="min-w-0">
+                                   <p className="text-sm font-black text-gray-800 truncate">{ing.name}</p>
+                                   <p className="text-[11px] text-gray-500 font-semibold mt-0.5">
+                                     {Number(ing.calories || 0).toFixed(1)} kcal • P {Number(ing.proteins || 0).toFixed(1)}g • C {Number(ing.carbs || 0).toFixed(1)}g • G {Number(ing.fats || 0).toFixed(1)}g
+                                   </p>
                                  </div>
-                                 <button onClick={() => removeIngredient(ing.id)} className="p-3 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all"><Trash2 size={20} /></button>
-                              </div>
-
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                 <NutrientInput icon={<Flame size={12}/>} label="Calorias" value={ing.calories} onChange={(v: any) => updateIngredient(ing.id, 'calories', v)} unit="kcal" color="amber" />
-                                 <NutrientInput icon={<Zap size={12}/>} label="Proteínas" value={ing.proteins} onChange={(v: any) => updateIngredient(ing.id, 'proteins', v)} unit="g" color="blue" />
-                                 <NutrientInput icon={<Droplets size={12}/>} label="Carboidratos" value={ing.carbs} onChange={(v: any) => updateIngredient(ing.id, 'carbs', v)} unit="g" color="indigo" />
-                                 <NutrientInput icon={<Apple size={12}/>} label="Gorduras" value={ing.fats} onChange={(v: any) => updateIngredient(ing.id, 'fats', v)} unit="g" color="rose" />
-                              </div>
-                           </div>
-                         ))
+                                 <div className="shrink-0 flex items-center gap-2">
+                                   <button
+                                     onClick={() => toggleIngredientReplicatePicker(ing.id)}
+                                     className="h-8 px-3 bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-100 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5"
+                                     title="Repetir item em outros dias"
+                                   >
+                                     <CalendarDays size={13} /> Repetir
+                                   </button>
+                                   <button
+                                     onClick={() => removeIngredient(ing.id)}
+                                     className="p-2.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                                     title="Remover item"
+                                   >
+                                     <Trash2 size={18} />
+                                   </button>
+                                 </div>
+                               </div>
+                               {ingredientReplicateTargetId === ing.id && (
+                                 <div className="mt-3 p-3 rounded-xl border border-indigo-100 bg-indigo-50/50">
+                                   <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">
+                                     Repetir este item em:
+                                   </p>
+                                   <div className="grid grid-cols-3 gap-2">
+                                     {DAYS_OF_WEEK.map((dayKey) => {
+                                       const isCurrentDay = dayKey === editingDayLabel;
+                                       const checked = ingredientReplicateDays.includes(dayKey);
+                                       return (
+                                         <label
+                                           key={dayKey}
+                                           className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2 py-1.5 rounded-lg ${isCurrentDay ? 'bg-indigo-100 text-indigo-600' : 'bg-white text-gray-600 border border-gray-200 cursor-pointer'}`}
+                                         >
+                                           <input
+                                             type="checkbox"
+                                             checked={checked}
+                                             disabled={isCurrentDay}
+                                             onChange={() => {
+                                               setIngredientReplicateDays((prev) => {
+                                                 if (checked) return prev.filter((v) => v !== dayKey);
+                                                 return [...prev, dayKey];
+                                               });
+                                             }}
+                                           />
+                                           {SHORT_DAY_LABEL[dayKey]}
+                                         </label>
+                                       );
+                                     })}
+                                   </div>
+                                   <div className="mt-3 flex justify-end gap-2">
+                                     <button
+                                       onClick={() => {
+                                         setIngredientReplicateTargetId(null);
+                                         setIngredientReplicateDays([]);
+                                       }}
+                                       className="px-3 h-8 rounded-lg text-[10px] font-black uppercase tracking-widest text-gray-500 hover:text-gray-700"
+                                     >
+                                       Cancelar
+                                     </button>
+                                     <button
+                                       onClick={applyIngredientReplication}
+                                       className="px-3 h-8 rounded-lg bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700"
+                                     >
+                                       Aplicar
+                                     </button>
+                                   </div>
+                                 </div>
+                               )}
+                             </div>
+                           ))}
+                         </div>
                        )}
                     </div>
                  </div>
@@ -578,7 +1258,6 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                     </p>
                     <p className="text-[8px] font-bold text-gray-400 uppercase mt-1 leading-relaxed">
                        {!editingItem?.item.name?.trim() ? '• Informe um título. ' : ''}
-                       {!editingItem?.item.description?.trim() ? '• Informe uma descrição. ' : ''}
                        {editingItem?.item.ingredients.length === 0 ? '• Adicione pelo menos 1 componente.' : ''}
                     </p>
                  </div>
@@ -602,32 +1281,6 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       )}
       </>
       )}
-    </div>
-  );
-};
-
-const NutrientInput = ({ icon, label, value, onChange, unit, color }: any) => {
-  const colorMap: any = {
-    amber: 'text-amber-600 bg-amber-50 focus-within:ring-2 focus-within:ring-amber-200 focus-within:border-amber-400 border-amber-100/50',
-    blue: 'text-blue-600 bg-blue-50 focus-within:ring-2 focus-within:ring-blue-200 focus-within:border-blue-400 border-blue-100/50',
-    indigo: 'text-indigo-600 bg-indigo-50 focus-within:ring-2 focus-within:ring-indigo-200 focus-within:border-indigo-400 border-indigo-100/50',
-    rose: 'text-rose-600 bg-rose-50 focus-within:ring-2 focus-within:ring-rose-200 focus-within:border-rose-400 border-rose-100/50',
-  };
-  return (
-    <div className={`p-3 rounded-2xl border-2 transition-all flex flex-col shadow-sm ${colorMap[color]}`}>
-       <div className="flex items-center gap-1 mb-1 opacity-70">
-          {icon} <span className="text-[7px] font-black uppercase tracking-tighter">{label}</span>
-       </div>
-       <div className="flex items-center gap-1">
-          <input 
-            type="number"
-            value={value || ''}
-            onChange={(e) => onChange(e.target.value)}
-            className="w-full bg-transparent text-sm font-black outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-            placeholder="0"
-          />
-          <span className="text-[8px] font-black opacity-40 uppercase">{unit}</span>
-       </div>
     </div>
   );
 };

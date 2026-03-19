@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   TrendingUp, Users, AlertTriangle, ArrowUpRight, ArrowDownRight, 
@@ -7,12 +7,13 @@ import {
   // Added missing FileBarChart import
   ChefHat, Scale, Coffee, UtensilsCrossed, FileBarChart, Trash2, RefreshCw
 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Cell, PieChart, Pie } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Cell, PieChart, Pie, Area } from 'recharts';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Role, User, Enterprise, Product } from '../types';
 import ApiService from '../services/api';
 import { resolveUserAvatar } from '../utils/avatar';
+import { useTheme } from '../components/ThemeProvider';
 
 interface DashboardProps {
   currentUser: User;
@@ -76,6 +77,7 @@ const toCountDelta = (current: number, previous: number) => {
 
 const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise }) => {
   const navigate = useNavigate();
+  const { isDark } = useTheme();
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [isResetting, setIsResetting] = useState(false);
@@ -98,6 +100,12 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
     salesByCategory: [],
   });
   const [isLoadingDashboardMetrics, setIsLoadingDashboardMetrics] = useState(false);
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
+  const [chartContainerSize, setChartContainerSize] = useState({ width: 0, height: 0 });
+  const chartGridColor = isDark ? '#334155' : '#f1f5f9';
+  const chartTextColor = isDark ? '#cbd5e1' : '#64748b';
+  const chartTooltipBg = isDark ? '#0f172a' : '#ffffff';
+  const chartTooltipBorder = isDark ? '#334155' : '#e2e8f0';
 
   // Buscar estatísticas do sistema para SUPERADMIN
   useEffect(() => {
@@ -114,6 +122,29 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
       loadDashboardMetrics();
     }
   }, [activeEnterprise, currentUser.role]);
+
+  useEffect(() => {
+    const node = chartContainerRef.current;
+    if (!node) return;
+
+    const updateSize = () => {
+      const rect = node.getBoundingClientRect();
+      const width = Math.max(0, Math.floor(rect.width));
+      const height = Math.max(0, Math.floor(rect.height));
+      setChartContainerSize({ width, height });
+    };
+
+    updateSize();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => updateSize());
+      observer.observe(node);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, []);
 
   const loadSystemStats = async () => {
     try {
@@ -441,6 +472,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
   const isSuperAdmin = currentUser.role === Role.SUPERADMIN;
   const isOwner = currentUser.role === Role.OWNER;
   const isRestaurant = activeEnterprise?.type === 'RESTAURANTE';
+  const hasHourlyMovement = (dashboardMetrics.todayHourly || []).some((point) => Number(point?.sales || 0) > 0);
 
   // Guard clause: se não houver enterprise ativa E não for SUPERADMIN, mostrar mensagem
   if (!activeEnterprise && !isSuperAdmin) {
@@ -842,7 +874,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
   }
 
   return (
-    <div className="dash-shell">
+    <div className="dash-shell dashboard-shell">
       <div className="dash-header">
         <div className="dash-title-wrap">
           <img
@@ -867,6 +899,8 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
           change={toPercentDelta(dashboardMetrics.salesToday, dashboardMetrics.salesYesterday)}
           isPositive={dashboardMetrics.salesToday >= dashboardMetrics.salesYesterday}
           icon={<TrendingUp className="text-indigo-600" />}
+          monoValue
+          loading={isLoadingDashboardMetrics}
           onClick={() => navigate('/unit-sales')}
           cta="Abrir Transações"
         />
@@ -876,6 +910,8 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
           change={toPercentDelta(dashboardMetrics.creditsToday, dashboardMetrics.creditsYesterday)}
           isPositive={dashboardMetrics.creditsToday >= dashboardMetrics.creditsYesterday}
           icon={<Wallet className="text-emerald-600" />}
+          monoValue
+          loading={isLoadingDashboardMetrics}
           onClick={() => navigate('/financial')}
           cta="Abrir Financeiro"
         />
@@ -885,6 +921,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
           change={toCountDelta(dashboardMetrics.uniqueClientsToday, dashboardMetrics.uniqueClientsYesterday)}
           isPositive={dashboardMetrics.uniqueClientsToday >= dashboardMetrics.uniqueClientsYesterday}
           icon={<Users className="text-blue-600" />}
+          loading={isLoadingDashboardMetrics}
           onClick={() => navigate('/clients')}
           cta="Abrir Clientes"
         />
@@ -893,8 +930,9 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
           value={isLoadingDashboardMetrics ? '...' : `${dashboardMetrics.criticalStockCount} itens`}
           change={dashboardMetrics.criticalStockCount > 0 ? 'Urgente' : 'Normal'}
           isPositive={dashboardMetrics.criticalStockCount === 0}
-          icon={<AlertTriangle className="text-amber-600" />}
+          icon={<AlertTriangle className={`text-amber-600 ${dashboardMetrics.criticalStockCount > 5 ? 'animate-pulse' : ''}`} />}
           isWarning={dashboardMetrics.criticalStockCount > 0}
+          loading={isLoadingDashboardMetrics}
           onClick={() => navigate('/products')}
           cta="Abrir Produtos"
         />
@@ -907,6 +945,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
             change="Dias programados"
             isPositive
             icon={<Calendar className="text-teal-600" />}
+            loading={isLoadingDashboardMetrics}
             onClick={() => navigate('/daily-delivery')}
             cta="Abrir Entregas"
             renderExtra={
@@ -981,6 +1020,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
             change="Saldo de plano > 0"
             isPositive
             icon={<Users className="text-purple-600" />}
+            loading={isLoadingDashboardMetrics}
             onClick={() => navigate('/clients')}
             cta="Ver Alunos"
             renderExtra={
@@ -1042,15 +1082,15 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
         </div>
         <div className="lg:col-span-1 dash-panel p-6 flex flex-col justify-between">
           <div className="space-y-4">
-            <h3 className="font-black text-gray-400 uppercase tracking-widest text-[10px]">Indicadores Operacionais</h3>
+            <h3 className="font-black text-gray-400 dark:text-slate-400 uppercase tracking-widest text-[10px]">Indicadores Operacionais</h3>
             <div className="space-y-3">
               <button
                 onClick={() => navigate('/unit-sales')}
-                className="w-full text-left p-4 bg-indigo-50 rounded-2xl border border-indigo-100 flex gap-3 items-center hover:bg-indigo-100 transition-all"
+                className="w-full text-left p-4 bg-indigo-50 dark:bg-indigo-500/10 rounded-2xl border border-indigo-100 dark:border-indigo-400/20 flex gap-3 items-center hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-all"
               >
                 <div className="bg-indigo-600 text-white p-2 rounded-xl shadow-lg"><TrendingUp size={16} /></div>
                 <div>
-                  <p className="text-[9px] font-black text-indigo-900 uppercase">Movimentações do Dia</p>
+                  <p className="text-[9px] font-black text-indigo-900 dark:text-indigo-200 uppercase">Movimentações do Dia</p>
                   <p className="text-base font-black text-indigo-600 leading-none mt-0.5">
                     R$ {dashboardMetrics.salesToday.toFixed(2)}
                   </p>
@@ -1058,11 +1098,11 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
               </button>
               <button
                 onClick={() => navigate('/inventory')}
-                className="w-full text-left p-4 bg-amber-50 rounded-2xl border border-amber-100 flex gap-3 items-center hover:bg-amber-100 transition-all"
+                className="w-full text-left p-4 bg-amber-50 dark:bg-amber-500/10 rounded-2xl border border-amber-100 dark:border-amber-400/20 flex gap-3 items-center hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-all"
               >
                 <div className="bg-amber-500 text-white p-2 rounded-xl shadow-lg"><AlertTriangle size={16} /></div>
                 <div>
-                  <p className="text-[9px] font-black text-amber-900 uppercase">Itens em Alerta de Estoque</p>
+                  <p className="text-[9px] font-black text-amber-900 dark:text-amber-200 uppercase">Itens em Alerta de Estoque</p>
                   <p className="text-base font-black text-amber-600 leading-none mt-0.5">
                     {dashboardMetrics.criticalStockCount} itens
                   </p>
@@ -1072,7 +1112,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
           </div>
           <button
             onClick={() => navigate('/reports')}
-            className="w-full py-3 bg-gray-900 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center justify-center gap-2 mt-6 shadow-lg"
+            className="w-full py-3 bg-gray-900 dark:bg-slate-700 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black dark:hover:bg-slate-600 transition-all flex items-center justify-center gap-2 mt-6 shadow-lg"
           >
             <FileBarChart size={14} /> Gerar Fechamento
           </button>
@@ -1083,7 +1123,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
         {/* Gráfico Principal */}
         <div className="lg:col-span-3 dash-panel p-8">
           <div className="flex items-center justify-between mb-8">
-            <h3 className="font-black text-gray-400 uppercase tracking-widest text-[10px]">
+            <h3 className="font-black text-gray-400 dark:text-slate-400 uppercase tracking-widest text-[10px]">
               {isRestaurant ? 'Mix de Vendas por Categoria (Hoje)' : isOwner ? 'Vendas por Hora (Unidade Selecionada)' : 'Performance Operacional por Hora'}
             </h3>
             {isRestaurant && (
@@ -1095,28 +1135,58 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
             )}
           </div>
           
-          <div className="h-72 min-h-[288px] min-w-0">
-            <ResponsiveContainer width="100%" height="100%">
-              {isRestaurant ? (
-                <BarChart data={dashboardMetrics.salesByCategory} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                  <XAxis type="number" hide />
-                  <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} width={120} tick={{fontSize: 10, fontWeight: 'bold', fill: '#64748b'}} />
-                  <Tooltip cursor={{fill: '#f8fafc'}} />
-                  <Bar dataKey="value" radius={[0, 10, 10, 0]}>
-                    {dashboardMetrics.salesByCategory.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
-                  </Bar>
-                </BarChart>
+          <div ref={chartContainerRef} className="h-72 min-h-[288px] min-w-0">
+            {chartContainerSize.width > 0 && chartContainerSize.height > 0 ? (
+              isLoadingDashboardMetrics ? (
+                <div className="h-full w-full rounded-2xl border border-slate-100 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-700/40 animate-pulse" />
+              ) : (!isRestaurant && !hasHourlyMovement) ? (
+                <div className="h-full w-full rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/60 flex items-center justify-center">
+                  <div className="text-center px-4">
+                    <Clock className="mx-auto text-slate-400 dark:text-slate-300 mb-2" size={22} />
+                    <p className="text-sm font-bold text-slate-500 dark:text-slate-200">Aguardando primeiras movimentações do dia...</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-400 mt-1">Assim que houver transações, o gráfico será atualizado.</p>
+                  </div>
+                </div>
               ) : (
-                <LineChart data={dashboardMetrics.todayHourly}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} />
-                  <YAxis axisLine={false} tickLine={false} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="sales" stroke="#4f46e5" strokeWidth={4} dot={{r: 6, fill: '#4f46e5'}} />
-                </LineChart>
-              )}
-            </ResponsiveContainer>
+                <ResponsiveContainer width="100%" height="100%">
+                  {isRestaurant ? (
+                    <BarChart data={dashboardMetrics.salesByCategory} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={chartGridColor} />
+                      <XAxis type="number" hide />
+                      <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} width={120} tick={{fontSize: 10, fontWeight: 'bold', fill: chartTextColor}} />
+                      <Tooltip
+                        cursor={{ fill: isDark ? '#1e293b' : '#f8fafc' }}
+                        contentStyle={{ backgroundColor: chartTooltipBg, borderColor: chartTooltipBorder, borderRadius: 12 }}
+                        labelStyle={{ color: chartTextColor, fontWeight: 700 }}
+                      />
+                      <Bar dataKey="value" radius={[0, 10, 10, 0]}>
+                        {dashboardMetrics.salesByCategory.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
+                      </Bar>
+                    </BarChart>
+                  ) : (
+                    <LineChart data={dashboardMetrics.todayHourly}>
+                      <defs>
+                        <linearGradient id="salesAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.28} />
+                          <stop offset="95%" stopColor="#4f46e5" stopOpacity={0.02} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
+                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: chartTextColor }} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fill: chartTextColor }} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: chartTooltipBg, borderColor: chartTooltipBorder, borderRadius: 12 }}
+                        labelStyle={{ color: chartTextColor, fontWeight: 700 }}
+                      />
+                      <Area type="monotone" dataKey="sales" stroke="none" fill="url(#salesAreaGradient)" />
+                      <Line type="monotone" dataKey="sales" stroke="#4f46e5" strokeWidth={4} dot={{r: 5, fill: '#4f46e5'}} />
+                    </LineChart>
+                  )}
+                </ResponsiveContainer>
+              )
+            ) : (
+              <div className="h-full w-full rounded-2xl border border-slate-100 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-700/40 animate-pulse" />
+            )}
           </div>
         </div>
 
@@ -1125,23 +1195,31 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
   );
 };
 
-const StatCard: React.FC<any> = ({ title, value, change, isPositive, icon, isWarning, onClick, cta, renderExtra, valueBesideIcon, hideMainValue }) => (
+const StatCard: React.FC<any> = ({ title, value, change, isPositive, icon, isWarning, onClick, cta, renderExtra, valueBesideIcon, hideMainValue, monoValue, loading }) => (
   <button
     type="button"
     onClick={onClick}
-    className={`w-full text-left bg-white p-6 rounded-[32px] border shadow-sm transition-all hover:shadow-xl group ${isWarning ? 'border-amber-200 bg-amber-50/10' : 'border-gray-100'} ${onClick ? 'cursor-pointer' : 'cursor-default'}`}
+    className={`w-full text-left p-6 rounded-[32px] border shadow-sm transition-all hover:shadow-xl group backdrop-blur-md ring-1 ring-inset ${isWarning ? 'border-amber-200 dark:border-amber-500/30 bg-gradient-to-br from-amber-50/80 via-white to-rose-50/40 dark:from-amber-500/10 dark:via-slate-800 dark:to-rose-500/5 ring-amber-100 dark:ring-amber-500/10' : 'border-slate-200 dark:border-slate-700 bg-gradient-to-br from-white via-white to-indigo-50/40 dark:from-slate-800 dark:via-slate-800 dark:to-indigo-500/10 ring-white/70 dark:ring-slate-600/40'} ${onClick ? 'cursor-pointer' : 'cursor-default'}`}
   >
     <div className="flex items-center justify-between mb-4">
       <div className="flex items-center gap-3">
-        <div className="p-3 bg-gray-50 rounded-2xl group-hover:bg-indigo-50 transition-colors shadow-inner">{icon}</div>
-        {valueBesideIcon ? <p className="text-2xl font-black text-gray-800 leading-none">{value}</p> : null}
+        <div className="p-3 bg-gray-50/90 rounded-2xl group-hover:bg-indigo-50 transition-colors shadow-inner">{icon}</div>
+        {valueBesideIcon ? (
+          loading
+            ? <div className="h-7 w-20 rounded-lg bg-slate-200 dark:bg-slate-700 animate-pulse" />
+            : <p className={`text-2xl font-black text-gray-800 dark:text-slate-100 leading-none ${monoValue ? 'font-mono' : ''}`}>{value}</p>
+        ) : null}
       </div>
       <div className={`flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full border ${isPositive ? 'bg-green-50 text-green-600 border-green-100' : 'bg-red-50 text-red-600 border-red-100'}`}>
         {change}
       </div>
     </div>
-    <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">{title}</p>
-    {!hideMainValue ? <p className="text-2xl font-black text-gray-800 mt-1">{value}</p> : null}
+    <p className="text-gray-400 dark:text-slate-400 text-[10px] font-black uppercase tracking-widest">{title}</p>
+    {!hideMainValue ? (
+      loading
+        ? <div className="mt-2 h-8 w-28 rounded-lg bg-slate-200 dark:bg-slate-700 animate-pulse" />
+        : <p className={`text-2xl font-black text-gray-800 dark:text-slate-100 mt-1 ${monoValue ? 'font-mono' : ''}`}>{value}</p>
+    ) : null}
     {renderExtra || null}
     {cta ? (
       <div className="mt-4 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-indigo-600">
@@ -1154,7 +1232,7 @@ const StatCard: React.FC<any> = ({ title, value, change, isPositive, icon, isWar
 const LegendItem = ({ color, label }: any) => (
   <div className="flex items-center gap-1.5">
     <div className="w-2 h-2 rounded-full" style={{backgroundColor: color}}></div>
-    <span className="text-[9px] font-black text-gray-400 uppercase">{label}</span>
+    <span className="text-[9px] font-black text-gray-400 dark:text-slate-400 uppercase">{label}</span>
   </div>
 );
 

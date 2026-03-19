@@ -4,9 +4,10 @@ import {
   Beef, Search, Plus, Trash2, Edit, Save, X, 
   Flame, Zap, Droplets, Apple, Info, ChevronRight,
   Filter, Scale, ArrowUpRight, CheckCircle2, ChevronDown,
-  AlertCircle, Tag, LayoutGrid, PlusCircle
+  AlertCircle, Tag, LayoutGrid, PlusCircle, Sparkles
 } from 'lucide-react';
 import { ApiService } from '../services/api';
+import notificationService from '../services/notificationService';
 import { Ingredient, IngredientUnit } from '../types';
 
 const NutritionalInfoPage: React.FC = () => {
@@ -15,6 +16,19 @@ const NutritionalInfoPage: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [editingIngredient, setEditingIngredient] = useState<Ingredient | null>(null);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [isAiConfigured, setIsAiConfigured] = useState(false);
+  const [aiSuggestedValues, setAiSuggestedValues] = useState(false);
+  const [aiConversation, setAiConversation] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>([]);
+  const [aiReplyInput, setAiReplyInput] = useState('');
+  const [aiPendingQuestion, setAiPendingQuestion] = useState(false);
+  const [aiPendingData, setAiPendingData] = useState<{
+    energia_kcal: number;
+    carboidratos_g: number;
+    proteinas_g: number;
+    gorduras_g: number;
+    fonte_referencia?: string;
+  } | null>(null);
 
   const [nutritionalCategories, setNutritionalCategories] = useState<string[]>(['Proteínas', 'Carboidratos', 'Vegetais', 'Bebidas', 'Lanches Prontos']);
 
@@ -26,12 +40,41 @@ const NutritionalInfoPage: React.FC = () => {
       try {
         const data = await ApiService.getIngredients();
         setIngredients(data);
+        setNutritionalCategories((prev) => {
+          const dynamic = Array.isArray(data)
+            ? data
+                .map((item: Ingredient) => String(item?.category || '').trim())
+                .filter(Boolean)
+            : [];
+          return Array.from(new Set([...prev, ...dynamic]));
+        });
       } catch (err) {
         console.error('Erro ao carregar ingredientes:', err);
         setIngredients([]);
       }
     };
     loadIngredients();
+  }, []);
+
+  useEffect(() => {
+    const loadAiConfigStatus = async () => {
+      try {
+        const payload = await ApiService.getWhatsAppAiConfig();
+        const cfg = payload?.config || {};
+        const provider = String(cfg?.provider || 'openai').toLowerCase();
+        const hasOpenAi = Boolean(String(cfg?.openAiToken || '').trim());
+        const hasGemini = Boolean(String(cfg?.geminiToken || '').trim());
+        const hasGroq = Boolean(String(cfg?.groqToken || '').trim());
+        const isConfigured =
+          (provider === 'openai' && hasOpenAi)
+          || (provider === 'gemini' && hasGemini)
+          || (provider === 'groq' && hasGroq);
+        setIsAiConfigured(isConfigured);
+      } catch {
+        setIsAiConfigured(false);
+      }
+    };
+    loadAiConfigStatus();
   }, []);
 
   const [formData, setFormData] = useState({
@@ -55,6 +98,11 @@ const NutritionalInfoPage: React.FC = () => {
   const handleOpenModal = (ing: Ingredient | null = null) => {
     if (ing) {
       setEditingIngredient(ing);
+      setAiSuggestedValues(false);
+      setAiConversation([]);
+      setAiReplyInput('');
+      setAiPendingQuestion(false);
+      setAiPendingData(null);
       setFormData({
         name: ing.name,
         category: ing.category,
@@ -66,6 +114,11 @@ const NutritionalInfoPage: React.FC = () => {
       });
     } else {
       setEditingIngredient(null);
+      setAiSuggestedValues(false);
+      setAiConversation([]);
+      setAiReplyInput('');
+      setAiPendingQuestion(false);
+      setAiPendingData(null);
       setFormData({ 
         name: '', 
         category: nutritionalCategories[0] || '', 
@@ -79,7 +132,7 @@ const NutritionalInfoPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     const payload: Ingredient = {
       id: editingIngredient?.id || Math.random().toString(36).substr(2, 9),
@@ -92,12 +145,93 @@ const NutritionalInfoPage: React.FC = () => {
       fats: Number(formData.fats)
     };
 
-    if (editingIngredient) {
-      setIngredients(prev => prev.map(i => i.id === editingIngredient.id ? payload : i));
-    } else {
-      setIngredients(prev => [payload, ...prev]);
+    try {
+      if (editingIngredient) {
+        const updated = await ApiService.updateIngredient(editingIngredient.id, payload);
+        setIngredients(prev => prev.map(i => i.id === editingIngredient.id ? updated : i));
+        notificationService.informativo('Item atualizado', 'Alterações salvas na base nutricional.');
+      } else {
+        const created = await ApiService.createIngredient(payload);
+        setIngredients(prev => [created, ...prev]);
+        notificationService.informativo('Item cadastrado', 'Novo insumo salvo na base nutricional.');
+      }
+      setNutritionalCategories((prev) => Array.from(new Set([...prev, String(formData.category || '').trim()].filter(Boolean))));
+      setIsModalOpen(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Falha ao salvar item na base nutricional.';
+      notificationService.alerta('Erro ao salvar', message);
     }
-    setIsModalOpen(false);
+  };
+
+  const handleConsultAi = async (options?: { userText?: string; isReply?: boolean }) => {
+    const foodName = String(formData.name || '').trim();
+    if (!foodName || isAiLoading) return;
+    const userText = String(options?.userText || '').trim();
+
+    setIsAiLoading(true);
+    try {
+      const nextConversation = [...aiConversation];
+      if (options?.isReply && userText) {
+        nextConversation.push({ role: 'user', text: userText });
+        setAiConversation(nextConversation);
+      }
+
+      const result = await ApiService.getAiNutritionalData(foodName, nextConversation);
+
+      if (String(result?.mode || '').toLowerCase() === 'question') {
+        const question = String(result?.question || 'Pode detalhar o estado/preparo do alimento?').trim();
+        setAiConversation((prev) => [...prev, { role: 'assistant', text: question }]);
+        setAiPendingQuestion(true);
+        setAiPendingData(null);
+        return;
+      }
+
+      const aiData = result?.data || {};
+      setAiPendingData({
+        energia_kcal: Number(aiData.energia_kcal || 0),
+        carboidratos_g: Number(aiData.carboidratos_g || 0),
+        proteinas_g: Number(aiData.proteinas_g || 0),
+        gorduras_g: Number(aiData.gorduras_g || 0),
+        fonte_referencia: String(aiData.fonte_referencia || '').trim() || 'TACO/USDA',
+      });
+      setAiPendingQuestion(false);
+      setAiConversation((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: `Encontrei os valores para 100g (${String(aiData.fonte_referencia || 'TACO/USDA')}). Clique em "Confirmar e Gerar Valores da IA".`,
+        },
+      ]);
+    } catch (err) {
+      const message = err instanceof Error
+        ? err.message
+        : 'Não foi possível preencher automaticamente os valores nutricionais.';
+      notificationService.alerta('Falha ao consultar IA', message);
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  const handleConfirmAiValues = () => {
+    if (!aiPendingData) return;
+    setFormData((prev) => ({
+      ...prev,
+      calories: Number(aiPendingData.energia_kcal ?? prev.calories ?? 0) || 0,
+      carbs: Number(aiPendingData.carboidratos_g ?? prev.carbs ?? 0) || 0,
+      proteins: Number(aiPendingData.proteinas_g ?? prev.proteins ?? 0) || 0,
+      fats: Number(aiPendingData.gorduras_g ?? prev.fats ?? 0) || 0,
+    }));
+    setAiSuggestedValues(true);
+    setAiPendingData(null);
+    notificationService.informativo('Valores confirmados', 'Campos nutricionais preenchidos com os dados da IA.');
+  };
+
+  const handleAiReplySubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const reply = String(aiReplyInput || '').trim();
+    if (!reply || isAiLoading) return;
+    setAiReplyInput('');
+    await handleConsultAi({ userText: reply, isReply: true });
   };
 
   const handleAddCategory = (name: string) => {
@@ -106,9 +240,16 @@ const NutritionalInfoPage: React.FC = () => {
     setIsCategoryModalOpen(false);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (window.confirm("Deseja remover este item da base?")) {
-      setIngredients(prev => prev.filter(i => i.id !== id));
+      try {
+        await ApiService.deleteIngredient(id);
+        setIngredients(prev => prev.filter(i => i.id !== id));
+        notificationService.informativo('Item removido', 'Insumo removido da base nutricional.');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Falha ao remover item da base nutricional.';
+        notificationService.alerta('Erro ao remover', message);
+      }
     }
   };
 
@@ -131,7 +272,7 @@ const NutritionalInfoPage: React.FC = () => {
   };
 
   return (
-    <div className="p-6 space-y-8 max-w-[1400px] mx-auto min-h-screen pb-20">
+    <div className="dash-shell nutrition-shell space-y-8 max-w-[1400px] min-h-screen">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="space-y-1">
           <h1 className="text-3xl font-black text-gray-800 tracking-tight flex items-center gap-3 leading-none uppercase">
@@ -273,6 +414,75 @@ const NutritionalInfoPage: React.FC = () => {
                     className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-black text-gray-800 text-lg shadow-inner transition-all"
                     placeholder="Ex: Peito de Frango Desfiado"
                   />
+                  {isAiConfigured && (
+                    <div className="mt-2 space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => handleConsultAi()}
+                        disabled={!String(formData.name || '').trim() || isAiLoading}
+                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                          !String(formData.name || '').trim() || isAiLoading
+                            ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+                            : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                        }`}
+                        title="Consultar IA"
+                      >
+                        <Sparkles size={14} className={isAiLoading ? 'animate-pulse' : ''} />
+                        {isAiLoading ? 'Consultando IA...' : 'Consultar IA'}
+                      </button>
+                      {(aiConversation.length > 0 || aiPendingQuestion || aiPendingData) && (
+                        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-3 space-y-3">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-indigo-700">
+                            Conversa com Assistente
+                          </p>
+                          <div className="max-h-32 overflow-y-auto space-y-2 pr-1">
+                            {aiConversation.map((msg, idx) => (
+                              <div
+                                key={`${msg.role}-${idx}`}
+                                className={`px-3 py-2 rounded-xl text-[11px] font-semibold leading-relaxed ${
+                                  msg.role === 'assistant'
+                                    ? 'bg-white border border-indigo-100 text-gray-700'
+                                    : 'bg-indigo-600 text-white ml-8'
+                                }`}
+                              >
+                                {msg.text}
+                              </div>
+                            ))}
+                          </div>
+                          {aiPendingQuestion && (
+                            <form onSubmit={handleAiReplySubmit} className="flex items-center gap-2">
+                              <input
+                                value={aiReplyInput}
+                                onChange={(event) => setAiReplyInput(event.target.value)}
+                                placeholder="Responder ao assistente..."
+                                className="flex-1 px-3 py-2 rounded-xl border border-indigo-200 bg-white text-[11px] font-semibold outline-none focus:border-indigo-400"
+                              />
+                              <button
+                                type="submit"
+                                disabled={!String(aiReplyInput || '').trim() || isAiLoading}
+                                className={`h-9 px-3 rounded-xl text-[10px] font-black uppercase tracking-widest ${
+                                  !String(aiReplyInput || '').trim() || isAiLoading
+                                    ? 'bg-gray-200 text-gray-400'
+                                    : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                                }`}
+                              >
+                                Enviar
+                              </button>
+                            </form>
+                          )}
+                          {aiPendingData && (
+                            <button
+                              type="button"
+                              onClick={handleConfirmAiValues}
+                              className="w-full h-10 rounded-xl bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700"
+                            >
+                              Confirmar e Gerar Valores da IA
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -315,11 +525,17 @@ const NutritionalInfoPage: React.FC = () => {
                   </h4>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <NutrientInput icon={<Flame size={18}/>} label="Calorias" value={formData.calories} unit="kcal" color="amber" onChange={v => setFormData({...formData, calories: v})} />
-                  <NutrientInput icon={<Zap size={18}/>} label="Proteínas" value={formData.proteins} unit="g" color="blue" onChange={v => setFormData({...formData, proteins: v})} />
-                  <NutrientInput icon={<Droplets size={18}/>} label="Carboidratos" value={formData.carbs} unit="g" color="indigo" onChange={v => setFormData({...formData, carbs: v})} />
-                  <NutrientInput icon={<Apple size={18}/>} label="Gorduras" value={formData.fats} unit="g" color="rose" onChange={v => setFormData({...formData, fats: v})} />
+                  <NutrientInput icon={<Flame size={18}/>} label="Calorias" value={formData.calories} unit="kcal" color="amber" onChange={v => { setAiSuggestedValues(false); setFormData({...formData, calories: v}); }} />
+                  <NutrientInput icon={<Zap size={18}/>} label="Proteínas" value={formData.proteins} unit="g" color="blue" onChange={v => { setAiSuggestedValues(false); setFormData({...formData, proteins: v}); }} />
+                  <NutrientInput icon={<Droplets size={18}/>} label="Carboidratos" value={formData.carbs} unit="g" color="indigo" onChange={v => { setAiSuggestedValues(false); setFormData({...formData, carbs: v}); }} />
+                  <NutrientInput icon={<Apple size={18}/>} label="Gorduras" value={formData.fats} unit="g" color="rose" onChange={v => { setAiSuggestedValues(false); setFormData({...formData, fats: v}); }} />
                 </div>
+                {aiSuggestedValues && (
+                  <div className="mt-3 px-4 py-2 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2">
+                    <AlertCircle size={14} />
+                    Valores sugeridos por IA - Revise antes de salvar
+                  </div>
+                )}
               </div>
 
               <div className="bg-amber-50 p-6 rounded-[32px] border-2 border-amber-100 flex gap-4">
@@ -328,6 +544,9 @@ const NutritionalInfoPage: React.FC = () => {
                   Os valores inseridos são a referência nutricional para <span className="underline font-black">{getUnitLabel(formData.unit)}</span> deste insumo. O sistema calculará o total do prato automaticamente.
                 </p>
               </div>
+              <p className="text-[10px] font-semibold text-gray-500 leading-relaxed">
+                Os dados preenchidos por IA são estimativas para 100g e devem ser conferidos pelo responsável.
+              </p>
             </div>
 
             <div className="p-10 bg-gray-50 border-t flex gap-4 shrink-0 shadow-[0_-15px_45px_rgba(0,0,0,0.05)]">
