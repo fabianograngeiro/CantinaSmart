@@ -2032,8 +2032,8 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
   }, [selectedClient, availablePlans, posTransactions, cart]);
 
   return (
-    <div className="pos-shell flex flex-col lg:flex-row h-full gap-6 relative" onClick={initAudio}>
-      <div className="w-full lg:basis-[58%] lg:max-w-[58%] flex flex-col space-y-4 min-w-0">
+    <div className="pos-shell flex flex-col lg:flex-row h-full lg:h-[calc(100vh-112px)] gap-6 relative" onClick={initAudio}>
+      <div className="w-full lg:basis-[52%] lg:max-w-[52%] flex flex-col space-y-4 min-w-0">
         {/* Top Header POS */}
         <div className="bg-white p-4 rounded-xl shadow-sm border space-y-4 relative z-20">
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
@@ -2130,7 +2130,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
         </div>
 
         {/* Catalog Grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 overflow-y-auto pr-2 flex-1 max-h-[calc(100vh-380px)] lg:max-h-full pb-10 product-grid-scrollbar">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-1.5 overflow-y-auto pr-2 flex-1 max-h-[calc(100vh-380px)] lg:max-h-full pb-10 product-grid-scrollbar">
           {String(activeCategory || '').trim().toUpperCase() === 'PLANOS' ? (
             filteredPlans.length === 0 ? (
               <div className="col-span-full bg-white border rounded-xl p-8 text-center">
@@ -2144,13 +2144,13 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                 <button
                   key={plan.id}
                   onClick={() => addPlanConsumptionToCart(plan)}
-                  className="bg-white p-2 rounded-xl border hover:border-indigo-400 hover:shadow-md transition-all text-left group"
+                  className="bg-white p-1.5 rounded-xl border hover:border-indigo-400 hover:shadow-md transition-all text-left group"
                 >
-                  <div className="relative aspect-[16/11] mb-1.5 overflow-hidden rounded-lg bg-indigo-50 flex items-center justify-center">
-                    <Layers size={26} className="text-indigo-300 group-hover:text-indigo-500 transition-colors" />
+                  <div className="relative aspect-[17/10] mb-1 overflow-hidden rounded-lg bg-indigo-50 flex items-center justify-center">
+                    <Layers size={22} className="text-indigo-300 group-hover:text-indigo-500 transition-colors" />
                   </div>
-                  <p className="text-[11px] font-semibold text-gray-800 line-clamp-2 h-8">{plan.name}</p>
-                  <div className="flex items-center justify-between mt-1.5">
+                  <p className="text-[10px] font-semibold text-gray-800 line-clamp-2 h-7">{plan.name}</p>
+                  <div className="flex items-center justify-between mt-1">
                     <span className="text-[9px] text-indigo-600 font-black uppercase">Consumo un.</span>
                     <span className={`text-[9px] font-black ${remainingUnits > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                       Saldo: {remainingUnits} un • R$ {formatCurrencyBRL(remainingValue)}
@@ -2164,13 +2164,13 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nenhum produto encontrado no catálogo</p>
             </div>
           ) : filteredProducts.map(product => (
-            <button key={product.id} onClick={() => addToCart(product)} className="bg-white p-2 rounded-xl border hover:border-indigo-400 hover:shadow-md transition-all text-left group">
-              <div className="relative aspect-[16/11] mb-1.5 overflow-hidden rounded-lg bg-gray-100">
+            <button key={product.id} onClick={() => addToCart(product)} className="bg-white p-1.5 rounded-xl border hover:border-indigo-400 hover:shadow-md transition-all text-left group">
+              <div className="relative aspect-[17/10] mb-1 overflow-hidden rounded-lg bg-gray-100">
                 <img src={toAbsoluteProductImageUrl(product.image, product.name)} alt={product.name} className="object-cover w-full h-full group-hover:scale-110 transition-transform" />
               </div>
-              <p className="text-[11px] font-semibold text-gray-800 line-clamp-2 h-8">{product.name}</p>
-              <div className="flex items-center justify-between mt-1.5 font-bold">
-                <span className="text-indigo-600 text-[13px]">
+              <p className="text-[10px] font-semibold text-gray-800 line-clamp-2 h-7">{product.name}</p>
+              <div className="flex items-center justify-between mt-1 font-bold">
+                <span className="text-indigo-600 text-[12px]">
                   {(product.unit || 'UN') === 'KG'
                     ? `R$ ${product.price.toFixed(2)}`
                     : `R$ ${product.price.toFixed(2)}`}
@@ -2185,15 +2185,15 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
       </div>
 
       {/* Sidebar Checkout Panel */}
-      <div className="w-full lg:basis-[42%] lg:max-w-[42%] grid grid-cols-1 lg:grid-cols-2 gap-4 z-10 min-w-0 items-stretch lg:h-[calc(100vh-190px)]">
+      <div className="w-full lg:basis-[48%] lg:max-w-[48%] grid grid-cols-1 lg:grid-cols-[0.7fr_1.3fr] gap-2 z-10 min-w-0 items-stretch lg:h-full">
         {/* Identification Card */}
-        <div className={`bg-white p-4 rounded-2xl shadow-sm border-2 transition-all h-full min-h-0 flex flex-col ${selectedClient?.isBlocked ? 'border-red-500 animate-pulse' : 'border-indigo-50'}`}>
-          <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Sessão de Atendimento</h3>
+        <div className={`bg-white p-3 rounded-2xl shadow-sm border-2 transition-all h-full min-h-0 flex flex-col ${selectedClient?.isBlocked ? 'border-red-500 animate-pulse' : 'border-indigo-50'}`}>
+          <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Sessão de Atendimento</h3>
           <div className="flex-1 min-h-0 overflow-y-auto pr-1">
           
           {isFinalConsumer ? (
-            <div className="space-y-4 animate-in zoom-in-95 duration-200">
-               <div className="flex items-center gap-4">
+            <div className="space-y-2.5 animate-in zoom-in-95 duration-200">
+               <div className="flex items-center gap-3">
                   <div className="w-20 h-20 rounded-2xl bg-gray-100 flex items-center justify-center text-gray-300 border-2 border-dashed border-gray-200">
                      <UserMinus size={32} />
                   </div>
@@ -2229,7 +2229,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                      <p className="font-black text-gray-800 text-lg leading-tight truncate">{selectedClient.name}</p>
                   </div>
                </div>
-               <div className="grid grid-cols-2 gap-2">
+               <div className="grid grid-cols-1 gap-1.5">
                  <div className={`p-3 rounded-xl border-b-4 ${
                    selectedClient.type === 'COLABORADOR' 
                      ? 'bg-amber-50 border-amber-200 text-amber-700' 
@@ -2246,7 +2246,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                        : selectedClient.balance.toFixed(2)}
                    </p>
                  </div>
-                 <div className="p-2 rounded-xl border bg-gray-50 border-gray-100 flex flex-col gap-2">
+                 <div className="p-2 rounded-xl border bg-gray-50 border-gray-100 flex flex-col gap-1.5">
                    <button
                      onClick={handleCreditStudent}
                      disabled={selectedClient.type === 'COLABORADOR'}
@@ -2264,9 +2264,9 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                  </div>
                </div>
                {selectedClient.type !== 'COLABORADOR' && (
-                 <div className="space-y-2">
+                 <div className="space-y-1.5">
                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Saldos do Cliente</p>
-                   <div className="grid grid-cols-2 gap-2">
+                   <div className="grid grid-cols-1 gap-1.5">
                      <div className={`p-3 rounded-xl border ${effectiveCantinaBalance < 0 ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}>
                        <p className={`text-[9px] font-black uppercase tracking-widest ${effectiveCantinaBalance < 0 ? 'text-red-600' : 'text-emerald-600'}`}>Cantina</p>
                        <div className="mt-1 flex items-center justify-between gap-2">
@@ -2338,12 +2338,12 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
 
         {/* Cart Panel */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden h-full min-h-0">
-          <div className="p-4 border-b flex items-center justify-between bg-gray-50">
+          <div className="p-3 border-b flex items-center justify-between bg-gray-50">
             <h3 className="font-bold text-gray-700 flex items-center gap-2 text-sm"><ShoppingCart size={16} /> Carrinho</h3>
             <span className="bg-indigo-600 text-white px-2 py-0.5 rounded-full text-[10px] font-black">{cart.length}</span>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 overflow-y-auto p-3">
             <div className="rounded-2xl border border-amber-200 bg-white overflow-hidden shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
               <div className="h-3" style={receiptZigZagEdgeStyle} />
 
@@ -2357,7 +2357,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                 </span>
               </div>
 
-              <div className="px-4 pb-3 space-y-0">
+              <div className="px-3 pb-2.5 space-y-0">
                 {cart.map((item, index) => {
                   const cartProduct = productsById.get(String(item.productId));
                   const thumbnailUrl = cartProduct
@@ -2368,7 +2368,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                   return (
                     <div
                       key={item.productId}
-                      className={`group animate-in slide-in-from-right-2 py-3 ${index < cart.length - 1 ? 'border-b border-dashed border-gray-300' : ''}`}
+                      className={`group animate-in slide-in-from-right-2 py-2.5 ${index < cart.length - 1 ? 'border-b border-dashed border-gray-300' : ''}`}
                     >
                       <div className="h-px w-full bg-gray-100 mb-2" />
                       <div className="flex items-center justify-between">
@@ -2384,7 +2384,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                           </div>
 
                           <div className="flex-1">
-                            <p className="text-[15px] font-black text-gray-800 leading-tight">{item.name}</p>
+                            <p className="text-[13px] font-black text-gray-800 leading-tight">{item.name}</p>
                             {item.serviceAction && (
                               <p className="text-[9px] font-black uppercase tracking-widest text-indigo-500 mt-0.5">
                                 {item.serviceAction === 'CREDIT_STUDENT_FREE' && 'Crédito Livre Cantina'}
@@ -2416,10 +2416,10 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                                 >
                                   +
                                 </button>
-                                <span className="text-sm font-black text-emerald-600 ml-1">R$ {item.price.toFixed(2)}</span>
+                                <span className="text-xs font-black text-emerald-600 ml-1">R$ {item.price.toFixed(2)}</span>
                               </div>
                             ) : (
-                              <p className="text-sm font-black mt-1">
+                              <p className="text-xs font-black mt-1">
                                 <span className="text-indigo-600">{item.quantity}x</span>
                                 <span className="text-gray-400 mx-1">•</span>
                                 <span className="text-emerald-600">R$ {item.price.toFixed(2)}</span>
@@ -2429,7 +2429,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                         </div>
 
                         <div className="flex items-center gap-4">
-                          <span className="text-lg font-black text-blue-700">R$ {(item.quantity * item.price).toFixed(2)}</span>
+                          <span className="text-base font-black text-blue-700">R$ {(item.quantity * item.price).toFixed(2)}</span>
                           <button onClick={() => removeFromCart(item.productId)} className="text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
                         </div>
                       </div>
@@ -2439,20 +2439,20 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                 
                 {/* Split Payments List */}
                 {payments.length > 0 && (
-                  <div className="pt-5 mt-3 border-t-2 border-gray-300 space-y-2.5">
-                    <p className="text-[12px] font-black text-gray-600 uppercase tracking-widest flex items-center gap-2">
+                  <div className="pt-3.5 mt-2 border-t-2 border-gray-300 space-y-2">
+                    <p className="text-[11px] font-black text-gray-600 uppercase tracking-widest flex items-center gap-2">
                       <Layers size={14} /> Pagamentos Parciais
                     </p>
                     {payments.map((p, idx) => (
-                      <div key={idx} className="flex items-center justify-between bg-gray-50 p-3 rounded-xl border border-gray-200">
+                      <div key={idx} className="flex items-center justify-between bg-gray-50 p-2.5 rounded-xl border border-gray-200">
                         <div className="flex items-center gap-2.5">
                           <span className={`p-1.5 rounded text-white ${p.method === 'SALDO' ? 'bg-indigo-600' : p.method === 'PIX' ? 'bg-emerald-500' : p.method === 'DINHEIRO' ? 'bg-amber-500' : 'bg-blue-600'}`}>
                             {p.method === 'SALDO' ? <Wallet size={12} /> : p.method === 'PIX' ? <Smartphone size={12} /> : p.method === 'DINHEIRO' ? <Banknote size={12} /> : <CardIcon size={12} />}
                           </span>
-                          <span className="text-[12px] font-black text-gray-700 tracking-wide">{p.method === 'SALDO' ? 'SALDO CANTINA' : p.method}</span>
+                          <span className="text-[11px] font-black text-gray-700 tracking-wide">{p.method === 'SALDO' ? 'SALDO CANTINA' : p.method}</span>
                         </div>
                         <div className="flex items-center gap-3.5">
-                          <span className="text-lg font-black text-indigo-700">R$ {p.amount.toFixed(2)}</span>
+                          <span className="text-base font-black text-indigo-700">R$ {p.amount.toFixed(2)}</span>
                           <button onClick={() => removePayment(idx)} className="text-gray-300 hover:text-red-500"><X size={13} /></button>
                         </div>
                       </div>
@@ -2466,13 +2466,13 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
           </div>
 
           {/* Payment Selection with Split Capability */}
-          <div className="p-4 border-t bg-gray-50 space-y-3">
+          <div className="p-3 border-t bg-gray-50 space-y-2.5">
              {remainingToPay > 0.01 && cart.length > 0 && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Selecionar Pagamento</p>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-3 gap-1.5">
                     <PaymentButton 
                       onClick={() => selectInlineSplitMethod('SALDO')} 
                       icon={<Wallet size={16} />} 
@@ -3078,7 +3078,7 @@ const PaymentButton = ({ onClick, icon, label, color, disabled, isSelected }: an
     <button 
       disabled={disabled}
       onClick={onClick} 
-      className={`w-full min-h-[62px] px-3 py-2.5 rounded-xl text-[13px] font-extrabold uppercase tracking-wide flex items-center justify-center gap-2.5 border-2 transition-all active:scale-95 ${
+      className={`w-full min-h-[50px] px-2 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wide flex items-center justify-center gap-1.5 border-2 transition-all active:scale-95 ${
         disabled
           ? 'bg-gray-100 text-gray-300 border-gray-100 cursor-not-allowed opacity-50'
           : isSelected
@@ -3086,8 +3086,8 @@ const PaymentButton = ({ onClick, icon, label, color, disabled, isSelected }: an
             : `bg-white ${colorMap[color]}`
       }`}
     >
-      <div className="shrink-0 flex items-center justify-center">{icon}</div>
-      <span className="leading-tight text-center font-extrabold">{label}</span>
+      <div className="shrink-0 flex items-center justify-center scale-90">{icon}</div>
+      <span className="leading-tight text-center font-black">{label}</span>
     </button>
   );
 };
