@@ -2033,7 +2033,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
 
   return (
     <div className="pos-shell flex flex-col lg:flex-row h-full gap-6 relative" onClick={initAudio}>
-      <div className="w-full lg:basis-[70%] lg:max-w-[70%] flex flex-col space-y-4 min-w-0">
+      <div className="w-full lg:basis-[58%] lg:max-w-[58%] flex flex-col space-y-4 min-w-0">
         {/* Top Header POS */}
         <div className="bg-white p-4 rounded-xl shadow-sm border space-y-4 relative z-20">
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
@@ -2130,7 +2130,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
         </div>
 
         {/* Catalog Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 overflow-y-auto pr-2 flex-1 max-h-[calc(100vh-380px)] lg:max-h-full pb-10">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 overflow-y-auto pr-2 flex-1 max-h-[calc(100vh-380px)] lg:max-h-full pb-10 product-grid-scrollbar">
           {String(activeCategory || '').trim().toUpperCase() === 'PLANOS' ? (
             filteredPlans.length === 0 ? (
               <div className="col-span-full bg-white border rounded-xl p-8 text-center">
@@ -2144,13 +2144,13 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                 <button
                   key={plan.id}
                   onClick={() => addPlanConsumptionToCart(plan)}
-                  className="bg-white p-2.5 rounded-xl border hover:border-indigo-400 hover:shadow-md transition-all text-left group"
+                  className="bg-white p-2 rounded-xl border hover:border-indigo-400 hover:shadow-md transition-all text-left group"
                 >
-                  <div className="relative aspect-[4/3] mb-2 overflow-hidden rounded-lg bg-indigo-50 flex items-center justify-center">
-                    <Layers size={30} className="text-indigo-300 group-hover:text-indigo-500 transition-colors" />
+                  <div className="relative aspect-[16/11] mb-1.5 overflow-hidden rounded-lg bg-indigo-50 flex items-center justify-center">
+                    <Layers size={26} className="text-indigo-300 group-hover:text-indigo-500 transition-colors" />
                   </div>
-                  <p className="text-xs font-semibold text-gray-800 line-clamp-2 h-9">{plan.name}</p>
-                  <div className="flex items-center justify-between mt-2">
+                  <p className="text-[11px] font-semibold text-gray-800 line-clamp-2 h-8">{plan.name}</p>
+                  <div className="flex items-center justify-between mt-1.5">
                     <span className="text-[9px] text-indigo-600 font-black uppercase">Consumo un.</span>
                     <span className={`text-[9px] font-black ${remainingUnits > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                       Saldo: {remainingUnits} un • R$ {formatCurrencyBRL(remainingValue)}
@@ -2164,13 +2164,13 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nenhum produto encontrado no catálogo</p>
             </div>
           ) : filteredProducts.map(product => (
-            <button key={product.id} onClick={() => addToCart(product)} className="bg-white p-2.5 rounded-xl border hover:border-indigo-400 hover:shadow-md transition-all text-left group">
-              <div className="relative aspect-[4/3] mb-2 overflow-hidden rounded-lg bg-gray-100">
+            <button key={product.id} onClick={() => addToCart(product)} className="bg-white p-2 rounded-xl border hover:border-indigo-400 hover:shadow-md transition-all text-left group">
+              <div className="relative aspect-[16/11] mb-1.5 overflow-hidden rounded-lg bg-gray-100">
                 <img src={toAbsoluteProductImageUrl(product.image, product.name)} alt={product.name} className="object-cover w-full h-full group-hover:scale-110 transition-transform" />
               </div>
-              <p className="text-xs font-semibold text-gray-800 line-clamp-2 h-9">{product.name}</p>
-              <div className="flex items-center justify-between mt-2 font-bold">
-                <span className="text-indigo-600 text-sm">
+              <p className="text-[11px] font-semibold text-gray-800 line-clamp-2 h-8">{product.name}</p>
+              <div className="flex items-center justify-between mt-1.5 font-bold">
+                <span className="text-indigo-600 text-[13px]">
                   {(product.unit || 'UN') === 'KG'
                     ? `R$ ${product.price.toFixed(2)}`
                     : `R$ ${product.price.toFixed(2)}`}
@@ -2185,10 +2185,11 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
       </div>
 
       {/* Sidebar Checkout Panel */}
-      <div className="w-full lg:basis-[30%] lg:max-w-[30%] flex flex-col space-y-4 z-10 min-w-0">
+      <div className="w-full lg:basis-[42%] lg:max-w-[42%] grid grid-cols-1 lg:grid-cols-2 gap-4 z-10 min-w-0 items-stretch lg:h-[calc(100vh-190px)]">
         {/* Identification Card */}
-        <div className={`bg-white p-4 rounded-2xl shadow-sm border-2 transition-all ${selectedClient?.isBlocked ? 'border-red-500 animate-pulse' : 'border-indigo-50'}`}>
+        <div className={`bg-white p-4 rounded-2xl shadow-sm border-2 transition-all h-full min-h-0 flex flex-col ${selectedClient?.isBlocked ? 'border-red-500 animate-pulse' : 'border-indigo-50'}`}>
           <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Sessão de Atendimento</h3>
+          <div className="flex-1 min-h-0 overflow-y-auto pr-1">
           
           {isFinalConsumer ? (
             <div className="space-y-4 animate-in zoom-in-95 duration-200">
@@ -2328,14 +2329,15 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                    <p className="text-xs text-amber-800 leading-tight">
                      Consumo será registrado como dívida a vencer conforme data de pagamento configurada.
                    </p>
-                 </div>
-               )}
+               </div>
+              )}
             </div>
           )}
+          </div>
         </div>
 
         {/* Cart Panel */}
-        <div className="bg-white flex-1 rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden min-h-[400px]">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden h-full min-h-0">
           <div className="p-4 border-b flex items-center justify-between bg-gray-50">
             <h3 className="font-bold text-gray-700 flex items-center gap-2 text-sm"><ShoppingCart size={16} /> Carrinho</h3>
             <span className="bg-indigo-600 text-white px-2 py-0.5 rounded-full text-[10px] font-black">{cart.length}</span>
