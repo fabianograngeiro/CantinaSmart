@@ -11,6 +11,38 @@ html.dark body {
   @apply bg-slate-900 text-slate-100;
 }
 
+.product-grid-scrollbar {
+  scrollbar-width: auto;
+  scrollbar-color: #6366f1 #e5e7eb;
+}
+
+.product-grid-scrollbar::-webkit-scrollbar {
+  width: 14px;
+}
+
+.product-grid-scrollbar::-webkit-scrollbar-track {
+  background: #e5e7eb;
+  border-radius: 9999px;
+}
+
+.product-grid-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #6366f1 0%, #4f46e5 100%);
+  border-radius: 9999px;
+  border: 2px solid #e5e7eb;
+}
+
+html.dark .product-grid-scrollbar {
+  scrollbar-color: #6366f1 #27272a;
+}
+
+html.dark .product-grid-scrollbar::-webkit-scrollbar-track {
+  background: #27272a;
+}
+
+html.dark .product-grid-scrollbar::-webkit-scrollbar-thumb {
+  border-color: #27272a;
+}
+
 @layer components {
   .dash-shell {
     @apply p-6 space-y-6 max-w-[1600px] mx-auto pb-20 text-slate-900 dark:text-slate-100;
