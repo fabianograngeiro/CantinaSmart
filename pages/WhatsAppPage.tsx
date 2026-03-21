@@ -68,6 +68,8 @@ type VisibleChat = ChatSummary & {
   registrationId: string;
   contactType: string;
   responsibleName: string;
+  contactTypeLabel?: string;
+  relationshipLabel?: string;
   isDraft?: boolean;
 };
 
@@ -154,6 +156,7 @@ type PlanConsumptionPdfPlanRow = {
   consumedQty: number;
   consumedSubtotal: number;
   currentBalance: number;
+  currentBalanceUnits: number;
   prepaid: boolean;
 };
 
@@ -327,6 +330,7 @@ const WHATSAPP_QUICK_REPLIES_KEY = 'whatsapp_quick_replies';
 const WHATSAPP_AI_CONFIG_KEY = 'whatsapp_ai_config';
 const WHATSAPP_CAMPAIGN_REPORTS_KEY = 'whatsapp_campaign_reports';
 const WHATSAPP_PLAN_CONSUMPTION_REPORTS_KEY = 'whatsapp_plan_consumption_reports';
+const WHATSAPP_OPEN_CONTEXT_KEY = 'whatsapp_open_context';
 
 const normalizeSearchValue = (value?: string) =>
   String(value || '')
@@ -375,6 +379,36 @@ const formatClientPlanLabel = (planName: string) => {
 
 const resolveResponsibleName = (client?: Client | null) =>
   String(client?.parentName || client?.guardianName || client?.guardians?.[0] || '').trim();
+
+const resolveKinshipLabel = (value?: string) => {
+  const normalized = normalizeSearchValue(value);
+  if (!normalized) return 'Indefinido';
+  if (normalized.includes('pai')) return 'Pai';
+  if (normalized.includes('mae') || normalized.includes('mãe')) return 'Mãe';
+  if (normalized.includes('avo') || normalized.includes('avó') || normalized.includes('avô')) return 'Avós';
+  if (normalized.includes('tio') || normalized.includes('tia')) return 'Tios';
+  return 'Indefinido';
+};
+
+const resolveContactLabels = (client?: Client | null): { contactTypeLabel: string; relationshipLabel: string } => {
+  const type = String(client?.type || '').toUpperCase();
+  if (type === 'COLABORADOR') {
+    return {
+      contactTypeLabel: 'Colaborador',
+      relationshipLabel: String(client?.class || '').trim() || 'Indefinido',
+    };
+  }
+  if (type === 'ALUNO' || type === 'RESPONSAVEL') {
+    return {
+      contactTypeLabel: 'Responsável',
+      relationshipLabel: resolveKinshipLabel(`${client?.parentName || ''} ${client?.guardianName || ''}`),
+    };
+  }
+  return {
+    contactTypeLabel: type ? type[0] + type.slice(1).toLowerCase() : 'Contato',
+    relationshipLabel: 'Indefinido',
+  };
+};
 
 const resolveConversationPrimaryName = (client?: Client | null) => {
   const responsible = resolveResponsibleName(client);
@@ -753,6 +787,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const [chatContactType, setChatContactType] = useState<'ALL' | 'ALUNO' | 'COLABORADOR'>('ALL');
   const [chatLoading, setChatLoading] = useState(false);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const [isContactDetailsVisible, setIsContactDetailsVisible] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [audioTranscriptions, setAudioTranscriptions] = useState<Record<string, AudioTranscriptionState>>({});
   const [messagesLoading, setMessagesLoading] = useState(false);
@@ -859,6 +894,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const contactsImportInputRef = useRef<HTMLInputElement | null>(null);
   const messagesViewportRef = useRef<HTMLDivElement | null>(null);
   const messagesBottomRef = useRef<HTMLDivElement | null>(null);
+  const chatReplyInputRef = useRef<HTMLTextAreaElement | null>(null);
   const campaignMessageTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const shouldAutoScrollRef = useRef(true);
   const aiFlowDragRef = useRef<{
@@ -1547,12 +1583,15 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         const primaryName = resolveConversationPrimaryName(mappedClient);
         const displayName = primaryName || chat.name || chat.phone;
         const contactType = mappedClient?.type || '';
+        const labels = resolveContactLabels(mappedClient);
         return {
           ...chat,
           displayName,
           registrationId: mappedClient?.registrationId || '',
           contactType,
           responsibleName,
+          contactTypeLabel: labels.contactTypeLabel,
+          relationshipLabel: labels.relationshipLabel,
           isDraft: false,
         };
       })
@@ -1610,6 +1649,62 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     () => visibleChats.find((chat) => chat.chatId === selectedChatId) || null,
     [visibleChats, selectedChatId]
   );
+
+  useEffect(() => {
+    const pendingPhoneRaw = localStorage.getItem('whatsapp_open_phone');
+    if (!pendingPhoneRaw) return;
+    const rawContext = localStorage.getItem(WHATSAPP_OPEN_CONTEXT_KEY);
+    let context: { displayName?: string; contactTypeLabel?: string; relationshipLabel?: string } | null = null;
+    if (rawContext) {
+      try {
+        context = JSON.parse(rawContext);
+      } catch {
+        context = null;
+      }
+    }
+    const pendingPhone = normalizePhone(pendingPhoneRaw);
+    if (!pendingPhone) {
+      localStorage.removeItem('whatsapp_open_phone');
+      localStorage.removeItem(WHATSAPP_OPEN_CONTEXT_KEY);
+      return;
+    }
+
+    localStorage.removeItem('whatsapp_open_phone');
+    localStorage.removeItem(WHATSAPP_OPEN_CONTEXT_KEY);
+
+    const matchedClient = Array.from(buildPhoneVariants(pendingPhone))
+      .map((variant) => clientByPhone.get(variant))
+      .find(Boolean) || null;
+    const matchedLabels = resolveContactLabels(matchedClient);
+
+    openDraftConversation({
+      phone: pendingPhone,
+      displayName: String(
+        context?.displayName
+        || (matchedClient
+          ? (resolveConversationPrimaryName(matchedClient) || matchedClient.name || pendingPhone)
+          : pendingPhone)
+      ),
+      contactType: String(matchedClient?.type || ''),
+      responsibleName: matchedClient ? resolveResponsibleName(matchedClient) : '',
+      registrationId: String(matchedClient?.registrationId || ''),
+      contactTypeLabel: String(context?.contactTypeLabel || matchedLabels.contactTypeLabel || '').trim(),
+      relationshipLabel: String(context?.relationshipLabel || matchedLabels.relationshipLabel || '').trim(),
+    });
+  }, [visibleChats, clientByPhone]);
+
+  useEffect(() => {
+    setIsContactDetailsVisible(false);
+  }, [selectedChatId]);
+
+  useEffect(() => {
+    if (!selectedChatId) return;
+    const timer = window.setTimeout(() => {
+      chatReplyInputRef.current?.focus();
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [selectedChatId]);
+
   const selectedChatClient = useMemo(() => {
     if (!selectedChat) return null;
     return Array.from(buildPhoneVariants(selectedChat.phone))
@@ -2579,6 +2674,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       .join(' / ');
     const parseTxDate = (tx: any) => normalizeTxDate(tx);
     const parseTxAmount = (tx: any) => Math.abs(Number(tx?.amount ?? tx?.total ?? tx?.value ?? 0) || 0);
+    const normalize = (value?: any) => normalizeSearchValue(String(value || '')).toLowerCase();
     const getMovementType = (tx: any): 'CONSUMO' | 'CREDITO' | 'OUTRO' => {
       const txType = String(tx?.type || '').toUpperCase();
       const marker = String(tx?.category || tx?.movement || tx?.plan || tx?.description || tx?.item || '').toUpperCase();
@@ -2601,6 +2697,60 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         return 'CREDITO';
       }
       return 'OUTRO';
+    };
+    const extractPlanNameFromTransaction = (tx: any) => {
+      const byCatalog = resolveCatalogPlan(tx?.planName || tx?.plan, tx?.planId || tx?.originPlanId);
+      if (byCatalog?.name) return byCatalog.name;
+      const direct = String(tx?.planName || tx?.plan || '').trim();
+      if (direct) return formatClientPlanLabel(direct);
+      const source = `${String(tx?.description || '')} ${String(tx?.item || '')}`.trim();
+      const match = source.match(/plano\s+([A-Za-zÀ-ÿ0-9\s\-_]+)/i);
+      return String(match?.[1] || '').trim();
+    };
+    const isPlanTransaction = (tx: any) => {
+      const method = normalize(tx?.paymentMethod || tx?.method || '');
+      if (method === 'plano') return true;
+      if (String(tx?.planId || tx?.originPlanId || '').trim()) return true;
+      const bag = normalize(`${tx?.description || ''} ${tx?.item || ''} ${tx?.plan || ''}`);
+      return bag.includes('consumo plano') || bag.includes('unidade do plano');
+    };
+    const resolvePrepaidDetail = (tx: any) => {
+      const txItems = Array.isArray(tx?.items) ? tx.items : [];
+      if (txItems.length > 0) {
+        const labels = txItems
+          .map((item: any) => {
+            const name = String(item?.name || item?.productName || '').trim();
+            const qtyRaw = Number(item?.quantity || 1);
+            const qty = Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1;
+            return name ? `${qty}x ${name}` : '';
+          })
+          .filter(Boolean);
+        if (labels.length > 0) return labels.join(' | ');
+      }
+
+      const rawItem = String(tx?.item || '').trim();
+      if (rawItem && !/compra\s+pdv/i.test(rawItem)) return rawItem;
+      const rawDescription = String(tx?.description || '').trim();
+      if (rawDescription && !/compra\s+pdv/i.test(rawDescription)) return rawDescription;
+      return 'Item avulso';
+    };
+    const getDetalhamentoConsumo = (tx: any) => {
+      const movement = getMovementType(tx);
+      const textBag = normalize(`${tx?.type || ''} ${tx?.description || ''} ${tx?.item || ''}`);
+      const isEstorno = textBag.includes('estorno');
+      if (movement === 'CREDITO' && !isEstorno) {
+        return String(tx?.description || tx?.item || 'Crédito').trim() || 'Crédito';
+      }
+
+      const planName = extractPlanNameFromTransaction(tx);
+      const byPlan = isPlanTransaction(tx) || Boolean(planName);
+      if (byPlan) {
+        const label = planName || 'Plano';
+        return isEstorno ? `Estorno de ${label}` : label;
+      }
+
+      const prepaidDetail = resolvePrepaidDetail(tx);
+      return isEstorno ? `Estorno de ${prepaidDetail} (Avulso)` : `${prepaidDetail} (Avulso)`;
     };
 
     const planCatalogByKey = new Map<string, { name: string; price: number }>();
@@ -2689,6 +2839,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       consumedQty: number;
       consumedSubtotal: number;
       currentBalance: number;
+      currentBalanceUnits: number;
       prepaid: boolean;
     };
 
@@ -2724,6 +2875,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           consumedQty: 0,
           consumedSubtotal: 0,
           currentBalance: isPrepaid ? Number(client.balance || 0) : 0,
+          currentBalanceUnits: 0,
           prepaid: isPrepaid,
         };
 
@@ -2734,6 +2886,9 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         }
         if (typeof options?.currentBalance === 'number' && Number.isFinite(options.currentBalance)) {
           current.currentBalance = options.currentBalance;
+        }
+        if (typeof options?.currentBalanceUnits === 'number' && Number.isFinite(options.currentBalanceUnits)) {
+          current.currentBalanceUnits = Math.max(0, options.currentBalanceUnits);
         }
         if (typeof options?.consumedQty === 'number' && Number.isFinite(options.consumedQty)) {
           current.consumedQty = options.consumedQty;
@@ -2779,10 +2934,17 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         const rawPlanName = String(entry?.planName || '').trim() || String(entry?.planId || '').trim();
         if (!rawPlanName) return;
         const catalog = resolveCatalogPlan(rawPlanName, String(entry?.planId || '').trim());
+        const currentBalance = Number(entry?.balance || 0) || 0;
+        const entryUnitValue = Number(entry?.unitValue ?? entry?.planPrice ?? catalog?.price ?? 0) || 0;
+        const rawBalanceUnits = Number(entry?.balanceUnits);
+        const currentBalanceUnits = Number.isFinite(rawBalanceUnits)
+          ? Math.max(0, rawBalanceUnits)
+          : (entryUnitValue > 0 ? Math.max(0, currentBalance / entryUnitValue) : 0);
         ensurePlanRow(rawPlanName, {
           sourcePlanId: String(entry?.planId || '').trim() || undefined,
-          unitValue: Number(catalog?.price || 0) || undefined,
-          currentBalance: Number(entry?.balance || 0) || 0,
+          unitValue: entryUnitValue > 0 ? entryUnitValue : undefined,
+          currentBalance,
+          currentBalanceUnits,
         });
       });
 
@@ -2790,6 +2952,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       if (servicePlans.some((planName) => normalizePlanKey(planName).includes('prepago')) || Math.abs(prepaidBalance) > 0.0001) {
         ensurePlanRow('PREPAGO', {
           currentBalance: prepaidBalance,
+          currentBalanceUnits: 0,
           prepaid: true,
         });
       }
@@ -2804,7 +2967,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         const amount = parseTxAmount(tx);
         const movementType = getMovementType(tx);
         const planName = resolveTxPlanName(tx);
-        const description = String(tx?.description || tx?.item || tx?.category || tx?.plan || 'Movimentação');
+        const description = getDetalhamentoConsumo(tx);
         const dateLabel = txDate.toLocaleDateString('pt-BR');
         const timeLabel = txDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
@@ -2819,7 +2982,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
             row.consumedSubtotal += amount;
           }
         } else if (movementType === 'CONSUMO') {
-          const prepaidRow = ensurePlanRow('PREPAGO', { prepaid: true, currentBalance: prepaidBalance });
+          const prepaidRow = ensurePlanRow('PREPAGO', { prepaid: true, currentBalance: prepaidBalance, currentBalanceUnits: 0 });
           if (prepaidRow) {
             const qtyRaw = Number(tx?.quantity ?? tx?.qty ?? tx?.units ?? 1);
             const quantity = Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1;
@@ -2884,6 +3047,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       const fixedPlanBalanceUnits = profile.planRows
         .filter((row) => !row.prepaid)
         .reduce((acc, row) => {
+          const directUnits = Number(row.currentBalanceUnits);
+          if (Number.isFinite(directUnits) && directUnits > 0) return acc + directUnits;
           const unitValue = Number(row.unitValue || 0);
           const moneyBalance = Number(row.currentBalance || 0);
           if (!Number.isFinite(unitValue) || unitValue <= 0) return acc;
@@ -3031,6 +3196,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
               consumedQty: Number(row.consumedQty || 0),
               consumedSubtotal: Number(row.consumedSubtotal || 0),
               currentBalance: Number(row.currentBalance || 0),
+              currentBalanceUnits: Number(row.currentBalanceUnits || 0),
               prepaid: Boolean(row.prepaid),
             })),
             transactionRows: dataset.transactionRows,
@@ -3093,6 +3259,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
             consumedQty: Number(row.consumedQty || 0),
             consumedSubtotal: Number(row.consumedSubtotal || 0),
             currentBalance: Number(row.currentBalance || 0),
+            currentBalanceUnits: Number(row.currentBalanceUnits || 0),
             prepaid: Boolean(row.prepaid),
           }))
         );
@@ -3355,25 +3522,28 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           },
         ]);
       } else {
-        // Para planos fixos, o saldo armazenado no backend está em R$.
-        // Convertemos para unidades usando o preço unitário do plano quando disponível.
         const currentBalanceMoney = planRowsForCurrentPlan.reduce((acc, row) => acc + Number(row.currentBalance || 0), 0);
+        const currentBalanceUnitsDirect = planRowsForCurrentPlan.reduce((acc, row) => acc + Number(row.currentBalanceUnits || 0), 0);
         const unitValues = planRowsForCurrentPlan
           .map((row) => Number(row.unitValue || 0))
           .filter((value) => Number.isFinite(value) && value > 0);
         const avgUnitValue = unitValues.length > 0
           ? unitValues.reduce((acc, value) => acc + value, 0) / unitValues.length
           : 0;
-        const currentBalanceQty = avgUnitValue > 0 ? (currentBalanceMoney / avgUnitValue) : 0;
+        const currentBalanceQty = currentBalanceUnitsDirect > 0
+          ? currentBalanceUnitsDirect
+          : (avgUnitValue > 0 ? (currentBalanceMoney / avgUnitValue) : 0);
+        const totalQty = consumedQty + currentBalanceQty;
         planSummaryCards.push({
           planName,
-          consumedText: `Consumido: ${formatNumber(consumedQty)} un. (${formatCurrencyBr(consumedSubtotal)})`,
-          balanceText: `Saldo atual: ${formatNumber(currentBalanceQty)} un. (${formatCurrencyBr(currentBalanceMoney)})`,
+          consumedText: `Consumido: ${formatNumber(consumedQty)}/${formatNumber(totalQty)} un. (${formatCurrencyBr(consumedSubtotal)})`,
+          balanceText: `Restante: ${formatNumber(currentBalanceQty)} un. (${formatCurrencyBr(currentBalanceMoney)})`,
           isPrepaid: false,
         });
+        const planLineSuffix = ` • ${formatNumber(consumedQty)}/${formatNumber(totalQty)} un.`;
         tableRows.push([
           {
-            content: `PLANO: ${planName}`,
+            content: `PLANO: ${planName}${planLineSuffix}`,
             colSpan: 5,
             styles: { fillColor: [219, 234, 254], textColor: [30, 64, 175], fontStyle: 'bold', halign: 'left' },
           },
@@ -4532,6 +4702,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     contactType?: string;
     responsibleName?: string;
     registrationId?: string;
+    contactTypeLabel?: string;
+    relationshipLabel?: string;
   }) => {
     const existingChat = findExistingChatByPhone(params.phone);
     if (existingChat) {
@@ -4555,6 +4727,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       registrationId: params.registrationId || '',
       contactType: params.contactType || '',
       responsibleName: params.responsibleName || '',
+      contactTypeLabel: params.contactTypeLabel || '',
+      relationshipLabel: params.relationshipLabel || '',
       isDraft: true,
     };
 
@@ -5025,43 +5199,43 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   );
 
   return (
-    <div className="whatsapp-shell space-y-6 p-6 rounded-[30px] bg-gradient-to-b from-cyan-50/60 via-white to-emerald-50/40 animate-in fade-in duration-500 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-900 dark:text-zinc-100">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="rounded-2xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-white px-3 py-2 shadow-sm dark:border-emerald-500/30 dark:from-zinc-900 dark:to-zinc-900 dark:shadow-none">
+    <div className="whatsapp-shell space-y-3 p-3 rounded-[22px] bg-gradient-to-b from-cyan-50/60 via-white to-emerald-50/40 animate-in fade-in duration-500 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-900 dark:text-zinc-100">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+        <div className="rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white px-2.5 py-1.5 shadow-sm dark:border-emerald-500/30 dark:from-zinc-900 dark:to-zinc-900 dark:shadow-none">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Sessão</p>
-            <p className={`text-sm font-black ${status.connected ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-600 dark:text-zinc-300'}`}>
+            <p className="text-[8px] font-black uppercase tracking-[0.12em] text-gray-400">Sessão</p>
+            <p className={`text-xs font-black ${status.connected ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-600 dark:text-zinc-300'}`}>
               {status.connected ? 'Conectado' : status.state}
             </p>
           </div>
         </div>
-        <div className="rounded-2xl border-2 border-cyan-200 bg-gradient-to-br from-cyan-50 to-white px-3 py-2 shadow-sm dark:border-cyan-500/30 dark:from-zinc-900 dark:to-zinc-900 dark:shadow-none">
+        <div className="rounded-xl border border-cyan-200 bg-gradient-to-br from-cyan-50 to-white px-2.5 py-1.5 shadow-sm dark:border-cyan-500/30 dark:from-zinc-900 dark:to-zinc-900 dark:shadow-none">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Clientes com Telefone</p>
-            <p className="text-sm font-black text-gray-800 dark:text-zinc-100">{recipients.length}</p>
+            <p className="text-[8px] font-black uppercase tracking-[0.12em] text-gray-400">Clientes com Telefone</p>
+            <p className="text-xs font-black text-gray-800 dark:text-zinc-100">{recipients.length}</p>
           </div>
         </div>
-        <div className="rounded-2xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 to-white px-3 py-2 shadow-sm dark:border-indigo-500/30 dark:from-zinc-900 dark:to-zinc-900 dark:shadow-none">
+        <div className="rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-white px-2.5 py-1.5 shadow-sm dark:border-indigo-500/30 dark:from-zinc-900 dark:to-zinc-900 dark:shadow-none">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Conversas Ativas</p>
-            <p className="text-sm font-black text-gray-800 dark:text-zinc-100">{visibleChats.length}</p>
+            <p className="text-[8px] font-black uppercase tracking-[0.12em] text-gray-400">Conversas Ativas</p>
+            <p className="text-xs font-black text-gray-800 dark:text-zinc-100">{visibleChats.length}</p>
           </div>
         </div>
-        <div className="rounded-2xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-white px-3 py-2 shadow-sm dark:border-amber-500/30 dark:from-zinc-900 dark:to-zinc-900 dark:shadow-none">
+        <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white px-2.5 py-1.5 shadow-sm dark:border-amber-500/30 dark:from-zinc-900 dark:to-zinc-900 dark:shadow-none">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Não Lidas</p>
-            <p className="text-sm font-black text-amber-600 dark:text-amber-400">{unreadCount}</p>
+            <p className="text-[8px] font-black uppercase tracking-[0.12em] text-gray-400">Não Lidas</p>
+            <p className="text-xs font-black text-amber-600 dark:text-amber-400">{unreadCount}</p>
           </div>
         </div>
       </div>
 
-      <div className="bg-white/95 rounded-[24px] border-2 border-cyan-200 p-2 grid grid-cols-2 md:grid-cols-5 gap-2 shadow-sm dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
+      <div className="bg-white/95 rounded-[18px] border border-cyan-200 p-1.5 grid grid-cols-2 md:grid-cols-5 gap-1.5 shadow-sm dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
         <button
           onClick={() => {
             setActiveTab('CRM');
             setCrmView('CONVERSAS');
           }}
-          className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest ${
+          className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] ${
             activeTab === 'CRM' && crmView === 'CONVERSAS'
               ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
               : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
@@ -5074,7 +5248,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
             setActiveTab('CRM');
             setCrmView('DASHBOARD');
           }}
-          className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest ${
+          className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] ${
             activeTab === 'CRM' && crmView === 'DASHBOARD'
               ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
               : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
@@ -5084,7 +5258,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         </button>
         <button
           onClick={() => setActiveTab('DISPAROS')}
-          className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest ${
+          className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] ${
             activeTab === 'DISPAROS'
               ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
               : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
@@ -5094,7 +5268,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         </button>
         <button
           onClick={() => setActiveTab('SESSION_QR')}
-          className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest ${
+          className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] ${
             activeTab === 'SESSION_QR'
               ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
               : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
@@ -5107,7 +5281,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
             setActiveTab('CRM');
             setCrmView('AI_CONFIG');
           }}
-          className={`px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest ${
+          className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] ${
             activeTab === 'CRM' && crmView === 'AI_CONFIG'
               ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
               : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
@@ -5216,43 +5390,43 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
               </div>
 
               {crmView === 'DASHBOARD' && (
-                <div className="p-5 bg-slate-50/60 space-y-4 overflow-y-auto dark:bg-zinc-900/70">
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                    <div className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
-                      <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Total de Conversas</p>
-                      <p className="mt-2 text-3xl font-black text-slate-900">{crmTotalConversations}</p>
+                <div className="p-3 bg-slate-50/60 space-y-3 overflow-y-auto dark:bg-zinc-900/70">
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2.5">
+                    <div className="rounded-xl border border-cyan-100 bg-white p-3 dark:bg-[#121214] dark:border-white/10">
+                      <p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-500">Total de Conversas</p>
+                      <p className="mt-1 text-xl font-black text-slate-900">{crmTotalConversations}</p>
                     </div>
-                    <div className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
-                      <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Novos Leads</p>
-                      <p className="mt-2 text-3xl font-black text-slate-900">{crmNewLeads}</p>
+                    <div className="rounded-xl border border-cyan-100 bg-white p-3 dark:bg-[#121214] dark:border-white/10">
+                      <p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-500">Novos Leads</p>
+                      <p className="mt-1 text-xl font-black text-slate-900">{crmNewLeads}</p>
                     </div>
-                    <div className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
-                      <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Taxa de Resposta</p>
-                      <p className="mt-2 text-3xl font-black text-slate-900">{crmResponseRate}%</p>
+                    <div className="rounded-xl border border-cyan-100 bg-white p-3 dark:bg-[#121214] dark:border-white/10">
+                      <p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-500">Taxa de Resposta</p>
+                      <p className="mt-1 text-xl font-black text-slate-900">{crmResponseRate}%</p>
                     </div>
-                    <div className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
-                      <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Sessões Ativas</p>
-                      <p className="mt-2 text-3xl font-black text-slate-900">{crmActiveSessions}</p>
+                    <div className="rounded-xl border border-cyan-100 bg-white p-3 dark:bg-[#121214] dark:border-white/10">
+                      <p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-500">Sessões Ativas</p>
+                      <p className="mt-1 text-xl font-black text-slate-900">{crmActiveSessions}</p>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-                    <section className="xl:col-span-8 rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
-                      <p className="text-2xl font-black text-slate-900">Visão de Volume de Mensagens</p>
-                      <p className="text-sm font-semibold text-slate-500">Tendência de atividade por dia da semana</p>
-                      <div className="mt-4 grid grid-cols-7 gap-2 items-end h-44">
+                  <div className="grid grid-cols-1 xl:grid-cols-12 gap-2.5">
+                    <section className="xl:col-span-8 rounded-xl border border-cyan-100 bg-white p-3 dark:bg-[#121214] dark:border-white/10">
+                      <p className="text-base font-black text-slate-900">Visão de Volume de Mensagens</p>
+                      <p className="text-xs font-semibold text-slate-500">Tendência de atividade por dia da semana</p>
+                      <div className="mt-3 grid grid-cols-7 gap-1.5 items-end h-32">
                         {crmWeekTrend.map((item) => (
-                          <div key={item.label} className="flex flex-col items-center gap-2">
+                          <div key={item.label} className="flex flex-col items-center gap-1.5">
                             <div className="w-full rounded-t-lg bg-emerald-500/80" style={{ height: `${Math.max(10, item.heightPct)}%` }} />
-                            <p className="text-[10px] font-black text-slate-500">{item.label}</p>
+                            <p className="text-[9px] font-black text-slate-500">{item.label}</p>
                           </div>
                         ))}
                       </div>
                     </section>
-                    <section className="xl:col-span-4 rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
-                      <p className="text-2xl font-black text-slate-900">Distribuição de Leads</p>
-                      <div className="mt-4 space-y-2">
-                        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+                    <section className="xl:col-span-4 rounded-xl border border-cyan-100 bg-white p-3 dark:bg-[#121214] dark:border-white/10">
+                      <p className="text-base font-black text-slate-900">Distribuição de Leads</p>
+                      <div className="mt-3 space-y-1.5">
+                        <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
                           <span>Alunos</span>
                           <span>{crmContactDistribution.alunos} ({crmContactDistribution.alunosPct}%)</span>
                         </div>
@@ -5260,7 +5434,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                           <div className="h-full bg-emerald-500" style={{ width: `${crmContactDistribution.alunosPct}%` }} />
                         </div>
 
-                        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+                        <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
                           <span>Colaboradores</span>
                           <span>{crmContactDistribution.colaboradores} ({crmContactDistribution.colaboradoresPct}%)</span>
                         </div>
@@ -5268,7 +5442,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                           <div className="h-full bg-blue-500" style={{ width: `${crmContactDistribution.colaboradoresPct}%` }} />
                         </div>
 
-                        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+                        <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
                           <span>Outros</span>
                           <span>{crmContactDistribution.outros} ({crmContactDistribution.outrosPct}%)</span>
                         </div>
@@ -5279,33 +5453,33 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                     </section>
                   </div>
 
-                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-                    <section className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
-                      <p className="text-2xl font-black text-slate-900">Atividade Recente</p>
-                      <div className="mt-3 space-y-3">
+                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-2.5">
+                    <section className="rounded-xl border border-cyan-100 bg-white p-3 dark:bg-[#121214] dark:border-white/10">
+                      <p className="text-base font-black text-slate-900">Atividade Recente</p>
+                      <div className="mt-2.5 space-y-2">
                         {crmRecentActivities.length === 0 ? (
-                          <p className="text-sm font-semibold text-slate-500">Sem atividades recentes.</p>
+                          <p className="text-xs font-semibold text-slate-500">Sem atividades recentes.</p>
                         ) : crmRecentActivities.map((item) => (
-                          <div key={item.id} className="rounded-xl border border-cyan-100 px-3 py-2">
-                            <p className="text-sm font-black text-slate-800">{item.title}</p>
+                          <div key={item.id} className="rounded-lg border border-cyan-100 px-2.5 py-2">
+                            <p className="text-xs font-black text-slate-800">{item.title}</p>
                             <p className="text-xs font-semibold text-slate-500 truncate">{item.subtitle}</p>
-                            <p className="text-[11px] font-bold text-emerald-600 mt-1">{item.when}</p>
+                            <p className="text-[10px] font-bold text-emerald-600 mt-1">{item.when}</p>
                           </div>
                         ))}
                       </div>
                     </section>
-                    <section className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
+                    <section className="rounded-xl border border-cyan-100 bg-white p-3 dark:bg-[#121214] dark:border-white/10">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-2xl font-black text-slate-900">Auditoria AI</p>
-                        <span className="px-2 py-1 rounded-full bg-rose-50 text-rose-600 text-[10px] font-black uppercase tracking-widest">
+                        <p className="text-base font-black text-slate-900">Auditoria AI</p>
+                        <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 text-[9px] font-black uppercase tracking-[0.12em]">
                           recusas
                         </span>
                       </div>
-                      <div className="mt-3 space-y-3">
+                      <div className="mt-2.5 space-y-2">
                         {aiAuditLogs.length === 0 ? (
-                          <p className="text-sm font-semibold text-slate-500">Sem recusas recentes por política.</p>
+                          <p className="text-xs font-semibold text-slate-500">Sem recusas recentes por política.</p>
                         ) : aiAuditLogs.slice(0, 6).map((item) => (
-                          <div key={item.id} className="rounded-xl border border-rose-100 bg-rose-50/40 px-3 py-2">
+                          <div key={item.id} className="rounded-lg border border-rose-100 bg-rose-50/40 px-2.5 py-2">
                             <div className="flex items-start justify-between gap-2">
                               <p className="text-xs font-black text-rose-700">
                                 {AI_AUDIT_REASON_LABEL[item.reason] || item.reason}
@@ -5329,14 +5503,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         ))}
                       </div>
                     </section>
-                    <section className="rounded-2xl border border-cyan-100 bg-white p-4 dark:bg-[#121214] dark:border-white/10">
-                      <p className="text-2xl font-black text-slate-900">Contatos com Pendência</p>
-                      <div className="mt-3 space-y-3">
+                    <section className="rounded-xl border border-cyan-100 bg-white p-3 dark:bg-[#121214] dark:border-white/10">
+                      <p className="text-base font-black text-slate-900">Contatos com Pendência</p>
+                      <div className="mt-2.5 space-y-2">
                         {crmTopContacts.length === 0 ? (
-                          <p className="text-sm font-semibold text-slate-500">Sem contatos pendentes.</p>
+                          <p className="text-xs font-semibold text-slate-500">Sem contatos pendentes.</p>
                         ) : crmTopContacts.map((item) => (
-                          <div key={item.id} className="flex items-center justify-between rounded-xl border border-cyan-100 px-3 py-2">
-                            <p className="text-sm font-black text-slate-800">{item.name}</p>
+                          <div key={item.id} className="flex items-center justify-between rounded-lg border border-cyan-100 px-2.5 py-2">
+                            <p className="text-xs font-black text-slate-800">{item.name}</p>
                             <p className="text-xs font-black text-amber-600">{item.metric}</p>
                           </div>
                         ))}
@@ -5532,7 +5706,25 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                       <>
                         <div className="px-5 py-4 bg-white border-b-2 border-cyan-100 flex items-center justify-between dark:bg-zinc-900/80 dark:border-white/10">
                           <div>
-                            <p className="text-2xl font-black text-slate-900 dark:text-zinc-100">{selectedChat.displayName}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-2xl font-black text-slate-900 dark:text-zinc-100">{selectedChat.displayName}</p>
+                              <button
+                                type="button"
+                                onClick={() => setIsContactDetailsVisible((prev) => !prev)}
+                                className="px-2.5 py-1 rounded-lg border border-cyan-200 bg-cyan-50 text-cyan-700 text-[10px] font-black uppercase tracking-widest hover:bg-cyan-100 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                              >
+                                {isContactDetailsVisible ? 'Ocultar dados' : 'Ver dados'}
+                              </button>
+                            </div>
+                            {(selectedChat.contactTypeLabel || selectedChat.relationshipLabel) && (
+                              <div className="mt-1.5 flex items-center gap-2">
+                                <span className="inline-flex items-center gap-1 rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-widest text-cyan-700 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-200">
+                                  {selectedChat.contactTypeLabel || 'Contato'}
+                                  <span className="opacity-60">•</span>
+                                  {selectedChat.relationshipLabel || 'Indefinido'}
+                                </span>
+                              </div>
+                            )}
                             <div className="flex items-center gap-2 mt-1">
                               <p className="text-sm font-bold text-emerald-600">{status.connected ? 'Online' : 'Offline'}</p>
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${
@@ -5770,6 +5962,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             <Bot size={15} />
                           </button>
                           <textarea
+                            ref={chatReplyInputRef}
                             rows={2}
                             value={chatReply}
                             onChange={(e) => setChatReply(e.target.value)}
@@ -5793,149 +5986,168 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                   <aside className="p-5 bg-white border-l-2 border-cyan-100 min-h-0 h-full overflow-y-auto dark:bg-zinc-900/75 dark:border-white/10">
                     {selectedChat ? (
                       <div className="space-y-5">
-                        <div className="text-center">
-                          <div className="w-20 h-20 mx-auto rounded-full bg-cyan-100 flex items-center justify-center text-cyan-700 text-2xl font-black">
-                            {String(selectedChat.displayName || '?').charAt(0).toUpperCase()}
+                        {!isContactDetailsVisible ? (
+                          <div className="h-full min-h-[220px] rounded-2xl border-2 border-dashed border-cyan-200 bg-cyan-50/50 flex flex-col items-center justify-center text-center px-4 dark:bg-zinc-900 dark:border-white/10">
+                            <p className="text-sm font-black uppercase tracking-widest text-cyan-700 dark:text-zinc-200">Dados ocultos</p>
+                            <p className="mt-2 text-xs font-semibold text-slate-500 dark:text-zinc-400">
+                              Clique em <span className="font-black">VER DADOS</span> no topo da conversa para exibir as informações do responsável.
+                            </p>
                           </div>
-                          <p className="mt-3 text-2xl font-black text-slate-900 dark:text-zinc-100">{selectedChat.displayName}</p>
-                          <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400">+{selectedChat.phone}</p>
-                        </div>
-
-                        <div className="space-y-2">
-                          <p className="text-[11px] uppercase tracking-widest font-black text-slate-500">Etiquetas</p>
-                          <div className="flex flex-wrap gap-2">
-                            {(selectedChat.labels || []).length > 0 ? (
-                              (selectedChat.labels || []).map((label) => (
-                                <span key={label} className="px-2 py-1 rounded-full bg-cyan-100 text-cyan-700 text-[11px] font-black">
-                                  {label}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-xs font-semibold text-slate-400 dark:text-zinc-500">Sem etiquetas</span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          <p className="text-[11px] uppercase tracking-widest font-black text-slate-500">Saldos de planos</p>
-                          {selectedStudent && (
-                            <div className="rounded-xl border border-cyan-100 bg-cyan-50/60 px-3 py-2 flex items-center justify-between">
-                              <div>
-                                <p className="text-[11px] font-black uppercase tracking-widest text-slate-600">Status do aluno hoje</p>
-                                <p className="text-xs font-semibold text-slate-500 dark:text-zinc-400">{selectedStudent.name}</p>
+                        ) : (
+                          <>
+                            <div className="text-center">
+                              <div className="w-20 h-20 mx-auto rounded-full bg-cyan-100 overflow-hidden flex items-center justify-center text-cyan-700 text-2xl font-black">
+                                {selectedChat.avatarUrl ? (
+                                  <img
+                                    src={selectedChat.avatarUrl}
+                                    alt={selectedChat.displayName}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  String(selectedChat.displayName || '?').charAt(0).toUpperCase()
+                                )}
                               </div>
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={`inline-flex w-2.5 h-2.5 rounded-full ${
-                                    selectedStudentConsumedToday === null
-                                      ? 'bg-slate-300'
-                                      : selectedStudentConsumedToday
-                                        ? 'bg-emerald-500'
-                                        : 'bg-rose-500'
-                                  }`}
-                                />
-                                <span className="text-xs font-black text-slate-700 dark:text-zinc-200">
-                                  {isLoadingStudentConsumedToday
-                                    ? 'Verificando...'
-                                    : selectedStudentConsumedToday === null
-                                      ? 'Sem dados'
-                                      : selectedStudentConsumedToday
-                                        ? 'Consumiu hoje'
-                                        : 'Não consumiu hoje'}
-                                </span>
+                              <p className="mt-3 text-2xl font-black text-slate-900 dark:text-zinc-100">{selectedChat.displayName}</p>
+                              <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400">+{selectedChat.phone}</p>
+                            </div>
+
+                            <div className="space-y-2">
+                              <p className="text-[11px] uppercase tracking-widest font-black text-slate-500">Etiquetas</p>
+                              <div className="flex flex-wrap gap-2">
+                                {(selectedChat.labels || []).length > 0 ? (
+                                  (selectedChat.labels || []).map((label) => (
+                                    <span key={label} className="px-2 py-1 rounded-full bg-cyan-100 text-cyan-700 text-[11px] font-black">
+                                      {label}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="text-xs font-semibold text-slate-400 dark:text-zinc-500">Sem etiquetas</span>
+                                )}
                               </div>
                             </div>
-                          )}
-                          {relatedStudents.length > 1 && (
-                            <select
-                              value={selectedStudentId}
-                              onChange={(e) => setSelectedStudentId(e.target.value)}
-                              className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 bg-white text-sm font-semibold text-slate-700 outline-none focus:border-cyan-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
-                            >
-                              <option value="">Selecione o aluno</option>
-                              {relatedStudents.map((student) => (
-                                <option key={student.id} value={student.id}>
-                                  {student.name}
-                                </option>
-                              ))}
-                            </select>
-                          )}
-                          {selectedStudent && selectedStudentPlanSummary.length > 0 ? (
-                            selectedStudentPlanSummary.map((item) => {
-                              const tone = getPlanCardTone(item.key, item.numericBalance);
-                              const normalizedKey = String(item.key || '').toUpperCase();
-                              const isPrepaid = normalizedKey === 'PREPAGO';
-                              const isLowPrepaid = isPrepaid && Number(item.numericBalance) < 10;
-                              return (
-                                <div key={item.key} className={`rounded-xl border px-3 py-2 ${tone.container}`}>
-                                  <div className="flex items-center justify-between gap-2">
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <span className={`inline-flex w-7 h-7 rounded-lg items-center justify-center bg-white/80 ${tone.title}`}>
-                                        {isPrepaid ? <Wallet size={14} /> : <UtensilsCrossed size={14} />}
-                                      </span>
-                                      <p className={`text-[11px] font-black uppercase tracking-widest truncate ${tone.title}`}>{item.label}</p>
-                                    </div>
-                                    {isLowPrepaid && (
-                                      <button
-                                        type="button"
-                                        onClick={handleQuickChargeLowBalance}
-                                        className="px-2 py-1 rounded-lg border border-emerald-300 bg-emerald-500 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-600"
-                                      >
-                                        Cobrar saldo
-                                      </button>
-                                    )}
+
+                            <div className="space-y-2">
+                              <p className="text-[11px] uppercase tracking-widest font-black text-slate-500">Saldos de planos</p>
+                              {selectedStudent && (
+                                <div className="rounded-xl border border-cyan-100 bg-cyan-50/60 px-3 py-2 flex items-center justify-between">
+                                  <div>
+                                    <p className="text-[11px] font-black uppercase tracking-widest text-slate-600">Status do aluno hoje</p>
+                                    <p className="text-xs font-semibold text-slate-500 dark:text-zinc-400">{selectedStudent.name}</p>
                                   </div>
-                                  <p className={`text-sm font-black mt-1 ${tone.value}`}>{item.value}</p>
+                                  <div className="flex items-center gap-2">
+                                    <span
+                                      className={`inline-flex w-2.5 h-2.5 rounded-full ${
+                                        selectedStudentConsumedToday === null
+                                          ? 'bg-slate-300'
+                                          : selectedStudentConsumedToday
+                                            ? 'bg-emerald-500'
+                                            : 'bg-rose-500'
+                                      }`}
+                                    />
+                                    <span className="text-xs font-black text-slate-700 dark:text-zinc-200">
+                                      {isLoadingStudentConsumedToday
+                                        ? 'Verificando...'
+                                        : selectedStudentConsumedToday === null
+                                          ? 'Sem dados'
+                                          : selectedStudentConsumedToday
+                                            ? 'Consumiu hoje'
+                                            : 'Não consumiu hoje'}
+                                    </span>
+                                  </div>
                                 </div>
-                              );
-                            })
-                          ) : (
-                            <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500">Selecione um aluno para visualizar saldos.</p>
-                          )}
-                        </div>
-
-                        <div className="space-y-2 pt-2 border-t border-cyan-100 dark:border-white/10">
-                          <p className="text-[11px] uppercase tracking-widest font-black text-slate-500">Relatório do contato</p>
-                          <select
-                            value={reportPeriodMode}
-                            onChange={(e) => setReportPeriodMode(e.target.value as ReportPeriodMode)}
-                            className="w-full px-3 py-2 rounded-xl border-2 border-emerald-100 bg-emerald-50/40 text-xs font-black text-slate-700 outline-none focus:border-emerald-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
-                          >
-                            <option value="WEEKLY">Semanal</option>
-                            <option value="BIWEEKLY">Quinzenal</option>
-                            <option value="CUSTOM">Período (inicial/final)</option>
-                          </select>
-                          {reportPeriodMode === 'CUSTOM' && (
-                            <div className="grid grid-cols-1 gap-2">
-                              <input
-                                type="date"
-                                value={reportStartDate}
-                                onChange={(e) => setReportStartDate(e.target.value)}
-                                className="w-full px-3 py-2 rounded-xl border-2 border-emerald-100 bg-white text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
-                              />
-                              <input
-                                type="date"
-                                value={reportEndDate}
-                                onChange={(e) => setReportEndDate(e.target.value)}
-                                className="w-full px-3 py-2 rounded-xl border-2 border-emerald-100 bg-white text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
-                              />
+                              )}
+                              {relatedStudents.length > 1 && (
+                                <select
+                                  value={selectedStudentId}
+                                  onChange={(e) => setSelectedStudentId(e.target.value)}
+                                  className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 bg-white text-sm font-semibold text-slate-700 outline-none focus:border-cyan-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
+                                >
+                                  <option value="">Selecione o aluno</option>
+                                  {relatedStudents.map((student) => (
+                                    <option key={student.id} value={student.id}>
+                                      {student.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                              {selectedStudent && selectedStudentPlanSummary.length > 0 ? (
+                                selectedStudentPlanSummary.map((item) => {
+                                  const tone = getPlanCardTone(item.key, item.numericBalance);
+                                  const normalizedKey = String(item.key || '').toUpperCase();
+                                  const isPrepaid = normalizedKey === 'PREPAGO';
+                                  const isLowPrepaid = isPrepaid && Number(item.numericBalance) < 10;
+                                  return (
+                                    <div key={item.key} className={`rounded-xl border px-3 py-2 ${tone.container}`}>
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          <span className={`inline-flex w-7 h-7 rounded-lg items-center justify-center bg-white/80 ${tone.title}`}>
+                                            {isPrepaid ? <Wallet size={14} /> : <UtensilsCrossed size={14} />}
+                                          </span>
+                                          <p className={`text-[11px] font-black uppercase tracking-widest truncate ${tone.title}`}>{item.label}</p>
+                                        </div>
+                                        {isLowPrepaid && (
+                                          <button
+                                            type="button"
+                                            onClick={handleQuickChargeLowBalance}
+                                            className="px-2 py-1 rounded-lg border border-emerald-300 bg-emerald-500 text-white text-[10px] font-black uppercase tracking-wide hover:bg-emerald-600"
+                                          >
+                                            Cobrar saldo
+                                          </button>
+                                        )}
+                                      </div>
+                                      <p className={`text-sm font-black mt-1 ${tone.value}`}>{item.value}</p>
+                                    </div>
+                                  );
+                                })
+                              ) : (
+                                <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500">Selecione um aluno para visualizar saldos.</p>
+                              )}
                             </div>
-                          )}
-                          <button
-                            type="button"
-                            onClick={handleSendConsumptionReport}
-                            disabled={isSendingReport || !selectedChatClient || !['ALUNO', 'COLABORADOR'].includes(String(selectedChatClient?.type || '').toUpperCase())}
-                            className="w-full px-3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
-                          >
-                            <CalendarDays size={13} />
-                            {isSendingReport ? 'Enviando...' : 'Enviar relatório'}
-                          </button>
-                          <p className="text-[11px] font-semibold text-slate-500 dark:text-zinc-400">
-                            {selectedChatClient
-                              ? `Tipo: ${String(selectedChatClient.type || '').toUpperCase()}`
-                              : 'Contato sem cadastro local.'}
-                          </p>
-                        </div>
+
+                            <div className="space-y-2 pt-2 border-t border-cyan-100 dark:border-white/10">
+                              <p className="text-[11px] uppercase tracking-widest font-black text-slate-500">Relatório do contato</p>
+                              <select
+                                value={reportPeriodMode}
+                                onChange={(e) => setReportPeriodMode(e.target.value as ReportPeriodMode)}
+                                className="w-full px-3 py-2 rounded-xl border-2 border-emerald-100 bg-emerald-50/40 text-xs font-black text-slate-700 outline-none focus:border-emerald-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
+                              >
+                                <option value="WEEKLY">Semanal</option>
+                                <option value="BIWEEKLY">Quinzenal</option>
+                                <option value="CUSTOM">Período (inicial/final)</option>
+                              </select>
+                              {reportPeriodMode === 'CUSTOM' && (
+                                <div className="grid grid-cols-1 gap-2">
+                                  <input
+                                    type="date"
+                                    value={reportStartDate}
+                                    onChange={(e) => setReportStartDate(e.target.value)}
+                                    className="w-full px-3 py-2 rounded-xl border-2 border-emerald-100 bg-white text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
+                                  />
+                                  <input
+                                    type="date"
+                                    value={reportEndDate}
+                                    onChange={(e) => setReportEndDate(e.target.value)}
+                                    className="w-full px-3 py-2 rounded-xl border-2 border-emerald-100 bg-white text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
+                                  />
+                                </div>
+                              )}
+                              <button
+                                type="button"
+                                onClick={handleSendConsumptionReport}
+                                disabled={isSendingReport || !selectedChatClient || !['ALUNO', 'COLABORADOR'].includes(String(selectedChatClient?.type || '').toUpperCase())}
+                                className="w-full px-3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                              >
+                                <CalendarDays size={13} />
+                                {isSendingReport ? 'Enviando...' : 'Enviar relatório'}
+                              </button>
+                              <p className="text-[11px] font-semibold text-slate-500 dark:text-zinc-400">
+                                {selectedChatClient
+                                  ? `Tipo: ${String(selectedChatClient.type || '').toUpperCase()}`
+                                  : 'Contato sem cadastro local.'}
+                              </p>
+                            </div>
+                          </>
+                        )}
                       </div>
                     ) : (
                       <div className="text-sm font-semibold text-slate-500 dark:text-zinc-400">Nenhum contato selecionado.</div>

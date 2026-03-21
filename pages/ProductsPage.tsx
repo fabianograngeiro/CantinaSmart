@@ -352,30 +352,30 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
   }, [productForm.categoryId, categories]);
 
   return (
-    <div className="products-shell flex flex-col lg:flex-row h-full gap-6 p-6 animate-in fade-in duration-500 overflow-hidden">
+    <div className="products-shell flex flex-col lg:flex-row h-full gap-4 p-4 animate-in fade-in duration-500 overflow-hidden">
       
       {/* SIDEBAR INTERNA: CATEGORIA DE PRODUTOS */}
-      <aside className="w-full lg:w-80 bg-white rounded-[32px] border shadow-sm flex flex-col overflow-hidden shrink-0">
-        <div className="p-6 border-b bg-gray-50/50 flex items-center justify-between">
+      <aside className="w-full lg:w-72 bg-white rounded-2xl border shadow-sm flex flex-col overflow-hidden shrink-0">
+        <div className="p-4 border-b bg-gray-50/50 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Tags className="text-indigo-600" size={20} />
             <h2 className="text-sm font-black text-gray-800 uppercase tracking-widest">Categorias</h2>
           </div>
           <button 
             onClick={() => setIsCategoryModalOpen(true)}
-            className="p-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+            className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
             title="Nova Categoria"
           >
-            <Plus size={18} />
+            <Plus size={15} />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
+        <div className="flex-1 overflow-y-auto p-3 space-y-1.5 scrollbar-hide">
           <button 
             onClick={() => setSelectedCategoryId('ALL')}
-            className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all border-2 ${selectedCategoryId === 'ALL' ? 'bg-indigo-600 border-indigo-600 text-white shadow-xl' : 'bg-white border-transparent text-gray-500 hover:bg-indigo-50'}`}
+            className={`w-full flex items-center justify-between p-3 rounded-xl transition-all border ${selectedCategoryId === 'ALL' ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-transparent text-gray-500 hover:bg-indigo-50'}`}
           >
-            <span className="text-xs font-black uppercase tracking-tight">Todos os Produtos</span>
+            <span className="text-[11px] font-black uppercase tracking-tight">Todos os Produtos</span>
             <LayoutGrid size={16} />
           </button>
 
@@ -383,13 +383,13 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
             <div key={cat.id} className="space-y-1">
               <button 
                 onClick={() => setSelectedCategoryId(cat.id)}
-                className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all border-2 ${selectedCategoryId === cat.id ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-transparent text-gray-600 hover:bg-gray-50'}`}
+                className={`w-full flex items-center justify-between p-3 rounded-xl transition-all border ${selectedCategoryId === cat.id ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-transparent text-gray-600 hover:bg-gray-50'}`}
               >
-                <span className="text-xs font-black uppercase tracking-tight">{cat.name}</span>
+                <span className="text-[11px] font-black uppercase tracking-tight">{cat.name}</span>
                 <ChevronRight size={14} className={selectedCategoryId === cat.id ? 'rotate-90 transition-transform' : ''} />
               </button>
               
-              <div className="ml-4 space-y-1 border-l-2 border-indigo-100 pl-4 py-1">
+              <div className="ml-3 space-y-1 border-l border-indigo-100 pl-3 py-1">
                 {cat.subCategories.map(sub => (
                   <div key={sub.id} className="flex items-center justify-between py-1.5 group">
                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">{sub.name}</span>
@@ -416,59 +416,59 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
       </aside>
 
       {/* ÁREA PRINCIPAL: LISTAGEM DE PRODUTOS */}
-      <div className="flex-1 flex flex-col space-y-6 overflow-hidden">
+      <div className="flex-1 flex flex-col space-y-4 overflow-hidden">
         
-        <header className="bg-white p-6 rounded-[32px] border shadow-sm flex flex-col md:flex-row items-center justify-between gap-6 shrink-0">
+        <header className="bg-white p-4 rounded-2xl border shadow-sm flex flex-col md:flex-row items-center justify-between gap-3 shrink-0">
           <div className="relative flex-1 w-full">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
             <input 
               type="text" 
               placeholder="Pesquisar por nome ou Código EAN..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-12 pr-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-bold text-sm transition-all"
+              className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-bold text-xs transition-all"
             />
           </div>
 
           <div className="flex items-center gap-3">
-             <div className="hidden xl:flex items-center gap-2 bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100">
-                <Package size={16} className="text-indigo-600" />
+             <div className="hidden xl:flex items-center gap-2 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">
+                <Package size={14} className="text-indigo-600" />
                 <span className="text-[10px] font-black text-indigo-900 uppercase">{filteredProducts.length} Itens</span>
              </div>
              <button 
                onClick={handleOpenNewProduct}
-               className="bg-indigo-600 text-white px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2 active:scale-95"
+               className="bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-black uppercase tracking-widest text-[11px] shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2 active:scale-95"
              >
-               <Plus size={18} /> Novo Produto
+               <Plus size={14} /> Novo Produto
              </button>
           </div>
         </header>
 
-        <div className="flex-1 bg-white rounded-[40px] border shadow-sm overflow-hidden flex flex-col">
+        <div className="flex-1 bg-white rounded-2xl border shadow-sm overflow-hidden flex flex-col">
           <div className="overflow-x-auto scrollbar-hide">
             <table className="w-full text-left">
-              <thead className="bg-gray-50/50 text-[10px] font-black text-gray-400 uppercase tracking-[2px] border-b">
+              <thead className="bg-gray-50/50 text-[9px] font-black text-gray-400 uppercase tracking-[0.12em] border-b">
                 <tr>
-                  <th className="px-8 py-6">Produto</th>
-                  <th className="px-8 py-6">Categoria</th>
-                  <th className="px-8 py-6 text-center">Preço</th>
-                  <th className="px-8 py-6 text-center">Estoque</th>
-                  <th className="px-8 py-6 text-right">Ações</th>
+                  <th className="px-4 py-3">Produto</th>
+                  <th className="px-4 py-3">Categoria</th>
+                  <th className="px-4 py-3 text-center">Preço</th>
+                  <th className="px-4 py-3 text-center">Estoque</th>
+                  <th className="px-4 py-3 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {filteredProducts.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-8 py-20 text-center text-gray-400 font-bold uppercase text-xs tracking-widest">Nenhum produto encontrado</td>
+                    <td colSpan={5} className="px-4 py-14 text-center text-gray-400 font-bold uppercase text-[11px] tracking-widest">Nenhum produto encontrado</td>
                   </tr>
                 ) : filteredProducts.map(product => (
                   <tr key={product.id} className="hover:bg-indigo-50/20 transition-all group">
-                    <td className="px-8 py-5">
-                      <div className="flex items-center gap-4">
-                        <img src={toAbsoluteProductImageUrl(product.image, product.name)} className="w-12 h-12 rounded-xl object-cover border-2 border-white shadow-sm" />
+                    <td className="px-4 py-3.5">
+                      <div className="flex items-center gap-3">
+                        <img src={toAbsoluteProductImageUrl(product.image, product.name)} className="w-9 h-9 rounded-lg object-cover border border-white shadow-sm" />
                         <div>
-                          <p className="font-black text-gray-800 text-sm leading-tight">{product.name}</p>
-                          <div className="flex items-center gap-2 mt-1">
+                          <p className="font-black text-gray-800 text-xs leading-tight">{product.name}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
                              <p className="text-[9px] text-gray-400 font-bold uppercase">ID: #{product.id}</p>
                              {product.ean && (
                                <span className="flex items-center gap-1 text-[8px] font-black text-indigo-400 bg-indigo-50 px-1.5 rounded uppercase">
@@ -479,7 +479,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
                         </div>
                       </div>
                     </td>
-                    <td className="px-8 py-5">
+                    <td className="px-4 py-3.5">
                       <div className="flex flex-col">
                         <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-md text-[9px] font-black uppercase w-fit border border-indigo-100">
                           {product.category}
@@ -491,11 +491,11 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
                         )}
                       </div>
                     </td>
-                    <td className="px-8 py-5 text-center">
-                      <p className="font-black text-indigo-600 text-sm">R$ {product.price.toFixed(2)}</p>
+                    <td className="px-4 py-3.5 text-center">
+                      <p className="font-black text-indigo-600 text-xs">R$ {product.price.toFixed(2)}</p>
                       <p className="text-[9px] font-bold text-gray-400 uppercase mt-1">{product.unit || 'UN'}</p>
                     </td>
-                    <td className="px-8 py-5 text-center">
+                    <td className="px-4 py-3.5 text-center">
                       {product.controlsStock === false ? (
                         <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Não controlado</span>
                       ) : (
@@ -505,10 +505,10 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
                         </div>
                       )}
                     </td>
-                    <td className="px-8 py-5 text-right">
+                    <td className="px-4 py-3.5 text-right">
                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                          <button onClick={() => handleOpenEditProduct(product)} className="p-2 text-indigo-600 bg-white border rounded-xl shadow-sm hover:bg-indigo-50 transition-colors"><Edit size={16}/></button>
-                          <button onClick={() => handleDeleteProduct(product.id)} className="p-2 text-red-500 bg-white border rounded-xl shadow-sm hover:bg-red-50 transition-colors"><Trash2 size={16}/></button>
+                          <button onClick={() => handleOpenEditProduct(product)} className="p-1.5 text-indigo-600 bg-white border rounded-lg shadow-sm hover:bg-indigo-50 transition-colors"><Edit size={14}/></button>
+                          <button onClick={() => handleDeleteProduct(product.id)} className="p-1.5 text-red-500 bg-white border rounded-lg shadow-sm hover:bg-red-50 transition-colors"><Trash2 size={14}/></button>
                        </div>
                     </td>
                   </tr>
@@ -523,20 +523,20 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
       {isProductModalOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
            <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-sm animate-in fade-in" onClick={() => setIsProductModalOpen(false)}></div>
-           <form onSubmit={handleSaveProduct} className="relative w-full max-w-2xl bg-white rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
-              <div className="bg-indigo-600 p-8 text-white flex items-center justify-between shrink-0">
-                 <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center"><Package size={28} /></div>
+           <form onSubmit={handleSaveProduct} className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
+              <div className="bg-indigo-600 p-5 text-white flex items-center justify-between shrink-0">
+                 <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center"><Package size={20} /></div>
                     <div>
-                       <h2 className="text-xl font-black uppercase tracking-tight">{editingProductId ? 'Editar Produto' : 'Novo Produto'}</h2>
+                       <h2 className="text-lg font-black uppercase tracking-tight">{editingProductId ? 'Editar Produto' : 'Novo Produto'}</h2>
                        <p className="text-[10px] font-bold text-indigo-100 uppercase tracking-widest mt-1">Gestão de inventário para {activeEnterprise.name}</p>
                     </div>
                  </div>
-                 <button type="button" onClick={() => setIsProductModalOpen(false)}><X size={28} /></button>
+                 <button type="button" onClick={() => setIsProductModalOpen(false)}><X size={22} /></button>
               </div>
 
-              <div className="p-10 space-y-8 flex-1 overflow-y-auto scrollbar-hide pb-20">
-                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="p-5 space-y-5 flex-1 overflow-y-auto scrollbar-hide pb-14">
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-1.5 md:col-span-1">
                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nome do Produto *</label>
                         <input required value={productForm.name} onChange={e => setProductForm({...productForm, name: e.target.value})} className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-bold text-gray-800" placeholder="Ex: Refrigerante Lata 350ml" />
@@ -600,7 +600,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
                     </div>
                  </div>
 
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Categoria *</label>
                        <select required value={productForm.categoryId} onChange={e => setProductForm({...productForm, categoryId: e.target.value, subCategoryId: ''})} className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-bold text-gray-800 appearance-none">
@@ -621,7 +621,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
                     </div>
                  </div>
 
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Unidade *</label>
                        <select
@@ -663,7 +663,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
                     </label>
                  </div>
 
-                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-1.5">
                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Estoque Inicial</label>
                        <div className="relative">
@@ -688,10 +688,10 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
                  </div>
               </div>
 
-              <div className="p-8 bg-gray-50 border-t flex gap-4 shrink-0">
-                 <button type="button" onClick={() => setIsProductModalOpen(false)} className="flex-1 py-4 text-xs font-black text-gray-400 uppercase tracking-widest hover:text-gray-600">Cancelar</button>
-                 <button type="submit" className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest text-sm shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
-                    <CheckCircle2 size={20} /> {editingProductId ? 'Salvar Alterações' : 'Salvar Produto'}
+              <div className="p-5 bg-gray-50 border-t flex gap-3 shrink-0">
+                 <button type="button" onClick={() => setIsProductModalOpen(false)} className="flex-1 py-3 text-[11px] font-black text-gray-400 uppercase tracking-widest hover:text-gray-600">Cancelar</button>
+                 <button type="submit" className="flex-[2] py-3 bg-indigo-600 text-white rounded-xl font-black uppercase tracking-widest text-xs shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
+                    <CheckCircle2 size={16} /> {editingProductId ? 'Salvar Alterações' : 'Salvar Produto'}
                  </button>
               </div>
            </form>
@@ -702,15 +702,15 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
       {isCategoryModalOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
            <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-sm animate-in fade-in" onClick={() => setIsCategoryModalOpen(false)}></div>
-           <div className="relative w-full max-w-md bg-white rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95">
-              <div className="bg-indigo-600 p-8 text-white flex items-center justify-between">
-                 <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center"><Tags size={28} /></div>
-                    <h2 className="text-xl font-black uppercase tracking-tight">Nova Categoria</h2>
+           <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95">
+              <div className="bg-indigo-600 p-5 text-white flex items-center justify-between">
+                 <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center"><Tags size={20} /></div>
+                    <h2 className="text-lg font-black uppercase tracking-tight">Nova Categoria</h2>
                  </div>
-                 <button onClick={() => setIsCategoryModalOpen(false)}><X size={28} /></button>
+                 <button onClick={() => setIsCategoryModalOpen(false)}><X size={22} /></button>
               </div>
-              <div className="p-10 space-y-8">
+              <div className="p-5 space-y-5">
                  <div className="space-y-2">
                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nome da Categoria</label>
                     <input autoFocus id="catName" className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-bold text-gray-800" placeholder="Ex: Bebidas Importadas" />
@@ -720,7 +720,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
                     const input = document.getElementById('catName') as HTMLInputElement;
                     if(input.value) handleCreateCategory(input.value);
                   }}
-                  className="w-full py-5 bg-indigo-600 text-white rounded-[24px] font-black uppercase text-xs tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all"
+                  className="w-full py-3 bg-indigo-600 text-white rounded-xl font-black uppercase text-xs tracking-widest shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
                  >
                     Salvar Categoria
                  </button>
@@ -733,18 +733,18 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
       {isSubCategoryModalOpen && activeCategoryForSub && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
            <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-sm animate-in fade-in" onClick={() => setIsSubCategoryModalOpen(false)}></div>
-           <div className="relative w-full max-w-md bg-white rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95">
-              <div className="bg-amber-500 p-8 text-white flex items-center justify-between">
-                 <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center"><Layers size={28} /></div>
+           <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95">
+              <div className="bg-amber-500 p-5 text-white flex items-center justify-between">
+                 <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center"><Layers size={20} /></div>
                     <div>
-                       <h2 className="text-xl font-black uppercase tracking-tight">Nova Subcategoria</h2>
+                       <h2 className="text-lg font-black uppercase tracking-tight">Nova Subcategoria</h2>
                        <p className="text-[10px] font-bold text-amber-100 uppercase tracking-widest mt-1">Vinculada a: {activeCategoryForSub.name}</p>
                     </div>
                  </div>
-                 <button onClick={() => setIsSubCategoryModalOpen(false)}><X size={28} /></button>
+                 <button onClick={() => setIsSubCategoryModalOpen(false)}><X size={22} /></button>
               </div>
-              <div className="p-10 space-y-8">
+              <div className="p-5 space-y-5">
                  <div className="space-y-2">
                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nome da Subcategoria</label>
                     <input autoFocus id="subCatName" className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-amber-500 rounded-2xl outline-none font-bold text-gray-800" placeholder="Ex: Cervejas Artesanais" />
@@ -758,7 +758,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
                     const input = document.getElementById('subCatName') as HTMLInputElement;
                     if(input.value) handleCreateSubCategory(activeCategoryForSub.id, input.value);
                   }}
-                  className="w-full py-5 bg-amber-600 text-white rounded-[24px] font-black uppercase text-xs tracking-widest shadow-xl shadow-amber-100 hover:bg-amber-700 transition-all"
+                  className="w-full py-3 bg-amber-600 text-white rounded-xl font-black uppercase text-xs tracking-widest shadow-lg shadow-amber-100 hover:bg-amber-700 transition-all"
                  >
                     Confirmar Criação
                  </button>

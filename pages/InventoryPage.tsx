@@ -159,48 +159,48 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ currentUser, activeEnterp
   };
 
   return (
-    <div className="inventory-shell space-y-6 p-6 animate-in fade-in duration-500">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="inventory-shell space-y-3 p-3 animate-in fade-in duration-500">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-black text-gray-800 tracking-tight flex items-center gap-2 uppercase">
-            <Package className="text-indigo-600" size={28} /> Gestão de Estoque
+          <h1 className="text-xl sm:text-2xl font-black text-gray-800 tracking-tight flex items-center gap-2 uppercase">
+            <Package className="text-indigo-600" size={20} /> Gestão de Estoque
           </h1>
-          <div className="flex items-center gap-2 text-gray-500 text-[10px] font-black uppercase tracking-widest mt-1">
+          <div className="flex items-center gap-2 text-gray-500 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.12em] mt-1">
              <span className="opacity-60">Unidade:</span> <span className="text-indigo-600">{activeEnterprise.name}</span>
              <span className="mx-2 opacity-20">|</span>
              <span className="opacity-60">Último Balanço:</span> <span className="text-amber-600">{lastBalanceDate}</span>
           </div>
         </div>
-        <div className="flex gap-2">
-           <button onClick={startInventory} className="bg-amber-500 text-white px-5 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-amber-100 hover:bg-amber-600 flex items-center gap-2 transition-all">
-             <ClipboardCheck size={18} /> Balanço Físico
+        <div className="flex gap-1.5 sm:gap-2 flex-wrap">
+           <button onClick={startInventory} className="bg-amber-500 text-white px-3 py-2 rounded-lg font-black uppercase text-[9px] tracking-[0.12em] shadow-lg shadow-amber-100 hover:bg-amber-600 flex items-center gap-1.5 transition-all">
+             <ClipboardCheck size={13} /> Balanço Físico
            </button>
-           <button onClick={() => setIsEntryModalOpen(true)} className="bg-indigo-600 text-white px-5 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 flex items-center gap-2 transition-all">
-             <Plus size={18} /> Lançar Entrada
+           <button onClick={() => setIsEntryModalOpen(true)} className="bg-indigo-600 text-white px-3 py-2 rounded-lg font-black uppercase text-[9px] tracking-[0.12em] shadow-lg shadow-indigo-100 hover:bg-indigo-700 flex items-center gap-1.5 transition-all">
+             <Plus size={13} /> Lançar Entrada
            </button>
-           <button onClick={generatePDF} className="bg-white border-2 border-gray-100 text-gray-500 px-4 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-gray-50 flex items-center gap-2 shadow-sm transition-all">
-             <Download size={16} /> Exportar
+           <button onClick={generatePDF} className="bg-white border border-gray-200 text-gray-500 px-3 py-2 rounded-lg font-black uppercase text-[9px] tracking-[0.12em] hover:bg-gray-50 flex items-center gap-1.5 shadow-sm transition-all">
+             <Download size={12} /> Exportar
            </button>
         </div>
       </div>
 
       {!isInventoryMode && (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 animate-in zoom-in-95">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 animate-in zoom-in-95">
             <InventorySummaryCard label="Investimento" value={`R$ ${stats.totalCost.toFixed(2)}`} color="bg-indigo-50 text-indigo-600" icon={<DollarSign />} />
             <InventorySummaryCard label="Críticos" value={stats.lowStockCount.toString()} color="bg-amber-50 text-amber-600" icon={<AlertTriangle />} />
             <InventorySummaryCard label="Vencimentos" value={stats.expiringSoonCount.toString()} color="bg-red-50 text-red-600" icon={<Clock />} />
           </div>
 
-          <div className="bg-white p-6 rounded-[40px] border shadow-sm flex flex-col md:flex-row gap-6 items-end">
+          <div className="bg-white p-3 rounded-[22px] border shadow-sm flex flex-col md:flex-row gap-2.5 items-end">
             <div className="flex-1 space-y-1 w-full">
-                <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-4">Localizar Produto</label>
+                <label className="text-[8px] font-black text-gray-400 uppercase tracking-[0.12em] ml-3">Localizar Produto</label>
                 <div className="relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
                   <input 
                     type="text" 
                     placeholder="Nome do item ou código interno..." 
-                    className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none font-bold text-sm transition-all shadow-inner"
+                    className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-semibold text-xs transition-all shadow-inner"
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
                   />
@@ -208,12 +208,12 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ currentUser, activeEnterp
             </div>
 
             <div className="space-y-1 w-full md:w-56">
-                <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-4">Categoria</label>
+                <label className="text-[8px] font-black text-gray-400 uppercase tracking-[0.12em] ml-3">Categoria</label>
                 <div className="relative">
                   <select 
                     value={selectedCategory}
                     onChange={e => setSelectedCategory(e.target.value)}
-                    className="w-full pl-5 pr-10 py-3.5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none text-[10px] font-black uppercase tracking-widest appearance-none cursor-pointer shadow-inner"
+                    className="w-full pl-4 pr-9 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none text-[9px] font-black uppercase tracking-[0.12em] appearance-none cursor-pointer shadow-inner"
                   >
                       <option value="TODOS">Todas</option>
                       <option value="LANCHE">Lanches</option>
@@ -226,47 +226,47 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ currentUser, activeEnterp
             </div>
           </div>
 
-          <div className="bg-white rounded-[40px] border shadow-sm overflow-hidden">
+          <div className="bg-white rounded-[22px] border shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-[2px] border-b">
+                <table className="w-full text-left min-w-[920px]">
+                  <thead className="bg-gray-50 text-[9px] font-black text-gray-400 uppercase tracking-[0.12em] border-b">
                       <tr>
-                        <th className="px-8 py-6">Produto / SKU</th>
-                        <th className="px-8 py-6">Categoria</th>
-                        <th className="px-8 py-6 text-center">Custo Médio</th>
-                        <th className="px-8 py-6 text-center">Saldo Atual</th>
-                        <th className="px-8 py-6 text-center">Mínimo</th>
-                        <th className="px-8 py-6">Validade</th>
-                        <th className="px-8 py-6 text-right">Giro</th>
+                        <th className="px-3 py-2.5">Produto / SKU</th>
+                        <th className="px-3 py-2.5">Categoria</th>
+                        <th className="px-3 py-2.5 text-center">Custo Médio</th>
+                        <th className="px-3 py-2.5 text-center">Saldo Atual</th>
+                        <th className="px-3 py-2.5 text-center">Mínimo</th>
+                        <th className="px-3 py-2.5">Validade</th>
+                        <th className="px-3 py-2.5 text-right">Giro</th>
                       </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-50 text-[11px]">
+                  <tbody className="divide-y divide-gray-50 text-[10px]">
                       {filteredProducts.map(product => {
                         const isLowStock = product.stock < product.minStock;
                         return (
                           <tr key={product.id} className="hover:bg-indigo-50/20 transition-colors group">
-                            <td className="px-8 py-4">
-                              <div className="flex items-center gap-4">
-                                  <img src={toAbsoluteProductImageUrl(product.image, product.name)} className="w-10 h-10 rounded-xl object-cover border" />
+                            <td className="px-3 py-2.5">
+                              <div className="flex items-center gap-2.5">
+                                  <img src={toAbsoluteProductImageUrl(product.image, product.name)} className="w-8 h-8 rounded-lg object-cover border" />
                                   <div>
-                                    <p className="font-black text-gray-800 text-sm leading-tight uppercase">{product.name}</p>
-                                    <p className="text-[9px] text-gray-400 uppercase font-bold mt-1">#{product.id}</p>
+                                    <p className="font-black text-gray-800 text-xs leading-tight uppercase">{product.name}</p>
+                                    <p className="text-[8px] text-gray-400 uppercase font-bold mt-1">#{product.id}</p>
                                   </div>
                               </div>
                             </td>
-                            <td className="px-8 py-4">
-                              <span className="bg-indigo-50 text-indigo-400 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-tighter border border-indigo-100">{product.category}</span>
+                            <td className="px-3 py-2.5">
+                              <span className="bg-indigo-50 text-indigo-400 px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-tight border border-indigo-100">{product.category}</span>
                             </td>
-                            <td className="px-8 py-4 text-center font-bold text-gray-400">R$ {product.cost.toFixed(2)}</td>
-                            <td className="px-8 py-4 text-center">
-                              <p className={`text-base font-black ${isLowStock ? 'text-red-500' : 'text-indigo-600'}`}>{product.stock} un</p>
+                            <td className="px-3 py-2.5 text-center font-bold text-gray-500 text-xs">R$ {product.cost.toFixed(2)}</td>
+                            <td className="px-3 py-2.5 text-center">
+                              <p className={`text-sm font-black ${isLowStock ? 'text-red-500' : 'text-indigo-600'}`}>{product.stock} un</p>
                             </td>
-                            <td className="px-8 py-4 text-center text-gray-300 font-bold">{product.minStock} un</td>
-                            <td className="px-8 py-4">
-                              <span className="font-bold text-gray-500 uppercase">{product.expiryDate ? new Date(product.expiryDate).toLocaleDateString() : 'Não definido'}</span>
+                            <td className="px-3 py-2.5 text-center text-gray-400 font-bold text-xs">{product.minStock} un</td>
+                            <td className="px-3 py-2.5">
+                              <span className="font-bold text-gray-500 uppercase text-[10px]">{product.expiryDate ? new Date(product.expiryDate).toLocaleDateString() : 'Não definido'}</span>
                             </td>
-                            <td className="px-8 py-4 text-right">
-                               <button className="p-2 bg-white border rounded-xl text-gray-300 hover:text-indigo-600 shadow-sm transition-all"><ArrowUpCircle size={18}/></button>
+                            <td className="px-3 py-2.5 text-right">
+                               <button className="p-1.5 bg-white border rounded-lg text-gray-300 hover:text-indigo-600 shadow-sm transition-all"><ArrowUpCircle size={13}/></button>
                             </td>
                           </tr>
                         );
@@ -332,11 +332,11 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ currentUser, activeEnterp
 };
 
 const InventorySummaryCard = ({ label, value, color, icon }: any) => (
-  <div className={`${color} p-6 rounded-[32px] flex items-center gap-4 border shadow-sm transition-all hover:scale-[1.02]`}>
-     <div className="p-4 bg-white/50 rounded-2xl shadow-inner">{React.cloneElement(icon, { size: 24, strokeWidth: 3 })}</div>
+  <div className={`${color} p-3 rounded-[16px] flex items-center gap-2.5 border shadow-sm transition-all hover:scale-[1.01]`}>
+     <div className="p-2 bg-white/50 rounded-xl shadow-inner">{React.cloneElement(icon, { size: 16, strokeWidth: 2.5 })}</div>
      <div>
-        <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1">{label}</p>
-        <p className="text-3xl font-black leading-none tracking-tighter">{value}</p>
+        <p className="text-[8px] font-black uppercase tracking-[0.12em] opacity-60 mb-0.5">{label}</p>
+        <p className="text-lg font-black leading-none tracking-tight">{value}</p>
      </div>
   </div>
 );

@@ -27,6 +27,8 @@ interface DatabaseShape {
     history?: any;
     schedules?: any;
     aiConfig?: any;
+    dispatchAutomationsByEnterprise?: Record<string, any>;
+    dispatchLogsByEnterprise?: Record<string, any[]>;
     updatedAt?: string;
   };
 }
@@ -66,6 +68,8 @@ export class Database {
     history?: any;
     schedules?: any;
     aiConfig?: any;
+    dispatchAutomationsByEnterprise?: Record<string, any>;
+    dispatchLogsByEnterprise?: Record<string, any[]>;
     updatedAt?: string;
   } = {};
 
@@ -87,13 +91,692 @@ export class Database {
       }
     }
 
+    const isStudent = String(next?.type || '').trim().toUpperCase() === 'ALUNO';
+    const studentName = String(next?.name || '').trim();
+    const parentName = String(next?.parentName || '').trim();
+    if (isStudent && !parentName) {
+      next.parentName = studentName
+        ? `Responsável pelo(a) ${studentName}`
+        : 'Responsável não informado';
+    }
+
     return next;
+  }
+
+  private toFiniteNumber(value: any, fallback = 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  private roundValue(value: number, precision = 2) {
+    const factor = 10 ** precision;
+    return Math.round((this.toFiniteNumber(value, 0) + Number.EPSILON) * factor) / factor;
+  }
+
+  private normalizeToken(value?: string) {
+    return String(value || '')
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase();
+  }
+
+  private findPlanByReference(planId: string, planName: string, enterpriseId?: string) {
+    if (planId) {
+      const byId = this.plans.find((plan: any) => String(plan?.id || '').trim() === planId);
+      if (byId) return byId;
+    }
+
+    if (!planName) return null;
+    const normalizedPlanName = this.normalizeToken(planName);
+    if (!normalizedPlanName) return null;
+    const enterpriseIdNormalized = String(enterpriseId || '').trim();
+
+    const matches = this.plans.filter((plan: any) => {
+      const sameName = this.normalizeToken(plan?.name) === normalizedPlanName;
+      if (!sameName) return false;
+      if (!enterpriseIdNormalized) return true;
+      return String(plan?.enterpriseId || '').trim() === enterpriseIdNormalized;
+    });
+
+    return matches[0] || null;
+  }
+
+  private resolvePlanUnitValue(planId: string, planName: string, enterpriseId?: string, extraCandidates: any[] = []) {
+    const directCandidates = extraCandidates
+      .map((candidate) => this.toFiniteNumber(candidate, 0))
+      .find((candidate) => candidate > 0);
+    if (directCandidates && directCandidates > 0) {
+      return this.roundValue(directCandidates, 4);
+    }
+
+    const plan = this.findPlanByReference(planId, planName, enterpriseId);
+    if (!plan) return 0;
+
+    const planCandidates = [plan?.price, plan?.unitPrice, plan?.amount, plan?.value]
+      .map((candidate) => this.toFiniteNumber(candidate, 0))
+      .find((candidate) => candidate > 0);
+
+    return planCandidates && planCandidates > 0
+      ? this.roundValue(planCandidates, 4)
+      : 0;
+  }
+
+  private extractPlanBalanceUnits(entry: any, unitValue: number) {
+    const directUnits = [entry?.balanceUnits, entry?.units, entry?.remainingUnits, entry?.quantity]
+      .map((candidate) => this.toFiniteNumber(candidate, NaN))
+      .find((candidate) => Number.isFinite(candidate));
+    if (Number.isFinite(directUnits)) {
+      return Math.max(0, this.roundValue(Number(directUnits), 4));
+    }
+
+    const currentBalance = this.toFiniteNumber(entry?.balance, 0);
+    if (unitValue > 0) {
+      return Math.max(0, this.roundValue(currentBalance / unitValue, 4));
+    }
+
+    return Math.max(0, this.roundValue(currentBalance, 4));
+  }
+
+  private resolvePlanBalanceKey(balances: Record<string, any>, planId: string, planName: string) {
+    if (planId) return planId;
+    if (!planName) return '';
+
+    const byNameKey = Object.keys(balances).find((key) =>
+      this.normalizeToken(balances[key]?.planName) === this.normalizeToken(planName)
+    );
+    if (byNameKey) return byNameKey;
+
+    return this.normalizeToken(planName);
+  }
+
+  private resolveTransactionAmount(tx: any) {
+    return this.toFiniteNumber(tx?.amount ?? tx?.total ?? tx?.value, 0);
+  }
+
+  private resolveTransactionPlanUnits(tx: any, unitValue: number) {
+    const directUnits = [tx?.planUnits, tx?.balanceUnits, tx?.units, tx?.quantity]
+      .map((candidate) => this.toFiniteNumber(candidate, NaN))
+      .find((candidate) => Number.isFinite(candidate) && Math.abs(candidate) > 0);
+    if (Number.isFinite(directUnits)) {
+      return Math.abs(this.roundValue(Number(directUnits), 4));
+    }
+
+    const amount = Math.abs(this.resolveTransactionAmount(tx));
+    if (amount > 0 && unitValue > 0) {
+      return Math.abs(this.roundValue(amount / unitValue, 4));
+    }
+
+    const description = this.normalizeToken(`${tx?.description || ''} ${tx?.item || ''}`);
+    if (description.includes('CONSUMO DE 1 UNIDADE') || description.includes('ENTREGA DO DIA')) {
+      return 1;
+    }
+
+    return 0;
+  }
+
+  private formatUnitsLabel(value: number) {
+    const safe = this.roundValue(this.toFiniteNumber(value, 0), 4);
+    if (Math.abs(safe - Math.trunc(safe)) < 0.000001) return String(Math.trunc(safe));
+    return safe.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  }
+
+  private buildPlanUnitsProgressLabel(remainingUnits: number, totalUnits: number) {
+    const safeRemaining = Math.max(0, this.roundValue(this.toFiniteNumber(remainingUnits, 0), 4));
+    const safeTotal = Math.max(safeRemaining, this.roundValue(this.toFiniteNumber(totalUnits, 0), 4));
+    return `${this.formatUnitsLabel(safeRemaining)}/${this.formatUnitsLabel(safeTotal)}`;
+  }
+
+  private resolveConfiguredPlanUnits(client: any, planId: string, planName: string) {
+    const selectedPlansConfig = Array.isArray(client?.selectedPlansConfig) ? client.selectedPlansConfig : [];
+    const normalizedPlanName = this.normalizeToken(planName);
+
+    const matched = selectedPlansConfig.find((cfg: any) => {
+      const cfgPlanId = String(cfg?.planId || '').trim();
+      const cfgPlanName = this.normalizeToken(cfg?.planName || '');
+      if (planId && cfgPlanId && cfgPlanId === planId) return true;
+      if (normalizedPlanName && cfgPlanName && cfgPlanName === normalizedPlanName) return true;
+      return false;
+    });
+
+    if (!matched) return 0;
+
+    const selectedDates = Array.isArray(matched?.selectedDates) ? matched.selectedDates : [];
+    const daysOfWeek = Array.isArray(matched?.daysOfWeek) ? matched.daysOfWeek : [];
+    const count = selectedDates.length > 0 ? selectedDates.length : daysOfWeek.length;
+    return Math.max(0, this.roundValue(this.toFiniteNumber(count, 0), 4));
+  }
+
+  private isDeliveryPlanTransaction(tx: any) {
+    const description = this.normalizeToken(tx?.description || tx?.item || '');
+    if (!description.includes('ENTREGA DO DIA')) return false;
+    const method = this.normalizeToken(tx?.paymentMethod || tx?.method);
+    const hasPlan = Boolean(String(tx?.planId || '').trim() || String(tx?.plan || tx?.planName || tx?.item || '').trim());
+    return hasPlan && (method.includes('PLANO') || description.includes('PLANO') || description.includes('ALMOCO') || description.includes('LANCHE'));
+  }
+
+  private resolveDeliveryPlanTransactionKey(tx: any) {
+    const clientId = String(tx?.clientId || '').trim();
+    const planName = this.normalizeToken(tx?.plan || tx?.planName || tx?.item || '');
+    const date = String(tx?.deliveryDate || tx?.scheduledDate || tx?.mealDate || tx?.date || '').slice(0, 10);
+    if (!clientId || !planName || !date) return '';
+    return `${clientId}|${planName}|${date}`;
+  }
+
+  private normalizeClientPlanBalances(client: any) {
+    const next = { ...(client || {}) };
+    const rawBalances = next?.planCreditBalances;
+    if (!rawBalances || typeof rawBalances !== 'object' || Array.isArray(rawBalances)) {
+      return next;
+    }
+
+    const normalizedBalances: Record<string, any> = {};
+    for (const [rawKey, rawEntry] of Object.entries(rawBalances)) {
+      const entry = rawEntry && typeof rawEntry === 'object' ? rawEntry : {};
+      const planIdCandidate = String((entry as any)?.planId || '').trim();
+      const planId = planIdCandidate || (String(rawKey || '').startsWith('plan_') ? String(rawKey).trim() : '');
+      const planName = String((entry as any)?.planName || '').trim();
+      const fallbackKey = String(rawKey || planName || planId || '').trim();
+      const key = planId || this.normalizeToken(fallbackKey);
+      if (!key) continue;
+
+      const unitValueResolved = this.resolvePlanUnitValue(
+        planId,
+        planName,
+        String(next?.enterpriseId || '').trim(),
+        [(entry as any)?.unitValue, (entry as any)?.planPrice, (entry as any)?.price]
+      );
+      const unitValue = unitValueResolved > 0 ? unitValueResolved : 1;
+      const balanceUnits = this.extractPlanBalanceUnits(entry, unitValue);
+      const configuredUnits = this.resolveConfiguredPlanUnits(next, planId, planName);
+      const explicitTotalUnits = this.toFiniteNumber((entry as any)?.totalUnits, NaN);
+      const totalUnitsBase = Number.isFinite(explicitTotalUnits) ? Number(explicitTotalUnits) : 0;
+      const totalUnits = Math.max(balanceUnits, configuredUnits, this.roundValue(totalUnitsBase, 4));
+      const consumedUnits = Math.max(0, this.roundValue(totalUnits - balanceUnits, 4));
+      const balance = Math.max(0, this.roundValue(balanceUnits * unitValue, 2));
+      const resolvedPlan = this.findPlanByReference(planId, planName, String(next?.enterpriseId || '').trim());
+      const resolvedPlanName = String((entry as any)?.planName || planName || resolvedPlan?.name || 'PLANO').trim() || 'PLANO';
+      const resolvedPlanId = String((entry as any)?.planId || planId || resolvedPlan?.id || key).trim() || key;
+
+      normalizedBalances[key] = {
+        ...entry,
+        planId: resolvedPlanId,
+        planName: resolvedPlanName,
+        balanceUnits,
+        totalUnits,
+        consumedUnits,
+        unitsProgress: this.buildPlanUnitsProgressLabel(balanceUnits, totalUnits),
+        unitValue: this.roundValue(unitValue, 4),
+        balance,
+        updatedAt: (entry as any)?.updatedAt || new Date().toISOString(),
+      };
+    }
+
+    next.planCreditBalances = normalizedBalances;
+    return next;
+  }
+
+  private applyPlanBalanceDelta(clientRef: any, tx: any, signedUnits: number, signedAmount: number) {
+    const planId = String(tx?.planId || tx?.originPlanId || '').trim();
+    const planName = String(tx?.plan || tx?.planName || '').trim();
+    if (!planId && !planName) return;
+
+    const balances = { ...(clientRef?.planCreditBalances || {}) } as Record<string, any>;
+    const key = this.resolvePlanBalanceKey(balances, planId, planName);
+    if (!key) return;
+
+    const current = balances[key] || {};
+    const unitValueResolved = this.resolvePlanUnitValue(
+      planId || String(current?.planId || '').trim(),
+      planName || String(current?.planName || '').trim(),
+      String(clientRef?.enterpriseId || '').trim(),
+      [current?.unitValue, current?.planPrice, tx?.unitValue, tx?.planUnitValue, tx?.planPrice]
+    );
+    const unitValue = unitValueResolved > 0 ? unitValueResolved : 1;
+    const currentUnits = this.extractPlanBalanceUnits(current, unitValue);
+
+    let deltaUnits = this.toFiniteNumber(signedUnits, 0);
+    if (Math.abs(deltaUnits) < 0.000001) {
+      const fallbackAmount = this.toFiniteNumber(signedAmount, 0);
+      if (Math.abs(fallbackAmount) > 0) {
+        deltaUnits = unitValue > 0 ? fallbackAmount / unitValue : fallbackAmount;
+      }
+    }
+
+    const nextUnits = Math.max(0, this.roundValue(currentUnits + deltaUnits, 4));
+    const configuredUnits = this.resolveConfiguredPlanUnits(
+      clientRef,
+      planId || String(current?.planId || '').trim(),
+      planName || String(current?.planName || '').trim()
+    );
+    const explicitTotalUnits = this.toFiniteNumber(current?.totalUnits, NaN);
+    const totalUnitsBase = Number.isFinite(explicitTotalUnits) ? Number(explicitTotalUnits) : 0;
+    const nextTotalUnits = Math.max(nextUnits, configuredUnits, this.roundValue(totalUnitsBase, 4));
+    const nextConsumedUnits = Math.max(0, this.roundValue(nextTotalUnits - nextUnits, 4));
+    const nextBalance = Math.max(0, this.roundValue(nextUnits * unitValue, 2));
+    const resolvedPlan = this.findPlanByReference(
+      planId || String(current?.planId || '').trim(),
+      planName || String(current?.planName || '').trim(),
+      String(clientRef?.enterpriseId || '').trim()
+    );
+
+    balances[key] = {
+      ...current,
+      planId: String(current?.planId || planId || resolvedPlan?.id || key).trim() || key,
+      planName: String(current?.planName || planName || resolvedPlan?.name || 'PLANO').trim() || 'PLANO',
+      balanceUnits: nextUnits,
+      totalUnits: nextTotalUnits,
+      consumedUnits: nextConsumedUnits,
+      unitsProgress: this.buildPlanUnitsProgressLabel(nextUnits, nextTotalUnits),
+      unitValue: this.roundValue(unitValue, 4),
+      balance: nextBalance,
+      updatedAt: new Date().toISOString(),
+    };
+
+    clientRef.planCreditBalances = balances;
+  }
+
+  private rebuildClientPlanBalancesFromTransactions(client: any) {
+    const next = { ...(client || {}) };
+    const clientId = String(next?.id || '').trim();
+    if (!clientId) return next;
+
+    const existingBalances = next?.planCreditBalances && typeof next.planCreditBalances === 'object' && !Array.isArray(next.planCreditBalances)
+      ? (next.planCreditBalances as Record<string, any>)
+      : {};
+
+    const stateByKey = new Map<string, {
+      key: string;
+      planId: string;
+      planName: string;
+      unitValue: number;
+      purchasedUnits: number;
+      balanceUnits: number;
+      configuredUnits: number;
+      sawTransaction: boolean;
+      existingEntry: any;
+    }>();
+
+    const resolveStateKey = (planId: string, planName: string) => {
+      if (planId) return planId;
+      const normalizedName = this.normalizeToken(planName);
+      if (!normalizedName) return '';
+      const byName = Array.from(stateByKey.values()).find((entry) => this.normalizeToken(entry.planName) === normalizedName);
+      if (byName) return byName.key;
+      const byExisting = Object.entries(existingBalances).find(([, entry]) =>
+        this.normalizeToken((entry as any)?.planName) === normalizedName
+      );
+      if (byExisting?.[0]) return String(byExisting[0]);
+      return normalizedName;
+    };
+
+    const ensureState = (planIdInput: string, planNameInput: string, unitValueHint = 0) => {
+      const planId = String(planIdInput || '').trim();
+      const planName = String(planNameInput || '').trim();
+      const key = resolveStateKey(planId, planName);
+      if (!key) return null;
+      const current = stateByKey.get(key);
+      if (current) {
+        if (!current.planId && planId) current.planId = planId;
+        if ((!current.planName || current.planName === 'PLANO') && planName) current.planName = planName;
+        if (unitValueHint > 0 && current.unitValue <= 0) current.unitValue = this.roundValue(unitValueHint, 4);
+        return current;
+      }
+
+      const existingEntry = existingBalances[key] || {};
+      const existingPlanId = String(existingEntry?.planId || '').trim();
+      const existingPlanName = String(existingEntry?.planName || '').trim();
+      const resolvedPlan = this.findPlanByReference(
+        planId || existingPlanId,
+        planName || existingPlanName,
+        String(next?.enterpriseId || '').trim()
+      );
+      const resolvedPlanId = String(planId || existingPlanId || resolvedPlan?.id || key).trim() || key;
+      const resolvedPlanName = String(planName || existingPlanName || resolvedPlan?.name || 'PLANO').trim() || 'PLANO';
+      const resolvedUnitValue = this.resolvePlanUnitValue(
+        resolvedPlanId,
+        resolvedPlanName,
+        String(next?.enterpriseId || '').trim(),
+        [unitValueHint, existingEntry?.unitValue, existingEntry?.planPrice]
+      );
+
+      const state = {
+        key,
+        planId: resolvedPlanId,
+        planName: resolvedPlanName,
+        unitValue: resolvedUnitValue > 0 ? this.roundValue(resolvedUnitValue, 4) : 0,
+        purchasedUnits: 0,
+        balanceUnits: 0,
+        configuredUnits: this.resolveConfiguredPlanUnits(next, resolvedPlanId, resolvedPlanName),
+        sawTransaction: false,
+        existingEntry,
+      };
+      stateByKey.set(key, state);
+      return state;
+    };
+
+    for (const [rawKey, rawEntry] of Object.entries(existingBalances)) {
+      const entry = rawEntry && typeof rawEntry === 'object' ? rawEntry : {};
+      const planId = String((entry as any)?.planId || '').trim() || (String(rawKey || '').startsWith('plan_') ? String(rawKey).trim() : '');
+      const planName = String((entry as any)?.planName || '').trim();
+      const unitHint = this.toFiniteNumber((entry as any)?.unitValue, 0);
+      ensureState(planId, planName, unitHint);
+    }
+
+    const selectedConfigs = Array.isArray(next?.selectedPlansConfig) ? next.selectedPlansConfig : [];
+    selectedConfigs.forEach((cfg: any) => {
+      const planId = String(cfg?.planId || '').trim();
+      const planName = String(cfg?.planName || cfg?.name || '').trim();
+      const unitHint = this.toFiniteNumber(cfg?.planPrice ?? cfg?.price ?? cfg?.value, 0);
+      ensureState(planId, planName, unitHint);
+    });
+
+    const clientTransactions = this.transactions
+      .filter((tx: any) => String(tx?.clientId || '').trim() === clientId)
+      .sort((a: any, b: any) => {
+        const aTs = new Date(a?.timestamp || `${a?.date || ''}T${a?.time || '00:00'}`).getTime();
+        const bTs = new Date(b?.timestamp || `${b?.date || ''}T${b?.time || '00:00'}`).getTime();
+        return (Number.isFinite(aTs) ? aTs : 0) - (Number.isFinite(bTs) ? bTs : 0);
+      });
+
+    clientTransactions.forEach((tx: any) => {
+      const txType = this.normalizeToken(tx?.type);
+      const txDesc = this.normalizeToken(tx?.description || tx?.item);
+      const txMethod = this.normalizeToken(tx?.paymentMethod || tx?.method);
+      const planId = String(tx?.planId || tx?.originPlanId || '').trim();
+      const planName = String(tx?.plan || tx?.planName || tx?.item || '').trim();
+      const planNameNormalized = this.normalizeToken(planName);
+      const isDelivery = this.isDeliveryPlanTransaction(tx);
+      const isPlanCredit = (txType === 'CREDIT' || txType === 'CREDITO')
+        && (Boolean(planId) || txDesc.includes('CREDITO PLANO') || txDesc.includes('RECARGA DE PLANO') || txMethod.includes('PLANO'));
+      const isPlanConsumption = (txType === 'CONSUMO' || txType === 'DEBIT')
+        && (isDelivery || Boolean(planId) || txMethod.includes('PLANO') || (planNameNormalized.length > 0 && !['AVULSO', 'PREPAGO', 'GERAL', 'VENDA'].includes(planNameNormalized)));
+      if (!isPlanCredit && !isPlanConsumption) return;
+      if (!planId && !planName) return;
+
+      const state = ensureState(planId, planName, this.toFiniteNumber(tx?.planUnitValue ?? tx?.unitValue ?? tx?.planPrice, 0));
+      if (!state) return;
+
+      const unitValue = state.unitValue > 0
+        ? state.unitValue
+        : this.resolvePlanUnitValue(state.planId, state.planName, String(next?.enterpriseId || '').trim(), [tx?.planUnitValue, tx?.unitValue, tx?.planPrice]);
+      const safeUnitValue = unitValue > 0 ? unitValue : 1;
+      if (state.unitValue <= 0 && safeUnitValue > 0) {
+        state.unitValue = this.roundValue(safeUnitValue, 4);
+      }
+      const units = this.resolveTransactionPlanUnits(tx, safeUnitValue);
+      if (units <= 0) return;
+
+      state.sawTransaction = true;
+      if (isPlanCredit) {
+        const isReversal = txDesc.includes('ESTORNO');
+        state.balanceUnits = this.roundValue(state.balanceUnits + units, 4);
+        if (!isReversal) {
+          state.purchasedUnits = this.roundValue(state.purchasedUnits + units, 4);
+        }
+        return;
+      }
+
+      if (isPlanConsumption) {
+        state.balanceUnits = this.roundValue(Math.max(0, state.balanceUnits - units), 4);
+      }
+    });
+
+    const rebuiltBalances: Record<string, any> = {};
+    stateByKey.forEach((state) => {
+      const currentEntry = state.existingEntry || {};
+      const currentUnitValue = state.unitValue > 0
+        ? state.unitValue
+        : this.resolvePlanUnitValue(state.planId, state.planName, String(next?.enterpriseId || '').trim(), [currentEntry?.unitValue, currentEntry?.planPrice]);
+      const safeUnitValue = currentUnitValue > 0 ? currentUnitValue : 1;
+
+      let balanceUnits = state.sawTransaction
+        ? this.roundValue(Math.max(0, state.balanceUnits), 4)
+        : this.extractPlanBalanceUnits(currentEntry, safeUnitValue);
+      const explicitTotalUnits = this.toFiniteNumber(currentEntry?.totalUnits, NaN);
+      const totalBase = Number.isFinite(explicitTotalUnits) ? Number(explicitTotalUnits) : 0;
+      const purchasedBase = state.sawTransaction ? state.purchasedUnits : 0;
+      const totalUnits = Math.max(balanceUnits, state.configuredUnits, this.roundValue(totalBase, 4), this.roundValue(purchasedBase, 4));
+      const consumedUnits = Math.max(0, this.roundValue(totalUnits - balanceUnits, 4));
+      const balance = Math.max(0, this.roundValue(balanceUnits * safeUnitValue, 2));
+      const key = String(state.planId || state.key).trim() || state.key;
+
+      rebuiltBalances[key] = {
+        ...currentEntry,
+        planId: String(state.planId || currentEntry?.planId || key).trim() || key,
+        planName: String(state.planName || currentEntry?.planName || 'PLANO').trim() || 'PLANO',
+        balanceUnits,
+        totalUnits,
+        consumedUnits,
+        unitsProgress: this.buildPlanUnitsProgressLabel(balanceUnits, totalUnits),
+        unitValue: this.roundValue(safeUnitValue, 4),
+        balance,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    next.planCreditBalances = rebuiltBalances;
+    return next;
+  }
+
+  private deduplicateDeliveryHistoryTransactions() {
+    const groupedByKey = new Map<string, any[]>();
+    const toTimestamp = (tx: any) => {
+      const parsed = new Date(tx?.timestamp || `${tx?.date || ''}T${tx?.time || '00:00'}`).getTime();
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const isReversal = (tx: any) => {
+      const txType = this.normalizeToken(tx?.type);
+      const txDesc = this.normalizeToken(tx?.description || tx?.item);
+      return txType === 'CREDITO' || txDesc.includes('ESTORNO');
+    };
+
+    this.transactions.forEach((tx: any) => {
+      if (!this.isDeliveryPlanTransaction(tx)) return;
+      const key = this.resolveDeliveryPlanTransactionKey(tx);
+      if (!key) return;
+      const current = groupedByKey.get(key) || [];
+      current.push(tx);
+      groupedByKey.set(key, current);
+    });
+
+    const idsToRemove = new Set<string>();
+    let affectedKeys = 0;
+
+    groupedByKey.forEach((txs) => {
+      if (!Array.isArray(txs) || txs.length <= 1) return;
+      let removedInGroup = 0;
+      const sorted = [...txs].sort((a, b) => toTimestamp(a) - toTimestamp(b));
+      const normal = sorted.filter((tx) => !isReversal(tx));
+      const reversals = sorted.filter((tx) => isReversal(tx));
+      const net = sorted.reduce((acc, tx) => acc + (isReversal(tx) ? -1 : 1), 0);
+      const keepIds = new Set<string>();
+
+      if (net > 0) {
+        const firstNormal = normal[0];
+        if (firstNormal?.id) keepIds.add(String(firstNormal.id));
+      } else if (net === 0) {
+        const firstNormal = normal[0];
+        if (firstNormal?.id) keepIds.add(String(firstNormal.id));
+        if (reversals.length > 0) {
+          const firstNormalTs = firstNormal ? toTimestamp(firstNormal) : 0;
+          const reversalAfterNormal = reversals.find((tx) => toTimestamp(tx) >= firstNormalTs) || reversals[0];
+          if (reversalAfterNormal?.id) keepIds.add(String(reversalAfterNormal.id));
+        }
+      } else {
+        const firstReversal = reversals[0];
+        if (firstReversal?.id) keepIds.add(String(firstReversal.id));
+      }
+
+      sorted.forEach((tx) => {
+        const txId = String(tx?.id || '').trim();
+        if (!txId) return;
+        if (!keepIds.has(txId)) {
+          idsToRemove.add(txId);
+          removedInGroup += 1;
+        }
+      });
+      if (removedInGroup > 0) affectedKeys += 1;
+    });
+
+    if (idsToRemove.size === 0) {
+      return { removed: 0, affectedKeys: 0 };
+    }
+
+    this.transactions = this.transactions.filter((tx: any) => {
+      const txId = String(tx?.id || '').trim();
+      return !txId || !idsToRemove.has(txId);
+    });
+
+    return { removed: idsToRemove.size, affectedKeys };
+  }
+
+  private buildConsumedPlanProgressByTransactionId(transactions: any[]) {
+    const progressByTxId = new Map<string, string>();
+    const unitByClientPlanId = new Map<string, number>();
+    const unitByClientPlanName = new Map<string, number>();
+    const genericPlanNames = new Set(['', 'AVULSO', 'PREPAGO', 'GERAL', 'VENDA', 'CANTINA', 'CREDITO CANTINA', 'CRÉDITO CANTINA']);
+
+    this.clients.forEach((client: any) => {
+      const clientId = String(client?.id || '').trim();
+      if (!clientId) return;
+      const balances = client?.planCreditBalances && typeof client.planCreditBalances === 'object' && !Array.isArray(client.planCreditBalances)
+        ? Object.values(client.planCreditBalances)
+        : [];
+      (Array.isArray(balances) ? balances : []).forEach((entry: any) => {
+        const planId = String(entry?.planId || '').trim();
+        const planName = this.normalizeToken(entry?.planName || '');
+        const unitValue = this.toFiniteNumber(entry?.unitValue ?? entry?.planPrice ?? entry?.price, 0);
+        if (!Number.isFinite(unitValue) || unitValue <= 0) return;
+        if (planId) unitByClientPlanId.set(`${clientId}|${planId}`, unitValue);
+        if (planName) unitByClientPlanName.set(`${clientId}|${planName}`, unitValue);
+      });
+    });
+
+    type State = { purchasedUnits: number; consumedUnits: number };
+    const stateByCanonical = new Map<string, State>();
+    const canonicalById = new Map<string, string>();
+    const canonicalByName = new Map<string, string>();
+    const resolveCanonicalKey = (clientId: string, planId: string, planName: string) => {
+      const idLookup = planId ? canonicalById.get(`${clientId}|${planId}`) : '';
+      if (idLookup) {
+        if (planName) canonicalByName.set(`${clientId}|${planName}`, idLookup);
+        return idLookup;
+      }
+      const nameLookup = planName ? canonicalByName.get(`${clientId}|${planName}`) : '';
+      if (nameLookup) {
+        if (planId) canonicalById.set(`${clientId}|${planId}`, nameLookup);
+        return nameLookup;
+      }
+      const fresh = `${clientId}|${planId || planName}`;
+      if (planId) canonicalById.set(`${clientId}|${planId}`, fresh);
+      if (planName) canonicalByName.set(`${clientId}|${planName}`, fresh);
+      return fresh;
+    };
+
+    const resolveEffectiveDateKey = (tx: any) => {
+      const direct = String(tx?.deliveryDate || tx?.scheduledDate || tx?.mealDate || tx?.date || '').slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(direct)) return direct;
+      const description = String(tx?.description || tx?.item || '');
+      const isoMatch = description.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+      if (isoMatch?.[1]) return isoMatch[1];
+      const brMatch = description.match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/);
+      if (brMatch) {
+        const [, dd, mm, yyyy] = brMatch;
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      return '0000-00-00';
+    };
+
+    const sorted = [...(Array.isArray(transactions) ? transactions : [])].sort((a: any, b: any) => {
+      const aDateKey = resolveEffectiveDateKey(a);
+      const bDateKey = resolveEffectiveDateKey(b);
+      if (aDateKey !== bDateKey) return aDateKey.localeCompare(bDateKey);
+
+      const aTs = new Date(a?.timestamp || `${a?.date || ''}T${a?.time || '00:00'}`).getTime();
+      const bTs = new Date(b?.timestamp || `${b?.date || ''}T${b?.time || '00:00'}`).getTime();
+      const safeATs = Number.isFinite(aTs) ? aTs : 0;
+      const safeBTs = Number.isFinite(bTs) ? bTs : 0;
+      if (safeATs !== safeBTs) return safeATs - safeBTs;
+
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+
+    sorted.forEach((tx: any) => {
+      const txId = String(tx?.id || '').trim();
+      const clientId = String(tx?.clientId || '').trim();
+      if (!txId || !clientId) return;
+
+      const txType = this.normalizeToken(tx?.type);
+      const txDesc = this.normalizeToken(tx?.description || tx?.item);
+      const txMethod = this.normalizeToken(tx?.paymentMethod || tx?.method);
+      const planId = String(tx?.planId || tx?.originPlanId || '').trim();
+      const planName = this.normalizeToken(tx?.plan || tx?.planName || tx?.item || '');
+      if (!planId && !planName) return;
+
+      const isPlanCredit = (txType === 'CREDIT' || txType === 'CREDITO')
+        && (Boolean(planId) || txDesc.includes('CREDITO PLANO') || txDesc.includes('RECARGA DE PLANO') || txMethod.includes('PLANO'));
+      const isPlanConsumption = (txType === 'CONSUMO' || txType === 'DEBIT')
+        && (
+          this.isDeliveryPlanTransaction(tx)
+          || Boolean(planId)
+          || txMethod.includes('PLANO')
+          || (planName.length > 0 && !genericPlanNames.has(planName))
+        );
+      if (!isPlanCredit && !isPlanConsumption) return;
+
+      const canonicalKey = resolveCanonicalKey(clientId, planId, planName);
+      const state = stateByCanonical.get(canonicalKey) || { purchasedUnits: 0, consumedUnits: 0 };
+      const unitValue = this.resolvePlanUnitValue(
+        planId,
+        planName,
+        String(tx?.enterpriseId || '').trim(),
+        [
+          tx?.planUnitValue,
+          tx?.unitValue,
+          tx?.planPrice,
+          planId ? unitByClientPlanId.get(`${clientId}|${planId}`) : undefined,
+          planName ? unitByClientPlanName.get(`${clientId}|${planName}`) : undefined,
+        ]
+      );
+      const units = this.resolveTransactionPlanUnits(tx, unitValue > 0 ? unitValue : 1);
+      if (!Number.isFinite(units) || units <= 0) return;
+
+      if (isPlanCredit) {
+        const isReversal = txDesc.includes('ESTORNO');
+        if (!isReversal) {
+          state.purchasedUnits = this.roundValue(state.purchasedUnits + units, 4);
+        }
+        stateByCanonical.set(canonicalKey, state);
+        return;
+      }
+
+      state.consumedUnits = this.roundValue(Math.max(0, state.consumedUnits + units), 4);
+      if (state.purchasedUnits < state.consumedUnits) {
+        state.purchasedUnits = state.consumedUnits;
+      }
+      progressByTxId.set(
+        txId,
+        this.buildPlanUnitsProgressLabel(
+          state.consumedUnits,
+          Math.max(state.purchasedUnits, state.consumedUnits)
+        )
+      );
+      stateByCanonical.set(canonicalKey, state);
+    });
+
+    return progressByTxId;
   }
 
   private normalizeStoredData() {
     this.enterprises = this.enterprises.map((enterprise) => this.normalizeContactFields(enterprise));
-    this.clients = this.clients.map((client) => this.normalizeContactFields(client));
     this.suppliers = this.suppliers.map((supplier) => this.normalizeContactFields(supplier));
+    this.deduplicateDeliveryHistoryTransactions();
+    this.clients = this.clients.map((client) => {
+      const contactNormalized = this.normalizeContactFields(client);
+      const schemaNormalized = this.normalizeClientPlanBalances(contactNormalized);
+      return this.rebuildClientPlanBalancesFromTransactions(schemaNormalized);
+    });
   }
 
   constructor() {
@@ -258,6 +941,8 @@ export class Database {
       this.assignData(data);
       this.normalizeStoredData();
       this.syncProductSequence();
+      // Persiste normalizações (ex.: saldos de plano com unidade+valor derivado).
+      this.saveData();
 
       console.log('✅ [DB] Data loaded successfully');
       console.log(`   - Enterprise: ${this.enterprises.length}`);
@@ -382,6 +1067,8 @@ export class Database {
     history?: any;
     schedules?: any;
     aiConfig?: any;
+    dispatchAutomationsByEnterprise?: Record<string, any>;
+    dispatchLogsByEnterprise?: Record<string, any[]>;
   }) {
     this.whatsappStore = {
       ...this.getWhatsAppStore(),
@@ -575,7 +1262,9 @@ export class Database {
   }
 
   createClient(data: any) {
-    const newClient = this.normalizeContactFields({ ...data, id: 'c_' + Date.now() });
+    const newClient = this.normalizeClientPlanBalances(
+      this.normalizeContactFields({ ...data, id: 'c_' + Date.now() })
+    );
     this.clients.push(newClient);
     this.saveData();
     return newClient;
@@ -584,7 +1273,9 @@ export class Database {
   updateClient(id: string, data: any) {
     const index = this.clients.findIndex(c => c.id === id);
     if (index > -1) {
-      this.clients[index] = this.normalizeContactFields({ ...this.clients[index], ...data });
+      this.clients[index] = this.normalizeClientPlanBalances(
+        this.normalizeContactFields({ ...this.clients[index], ...data })
+      );
       this.saveData();
       return this.clients[index];
     }
@@ -681,6 +1372,14 @@ export class Database {
 
   // ===== TRANSACTIONS =====
   getTransactions(filters?: { clientId?: string; enterpriseId?: string }) {
+    const dedupResult = this.deduplicateDeliveryHistoryTransactions();
+    if (dedupResult.removed > 0) {
+      this.clients = this.clients.map((client) => this.rebuildClientPlanBalancesFromTransactions(client));
+      this.saveData();
+    }
+
+    const consumedProgressByTxId = this.buildConsumedPlanProgressByTransactionId(this.transactions);
+
     const { clientId, enterpriseId } = filters || {};
     let result = this.transactions;
 
@@ -696,6 +1395,14 @@ export class Database {
       const aTs = new Date(a.timestamp || `${a.date || ''}T${a.time || '00:00'}`).getTime();
       const bTs = new Date(b.timestamp || `${b.date || ''}T${b.time || '00:00'}`).getTime();
       return (Number.isFinite(bTs) ? bTs : 0) - (Number.isFinite(aTs) ? aTs : 0);
+    }).map((tx: any) => {
+      const txId = String(tx?.id || '').trim();
+      const snapshot = txId ? consumedProgressByTxId.get(txId) : '';
+      if (!snapshot) return tx;
+      return {
+        ...tx,
+        unitsProgressSnapshot: snapshot,
+      };
     });
   }
 
@@ -725,7 +1432,65 @@ export class Database {
       date: data?.date || date,
       time: data?.time || time,
     };
+
+    if (this.isDeliveryPlanTransaction(newTransaction)) {
+      const deliveryKey = this.resolveDeliveryPlanTransactionKey(newTransaction);
+      const txType = this.normalizeToken(newTransaction?.type);
+      const txDesc = this.normalizeToken(newTransaction?.description || newTransaction?.item);
+      const isReversal = txType === 'CREDITO' || txDesc.includes('ESTORNO');
+
+      if (deliveryKey && txType === 'CONSUMO' && !isReversal) {
+        const deliveryBalance = this.transactions.reduce((acc, tx: any) => {
+          if (!this.isDeliveryPlanTransaction(tx)) return acc;
+          if (this.resolveDeliveryPlanTransactionKey(tx) !== deliveryKey) return acc;
+          const existingType = this.normalizeToken(tx?.type);
+          const existingDesc = this.normalizeToken(tx?.description || tx?.item);
+          const existingIsReversal = existingType === 'CREDITO' || existingDesc.includes('ESTORNO');
+          return acc + (existingIsReversal ? -1 : 1);
+        }, 0);
+
+        if (deliveryBalance > 0) {
+          const existing = [...this.transactions].reverse().find((tx: any) => {
+            if (!this.isDeliveryPlanTransaction(tx)) return false;
+            if (this.resolveDeliveryPlanTransactionKey(tx) !== deliveryKey) return false;
+            const existingType = this.normalizeToken(tx?.type);
+            const existingDesc = this.normalizeToken(tx?.description || tx?.item);
+            return !(existingType === 'CREDITO' || existingDesc.includes('ESTORNO'));
+          });
+          return existing || newTransaction;
+        }
+      }
+    }
+
     this.transactions.push(newTransaction);
+
+    if (this.isDeliveryPlanTransaction(newTransaction)) {
+      const clientId = String(newTransaction?.clientId || '').trim();
+      const clientIndex = clientId
+        ? this.clients.findIndex((client: any) => String(client?.id || '').trim() === clientId)
+        : -1;
+      if (clientIndex > -1) {
+        const clientRef: any = { ...this.clients[clientIndex] };
+        const planId = String(newTransaction?.planId || newTransaction?.originPlanId || '').trim();
+        const planName = String(newTransaction?.plan || newTransaction?.planName || '').trim();
+        const unitValue = this.resolvePlanUnitValue(
+          planId,
+          planName,
+          String(clientRef?.enterpriseId || '').trim(),
+          [newTransaction?.planUnitValue, newTransaction?.unitValue, newTransaction?.planPrice]
+        );
+        const units = this.resolveTransactionPlanUnits(newTransaction, unitValue > 0 ? unitValue : 1);
+        if (units > 0) {
+          const normalizedType = this.normalizeToken(newTransaction?.type);
+          const normalizedDesc = this.normalizeToken(newTransaction?.description || newTransaction?.item);
+          const isReversal = normalizedType === 'CREDITO' || normalizedDesc.includes('ESTORNO');
+          const signedUnits = isReversal ? units : -units;
+          this.applyPlanBalanceDelta(clientRef, newTransaction, signedUnits, 0);
+          this.clients[clientIndex] = this.normalizeClientPlanBalances(clientRef);
+        }
+      }
+    }
+
     this.saveData();
     return newTransaction;
   }
@@ -750,49 +1515,29 @@ export class Database {
       };
 
       if (applyClientEffects) {
-        const normalize = (value?: string) =>
-          String(value || '')
-            .trim()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .toUpperCase();
-
         const amountFromTx = (tx: any) => {
-          const n = Number(tx?.amount ?? tx?.total ?? tx?.value ?? 0);
+          const n = this.resolveTransactionAmount(tx);
           return Number.isFinite(n) ? n : 0;
-        };
-
-        const applyPlanBalance = (clientRef: any, tx: any, signedAmount: number) => {
-          const planId = String(tx?.planId || '').trim();
-          const planName = String(tx?.plan || '').trim();
-          if (!planId && !planName) return;
-
-          const balances = { ...(clientRef.planCreditBalances || {}) } as Record<string, any>;
-          let key = planId;
-          if (!key && planName) {
-            const byNameKey = Object.keys(balances).find((k) =>
-              normalize(balances[k]?.planName) === normalize(planName)
-            );
-            key = byNameKey || planName.toUpperCase();
-          }
-
-          const current = balances[key] || {};
-          const currentBalance = Number(current.balance || 0);
-          const nextBalance = Math.max(0, Number((currentBalance + signedAmount).toFixed(2)));
-          balances[key] = {
-            ...current,
-            planId: current.planId || planId || key,
-            planName: current.planName || planName || 'PLANO',
-            balance: nextBalance,
-            updatedAt: new Date().toISOString()
-          };
-          clientRef.planCreditBalances = balances;
         };
 
         const applyEffect = (clientRef: any, tx: any, factor: number) => {
           const signedAmount = Number((amountFromTx(tx) * factor).toFixed(2));
-          const txType = normalize(tx?.type);
-          const txDesc = normalize(tx?.description || tx?.item);
+          const txType = this.normalizeToken(tx?.type);
+          const txDesc = this.normalizeToken(tx?.description || tx?.item);
+          const txMethod = this.normalizeToken(tx?.paymentMethod || tx?.method);
+          const planId = String(tx?.planId || tx?.originPlanId || '').trim();
+          const planName = String(tx?.plan || tx?.planName || '').trim();
+          const planNameNormalized = this.normalizeToken(planName);
+          const isPlanConsumption =
+            Boolean(planId)
+            || txMethod.includes('PLANO')
+            || (planNameNormalized.length > 0 && !['AVULSO', 'PREPAGO', 'GERAL'].includes(planNameNormalized));
+          const unitValue = this.resolvePlanUnitValue(planId, planName, String(clientRef?.enterpriseId || '').trim(), [
+            tx?.planUnitValue,
+            tx?.unitValue,
+            tx?.planPrice,
+          ]);
+          const signedUnits = this.roundValue(this.resolveTransactionPlanUnits(tx, unitValue > 0 ? unitValue : 1) * factor, 4);
 
           if (txType === 'CREDIT' || txType === 'CREDITO') {
             if (txDesc.includes('PAGAMENTO DE CONSUMO DO COLABORADOR')) {
@@ -804,7 +1549,7 @@ export class Database {
             }
 
             if (tx?.planId || txDesc.includes('CREDITO PLANO') || txDesc.includes('RECARGA DE PLANO')) {
-              applyPlanBalance(clientRef, tx, signedAmount);
+              this.applyPlanBalanceDelta(clientRef, tx, signedUnits, signedAmount);
               return;
             }
 
@@ -813,8 +1558,8 @@ export class Database {
           }
 
           if (txType === 'CONSUMO') {
-            if (tx?.planId || tx?.plan) {
-              applyPlanBalance(clientRef, tx, -signedAmount);
+            if (isPlanConsumption) {
+              this.applyPlanBalanceDelta(clientRef, tx, -signedUnits, -signedAmount);
             }
           }
         };
@@ -845,57 +1590,31 @@ export class Database {
     if (index > -1) {
       const txToDelete: any = this.transactions[index];
 
-      const normalize = (value?: string) =>
-        String(value || '')
-          .trim()
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .toUpperCase();
-
       const amountFromTx = (tx: any) => {
-        const n = Math.abs(Number(tx?.amount ?? tx?.total ?? tx?.value ?? 0));
+        const n = Math.abs(this.resolveTransactionAmount(tx));
         return Number.isFinite(n) ? n : 0;
-      };
-
-      const applyPlanBalance = (clientRef: any, tx: any, signedAmount: number) => {
-        const planId = String(tx?.planId || '').trim();
-        const planName = String(tx?.plan || '').trim();
-        if (!planId && !planName) return;
-
-        const balances = { ...(clientRef.planCreditBalances || {}) } as Record<string, any>;
-        let key = planId;
-        if (!key && planName) {
-          const byNameKey = Object.keys(balances).find((k) =>
-            normalize(balances[k]?.planName) === normalize(planName)
-          );
-          key = byNameKey || planName.toUpperCase();
-        }
-
-        const current = balances[key] || {};
-        const currentBalance = Number(current.balance || 0);
-        const nextBalance = Math.max(0, Number((currentBalance + signedAmount).toFixed(2)));
-        balances[key] = {
-          ...current,
-          planId: current.planId || planId || key,
-          planName: current.planName || planName || 'PLANO',
-          balance: nextBalance,
-          updatedAt: new Date().toISOString()
-        };
-        clientRef.planCreditBalances = balances;
       };
 
       const applyEffect = (clientRef: any, tx: any, factor: number) => {
         const signedAmount = Number((amountFromTx(tx) * factor).toFixed(2));
-        const txType = normalize(tx?.type);
-        const txDesc = normalize(tx?.description || tx?.item);
-        const txMethod = normalize(tx?.paymentMethod || tx?.method);
+        const txType = this.normalizeToken(tx?.type);
+        const txDesc = this.normalizeToken(tx?.description || tx?.item);
+        const txMethod = this.normalizeToken(tx?.paymentMethod || tx?.method);
         const isSaldoMethod = txMethod.includes('SALDO') || txMethod.includes('CARTEIRA');
         const isCollaboratorCreditMethod = txMethod.includes('CREDITO_COLABORADOR');
-        const planNameNormalized = normalize(tx?.plan);
+        const planNameNormalized = this.normalizeToken(tx?.plan);
         const isPlanConsumption =
           Boolean(tx?.planId)
           || txMethod.includes('PLANO')
           || (planNameNormalized.length > 0 && !['AVULSO', 'PREPAGO', 'GERAL'].includes(planNameNormalized));
+        const planId = String(tx?.planId || tx?.originPlanId || '').trim();
+        const planName = String(tx?.plan || tx?.planName || '').trim();
+        const unitValue = this.resolvePlanUnitValue(planId, planName, String(clientRef?.enterpriseId || '').trim(), [
+          tx?.planUnitValue,
+          tx?.unitValue,
+          tx?.planPrice,
+        ]);
+        const signedUnits = this.roundValue(this.resolveTransactionPlanUnits(tx, unitValue > 0 ? unitValue : 1) * factor, 4);
 
         if (txType === 'CREDIT' || txType === 'CREDITO') {
           if (txDesc.includes('PAGAMENTO DE CONSUMO DO COLABORADOR')) {
@@ -907,7 +1626,7 @@ export class Database {
           }
 
           if (tx?.planId || txDesc.includes('CREDITO PLANO') || txDesc.includes('RECARGA DE PLANO')) {
-            applyPlanBalance(clientRef, tx, signedAmount);
+            this.applyPlanBalanceDelta(clientRef, tx, signedUnits, signedAmount);
             return;
           }
 
@@ -917,7 +1636,7 @@ export class Database {
 
         if (txType === 'CONSUMO') {
           if (isPlanConsumption) {
-            applyPlanBalance(clientRef, tx, -signedAmount);
+            this.applyPlanBalanceDelta(clientRef, tx, -signedUnits, -signedAmount);
             return;
           }
           if (isSaldoMethod) {
@@ -951,9 +1670,9 @@ export class Database {
       if (clientId) {
         clientIndex = this.clients.findIndex(c => String(c.id) === clientId);
       } else {
-        const txClientName = normalize(txToDelete?.clientName || txToDelete?.client);
+        const txClientName = this.normalizeToken(txToDelete?.clientName || txToDelete?.client);
         if (txClientName && txClientName !== 'CONSUMIDOR FINAL') {
-          clientIndex = this.clients.findIndex(c => normalize(c.name) === txClientName);
+          clientIndex = this.clients.findIndex(c => this.normalizeToken(c.name) === txClientName);
         }
       }
 

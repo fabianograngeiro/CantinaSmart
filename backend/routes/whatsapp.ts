@@ -1,6 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { whatsappSession } from '../utils/whatsappSession.js';
-import { buildDispatchAudience, DispatchAudienceFilter } from '../services/dispatchAudienceService.js';
+import {
+  buildDispatchAudience,
+  DispatchAudienceFilter,
+  DispatchProfileType,
+  DispatchPeriodMode,
+} from '../services/dispatchAudienceService.js';
+import { db } from '../database.js';
 
 const router = Router();
 
@@ -15,9 +21,15 @@ router.get('/dispatch/audience', async (req: Request, res: Response) => {
     }
 
     const filter = String(req.query.filter || 'TODOS').toUpperCase() as DispatchAudienceFilter;
+    const profileType = String(req.query.profileType || 'RESPONSAVEL_PARENTESCO').toUpperCase() as DispatchProfileType;
+    const periodMode = String(req.query.periodMode || 'SEMANAL').toUpperCase() as DispatchPeriodMode;
+    const businessDaysOnly = String(req.query.businessDaysOnly || '').toLowerCase() === 'true';
     const data = buildDispatchAudience({
       enterpriseId,
       filter,
+      profileType,
+      periodMode,
+      businessDaysOnly,
     });
 
     res.json({
@@ -28,6 +40,186 @@ router.get('/dispatch/audience', async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       message: err instanceof Error ? err.message : 'Falha ao montar audiência de disparo.',
+    });
+  }
+});
+
+router.get('/dispatch/config', async (req: Request, res: Response) => {
+  try {
+    const enterpriseId = String(req.query.enterpriseId || '').trim();
+    if (!enterpriseId) {
+      return res.status(400).json({
+        success: false,
+        message: 'enterpriseId é obrigatório.',
+      });
+    }
+
+    const store = db.getWhatsAppStore();
+    const configs = (store as any)?.dispatchAutomationsByEnterprise || {};
+    const config = configs[enterpriseId] || null;
+    return res.json({
+      success: true,
+      config,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao carregar configuração de disparo.',
+    });
+  }
+});
+
+router.put('/dispatch/config', async (req: Request, res: Response) => {
+  try {
+    const enterpriseId = String(req.body?.enterpriseId || '').trim();
+    if (!enterpriseId) {
+      return res.status(400).json({
+        success: false,
+        message: 'enterpriseId é obrigatório.',
+      });
+    }
+
+    const incomingConfig = req.body?.config && typeof req.body.config === 'object' ? req.body.config : null;
+    if (!incomingConfig) {
+      return res.status(400).json({
+        success: false,
+        message: 'config é obrigatório.',
+      });
+    }
+
+    const store = db.getWhatsAppStore();
+    const currentConfigs = (store as any)?.dispatchAutomationsByEnterprise || {};
+    const nextConfig = {
+      ...incomingConfig,
+      enterpriseId,
+      updatedAt: new Date().toISOString(),
+    };
+
+    db.updateWhatsAppStore({
+      dispatchAutomationsByEnterprise: {
+        ...currentConfigs,
+        [enterpriseId]: nextConfig,
+      },
+    });
+
+    return res.json({
+      success: true,
+      config: nextConfig,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao salvar configuração de disparo.',
+    });
+  }
+});
+
+router.get('/dispatch/logs', async (req: Request, res: Response) => {
+  try {
+    const enterpriseId = String(req.query.enterpriseId || '').trim();
+    if (!enterpriseId) {
+      return res.status(400).json({
+        success: false,
+        message: 'enterpriseId é obrigatório.',
+      });
+    }
+
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit || 100)));
+    const store = db.getWhatsAppStore();
+    const logsByEnterprise = (store as any)?.dispatchLogsByEnterprise || {};
+    const logs = Array.isArray(logsByEnterprise[enterpriseId]) ? logsByEnterprise[enterpriseId] : [];
+
+    return res.json({
+      success: true,
+      logs: logs.slice(0, limit),
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao carregar logs de disparo.',
+    });
+  }
+});
+
+router.post('/dispatch/logs', async (req: Request, res: Response) => {
+  try {
+    const enterpriseId = String(req.body?.enterpriseId || '').trim();
+    if (!enterpriseId) {
+      return res.status(400).json({
+        success: false,
+        message: 'enterpriseId é obrigatório.',
+      });
+    }
+
+    const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
+    if (entries.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'entries é obrigatório.',
+      });
+    }
+
+    const store = db.getWhatsAppStore();
+    const logsByEnterprise = (store as any)?.dispatchLogsByEnterprise || {};
+    const current = Array.isArray(logsByEnterprise[enterpriseId]) ? logsByEnterprise[enterpriseId] : [];
+    const normalizedEntries = entries
+      .filter((entry: any) => entry && typeof entry === 'object')
+      .map((entry: any) => ({
+        ...entry,
+        id: String(entry.id || `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
+        timestamp: entry.timestamp || Date.now(),
+      }));
+
+    const next = [...normalizedEntries, ...current].slice(0, 1000);
+    db.updateWhatsAppStore({
+      dispatchLogsByEnterprise: {
+        ...logsByEnterprise,
+        [enterpriseId]: next,
+      },
+    });
+
+    return res.json({
+      success: true,
+      count: normalizedEntries.length,
+      total: next.length,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao salvar logs de disparo.',
+    });
+  }
+});
+
+router.delete('/dispatch/logs', async (req: Request, res: Response) => {
+  try {
+    const enterpriseId = String(req.query.enterpriseId || '').trim();
+    if (!enterpriseId) {
+      return res.status(400).json({
+        success: false,
+        message: 'enterpriseId é obrigatório.',
+      });
+    }
+
+    const store = db.getWhatsAppStore();
+    const logsByEnterprise = (store as any)?.dispatchLogsByEnterprise || {};
+    const nextLogs = {
+      ...logsByEnterprise,
+      [enterpriseId]: [],
+    };
+
+    db.updateWhatsAppStore({
+      dispatchLogsByEnterprise: nextLogs,
+    });
+
+    return res.json({
+      success: true,
+      message: 'Logs de disparo limpos com sucesso.',
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao limpar logs de disparo.',
     });
   }
 });

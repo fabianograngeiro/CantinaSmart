@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { 
@@ -17,7 +18,20 @@ import { formatPhoneWithFlag } from '../utils/phone';
 interface ClientsPageProps {
   currentUser: User;
   activeEnterprise: Enterprise;
+  viewMode?: 'ALUNOS' | 'CLIENTES_RESPONSAVEIS';
 }
+
+type ResponsibleOrCollaboratorRow = {
+  id: string;
+  registrationId: string;
+  name: string;
+  photo?: string;
+  tipoConta: 'RESPONSAVEL' | 'COLABORADOR';
+  cargoParentesco: string;
+  phone: string;
+  email?: string;
+  sourceClient?: Client;
+};
 
 const WEEK_DAY_OPTIONS = [
   { key: 'DOMINGO', label: 'Dom' },
@@ -198,7 +212,9 @@ const normalizeSearchText = (value?: string) =>
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
 
-const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise }) => {
+const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise, viewMode = 'ALUNOS' }) => {
+  const navigate = useNavigate();
+  const [openingWhatsAppKey, setOpeningWhatsAppKey] = useState<string | null>(null);
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
     return (
@@ -328,6 +344,12 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     const normalizedSearch = normalizeSearchText(searchTerm);
 
     return clients.filter(c => {
+      const normalizedType = String(c.type || '').toUpperCase();
+      const isStudent = normalizedType === 'ALUNO';
+      const isResponsibleOrCollaborator = normalizedType === 'RESPONSAVEL' || normalizedType === 'COLABORADOR';
+      const matchesViewMode = viewMode === 'ALUNOS' ? isStudent : isResponsibleOrCollaborator;
+      if (!matchesViewMode) return false;
+
       const matchesSearch =
         !normalizedSearch
         || normalizeSearchText(c.name).includes(normalizedSearch)
@@ -341,9 +363,126 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         matchesUnit = selectedUnitId === 'ALL' || c.enterpriseId === selectedUnitId;
       }
       
-      return matchesSearch && matchesUnit;
+      return matchesViewMode && matchesSearch && matchesUnit;
     }).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }));
-  }, [clients, searchTerm, selectedUnitId, isUnitAdmin, activeEnterprise.id]);
+  }, [clients, searchTerm, selectedUnitId, isUnitAdmin, activeEnterprise.id, viewMode]);
+
+  const resolveKinshipOrRole = (value?: string) => {
+    const text = String(value || '').trim();
+    if (!text) return 'Indefinido';
+    const normalized = normalizeSearchText(text);
+    if (normalized.includes('pai')) return 'Pai';
+    if (normalized.includes('mae') || normalized.includes('mãe')) return 'Mãe';
+    if (normalized.includes('avo') || normalized.includes('avô') || normalized.includes('avó')) return 'Avós';
+    if (normalized.includes('tio') || normalized.includes('tia')) return 'Tios';
+    return 'Indefinido';
+  };
+
+  const responsibleOrCollaboratorRows = useMemo<ResponsibleOrCollaboratorRow[]>(() => {
+    if (viewMode !== 'CLIENTES_RESPONSAVEIS') return [];
+
+    const normalizedSearch = normalizeSearchText(searchTerm);
+    const matchesUnit = (client: Client) => {
+      if (isUnitAdmin) return client.enterpriseId === activeEnterprise.id;
+      return selectedUnitId === 'ALL' || client.enterpriseId === selectedUnitId;
+    };
+
+    const rows: ResponsibleOrCollaboratorRow[] = [];
+    const responsibleMap = new Map<string, ResponsibleOrCollaboratorRow>();
+
+    clients.forEach((client) => {
+      if (!matchesUnit(client)) return;
+      const type = String(client.type || '').toUpperCase();
+
+      if (type === 'COLABORADOR' || type === 'RESPONSAVEL') {
+        const row: ResponsibleOrCollaboratorRow = {
+          id: `direct:${client.id}`,
+          registrationId: client.registrationId || '-',
+          name: client.name || 'Não informado',
+          photo: client.photo,
+          tipoConta: type === 'COLABORADOR' ? 'COLABORADOR' : 'RESPONSAVEL',
+          cargoParentesco: String(client.class || client.parentName || '').trim() || 'Indefinido',
+          phone: String(client.phone || client.parentWhatsapp || client.guardianPhone || '').trim(),
+          email: client.email || client.parentEmail || client.guardianEmail || '',
+          sourceClient: client,
+        };
+        rows.push(row);
+        return;
+      }
+
+      if (type !== 'ALUNO') return;
+
+      const responsibleName = String(client.parentName || client.guardianName || client.guardians?.[0] || '').trim();
+      const responsiblePhone = String(client.parentWhatsapp || client.guardianPhone || '').trim();
+      if (!responsibleName && !responsiblePhone) return;
+
+      const key = `${normalizeSearchText(responsibleName)}|${String(responsiblePhone).replace(/\D/g, '')}`;
+      if (!responsibleMap.has(key)) {
+        responsibleMap.set(key, {
+          id: `responsavel:${key || client.id}`,
+          registrationId: client.registrationId || '-',
+          name: responsibleName || 'Não informado',
+          photo: client.photo,
+          tipoConta: 'RESPONSAVEL',
+          cargoParentesco: resolveKinshipOrRole(`${client.parentName || ''} ${client.guardianName || ''}`),
+          phone: responsiblePhone,
+          email: client.parentEmail || client.guardianEmail || '',
+        });
+      }
+    });
+
+    const merged = [...rows, ...Array.from(responsibleMap.values())];
+
+    return merged
+      .filter((row) => {
+        if (!normalizedSearch) return true;
+        return (
+          normalizeSearchText(row.name).includes(normalizedSearch)
+          || normalizeSearchText(row.registrationId).includes(normalizedSearch)
+          || normalizeSearchText(row.cargoParentesco).includes(normalizedSearch)
+          || normalizeSearchText(row.phone).includes(normalizedSearch)
+        );
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }));
+  }, [viewMode, clients, searchTerm, isUnitAdmin, activeEnterprise.id, selectedUnitId]);
+
+  const normalizePhoneDigits = (phone?: string) => String(phone || '').replace(/\D/g, '');
+
+  const resolveResponsibleRelationshipLabel = (client: Client) => {
+    const raw = `${client.parentName || ''} ${client.guardianName || ''}`.trim();
+    const kinship = resolveKinshipOrRole(raw);
+    return kinship || 'Indefinido';
+  };
+
+  const handleOpenWhatsAppConversation = (
+    phone?: string,
+    key?: string,
+    context?: {
+      displayName?: string;
+      contactTypeLabel?: string;
+      relationshipLabel?: string;
+    }
+  ) => {
+    const normalizedPhone = String(phone || '').replace(/\D/g, '');
+    if (!normalizedPhone) {
+      alert('Telefone não informado para este contato.');
+      return;
+    }
+    const statusKey = key || normalizedPhone;
+    setOpeningWhatsAppKey(statusKey);
+    localStorage.setItem('whatsapp_open_phone', normalizedPhone);
+    if (context) {
+      localStorage.setItem('whatsapp_open_context', JSON.stringify({
+        displayName: String(context.displayName || '').trim(),
+        contactTypeLabel: String(context.contactTypeLabel || '').trim(),
+        relationshipLabel: String(context.relationshipLabel || '').trim(),
+      }));
+    }
+    navigate('/whatsapp');
+    window.setTimeout(() => {
+      setOpeningWhatsAppKey((prev) => (prev === statusKey ? null : prev));
+    }, 2500);
+  };
 
   const availablePlans = useMemo(() => {
     return plans.filter(p => p.enterpriseId === activeEnterprise.id && p.isActive !== false);
@@ -373,6 +512,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     const dayKey = jsDayToWeekDay[date.getDay()];
     return allowedServiceDayKeySet.has(dayKey);
   };
+  const isPastDate = (date: Date) => toDateKey(date) < toDateKey(new Date());
 
   useEffect(() => {
     const filterDateKeysByAllowedWeekdays = (dateKeys: string[]) => {
@@ -751,11 +891,14 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       setSelectedPlanDates(prevDates => {
         const currentDates = new Set(prevDates[planId] || []);
         const weekdayDates = getDateKeysForWeekdayInCurrentMonth(dayKey);
+        const editableWeekdayDates = isDetailModalOpen
+          ? weekdayDates.filter((dateKey) => dateKey >= toDateKey(new Date()))
+          : weekdayDates;
 
         if (hasDay) {
-          weekdayDates.forEach(dateKey => currentDates.delete(dateKey));
+          editableWeekdayDates.forEach(dateKey => currentDates.delete(dateKey));
         } else {
-          weekdayDates.forEach(dateKey => currentDates.add(dateKey));
+          editableWeekdayDates.forEach(dateKey => currentDates.add(dateKey));
         }
 
         return {
@@ -773,6 +916,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
   const togglePlanDate = (planId: string, date: Date) => {
     if (!isServiceDateAllowed(date)) return;
+    if (isDetailModalOpen && isPastDate(date)) return;
 
     const dateKey = toDateKey(date);
     setSelectedPlanDates(prev => {
@@ -893,6 +1037,58 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     return selectedPlanConfigs.filter(plan => availablePlans.some(p => p.id === plan.planId && p.isActive !== false));
   }, [selectedPlanConfigs, availablePlans]);
 
+  const deliveredDateKeysByPlanId = useMemo(() => {
+    const result = new Map<string, Set<string>>();
+    if (!viewingClient) return result;
+
+    const activePlanIdSet = new Set(
+      activePlansInView.map((plan) => String(plan.planId || '').trim()).filter(Boolean)
+    );
+    const activePlanIdsByName = new Map<string, string[]>();
+    activePlansInView.forEach((plan) => {
+      const planId = String(plan.planId || '').trim();
+      const normalizedName = normalizeSearchText(plan.planName);
+      if (!planId || !normalizedName) return;
+      const existing = activePlanIdsByName.get(normalizedName) || [];
+      if (!existing.includes(planId)) existing.push(planId);
+      activePlanIdsByName.set(normalizedName, existing);
+      if (!result.has(planId)) result.set(planId, new Set<string>());
+    });
+
+    transactions.forEach((tx: any) => {
+      if (!isTransactionFromClient(tx, viewingClient)) return;
+
+      const txType = String(tx?.type || '').toUpperCase();
+      if (txType !== 'CONSUMO' && txType !== 'DEBIT') return;
+
+      const txDescription = normalizeSearchText(tx?.description || tx?.item || '');
+      const txMethod = normalizeSearchText(tx?.paymentMethod || tx?.method || '');
+      const isDeliveredDay = txDescription.includes('entrega do dia') || txMethod === 'plano';
+      if (!isDeliveredDay) return;
+
+      const dateKey = resolveTransactionDateKey(tx);
+      if (!dateKey) return;
+
+      const planId = String(tx?.planId || tx?.originPlanId || '').trim();
+      const normalizedPlanName = normalizeSearchText(tx?.plan || tx?.planName || tx?.item || '');
+
+      let targetPlanIds: string[] = [];
+      if (planId && activePlanIdSet.has(planId)) {
+        targetPlanIds = [planId];
+      } else if (normalizedPlanName) {
+        targetPlanIds = activePlanIdsByName.get(normalizedPlanName) || [];
+      }
+
+      targetPlanIds.forEach((targetPlanId) => {
+        const current = result.get(targetPlanId) || new Set<string>();
+        current.add(dateKey);
+        result.set(targetPlanId, current);
+      });
+    });
+
+    return result;
+  }, [viewingClient, activePlansInView, transactions]);
+
   const rechargeSelectedPlanSummary = useMemo(() => {
     if (!rechargeSelectedPlanId) return null;
 
@@ -927,6 +1123,14 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     const balanceToPersist = formData.type === 'ALUNO'
       ? (Number.isFinite(parsedFormBalance) ? parsedFormBalance : 0)
       : (editingClient?.balance || 0);
+    const normalizedStudentName = String(formData.name || '').trim();
+    const normalizedParentName = String(formData.parentName || '').trim();
+    const fallbackParentName = normalizedStudentName
+      ? `Responsável pelo(a) ${normalizedStudentName}`
+      : 'Responsável não informado';
+    const parentNameToPersist = formData.type === 'ALUNO'
+      ? (normalizedParentName || fallbackParentName)
+      : formData.parentName;
     
     let finalPhoto = formData.photo || editingClient?.photo || `https://api.dicebear.com/7.x/avataaars/svg?seed=${formData.name}`;
 
@@ -963,7 +1167,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       dietaryNotes: formData.dietaryNotes,
       photo: finalPhoto,
       enterpriseId: editingClient?.enterpriseId || activeEnterprise.id,
-      parentName: formData.parentName,
+      parentName: parentNameToPersist,
       parentWhatsappCountryCode: formData.parentWhatsappCountryCode,
       parentWhatsapp: joinPhoneWithCountryCode(formData.parentWhatsappCountryCode, formData.parentWhatsapp),
       parentCpf: formData.parentCpf,
@@ -1106,6 +1310,23 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     return 0;
   };
 
+  function resolveTransactionDateKey(tx: any): string {
+    const direct = String(tx?.deliveryDate || tx?.scheduledDate || tx?.mealDate || tx?.date || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(direct)) return direct;
+
+    const description = String(tx?.description || tx?.item || '');
+    const isoMatch = description.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+    if (isoMatch?.[1]) return isoMatch[1];
+
+    const brMatch = description.match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/);
+    if (brMatch) {
+      const [, dd, mm, yyyy] = brMatch;
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    return '';
+  }
+
   const getTransactionAmount = (tx: any): number => {
     const amount = Number(tx?.amount ?? tx?.value ?? tx?.total ?? 0);
     return Number.isFinite(amount) ? amount : 0;
@@ -1124,12 +1345,12 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     return 'CONSUMO';
   };
 
-  const isTransactionFromClient = (tx: any, client: Client) => {
+  function isTransactionFromClient(tx: any, client: Client) {
     const clientIdMatches = tx?.clientId && tx.clientId === client.id;
     const clientNameMatches = tx?.client && String(tx.client).toLowerCase() === client.name.toLowerCase();
     const clientNameAltMatches = tx?.clientName && String(tx.clientName).toLowerCase() === client.name.toLowerCase();
     return clientIdMatches || clientNameMatches || clientNameAltMatches;
-  };
+  }
 
   const clientPlanBalances = useMemo(() => {
     const planById = new Map(plans.map((plan) => [plan.id, plan]));
@@ -1949,29 +2170,35 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   };
 
   return (
-    <div className="dash-shell clients-shell animate-in fade-in duration-500">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="dash-shell clients-shell animate-in fade-in duration-500 w-full max-w-none">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-black text-gray-800 tracking-tight uppercase">Gestão de Clientes</h1>
-          <p className="text-gray-400 text-[10px] font-black uppercase tracking-[2px] mt-1">Controle de usuários, planos e carteira digital</p>
+          <h1 className="text-xl sm:text-2xl font-black text-gray-800 tracking-tight uppercase">
+            {viewMode === 'ALUNOS' ? 'Gestão de Alunos' : 'Gestão de Cliente/Responsável'}
+          </h1>
+          <p className="text-gray-400 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.14em] mt-1">
+            {viewMode === 'ALUNOS'
+              ? 'Controle de alunos, planos e carteira digital'
+              : 'Controle de responsáveis e colaboradores'}
+          </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button onClick={handleOpenCreateModal} className="bg-indigo-600 text-white px-5 py-3 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2">
-            <Plus size={16} /> Adicionar
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+          <button onClick={handleOpenCreateModal} className="bg-indigo-600 text-white px-3.5 py-2 rounded-xl font-black uppercase tracking-[0.12em] text-[9px] shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-1.5">
+            <Plus size={12} /> Adicionar
           </button>
-          <button onClick={handleExportCsv} className="bg-white border border-gray-200 text-gray-700 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:border-indigo-200 hover:text-indigo-700 transition-all flex items-center gap-2">
-            <FileSpreadsheet size={15} /> CSV
+          <button onClick={handleExportCsv} className="bg-white border border-gray-200 text-gray-700 px-3 py-2 rounded-xl font-black uppercase tracking-[0.12em] text-[9px] hover:border-indigo-200 hover:text-indigo-700 transition-all flex items-center gap-1.5">
+            <FileSpreadsheet size={12} /> CSV
           </button>
-          <button onClick={handleExportPdf} className="bg-white border border-gray-200 text-gray-700 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:border-red-200 hover:text-red-700 transition-all flex items-center gap-2">
-            <FileText size={15} /> PDF
+          <button onClick={handleExportPdf} className="bg-white border border-gray-200 text-gray-700 px-3 py-2 rounded-xl font-black uppercase tracking-[0.12em] text-[9px] hover:border-red-200 hover:text-red-700 transition-all flex items-center gap-1.5">
+            <FileText size={12} /> PDF
           </button>
-          <button onClick={handlePrintClients} className="bg-white border border-gray-200 text-gray-700 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:border-emerald-200 hover:text-emerald-700 transition-all flex items-center gap-2">
-            <Printer size={15} /> Imprimir
+          <button onClick={handlePrintClients} className="bg-white border border-gray-200 text-gray-700 px-3 py-2 rounded-xl font-black uppercase tracking-[0.12em] text-[9px] hover:border-emerald-200 hover:text-emerald-700 transition-all flex items-center gap-1.5">
+            <Printer size={12} /> Imprimir
           </button>
         </div>
       </div>
 
-      <div className="bg-white p-4 rounded-[32px] border shadow-sm flex flex-col xl:flex-row items-center gap-6">
+      <div className="bg-white p-2.5 sm:p-3 rounded-[20px] sm:rounded-[28px] border shadow-sm flex flex-col xl:flex-row items-stretch xl:items-center gap-2.5 sm:gap-3 xl:gap-5">
         {!isUnitAdmin && (
           <>
             <div className="flex flex-col gap-1 w-full xl:w-72">
@@ -1996,31 +2223,43 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         )}
 
         <div className="relative flex-1 w-full">
-           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-           <input type="text" placeholder="Pesquisar por matrícula, nome ou turma..." className="w-full pl-12 pr-6 py-3.5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none font-bold text-sm transition-all shadow-inner" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+           <input type="text" placeholder="Pesquisar por matrícula, nome ou turma..." className="w-full pl-10 pr-3 py-2 sm:py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl sm:rounded-2xl outline-none font-semibold text-[11px] sm:text-xs transition-all shadow-inner" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
       </div>
 
-      <div className="bg-white rounded-[32px] shadow-sm border border-gray-100 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="bg-gray-50 text-xs font-black text-gray-500 uppercase tracking-widest border-b">
+      <div className="bg-white rounded-[24px] sm:rounded-[32px] shadow-sm border border-gray-100 overflow-hidden">
+        <div className="overflow-x-auto scrollbar-thin">
+          <table className={`w-full text-left ${viewMode === 'ALUNOS' ? 'min-w-[980px] lg:min-w-[1080px]' : 'min-w-[860px] lg:min-w-[940px]'}`}>
+            <thead className="bg-gray-50 text-[8px] sm:text-[9px] font-black text-gray-500 uppercase tracking-[0.14em] border-b">
               <tr>
-                <th className="px-8 py-6">ID</th>
-                <th className="px-8 py-6">Cliente</th>
-                <th className="px-8 py-6">Responsável / Setor</th>
-                <th className="px-8 py-6">Telefone Responsável</th>
-                <th className="px-8 py-6">Turma</th>
-                <th className="px-8 py-6 text-center">Restrição</th>
-                <th className="px-8 py-6 text-right">Ações</th>
+                <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">ID</th>
+                <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">{viewMode === 'ALUNOS' ? 'Aluno' : 'Cliente / Responsável'}</th>
+                {viewMode === 'ALUNOS' ? (
+                  <>
+                    <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">Responsável / Setor</th>
+                    <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">Telefone</th>
+                    <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">Turma</th>
+                    <th className="px-2.5 sm:px-4 py-2.5 sm:py-3 text-center">Restrição</th>
+                  </>
+                ) : (
+                  <>
+                    <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">Tipo</th>
+                    <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">Vínculo</th>
+                    <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">Telefone</th>
+                  </>
+                )}
+                <th className="px-2.5 sm:px-4 py-2.5 sm:py-3 text-right whitespace-nowrap">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredClients.length === 0 ? (
+              {(viewMode === 'ALUNOS' ? filteredClients.length : responsibleOrCollaboratorRows.length) === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-8 py-20 text-center text-gray-400 font-bold uppercase text-xs tracking-widest opacity-40">Nenhum cliente na base</td>
+                  <td colSpan={viewMode === 'ALUNOS' ? 7 : 6} className="px-4 sm:px-6 py-20 text-center text-gray-400 font-bold uppercase text-xs tracking-widest opacity-40">
+                    {viewMode === 'ALUNOS' ? 'Nenhum aluno na base' : 'Nenhum responsável ou colaborador na base'}
+                  </td>
                 </tr>
-              ) : filteredClients.map(client => {
+              ) : viewMode === 'ALUNOS' ? filteredClients.map(client => {
                 const clientRestrictions = Array.isArray(client.restrictions) ? client.restrictions : [];
                 const hasRestriction = clientRestrictions.length > 0;
                 const responsibleOrSector = client.type === 'ALUNO'
@@ -2032,80 +2271,190 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                 const responsiblePhone = client.type === 'ALUNO'
                   ? (client.parentWhatsapp || client.guardianPhone || client.phone || 'Não informado')
                   : (client.phone || client.parentWhatsapp || 'Não informado');
+                const responsiblePhoneDigits = normalizePhoneDigits(responsiblePhone);
+                const whatsappStatusLabel = !responsiblePhoneDigits
+                  ? 'SEM NÚMERO'
+                  : openingWhatsAppKey === client.id
+                    ? 'ABRINDO...'
+                    : 'ABRIR CONVERSA';
                 return (
                   <tr key={client.id} className="hover:bg-indigo-50/30 transition-all group">
-                    <td className="px-8 py-5 font-mono text-sm font-black text-indigo-600">#{client.registrationId}</td>
-                    <td className="px-8 py-5">
-                      <div className="flex items-center gap-4">
-                        <img src={resolveClientPhotoUrl(client.photo, client.name)} className="w-14 h-14 rounded-2xl object-cover border-2 border-white shadow-sm" />
+                    <td className="px-2.5 sm:px-4 py-2.5 sm:py-3 font-mono text-[10px] sm:text-[11px] font-black text-indigo-600">#{client.registrationId}</td>
+                    <td className="px-2.5 sm:px-4 py-2.5 sm:py-3">
+                      <div className="flex items-center gap-2.5">
+                        <img src={resolveClientPhotoUrl(client.photo, client.name)} className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg object-cover border-2 border-white shadow-sm" />
                         <div>
-                          <p className="font-black text-gray-800 text-base leading-tight uppercase">{renderHighlightedText(client.name, searchTerm)}</p>
-                          <p className="text-xs text-gray-500 font-bold uppercase mt-0.5">{client.type}</p>
+                          <p className="font-black text-gray-800 text-[11px] sm:text-xs leading-tight uppercase">{renderHighlightedText(client.name, searchTerm)}</p>
+                          <p className="text-[9px] text-gray-500 font-bold uppercase mt-0.5">{client.type}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="px-8 py-5">
+                    <td className="px-2.5 sm:px-4 py-2.5 sm:py-3">
                       <div className="space-y-1">
-                        <p className="text-xs font-black text-gray-700 uppercase tracking-widest">
+                        <p className="text-[10px] sm:text-[11px] font-black text-gray-700 uppercase tracking-wider">
                           {responsibleOrSector}
                         </p>
-                        <p className="text-[11px] font-semibold text-gray-500 lowercase tracking-wide">
+                        <p className="text-[9px] sm:text-[10px] font-semibold text-gray-500 lowercase">
                           {responsibleEmail}
                         </p>
                       </div>
                     </td>
-                    <td className="px-8 py-5">
-                      <span className="text-xs font-black text-gray-600 uppercase tracking-widest">
-                        {formatPhoneNumber(responsiblePhone)}
-                      </span>
+                    <td className="px-2.5 sm:px-4 py-2.5 sm:py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[10px] sm:text-[11px] font-black text-gray-600 uppercase tracking-wider">
+                          {formatPhoneNumber(responsiblePhone)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenWhatsAppConversation(
+                            responsiblePhone,
+                            client.id,
+                            {
+                              displayName: responsibleOrSector !== 'Não informado' ? responsibleOrSector : client.name,
+                              contactTypeLabel: client.type === 'COLABORADOR' ? 'Colaborador' : 'Responsável',
+                              relationshipLabel: client.type === 'COLABORADOR'
+                                ? (String(client.class || '').trim() || 'Indefinido')
+                                : resolveResponsibleRelationshipLabel(client),
+                            }
+                          )}
+                          disabled={!responsiblePhoneDigits}
+                          className={`inline-flex px-1.5 py-0.5 rounded-full border text-[7px] sm:text-[8px] font-black uppercase tracking-wider disabled:cursor-not-allowed ${
+                            !responsiblePhoneDigits
+                              ? 'bg-gray-50 text-gray-400 border-gray-200'
+                              : openingWhatsAppKey === client.id
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100'
+                          }`}
+                          title={!responsiblePhoneDigits ? 'Telefone não informado' : 'Abrir conversa no WhatsApp'}
+                        >
+                          {whatsappStatusLabel}
+                        </button>
+                      </div>
                     </td>
-                    <td className="px-8 py-5">
+                    <td className="px-2.5 sm:px-4 py-2.5 sm:py-3">
                       {client.type === 'ALUNO' ? (
-                        <span className="text-xs font-black text-indigo-600 uppercase tracking-widest">
+                        <span className="text-[10px] sm:text-[11px] font-black text-indigo-600 uppercase tracking-wider">
                           {client.class || 'Não informado'}
                         </span>
                       ) : (
-                        <span className="text-xs font-black text-gray-300 uppercase tracking-widest">—</span>
+                        <span className="text-[10px] sm:text-[11px] font-black text-gray-300 uppercase tracking-wider">—</span>
                       )}
                     </td>
-                    <td className="px-8 py-5 text-center">
+                    <td className="px-2.5 sm:px-4 py-2.5 sm:py-3 text-center">
                       {hasRestriction ? (
                         <div className="flex justify-center">
-                          <span className="p-1.5 bg-red-50 text-red-600 rounded-lg border border-red-100 animate-pulse" title={clientRestrictions.join(', ')}>
-                            <AlertTriangle size={16} />
+                          <span className="p-1 bg-red-50 text-red-600 rounded-md border border-red-100 animate-pulse" title={clientRestrictions.join(', ')}>
+                            <AlertTriangle size={12} />
                           </span>
                         </div>
                       ) : (
                         <span className="text-gray-200">—</span>
                       )}
                     </td>
-                    <td className="px-8 py-5 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                         <button onClick={() => handleOpenDetail(client)} className="p-3.5 bg-white border text-gray-500 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm" title="Ver Detalhes"><Eye size={18} /></button>
-                         <button onClick={() => { setConsumptionPeriod('MONTH'); setConsumptionSpecificDate(''); setHistoryClient(client); setIsHistoryModalOpen(true); }} className="p-3.5 bg-white border text-gray-500 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm" title="Histórico"><History size={18} /></button>
-                         <button
-                           onClick={() => {
-                             handleOpenDetail(client);
-                           }}
-                           className="p-3.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
-                           title="Ver Planos"
-                         >
-                           <Beef size={18} />
-                         </button>
+                    <td className="px-2.5 sm:px-4 py-2.5 sm:py-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                         <button onClick={() => handleOpenDetail(client)} className="p-1.5 sm:p-2 bg-white border text-gray-500 rounded-lg hover:text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm" title="Ver Detalhes"><Eye size={12} /></button>
+                         <button onClick={() => { setConsumptionPeriod('MONTH'); setConsumptionSpecificDate(''); setHistoryClient(client); setIsHistoryModalOpen(true); }} className="p-1.5 sm:p-2 bg-white border text-gray-500 rounded-lg hover:text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm" title="Histórico"><History size={12} /></button>
                          <button
                            onClick={() => handleOpenEditModal(client)}
-                           className="p-3.5 bg-white border text-indigo-500 rounded-xl hover:text-indigo-700 hover:bg-indigo-50 transition-all shadow-sm"
+                           className="p-1.5 sm:p-2 bg-white border text-indigo-500 rounded-lg hover:text-indigo-700 hover:bg-indigo-50 transition-all shadow-sm"
                            title="Editar"
                          >
-                           <Edit size={18} />
+                           <Edit size={12} />
                          </button>
                          <button
                            onClick={() => handleDeleteClient(client)}
-                           className="p-3.5 bg-white border text-red-400 rounded-xl hover:text-red-600 hover:bg-red-50 transition-all shadow-sm"
+                           className="p-1.5 sm:p-2 bg-white border text-red-400 rounded-lg hover:text-red-600 hover:bg-red-50 transition-all shadow-sm"
                            title="Excluir Cliente"
                          >
-                           <Trash2 size={18} />
+                           <Trash2 size={12} />
                          </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              }) : responsibleOrCollaboratorRows.map((row) => {
+                const phoneDigits = normalizePhoneDigits(row.phone);
+                const whatsappStatusLabel = !phoneDigits
+                  ? 'Sem número'
+                  : openingWhatsAppKey === row.id
+                    ? 'Abrindo...'
+                    : 'Abrir conversa';
+
+                return (
+                  <tr key={row.id} className="hover:bg-indigo-50/30 transition-all group">
+                    <td className="px-2.5 sm:px-4 py-2.5 sm:py-3 font-mono text-[10px] sm:text-[11px] font-black text-indigo-600">#{row.registrationId || '-'}</td>
+                    <td className="px-2.5 sm:px-4 py-2.5 sm:py-3">
+                      <div className="flex items-center gap-2.5">
+                        <img src={resolveClientPhotoUrl(row.photo, row.name)} className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg object-cover border-2 border-white shadow-sm" />
+                        <div>
+                          <p className="font-black text-gray-800 text-[11px] sm:text-xs leading-tight uppercase">{renderHighlightedText(row.name, searchTerm)}</p>
+                          <p className="text-[9px] text-gray-500 font-bold uppercase mt-0.5">{row.email || 'Sem e-mail'}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-2.5 sm:px-4 py-2.5 sm:py-3">
+                      <span className={`inline-flex px-2 py-1 rounded-full text-[8px] font-black uppercase tracking-wider ${
+                        row.tipoConta === 'COLABORADOR'
+                          ? 'bg-blue-50 text-blue-700 border border-blue-100'
+                          : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                      }`}>
+                        {row.tipoConta === 'COLABORADOR' ? 'Colaborador' : 'Responsável'}
+                      </span>
+                    </td>
+                    <td className="px-2.5 sm:px-4 py-2.5 sm:py-3">
+                      <span className="text-[10px] sm:text-[11px] font-black text-gray-700 uppercase tracking-wider">{row.cargoParentesco || 'Indefinido'}</span>
+                    </td>
+                    <td className="px-2.5 sm:px-4 py-2.5 sm:py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[10px] sm:text-[11px] font-black text-gray-600 uppercase tracking-wider">
+                          {formatPhoneNumber(row.phone || 'Não informado')}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenWhatsAppConversation(
+                            row.phone,
+                            row.id,
+                            {
+                              displayName: row.name,
+                              contactTypeLabel: row.tipoConta === 'COLABORADOR' ? 'Colaborador' : 'Responsável',
+                              relationshipLabel: row.cargoParentesco || 'Indefinido',
+                            }
+                          )}
+                          disabled={!phoneDigits}
+                          className={`inline-flex px-1.5 py-0.5 rounded-full border text-[7px] sm:text-[8px] font-black uppercase tracking-wider disabled:cursor-not-allowed ${
+                            !phoneDigits
+                              ? 'bg-gray-50 text-gray-400 border-gray-200'
+                              : openingWhatsAppKey === row.id
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100'
+                          }`}
+                          title={!phoneDigits ? 'Telefone não informado' : 'Abrir conversa no WhatsApp'}
+                        >
+                          {whatsappStatusLabel}
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-2.5 sm:px-4 py-2.5 sm:py-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        {row.sourceClient && (
+                          <>
+                            <button
+                              onClick={() => handleOpenEditModal(row.sourceClient as Client)}
+                              className="p-1.5 sm:p-2 bg-white border text-indigo-500 rounded-lg hover:text-indigo-700 hover:bg-indigo-50 transition-all shadow-sm"
+                              title="Editar"
+                            >
+                              <Edit size={12} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteClient(row.sourceClient as Client)}
+                              className="p-1.5 sm:p-2 bg-white border text-red-400 rounded-lg hover:text-red-600 hover:bg-red-50 transition-all shadow-sm"
+                              title="Excluir"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -2245,6 +2594,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                         {activePlansInView.map((plan) => {
                           const activeDates = selectedPlanDates[plan.planId] || [];
                           const activeShifts = selectedPlanShifts[plan.planId] || [];
+                          const deliveredDateSet = deliveredDateKeysByPlanId.get(plan.planId) || new Set<string>();
                           const isCalendarOpen = openPlanCalendarId === plan.planId;
                           const requiredCount = requiredUnitsByPlanId.get(plan.planId) ?? activeDates.length;
                           const isPlanValid = activeDates.length === requiredCount;
@@ -2309,6 +2659,11 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                       <ArrowRight size={14} />
                                     </button>
                                   </div>
+                                  <div className="flex items-center justify-end mb-2">
+                                    <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-100 text-[9px] font-black text-emerald-700 uppercase tracking-widest">
+                                      <Check size={10} strokeWidth={4} /> Dia já entregue
+                                    </span>
+                                  </div>
                                   <div className="grid grid-cols-7 gap-1.5">
                                     {['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB'].map((label) => (
                                       <div key={`${plan.planId}-header-${label}`} className="text-center text-[9px] font-black text-gray-400 uppercase py-1">
@@ -2319,19 +2674,26 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                       if (!dateCell) return <div key={`${plan.planId}-empty-${index}`} className="h-9" />;
                                       const dateKey = toDateKey(dateCell);
                                       const isAllowed = isServiceDateAllowed(dateCell);
+                                      const isPast = isPastDate(dateCell);
                                       const isSelected = activeDates.includes(dateKey);
+                                      const isDelivered = deliveredDateSet.has(dateKey);
                                       const isAtLimit = activeDates.length >= requiredCount;
                                       const looksDisabledByLimit = !isSelected && isAtLimit;
+                                      const isLocked = !isAllowed || isPast;
 
                                       return (
                                         <button
                                           key={`${plan.planId}-date-${dateKey}`}
                                           type="button"
-                                          disabled={!isAllowed}
+                                          disabled={isLocked}
                                           onClick={() => togglePlanDate(plan.planId, dateCell)}
                                           className={`h-9 rounded-lg text-[10px] font-black transition-all ${
                                             !isAllowed
                                               ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                                              : isPast
+                                                ? isSelected
+                                                  ? 'bg-slate-200 text-slate-600 border border-slate-300 cursor-not-allowed'
+                                                  : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
                                               : isSelected
                                                 ? 'bg-indigo-600 text-white'
                                                 : looksDisabledByLimit
@@ -2341,9 +2703,17 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                         >
                                           <span className="inline-flex items-center justify-center relative w-full h-full">
                                             {dateCell.getDate()}
-                                            {isSelected && (
+                                            {isSelected && !isPast && (
                                               <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-white text-indigo-700 text-[10px] leading-none flex items-center justify-center font-black border border-indigo-200">
                                                 ×
+                                              </span>
+                                            )}
+                                            {isDelivered && (
+                                              <span
+                                                className="absolute -bottom-0.5 -left-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 text-white text-[10px] leading-none flex items-center justify-center font-black border border-emerald-200"
+                                                title="Dia entregue"
+                                              >
+                                                <Check size={10} strokeWidth={4} />
                                               </span>
                                             )}
                                           </span>
@@ -2607,9 +2977,10 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                         </div>
                      </div>
 
-                     <div className="space-y-6">
-                        <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[3px] border-b pb-2 flex items-center gap-2"><ShieldCheck size={14} className="text-indigo-600"/> {formData.type === 'ALUNO' ? 'Créditos e Planos' : 'Crédito para Colaborador'}</h3>
-                        {formData.type === 'ALUNO' ? (
+                     {!editingClient && (
+                       <div className="space-y-6">
+                         <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[3px] border-b pb-2 flex items-center gap-2"><ShieldCheck size={14} className="text-indigo-600"/> {formData.type === 'ALUNO' ? 'Créditos e Planos' : 'Crédito para Colaborador'}</h3>
+                         {formData.type === 'ALUNO' ? (
                           <>
                             <div className="grid grid-cols-1 gap-4">
                                <PlanToggleCard active={formData.servicePlans.includes('PREPAGO')} onClick={() => togglePlan('PREPAGO')} icon={<Wallet size={24} />} label="Carteira Pré-Paga" desc="Uso livre no caixa" color="indigo" />
@@ -2840,13 +3211,14 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                               )}
                             </div>
                           </>
-                        ) : (
+                         ) : (
                           <div className="bg-blue-50 p-8 rounded-[40px] border-2 border-blue-100 shadow-inner space-y-4">
                             <p className="text-[10px] font-black text-blue-900 uppercase tracking-widest">Saldo para Pagamento ao Final do Mês</p>
                             <p className="text-sm text-blue-700 font-bold">O colaborador pagará suas despesas no final do mês</p>
                           </div>
-                        )}
-                     </div>
+                         )}
+                       </div>
+                     )}
                    </>
                  ) : (
                    <div className="space-y-10 animate-in slide-in-from-right-10 text-center">

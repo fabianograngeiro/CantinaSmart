@@ -289,29 +289,29 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
   const activeServiceDaysCount = Object.values(openingHours).filter(day => !day.closed).length;
 
   return (
-    <div className="settings-shell space-y-6 p-6 animate-in fade-in duration-500">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-black text-gray-800 tracking-tight uppercase">Ajustes da Unidade</h1>
+    <div className="settings-shell space-y-4 p-4 animate-in fade-in duration-500">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-xl font-black text-gray-800 tracking-tight uppercase">Ajustes da Unidade</h1>
         <p className="text-gray-400 text-[10px] font-black uppercase tracking-[2px]">
           Configurações organizadas por abas
         </p>
       </div>
 
-      <div className="bg-white rounded-[28px] border border-gray-100 shadow-sm p-3 grid grid-cols-2 lg:grid-cols-4 gap-2 dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
-        <button onClick={() => setActiveTab('FINANCEIRO')} className={`px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest ${activeTab === 'FINANCEIRO' ? 'bg-indigo-600 text-white' : 'bg-gray-50 text-gray-500'}`}>Pagamento</button>
-        <button onClick={() => setActiveTab('ATENDIMENTO')} className={`px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest ${activeTab === 'ATENDIMENTO' ? 'bg-indigo-600 text-white' : 'bg-gray-50 text-gray-500'}`}>Atendimento</button>
-        <button onClick={() => setActiveTab('SALDO')} className={`px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest ${activeTab === 'SALDO' ? 'bg-indigo-600 text-white' : 'bg-gray-50 text-gray-500'}`}>Saldo/Negativo</button>
-        <button onClick={() => setActiveTab('IMPRESSAO')} className={`px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest ${activeTab === 'IMPRESSAO' ? 'bg-indigo-600 text-white' : 'bg-gray-50 text-gray-500'}`}>Impressão</button>
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-2 grid grid-cols-2 lg:grid-cols-4 gap-1.5 dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
+        <button onClick={() => setActiveTab('FINANCEIRO')} className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest ${activeTab === 'FINANCEIRO' ? 'bg-indigo-600 text-white' : 'bg-gray-50 text-gray-500'}`}>Pagamento</button>
+        <button onClick={() => setActiveTab('ATENDIMENTO')} className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest ${activeTab === 'ATENDIMENTO' ? 'bg-indigo-600 text-white' : 'bg-gray-50 text-gray-500'}`}>Atendimento</button>
+        <button onClick={() => setActiveTab('SALDO')} className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest ${activeTab === 'SALDO' ? 'bg-indigo-600 text-white' : 'bg-gray-50 text-gray-500'}`}>Saldo/Negativo</button>
+        <button onClick={() => setActiveTab('IMPRESSAO')} className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest ${activeTab === 'IMPRESSAO' ? 'bg-indigo-600 text-white' : 'bg-gray-50 text-gray-500'}`}>Impressão</button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2">
-          <div className="bg-white rounded-[32px] shadow-sm border border-gray-100 p-8 space-y-6 dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4 dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
             {activeTab === 'FINANCEIRO' && (
-              <div className="space-y-6">
-                <div className="flex items-center gap-3 pb-4 border-b-2 border-indigo-100">
-                  <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center">
-                    <Calendar size={24} className="text-indigo-600" />
+              <div className="space-y-4">
+                <div className="flex items-center gap-2.5 pb-3 border-b border-indigo-100">
+                  <div className="w-9 h-9 bg-indigo-100 rounded-xl flex items-center justify-center">
+                    <Calendar size={18} className="text-indigo-600" />
                   </div>
                   <div>
                     <h2 className="text-sm font-black text-gray-800 uppercase tracking-widest">Período de Pagamento</h2>
@@ -319,7 +319,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                   </div>
                 </div>
 
-                <div className="space-y-4 p-6 bg-indigo-50 border-2 border-indigo-100 rounded-[24px]">
+                <div className="space-y-3 p-4 bg-indigo-50 border border-indigo-100 rounded-xl">
                   <div className="flex items-start gap-2">
                     <Info size={16} className="text-indigo-600 mt-0.5 flex-shrink-0" />
                     <div>
@@ -335,11 +335,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                     max="31"
                     value={paymentStartDay}
                     onChange={(e) => setPaymentStartDay(Math.min(31, Math.max(1, parseInt(e.target.value) || 1)))}
-                    className="w-full px-6 py-4 bg-white border-2 border-indigo-200 rounded-[20px] font-black text-3xl text-indigo-600 text-center focus:border-indigo-500 outline-none transition-all"
+                    className="w-full px-4 py-3 bg-white border border-indigo-200 rounded-xl font-black text-2xl text-indigo-600 text-center focus:border-indigo-500 outline-none transition-all"
                   />
                 </div>
 
-                <div className="space-y-4 p-6 bg-amber-50 border-2 border-amber-100 rounded-[24px]">
+                <div className="space-y-3 p-4 bg-amber-50 border border-amber-100 rounded-xl">
                   <div className="flex items-start gap-2">
                     <Info size={16} className="text-amber-600 mt-0.5 flex-shrink-0" />
                     <div>
@@ -355,14 +355,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                     max="31"
                     value={paymentDueDay}
                     onChange={(e) => setPaymentDueDay(Math.min(31, Math.max(1, parseInt(e.target.value) || 1)))}
-                    className="w-full px-6 py-4 bg-white border-2 border-amber-200 rounded-[20px] font-black text-3xl text-amber-600 text-center focus:border-amber-500 outline-none transition-all"
+                    className="w-full px-4 py-3 bg-white border border-amber-200 rounded-xl font-black text-2xl text-amber-600 text-center focus:border-amber-500 outline-none transition-all"
                   />
                 </div>
               </div>
             )}
 
             {activeTab === 'ATENDIMENTO' && (
-              <div className="space-y-5 p-6 bg-emerald-50 border-2 border-emerald-100 rounded-[24px]">
+              <div className="space-y-4 p-4 bg-emerald-50 border border-emerald-100 rounded-xl">
                 <div className="flex items-start gap-2">
                   <Calendar size={16} className="text-emerald-600 mt-0.5 flex-shrink-0" />
                   <div>
@@ -375,13 +375,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                   </div>
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {SERVICE_DAY_OPTIONS.map(day => {
                     const config = openingHours[day.key];
                     const isClosed = Boolean(config?.closed);
                     return (
-                      <div key={day.key} className="bg-white rounded-[16px] p-4 border-2 border-emerald-100">
-                        <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
+                      <div key={day.key} className="bg-white rounded-xl p-3 border border-emerald-100">
+                        <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3">
                           <div className="flex-1">
                             <p className="text-xs font-black text-gray-800 uppercase tracking-widest">{day.label}</p>
                           </div>
@@ -410,7 +410,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                                 ...prev,
                                 [day.key]: { ...prev[day.key], open: e.target.value }
                               }))}
-                              className="px-3 py-2 rounded-xl border-2 border-emerald-200 bg-white text-xs font-black text-emerald-700 disabled:opacity-40"
+                              className="px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-white text-xs font-black text-emerald-700 disabled:opacity-40"
                             />
                             <span className="text-xs font-black text-gray-400">até</span>
                             <input
@@ -421,7 +421,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                                 ...prev,
                                 [day.key]: { ...prev[day.key], close: e.target.value }
                               }))}
-                              className="px-3 py-2 rounded-xl border-2 border-emerald-200 bg-white text-xs font-black text-emerald-700 disabled:opacity-40"
+                              className="px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-white text-xs font-black text-emerald-700 disabled:opacity-40"
                             />
                           </div>
                         </div>
@@ -433,7 +433,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
             )}
 
             {activeTab === 'SALDO' && (
-              <div className="space-y-5 p-6 bg-rose-50 border-2 border-rose-100 rounded-[24px]">
+              <div className="space-y-4 p-4 bg-rose-50 border border-rose-100 rounded-xl">
                 <div className="flex items-start gap-2">
                   <AlertCircle size={16} className="text-rose-600 mt-0.5 flex-shrink-0" />
                   <div>
@@ -447,7 +447,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <div className="bg-white rounded-[16px] p-4 border-2 border-rose-100 space-y-3">
+                  <div className="bg-white rounded-xl p-3 border border-rose-100 space-y-2.5">
                     <label className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-700">
                       <input
                         type="checkbox"
@@ -465,12 +465,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                         value={negativeLimitClients}
                         disabled={!allowNegativeSalesForClients}
                         onChange={(e) => setNegativeLimitClients(Math.max(0, Number(e.target.value || 0)))}
-                        className="w-full px-4 py-3 rounded-xl border-2 border-rose-200 bg-white text-sm font-black text-rose-700 disabled:opacity-40"
+                        className="w-full px-3 py-2 rounded-lg border border-rose-200 bg-white text-sm font-black text-rose-700 disabled:opacity-40"
                       />
                     </div>
                   </div>
 
-                  <div className="bg-white rounded-[16px] p-4 border-2 border-rose-100 space-y-3">
+                  <div className="bg-white rounded-xl p-3 border border-rose-100 space-y-2.5">
                     <label className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-700">
                       <input
                         type="checkbox"
@@ -488,7 +488,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                         value={negativeLimitCollaborators}
                         disabled={!allowNegativeSalesForCollaborators}
                         onChange={(e) => setNegativeLimitCollaborators(Math.max(0, Number(e.target.value || 0)))}
-                        className="w-full px-4 py-3 rounded-xl border-2 border-rose-200 bg-white text-sm font-black text-rose-700 disabled:opacity-40"
+                        className="w-full px-3 py-2 rounded-lg border border-rose-200 bg-white text-sm font-black text-rose-700 disabled:opacity-40"
                       />
                     </div>
                   </div>
@@ -497,7 +497,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
             )}
 
             {activeTab === 'IMPRESSAO' && (
-              <div className="space-y-5 p-6 bg-sky-50 border-2 border-sky-100 rounded-[24px]">
+              <div className="space-y-4 p-4 bg-sky-50 border border-sky-100 rounded-xl">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-start gap-2">
                     <Printer size={16} className="text-sky-600 mt-0.5 flex-shrink-0" />
@@ -514,28 +514,28 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                     type="button"
                     onClick={() => receiptPrintMode === 'LOCAL_AGENT' ? loadLocalAgentPrinters() : loadSystemPrinters()}
                     disabled={printersLoading}
-                    className="px-3 py-2 rounded-xl border-2 border-sky-200 bg-white text-[10px] font-black text-sky-700 uppercase tracking-widest flex items-center gap-2 disabled:opacity-40"
+                    className="px-2.5 py-1.5 rounded-lg border border-sky-200 bg-white text-[10px] font-black text-sky-700 uppercase tracking-widest flex items-center gap-1.5 disabled:opacity-40"
                   >
                     <RefreshCw size={12} className={printersLoading ? 'animate-spin' : ''} />
                     Atualizar
                   </button>
                 </div>
 
-                <div className="bg-white rounded-[16px] p-4 border-2 border-sky-100 space-y-3">
+                <div className="bg-white rounded-xl p-3 border border-sky-100 space-y-2.5">
                   <div>
                     <p className="text-[10px] font-black text-sky-700 uppercase tracking-widest mb-1">Modo de Impressão</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                       <button
                         type="button"
                         onClick={() => setReceiptPrintMode('SERVER_BROWSER')}
-                        className={`px-3 py-3 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest ${receiptPrintMode === 'SERVER_BROWSER' ? 'bg-sky-600 border-sky-600 text-white' : 'bg-white border-sky-200 text-sky-700'}`}
+                        className={`px-3 py-2 rounded-lg border text-[10px] font-black uppercase tracking-widest ${receiptPrintMode === 'SERVER_BROWSER' ? 'bg-sky-600 border-sky-600 text-white' : 'bg-white border-sky-200 text-sky-700'}`}
                       >
                         Navegador/Servidor
                       </button>
                       <button
                         type="button"
                         onClick={() => setReceiptPrintMode('LOCAL_AGENT')}
-                        className={`px-3 py-3 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest ${receiptPrintMode === 'LOCAL_AGENT' ? 'bg-sky-600 border-sky-600 text-white' : 'bg-white border-sky-200 text-sky-700'}`}
+                        className={`px-3 py-2 rounded-lg border text-[10px] font-black uppercase tracking-widest ${receiptPrintMode === 'LOCAL_AGENT' ? 'bg-sky-600 border-sky-600 text-white' : 'bg-white border-sky-200 text-sky-700'}`}
                       >
                         Agente Local
                       </button>
@@ -550,7 +550,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                           value={localPrintAgentUrl}
                           onChange={(e) => setLocalPrintAgentUrl(e.target.value)}
                           placeholder="http://127.0.0.1:18181"
-                          className="flex-1 px-4 py-3 rounded-xl border-2 border-sky-200 bg-white text-sm font-black text-sky-700"
+                          className="flex-1 px-3 py-2 rounded-lg border border-sky-200 bg-white text-sm font-black text-sky-700"
                         />
                         <button
                           type="button"
@@ -558,7 +558,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                             loadLocalAgentPrinters();
                             checkLocalAgentHealth();
                           }}
-                          className="px-3 py-3 rounded-xl border-2 border-sky-200 bg-white text-[10px] font-black text-sky-700 uppercase tracking-widest"
+                          className="px-2.5 py-2 rounded-lg border border-sky-200 bg-white text-[10px] font-black text-sky-700 uppercase tracking-widest"
                         >
                           Testar
                         </button>
@@ -596,7 +596,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                     <select
                       value={receiptPrinterName}
                       onChange={(e) => setReceiptPrinterName(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border-2 border-sky-200 bg-white text-sm font-black text-sky-700"
+                      className="w-full px-3 py-2 rounded-lg border border-sky-200 bg-white text-sm font-black text-sky-700"
                     >
                       <option value="">Padrão do sistema</option>
                       {printers.map((printer) => (
@@ -618,7 +618,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                             setReceiptPrinterName(defaultPrinter.name);
                             setPrintersMessage(`Impressora padrão ativada: ${defaultPrinter.name}`);
                           }}
-                          className="px-3 py-2 rounded-xl border-2 border-sky-200 bg-white text-[10px] font-black text-sky-700 uppercase tracking-widest"
+                          className="px-2.5 py-1.5 rounded-lg border border-sky-200 bg-white text-[10px] font-black text-sky-700 uppercase tracking-widest"
                         >
                           Ativar padrão do computador
                         </button>
@@ -635,7 +635,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                       <select
                         value={receiptPaperWidth}
                         onChange={(e) => setReceiptPaperWidth(e.target.value as ReceiptPaperWidth)}
-                        className="w-full px-4 py-3 rounded-xl border-2 border-sky-200 bg-white text-sm font-black text-sky-700"
+                        className="w-full px-3 py-2 rounded-lg border border-sky-200 bg-white text-sm font-black text-sky-700"
                       >
                         <option value="58mm">58mm</option>
                         <option value="80mm">80mm</option>
@@ -646,7 +646,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                       <select
                         value={receiptFontFamily}
                         onChange={(e) => setReceiptFontFamily(e.target.value as ReceiptFontFamily)}
-                        className="w-full px-4 py-3 rounded-xl border-2 border-sky-200 bg-white text-sm font-black text-sky-700"
+                        className="w-full px-3 py-2 rounded-lg border border-sky-200 bg-white text-sm font-black text-sky-700"
                       >
                         <option value="ARIAL_BLACK">Arial Black</option>
                         <option value="ARIAL">Arial</option>
@@ -659,7 +659,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                       <select
                         value={receiptFontSize}
                         onChange={(e) => setReceiptFontSize(e.target.value as ReceiptFontSize)}
-                        className="w-full px-4 py-3 rounded-xl border-2 border-sky-200 bg-white text-sm font-black text-sky-700"
+                        className="w-full px-3 py-2 rounded-lg border border-sky-200 bg-white text-sm font-black text-sky-700"
                       >
                         <option value="SMALL">Pequena</option>
                         <option value="NORMAL">Normal</option>
@@ -668,11 +668,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border-2 border-sky-200 bg-white p-4 space-y-4">
+                  <div className="rounded-xl border border-sky-200 bg-white p-3 space-y-3">
                     <p className="text-[10px] font-black text-sky-700 uppercase tracking-widest">Simulador Visual do Cupom</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between rounded-xl border border-sky-200 px-3 py-2 bg-sky-50">
+                        <div className="space-y-2">
+                        <div className="flex items-center justify-between rounded-lg border border-sky-200 px-2.5 py-1.5 bg-sky-50">
                           <span className="text-[10px] font-black text-sky-700 uppercase tracking-widest">Margem Superior/Inferior</span>
                           <div className="flex items-center gap-2">
                             <button
@@ -693,7 +693,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between rounded-xl border border-sky-200 px-3 py-2 bg-sky-50">
+                        <div className="flex items-center justify-between rounded-lg border border-sky-200 px-2.5 py-1.5 bg-sky-50">
                           <span className="text-[10px] font-black text-sky-700 uppercase tracking-widest">Margem Esquerda/Direita</span>
                           <div className="flex items-center gap-2">
                             <button
@@ -714,7 +714,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between rounded-xl border border-sky-200 px-3 py-2 bg-sky-50">
+                        <div className="flex items-center justify-between rounded-lg border border-sky-200 px-2.5 py-1.5 bg-sky-50">
                           <span className="text-[10px] font-black text-sky-700 uppercase tracking-widest">Distância entre itens (Cima)</span>
                           <div className="flex items-center gap-2">
                             <button
@@ -735,7 +735,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between rounded-xl border border-sky-200 px-3 py-2 bg-sky-50">
+                        <div className="flex items-center justify-between rounded-lg border border-sky-200 px-2.5 py-1.5 bg-sky-50">
                           <span className="text-[10px] font-black text-sky-700 uppercase tracking-widest">Distância entre itens (Baixo)</span>
                           <div className="flex items-center gap-2">
                             <button
@@ -757,7 +757,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                         </div>
                       </div>
 
-                      <div className="rounded-xl border border-sky-200 bg-gray-100 p-3">
+                      <div className="rounded-lg border border-sky-200 bg-gray-100 p-2.5">
                         <div
                           className="mx-auto rounded-lg border-2 border-sky-300 bg-white relative overflow-hidden"
                           style={{ width: receiptPaperWidth === '58mm' ? 160 : 220, height: 260 }}
@@ -804,11 +804,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
               </div>
             )}
 
-            <div className="flex gap-3 pt-2">
+            <div className="flex gap-2 pt-1">
               <button
                 onClick={handleSave}
                 disabled={isSaving}
-                className="flex-1 py-4 bg-indigo-600 text-white rounded-[24px] font-black uppercase tracking-widest text-sm shadow-xl shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-50 active:scale-95 transition-all flex items-center justify-center gap-2"
+                className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-black uppercase tracking-widest text-xs shadow-lg shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-50 active:scale-95 transition-all flex items-center justify-center gap-2"
               >
                 <Save size={18} />
                 {isSaving ? 'Salvando...' : 'Salvar Configurações'}
@@ -816,46 +816,46 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
             </div>
 
             {saveStatus === 'success' && (
-              <div className="bg-emerald-50 border-2 border-emerald-200 rounded-[20px] p-4 flex items-center gap-3">
-                <Check size={20} className="text-emerald-600" />
-                <p className="text-sm font-bold text-emerald-700">{saveMessage}</p>
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center gap-2.5">
+                <Check size={18} className="text-emerald-600" />
+                <p className="text-xs font-bold text-emerald-700">{saveMessage}</p>
               </div>
             )}
 
             {saveStatus === 'error' && (
-              <div className="bg-red-50 border-2 border-red-200 rounded-[20px] p-4 flex items-center gap-3">
-                <AlertCircle size={20} className="text-red-600" />
-                <p className="text-sm font-bold text-red-700">{saveMessage}</p>
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2.5">
+                <AlertCircle size={18} className="text-red-600" />
+                <p className="text-xs font-bold text-red-700">{saveMessage}</p>
               </div>
             )}
           </div>
         </div>
 
         <div className="lg:col-span-1">
-          <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-[32px] border-2 border-indigo-100 p-6 space-y-6 dark:from-zinc-900 dark:to-zinc-900 dark:border-white/10 dark:ring-1 dark:ring-white/5">
+          <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-2xl border border-indigo-100 p-4 space-y-4 dark:from-zinc-900 dark:to-zinc-900 dark:border-white/10 dark:ring-1 dark:ring-white/5">
             <div>
               <h3 className="text-[11px] font-black text-indigo-900 uppercase tracking-widest mb-3 flex items-center gap-2">
                 <Settings size={16} />
                 Resumo
               </h3>
-              <div className="space-y-3 text-sm">
-                <div className="bg-white/60 rounded-[16px] p-3 border border-indigo-100">
+              <div className="space-y-2.5 text-sm">
+                <div className="bg-white/60 rounded-xl p-2.5 border border-indigo-100">
                   <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Unidade</p>
                   <p className="text-xs text-gray-800 font-bold">{activeEnterprise.name}</p>
                 </div>
-                <div className="bg-white/60 rounded-[16px] p-3 border border-indigo-100">
+                <div className="bg-white/60 rounded-xl p-2.5 border border-indigo-100">
                   <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Atendimento</p>
                   <p className="text-xs text-gray-800 font-bold">{activeServiceDaysCount} dias ativos/semana</p>
                 </div>
-                <div className="bg-white/60 rounded-[16px] p-3 border border-indigo-100">
+                <div className="bg-white/60 rounded-xl p-2.5 border border-indigo-100">
                   <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Impressão Auto PDV</p>
                   <p className="text-xs text-gray-800 font-bold">{autoPrintPDVReceipt ? 'Ativada' : 'Desativada'}</p>
                 </div>
-                <div className="bg-white/60 rounded-[16px] p-3 border border-indigo-100">
+                <div className="bg-white/60 rounded-xl p-2.5 border border-indigo-100">
                   <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Modo Impressão</p>
                   <p className="text-xs text-gray-800 font-bold">{receiptPrintMode === 'LOCAL_AGENT' ? 'Agente Local' : 'Navegador/Servidor'}</p>
                 </div>
-                <div className="bg-white/60 rounded-[16px] p-3 border border-indigo-100">
+                <div className="bg-white/60 rounded-xl p-2.5 border border-indigo-100">
                   <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Cupom Não Fiscal</p>
                   <p className="text-xs text-gray-800 font-bold">
                     {receiptPaperWidth} • {RECEIPT_FONT_FAMILY_LABELS[receiptFontFamily]} • {RECEIPT_FONT_SIZE_LABELS[receiptFontSize]} • V:{receiptMarginVertical}mm H:{receiptMarginHorizontal}mm • Itens: +{receiptItemGapTop}px/-{receiptItemGapBottom}px

@@ -272,41 +272,41 @@ const NutritionalInfoPage: React.FC = () => {
   };
 
   return (
-    <div className="dash-shell nutrition-shell space-y-8 max-w-[1400px] min-h-screen">
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <div className="dash-shell nutrition-shell space-y-3 min-h-screen">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="space-y-1">
-          <h1 className="text-3xl font-black text-gray-800 tracking-tight flex items-center gap-3 leading-none uppercase">
-            <Beef className="text-indigo-600" size={32} /> ITENS COMIDA / BASE NUTRICIONAL
+          <h1 className="text-xl sm:text-2xl font-black text-gray-800 tracking-tight flex items-center gap-2 leading-none uppercase">
+            <Beef className="text-indigo-600" size={20} /> ITENS COMIDA / BASE NUTRICIONAL
           </h1>
-          <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest mt-1">
+          <p className="text-gray-500 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.12em] mt-1">
             Gestão de insumos e produtos para montagem de cardápios
           </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-1.5 sm:gap-2 flex-wrap">
           <button 
             onClick={() => setIsCategoryModalOpen(true)}
-            className="bg-white text-indigo-600 border-2 border-indigo-100 px-6 py-3 rounded-2xl font-black uppercase tracking-widest text-xs shadow-sm hover:bg-indigo-50 transition-all flex items-center gap-2"
+            className="bg-white text-indigo-600 border border-indigo-200 px-3 py-2 rounded-lg font-black uppercase tracking-[0.12em] text-[9px] shadow-sm hover:bg-indigo-50 transition-all flex items-center gap-1.5"
           >
-            <Tag size={18} /> Nova Categoria
+            <Tag size={12} /> Nova Categoria
           </button>
           <button 
             onClick={() => handleOpenModal()}
-            className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2 active:scale-95"
+            className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-black uppercase tracking-[0.12em] text-[9px] shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-1.5 active:scale-95"
           >
-            <Plus size={20} /> Cadastrar Item Comida
+            <Plus size={13} /> Cadastrar Item Comida
           </button>
         </div>
       </header>
 
       {/* Barra de Filtros Integrada */}
-      <div className="bg-white p-6 rounded-[40px] border shadow-sm flex flex-col gap-6">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
+      <div className="bg-white p-3 rounded-[22px] border shadow-sm flex flex-col gap-2.5">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
            <div className="md:col-span-5 relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
               <input 
                 type="text" 
                 placeholder="Pesquisar por nome do item..." 
-                className="w-full pl-12 pr-4 py-4 bg-gray-50 border-transparent border-2 focus:border-indigo-500 rounded-3xl outline-none font-bold text-sm transition-all shadow-inner focus:bg-white"
+                className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border-transparent border focus:border-indigo-500 rounded-xl outline-none font-semibold text-xs transition-all shadow-inner focus:bg-white"
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
               />
@@ -315,11 +315,11 @@ const NutritionalInfoPage: React.FC = () => {
            <div className="md:col-span-7 flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-2 mr-2">
                  <Filter size={14} className="text-gray-400" />
-                 <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Filtrar por:</span>
+                 <span className="text-[8px] font-black text-gray-400 uppercase tracking-[0.12em]">Filtrar por:</span>
               </div>
               <button 
                 onClick={() => setSelectedCategory('TODOS')}
-                className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border-2 ${selectedCategory === 'TODOS' ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-gray-100 text-gray-400 hover:border-indigo-200'}`}
+                className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] transition-all border ${selectedCategory === 'TODOS' ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-gray-100 text-gray-400 hover:border-indigo-200'}`}
               >
                 Todos
               </button>
@@ -327,7 +327,7 @@ const NutritionalInfoPage: React.FC = () => {
                 <button 
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
-                  className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border-2 ${selectedCategory === cat ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-gray-100 text-gray-400 hover:border-indigo-200'}`}
+                  className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] transition-all border ${selectedCategory === cat ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-gray-100 text-gray-400 hover:border-indigo-200'}`}
                 >
                   {cat}
                 </button>
@@ -337,7 +337,7 @@ const NutritionalInfoPage: React.FC = () => {
       </div>
 
       {/* Grid de Itens Comida */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-in fade-in duration-500">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 animate-in fade-in duration-500">
         {filteredIngredients.length === 0 ? (
           <div className="col-span-full py-32 text-center space-y-4 opacity-30">
             <Search size={64} className="mx-auto text-gray-400" />
@@ -345,40 +345,40 @@ const NutritionalInfoPage: React.FC = () => {
           </div>
         ) : (
           filteredIngredients.map(ing => (
-            <div key={ing.id} className="bg-white rounded-[40px] border border-gray-100 shadow-sm hover:shadow-2xl transition-all group overflow-hidden flex flex-col">
-              <div className="p-6 flex-1 space-y-5">
+            <div key={ing.id} className="bg-white rounded-[20px] border border-gray-100 shadow-sm hover:shadow-xl transition-all group overflow-hidden flex flex-col">
+              <div className="p-3 flex-1 space-y-3">
                 <div className="flex justify-between items-start">
-                  <div className={`w-14 h-14 rounded-[20px] flex items-center justify-center transition-all shadow-inner ${
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all shadow-inner ${
                     ing.unit === 'ml' ? 'bg-blue-50 text-blue-600' : 
                     ing.unit === 'un' ? 'bg-amber-50 text-amber-600' : 
                     'bg-indigo-50 text-indigo-600'
                   } group-hover:rotate-6`}>
-                    <Beef size={28} />
+                    <Beef size={16} />
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                    <button onClick={() => handleOpenModal(ing)} className="p-2.5 text-indigo-600 bg-white border rounded-xl shadow-sm hover:bg-indigo-50 transition-colors" title="Editar"><Edit size={16}/></button>
-                    <button onClick={() => handleDelete(ing.id)} className="p-2.5 text-red-500 bg-white border rounded-xl shadow-sm hover:bg-red-50 transition-colors" title="Apagar"><Trash2 size={16}/></button>
+                    <button onClick={() => handleOpenModal(ing)} className="p-1.5 text-indigo-600 bg-white border rounded-lg shadow-sm hover:bg-indigo-50 transition-colors" title="Editar"><Edit size={12}/></button>
+                    <button onClick={() => handleDelete(ing.id)} className="p-1.5 text-red-500 bg-white border rounded-lg shadow-sm hover:bg-red-50 transition-colors" title="Apagar"><Trash2 size={12}/></button>
                   </div>
                 </div>
                 
                 <div>
-                  <span className="text-[8px] font-black text-indigo-400 uppercase tracking-widest bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100 mb-1.5 inline-block">{ing.category}</span>
-                  <h3 className="font-black text-gray-800 text-lg leading-tight uppercase tracking-tight">{ing.name}</h3>
+                  <span className="text-[8px] font-black text-indigo-400 uppercase tracking-[0.12em] bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100 mb-1 inline-block">{ing.category}</span>
+                  <h3 className="font-black text-gray-800 text-sm leading-tight uppercase tracking-tight">{ing.name}</h3>
                   <div className="flex items-center gap-1.5 mt-1">
                      <p className="text-[9px] font-black text-gray-400 uppercase tracking-[1px]">Base: {getShortUnitLabel(ing.unit)}</p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-50 mt-4">
+                <div className="grid grid-cols-2 gap-1.5 pt-2 border-t border-gray-50 mt-2">
                   <NutrientBadge icon={<Flame size={10}/>} label="KCAL" value={ing.calories} color="amber" />
                   <NutrientBadge icon={<Zap size={10}/>} label="PROT" value={ing.proteins} color="blue" />
                   <NutrientBadge icon={<Droplets size={10}/>} label="CARB" value={ing.carbs} color="indigo" />
                   <NutrientBadge icon={<Apple size={10}/>} label="GORD" value={ing.fats} color="rose" />
                 </div>
               </div>
-              <div className="px-6 py-4 bg-gray-50/50 border-t border-gray-100 flex items-center justify-between">
-                <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">ID: #{ing.id.toUpperCase().substring(0,6)}</span>
-                <div className="flex items-center gap-1 text-[9px] font-black text-emerald-600 uppercase">
+              <div className="px-3 py-2 bg-gray-50/50 border-t border-gray-100 flex items-center justify-between">
+                <span className="text-[8px] font-black text-gray-400 uppercase tracking-[0.12em]">ID: #{ing.id.toUpperCase().substring(0,6)}</span>
+                <div className="flex items-center gap-1 text-[8px] font-black text-emerald-600 uppercase">
                   <CheckCircle2 size={12} /> Validado
                 </div>
               </div>

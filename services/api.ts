@@ -815,10 +815,16 @@ export class ApiService {
   static async getWhatsAppDispatchAudience(params: {
     enterpriseId: string;
     filter?: 'TODOS' | 'RESPONSAVEIS' | 'COLABORADORES' | 'SALDO_BAIXO' | 'PLANO_A_VENCER' | 'RELATORIO_ENTREGA';
+    profileType?: 'RESPONSAVEL_PARENTESCO' | 'COLABORADOR';
+    periodMode?: 'SEMANAL' | 'QUINZENAL' | 'MENSAL' | 'DESTA_SEMANA';
+    businessDaysOnly?: boolean;
   }) {
     const qs = new URLSearchParams({
       enterpriseId: String(params.enterpriseId || ''),
       filter: String(params.filter || 'TODOS'),
+      profileType: String(params.profileType || 'RESPONSAVEL_PARENTESCO'),
+      periodMode: String(params.periodMode || 'SEMANAL'),
+      businessDaysOnly: String(Boolean(params.businessDaysOnly)),
     });
     const response = await fetch(`${API_URL}/whatsapp/dispatch/audience?${qs.toString()}`, {
       headers: this.getHeaders(),
@@ -826,6 +832,79 @@ export class ApiService {
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text || 'Falha ao buscar audiência do disparo');
+    }
+    return response.json();
+  }
+
+  static async getWhatsAppDispatchConfig(enterpriseId: string) {
+    const qs = new URLSearchParams({
+      enterpriseId: String(enterpriseId || ''),
+    });
+    const response = await fetch(`${API_URL}/whatsapp/dispatch/config?${qs.toString()}`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao carregar configuração de disparo');
+    }
+    return response.json();
+  }
+
+  static async saveWhatsAppDispatchConfig(payload: {
+    enterpriseId: string;
+    config: any;
+  }) {
+    const response = await fetch(`${API_URL}/whatsapp/dispatch/config`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao salvar configuração de disparo');
+    }
+    return response.json();
+  }
+
+  static async getWhatsAppDispatchLogs(params: { enterpriseId: string; limit?: number }) {
+    const qs = new URLSearchParams({
+      enterpriseId: String(params.enterpriseId || ''),
+      limit: String(Math.max(1, Math.min(500, Number(params.limit || 100)))),
+    });
+    const response = await fetch(`${API_URL}/whatsapp/dispatch/logs?${qs.toString()}`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao carregar logs de disparo');
+    }
+    return response.json();
+  }
+
+  static async appendWhatsAppDispatchLogs(payload: { enterpriseId: string; entries: any[] }) {
+    const response = await fetch(`${API_URL}/whatsapp/dispatch/logs`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao salvar logs de disparo');
+    }
+    return response.json();
+  }
+
+  static async clearWhatsAppDispatchLogs(enterpriseId: string) {
+    const qs = new URLSearchParams({
+      enterpriseId: String(enterpriseId || ''),
+    });
+    const response = await fetch(`${API_URL}/whatsapp/dispatch/logs?${qs.toString()}`, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao limpar logs de disparo');
     }
     return response.json();
   }
