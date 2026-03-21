@@ -205,6 +205,8 @@ type AiConversationSession = {
 
 type AiCachedPlanEntry = {
   planName: string;
+  balanceUnits: number;
+  unitValue: number;
   balance: number;
 };
 
@@ -1400,6 +1402,34 @@ class WhatsAppSessionManager {
 
   private setState(next: SessionState) {
     this.state = next;
+  }
+
+  private isTransientAckStreamError(reasonText: string) {
+    const text = String(reasonText || '').toLowerCase();
+    return text.includes('stream errored') || text.includes('(ack)') || text.includes(' ack');
+  }
+
+  private isRecoverableDisconnect(code: number, reasonText: string) {
+    const text = String(reasonText || '').toLowerCase();
+    if (this.isTransientAckStreamError(text)) return true;
+    if (text.includes('connection failure')) return true;
+    if (text.includes('restart required')) return true;
+    if (text.includes('timed out') || text.includes('timeout')) return true;
+    if (text.includes('connection closed') || text.includes('connection lost')) return true;
+    if (text.includes('resource busy') || text.includes('conflict')) return true;
+    // Fallback para códigos comuns de desconexão recuperável em sessões websocket.
+    return [408, 428, 440, 500, 503, 515].includes(Number(code || 0));
+  }
+
+  private getReconnectDelayMs(code: number, reasonText: string, streak: number) {
+    const attempt = Math.max(0, Number(streak || 0));
+    const baseDelay = this.isTransientAckStreamError(reasonText) ? 1200 : 700;
+    const backoffDelay = Math.min(5000, baseDelay + (attempt * 400));
+    // Para restart required, reconecta mais rápido.
+    if (Number(code || 0) === Number(DisconnectReason.restartRequired || 0)) {
+      return 450;
+    }
+    return backoffDelay;
   }
 
   private getAuthDir() {
@@ -3273,17 +3303,39 @@ class WhatsAppSessionManager {
     const totalBalance = Number(client?.balance || 0);
     const balances = client?.planCreditBalances || {};
     const planEntries: AiCachedPlanEntry[] = [];
+    const round = (value: number, precision = 2) => {
+      const factor = 10 ** precision;
+      return Math.round((Number(value || 0) + Number.EPSILON) * factor) / factor;
+    };
     for (const entry of Object.values(balances) as any[]) {
       const planName = String(entry?.planName || '').trim();
       if (!planName) continue;
+      const unitValueRaw = Number(entry?.unitValue || entry?.planPrice || 0);
+      const unitValue = Number.isFinite(unitValueRaw) && unitValueRaw > 0 ? unitValueRaw : 0;
+      const amountBalance = Number(entry?.balance || 0);
+      const directUnits = Number(entry?.balanceUnits);
+      const balanceUnits = Number.isFinite(directUnits)
+        ? Math.max(0, directUnits)
+        : unitValue > 0
+          ? Math.max(0, amountBalance / unitValue)
+          : 0;
+      const safeBalance = unitValue > 0
+        ? round(balanceUnits * unitValue, 2)
+        : Number.isFinite(amountBalance)
+          ? round(Math.max(0, amountBalance), 2)
+          : 0;
       planEntries.push({
         planName,
-        balance: Number(entry?.balance || 0),
+        balanceUnits: round(balanceUnits, 4),
+        unitValue: round(unitValue, 4),
+        balance: safeBalance,
       });
     }
     if ((client?.servicePlans || []).includes('PREPAGO')) {
       planEntries.push({
         planName: 'Carteira Pré-paga',
+        balanceUnits: 0,
+        unitValue: 0,
         balance: totalBalance,
       });
     }
@@ -3395,12 +3447,26 @@ class WhatsAppSessionManager {
       ? cachedPlanEntries
       : (Object.values(balances) as any[]).map((entry: any) => ({
           planName: String(entry?.planName || '').trim(),
+          balanceUnits: Number(entry?.balanceUnits),
+          unitValue: Number(entry?.unitValue || entry?.planPrice || 0),
           balance: Number(entry?.balance || 0),
         }));
+
+    const formatUnits = (value: number) => {
+      if (!Number.isFinite(value)) return '0';
+      return Number.isInteger(value) ? String(value) : value.toFixed(2);
+    };
 
     for (const entry of entries) {
       const planName = String(entry?.planName || '').trim();
       const balance = Number(entry?.balance || 0);
+      const unitValue = Number(entry?.unitValue || 0);
+      const balanceUnitsDirect = Number(entry?.balanceUnits);
+      const balanceUnits = Number.isFinite(balanceUnitsDirect)
+        ? Math.max(0, balanceUnitsDirect)
+        : unitValue > 0
+          ? Math.max(0, balance / unitValue)
+          : 0;
       if (!planName) continue;
       if (terms.length > 0) {
         const bag = this.normalizeSearchText(planName);
@@ -3409,7 +3475,11 @@ class WhatsAppSessionManager {
           continue;
         }
       }
-      lines.push(`${planName}: R$ ${balance.toFixed(2)}`);
+      if (balanceUnits > 0) {
+        lines.push(`${planName}: ${formatUnits(balanceUnits)} und. • R$ ${balance.toFixed(2)}`);
+      } else {
+        lines.push(`${planName}: R$ ${balance.toFixed(2)}`);
+      }
     }
 
     return lines.length > 0 ? lines.join('\n') : 'Sem saldo de planos disponível.';
@@ -3954,6 +4024,101 @@ class WhatsAppSessionManager {
     const isConsumption = (tx: any) => this.isConsumptionTransaction(tx);
     const isCredit = (tx: any) => this.isCreditTransaction(tx);
     const formatDatePt = (value: Date) => value.toLocaleDateString('pt-BR');
+    const normalize = (value: any) =>
+      String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+
+    const products = db.getProducts(client?.enterpriseId || '');
+    const productById = new Map<string, string>();
+    const productByName = new Map<string, string>();
+    products.forEach((product: any) => {
+      const id = String(product?.id || '').trim();
+      const name = String(product?.name || '').trim();
+      if (id && name) productById.set(id, name);
+      const key = normalize(name);
+      if (key && name) productByName.set(key, name);
+    });
+
+    const plans = db.getPlans(client?.enterpriseId || '');
+    const planById = new Map<string, string>();
+    plans.forEach((plan: any) => {
+      const id = String(plan?.id || '').trim();
+      const name = String(plan?.name || '').trim();
+      if (id && name) planById.set(id, name);
+    });
+
+    const extractPlanName = (tx: any) => {
+      const planId = String(tx?.planId || tx?.originPlanId || '').trim();
+      if (planId && planById.has(planId)) return String(planById.get(planId) || '').trim();
+      const direct = String(tx?.plan || tx?.planName || '').trim();
+      if (direct) return direct;
+
+      const source = `${String(tx?.description || '')} ${String(tx?.item || '')}`.trim();
+      const match = source.match(/plano\s+([A-Za-zÀ-ÿ0-9\s\-_]+)/i);
+      if (match?.[1]) return String(match[1]).trim();
+      return '';
+    };
+
+    const resolvePrepaidItemName = (tx: any) => {
+      const txItems = Array.isArray(tx?.items) ? tx.items : [];
+      if (txItems.length > 0) {
+        const labels = txItems
+          .map((item: any) => {
+            const id = String(item?.productId || '').trim();
+            const catalogName = id ? String(productById.get(id) || '').trim() : '';
+            const itemName = String(item?.name || item?.productName || catalogName || '').trim();
+            const qtyRaw = Number(item?.quantity || 1);
+            const qty = Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1;
+            return itemName ? `${qty}x ${itemName}` : '';
+          })
+          .filter(Boolean);
+        if (labels.length > 0) return labels.join(' | ');
+      }
+
+      const txProductId = String(tx?.productId || '').trim();
+      if (txProductId && productById.has(txProductId)) {
+        return String(productById.get(txProductId) || '').trim();
+      }
+
+      const itemText = String(tx?.item || '').trim();
+      if (itemText && !/compra\s+pdv/i.test(itemText)) return itemText;
+
+      const descText = String(tx?.description || '').trim();
+      if (descText && !/compra\s+pdv/i.test(descText)) return descText;
+
+      const fromCatalog = productByName.get(normalize(itemText || descText || ''));
+      if (fromCatalog) return fromCatalog;
+      return 'Item avulso';
+    };
+
+    const isPlanTransaction = (tx: any) => {
+      const method = normalize(tx?.paymentMethod || tx?.method || '');
+      if (method === 'plano') return true;
+      if (String(tx?.planId || '').trim()) return true;
+      const text = normalize(`${tx?.plan || ''} ${tx?.description || ''} ${tx?.item || ''}`);
+      return text.includes('consumo plano')
+        || text.includes('unidade do plano')
+        || (text.includes('plano') && !text.includes('carteira pre paga') && !text.includes('prepago'));
+    };
+
+    const getDetalhamentoConsumo = (tx: any) => {
+      const txTypeText = normalize(tx?.type || tx?.movement || tx?.operation || '');
+      const descText = normalize(tx?.description || tx?.item || '');
+      const isEstorno = txTypeText.includes('estorno') || descText.includes('estorno');
+      const planName = extractPlanName(tx);
+      const byPlan = isPlanTransaction(tx) || Boolean(planName);
+
+      if (byPlan) {
+        const label = planName || 'Plano';
+        return isEstorno ? `Estorno de ${label}` : label;
+      }
+
+      const productLabel = resolvePrepaidItemName(tx);
+      return isEstorno ? `Estorno de ${productLabel} (Avulso)` : `${productLabel} (Avulso)`;
+    };
 
     const totalConsumption = transactions.filter(isConsumption).reduce((acc: number, tx: any) => acc + parseAmount(tx), 0);
     const totalCredits = transactions.filter(isCredit).reduce((acc: number, tx: any) => acc + parseAmount(tx), 0);
@@ -3964,24 +4129,6 @@ class WhatsAppSessionManager {
     const pageHeight = doc.internal.pageSize.getHeight();
 
     const formatCurrency = (value: number) => `R$ ${Number(value || 0).toFixed(2)}`;
-    const buildItemsDetail = (tx: any) => {
-      const items = Array.isArray(tx?.items) ? tx.items : [];
-      if (items.length > 0) {
-        const mapped = items
-          .map((item: any) => {
-            const name = String(item?.name || item?.productName || 'Item').trim();
-            const qty = Math.max(1, Number(item?.quantity || 1));
-            const unit = Number(item?.price ?? item?.unitPrice ?? 0) || 0;
-            const subtotal = Number(item?.total ?? (qty * unit)) || 0;
-            return `${qty}x ${name} (${formatCurrency(subtotal)})`;
-          })
-          .slice(0, 3);
-        const suffix = items.length > 3 ? ` +${items.length - 3} item(ns)` : '';
-        return `${mapped.join(' | ')}${suffix}`;
-      }
-      return String(tx?.description || tx?.item || tx?.productName || tx?.plan || '-');
-    };
-
     // Header faixa destaque
     doc.setFillColor(15, 23, 42);
     doc.rect(24, 20, pageWidth - 48, 62, 'F');
@@ -4014,7 +4161,16 @@ class WhatsAppSessionManager {
 
     const planBalances = client?.planCreditBalances || {};
     const prepaidBalance = Number(client?.balance || 0);
-    const plansTotalBalance = Object.values(planBalances).reduce((acc: number, entry: any) => acc + Number(entry?.balance || 0), 0);
+    const plansTotalBalance = Object.values(planBalances).reduce((acc: number, entry: any) => {
+      const balance = Number(entry?.balance || 0);
+      const unitValue = Number(entry?.unitValue || entry?.planPrice || 0);
+      const balanceUnits = Number(entry?.balanceUnits);
+      if (Number.isFinite(balance) && balance > 0) return acc + balance;
+      if (Number.isFinite(balanceUnits) && Number.isFinite(unitValue) && unitValue > 0) {
+        return acc + (balanceUnits * unitValue);
+      }
+      return acc;
+    }, 0);
     const collaboratorDue = Number(client?.amountDue || 0);
     const collaboratorConsumption = Number(client?.monthlyConsumption || 0);
 
@@ -4061,7 +4217,7 @@ class WhatsAppSessionManager {
       return [
         `${dateLabel} ${timeLabel}`,
         description,
-        buildItemsDetail(tx),
+        getDetalhamentoConsumo(tx),
         txType,
         method,
         formatCurrency(amount)
@@ -4150,6 +4306,77 @@ class WhatsAppSessionManager {
       .filter((tx: any) => this.isCreditTransaction(tx))
       .reduce((sum: number, tx: any) => sum + Math.abs(Number(tx?.amount ?? tx?.total ?? 0) || 0), 0);
     const formatCurrency = (value: number) => `R$ ${Number(value || 0).toFixed(2)}`;
+    const normalize = (value: any) =>
+      String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+    const products = db.getProducts(client?.enterpriseId || '');
+    const productById = new Map<string, string>();
+    products.forEach((product: any) => {
+      const id = String(product?.id || '').trim();
+      const name = String(product?.name || '').trim();
+      if (id && name) productById.set(id, name);
+    });
+    const plans = db.getPlans(client?.enterpriseId || '');
+    const planById = new Map<string, string>();
+    plans.forEach((plan: any) => {
+      const id = String(plan?.id || '').trim();
+      const name = String(plan?.name || '').trim();
+      if (id && name) planById.set(id, name);
+    });
+    const extractPlanName = (tx: any) => {
+      const planId = String(tx?.planId || tx?.originPlanId || '').trim();
+      if (planId && planById.has(planId)) return String(planById.get(planId) || '').trim();
+      const direct = String(tx?.plan || tx?.planName || '').trim();
+      if (direct) return direct;
+      const source = `${String(tx?.description || '')} ${String(tx?.item || '')}`.trim();
+      const match = source.match(/plano\s+([A-Za-zÀ-ÿ0-9\s\-_]+)/i);
+      return String(match?.[1] || '').trim();
+    };
+    const isPlanTransaction = (tx: any) => {
+      const method = normalize(tx?.paymentMethod || tx?.method || '');
+      if (method === 'plano') return true;
+      if (String(tx?.planId || '').trim()) return true;
+      const text = normalize(`${tx?.plan || ''} ${tx?.description || ''} ${tx?.item || ''}`);
+      return text.includes('consumo plano') || text.includes('unidade do plano');
+    };
+    const resolvePrepaidItemName = (tx: any) => {
+      const txItems = Array.isArray(tx?.items) ? tx.items : [];
+      if (txItems.length > 0) {
+        const labels = txItems
+          .map((item: any) => {
+            const id = String(item?.productId || '').trim();
+            const itemName = String(item?.name || item?.productName || (id ? productById.get(id) : '') || '').trim();
+            const qtyRaw = Number(item?.quantity || 1);
+            const qty = Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1;
+            return itemName ? `${qty}x ${itemName}` : '';
+          })
+          .filter(Boolean);
+        if (labels.length > 0) return labels.join(' | ');
+      }
+      const txProductId = String(tx?.productId || '').trim();
+      if (txProductId && productById.has(txProductId)) return String(productById.get(txProductId) || '').trim();
+      const item = String(tx?.item || '').trim();
+      if (item && !/compra\s+pdv/i.test(item)) return item;
+      const description = String(tx?.description || '').trim();
+      if (description && !/compra\s+pdv/i.test(description)) return description;
+      return 'Item avulso';
+    };
+    const getDetalhamentoConsumo = (tx: any) => {
+      const txTypeText = normalize(tx?.type || tx?.movement || tx?.operation || '');
+      const descText = normalize(tx?.description || tx?.item || '');
+      const isEstorno = txTypeText.includes('estorno') || descText.includes('estorno');
+      const planName = extractPlanName(tx);
+      const byPlan = isPlanTransaction(tx) || Boolean(planName);
+      if (byPlan) {
+        const label = planName || 'Plano';
+        return isEstorno ? `Estorno de ${label}` : label;
+      }
+      const productLabel = resolvePrepaidItemName(tx);
+      return isEstorno ? `Estorno de ${productLabel} (Avulso)` : `${productLabel} (Avulso)`;
+    };
     const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
@@ -4237,7 +4464,7 @@ class WhatsAppSessionManager {
         const dateLabel = txDate
           ? `${txDate.toLocaleDateString('pt-BR')} ${txDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
           : '-';
-        const description = String(tx?.description || tx?.item || tx?.productName || tx?.plan || 'Movimentação');
+        const description = getDetalhamentoConsumo(tx);
         const txType = this.isConsumptionTransaction(tx) ? 'CONSUMO' : this.isCreditTransaction(tx) ? 'CRÉDITO' : String(tx?.type || '-');
         const amount = Math.abs(Number(tx?.amount ?? tx?.total ?? tx?.value ?? 0) || 0);
 
@@ -5614,16 +5841,18 @@ class WhatsAppSessionManager {
           }
           const code = Number(update?.lastDisconnect?.error?.output?.statusCode || 0);
           const reasonText = String(update?.lastDisconnect?.error?.message || '').toLowerCase();
+          const transientAckError = this.isTransientAckStreamError(reasonText);
           const connectionFailure401 =
             code === DisconnectReason.loggedOut
-            && (reasonText.includes('connection failure') || reasonText.includes('stream errored'));
+            && (reasonText.includes('connection failure') || transientAckError);
           const loggedOut = code === DisconnectReason.loggedOut && !connectionFailure401;
           const shouldReconnect =
             code === DisconnectReason.restartRequired
             || code === DisconnectReason.connectionClosed
             || code === DisconnectReason.connectionLost
             || code === DisconnectReason.timedOut
-            || connectionFailure401;
+            || connectionFailure401
+            || this.isRecoverableDisconnect(code, reasonText);
 
           this.sock = null;
           this.qrDataUrl = null;
@@ -5649,7 +5878,7 @@ class WhatsAppSessionManager {
             if (connectionFailure401) {
               this.connectionFailureStreak += 1;
             } else {
-              this.connectionFailureStreak = 0;
+              this.connectionFailureStreak = Math.max(0, this.connectionFailureStreak - 1);
             }
 
             if (this.connectionFailureStreak >= WhatsAppSessionManager.MAX_CONNECTION_FAILURE_RETRIES) {
@@ -5681,6 +5910,7 @@ class WhatsAppSessionManager {
             if (this.reconnectTimer) {
               clearTimeout(this.reconnectTimer);
             }
+            const reconnectDelay = this.getReconnectDelayMs(code, reasonText, this.connectionFailureStreak);
             this.reconnectTimer = setTimeout(() => {
               this.reconnectTimer = null;
               if (!this.manualStop) {
@@ -5690,7 +5920,7 @@ class WhatsAppSessionManager {
                   this.logError('Erro na tentativa de reconexão automática.', err);
                 });
               }
-            }, 500);
+            }, reconnectDelay);
             return;
           }
 

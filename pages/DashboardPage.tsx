@@ -880,11 +880,11 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
           <img
             src={resolveUserAvatar(currentUser?.avatar, currentUser?.name)}
             alt={currentUser?.name || 'Usuário'}
-            className="w-12 h-12 rounded-2xl object-cover border-2 border-white shadow-sm"
+            className="w-10 h-10 rounded-xl object-cover border-2 border-white shadow-sm"
           />
           <div>
-            <h1 className="dash-title text-2xl flex items-center gap-3">
-            {isRestaurant ? <ChefHat className="text-indigo-600" size={32} /> : isOwner ? <Building className="text-indigo-600" /> : <LayoutDashboardIcon className="text-indigo-600" />}
+            <h1 className="dash-title text-xl flex items-center gap-2.5">
+            {isRestaurant ? <ChefHat className="text-indigo-600" size={26} /> : isOwner ? <Building className="text-indigo-600" size={22} /> : <LayoutDashboardIcon className="text-indigo-600" size={22} />}
             Dashboard {isOwner ? 'da Rede' : isRestaurant ? 'do Restaurante' : 'da Cantina'}
             </h1>
             <p className="dash-subtitle">Análise de Performance: {activeEnterprise?.name}</p>
@@ -892,7 +892,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
         </div>
       </div>
 
-      <div className="dash-kpi-grid">
+      <div className="dash-kpi-grid gap-4">
         <StatCard
           title="Vendas Hoje"
           value={isLoadingDashboardMetrics ? '...' : `R$ ${dashboardMetrics.salesToday.toFixed(2)}`}
@@ -949,26 +949,26 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
             onClick={() => navigate('/daily-delivery')}
             cta="Abrir Entregas"
             renderExtra={
-              <div className="mt-3 space-y-2">
+              <div className="mt-2.5 space-y-1.5">
                 <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
                   {dashboardMetrics.weekdayDeliveriesWindowLabel || 'Semana de referência'}
                 </p>
-                <div className="flex justify-center gap-2 overflow-x-auto pb-1 pr-1">
+                <div className="flex justify-center gap-1.5 overflow-x-auto pb-1 pr-1">
                   {(dashboardMetrics.weekdayDeliveriesByDay || []).map((day) => (
                     <div
                       key={day.key}
-                      className="w-[108px] min-w-[108px] rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white px-2 py-3 text-center min-h-[182px] flex flex-col shadow-sm"
+                      className="w-[96px] min-w-[96px] rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white px-1.5 py-2 text-center min-h-[156px] flex flex-col shadow-sm"
                     >
-                      <p className="text-[36px] font-black text-slate-800 uppercase tracking-tight leading-none">
+                      <p className="text-[28px] font-black text-slate-800 uppercase tracking-tight leading-none">
                         {day.label || day.fullLabel || day.key}
                       </p>
-                      <p className="text-[13px] font-bold text-slate-500 mt-2 leading-none whitespace-nowrap">{day.dateLabel}</p>
-                      <div className="w-full border-b border-slate-300 mt-3 mb-2.5" />
-                      <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest leading-none">Total</p>
-                      <p className="text-[52px] font-black text-teal-700 leading-[0.9] mt-1">{day.count}</p>
-                      <div className="mt-2 space-y-1 text-left">
+                      <p className="text-[11px] font-bold text-slate-500 mt-1.5 leading-none whitespace-nowrap">{day.dateLabel}</p>
+                      <div className="w-full border-b border-slate-300 mt-2 mb-2" />
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none">Total</p>
+                      <p className="text-[38px] font-black text-teal-700 leading-[0.9] mt-1">{day.count}</p>
+                      <div className="mt-1.5 space-y-1 text-left">
                         {(day.plans || []).slice(0, 3).map((plan) => (
-                          <div key={`${day.key}-${plan.planName}`} className="flex items-center justify-between gap-1 rounded-lg border border-teal-100 bg-teal-50 px-1.5 py-1">
+                          <div key={`${day.key}-${plan.planName}`} className="flex items-center justify-between gap-1 rounded-md border border-teal-100 bg-teal-50 px-1 py-0.5">
                             <span className="text-[8px] font-black text-teal-700 uppercase truncate">{plan.planName}</span>
                             <span className="text-[8px] font-black text-teal-900">{plan.count}</span>
                           </div>
@@ -998,7 +998,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
                               handlePrintWeekdayReport(day);
                             }
                           }}
-                          className="inline-flex items-center justify-center w-full rounded-lg border border-teal-200 bg-white px-1.5 py-1 text-[8px] font-black uppercase tracking-wide text-teal-700 hover:bg-teal-50 transition-colors cursor-pointer"
+                          className="inline-flex items-center justify-center w-full rounded-md border border-teal-200 bg-white px-1 py-0.5 text-[8px] font-black uppercase tracking-wide text-teal-700 hover:bg-teal-50 transition-colors cursor-pointer"
                         >
                           Imprimir PDF
                         </span>
@@ -1024,22 +1024,22 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
             onClick={() => navigate('/clients')}
             cta="Ver Alunos"
             renderExtra={
-              <div className="mt-3 space-y-2">
+              <div className="mt-2.5 space-y-1.5">
                 <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Totais por Plano Ativo</p>
-                <div className="flex justify-center gap-2 overflow-x-auto pb-1 pr-1">
+                <div className="flex justify-center gap-1.5 overflow-x-auto pb-1 pr-1">
                   {(dashboardMetrics.activePlanBreakdown || []).slice(0, 6).map((plan) => (
                     <div
                       key={plan.planName}
-                      className="w-[108px] min-w-[108px] rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white px-2 py-3 text-center min-h-[182px] flex flex-col shadow-sm"
+                      className="w-[96px] min-w-[96px] rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white px-1.5 py-2 text-center min-h-[156px] flex flex-col shadow-sm"
                     >
-                      <p className="text-[16px] font-black text-slate-800 uppercase tracking-tight leading-none line-clamp-2 min-h-[34px]">
+                      <p className="text-[13px] font-black text-slate-800 uppercase tracking-tight leading-none line-clamp-2 min-h-[28px]">
                         {plan.planName}
                       </p>
-                      <p className="text-[11px] font-bold text-slate-500 mt-2 leading-none">Alunos ativos</p>
-                      <div className="w-full border-b border-slate-300 mt-3 mb-2.5" />
-                      <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest leading-none">Total</p>
-                      <p className="text-[52px] font-black text-purple-700 leading-[0.9] mt-1">{plan.studentsCount}</p>
-                      <div className="mt-2 rounded-lg border border-purple-100 bg-purple-50 px-1.5 py-1 text-left">
+                      <p className="text-[10px] font-bold text-slate-500 mt-1.5 leading-none">Alunos ativos</p>
+                      <div className="w-full border-b border-slate-300 mt-2 mb-2" />
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none">Total</p>
+                      <p className="text-[38px] font-black text-purple-700 leading-[0.9] mt-1">{plan.studentsCount}</p>
+                      <div className="mt-1.5 rounded-md border border-purple-100 bg-purple-50 px-1 py-0.5 text-left">
                         <span className="text-[8px] font-black text-purple-700 uppercase">Saldo</span>
                         <p className="text-[10px] font-black text-purple-900">R$ {plan.totalBalance.toFixed(2)}</p>
                       </div>
@@ -1058,7 +1058,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
                               handlePrintPlanReport(plan.planName);
                             }
                           }}
-                          className="inline-flex items-center justify-center w-full rounded-lg border border-purple-200 bg-white px-1.5 py-1 text-[8px] font-black uppercase tracking-wide text-purple-700 hover:bg-purple-50 transition-colors cursor-pointer"
+                          className="inline-flex items-center justify-center w-full rounded-md border border-purple-200 bg-white px-1 py-0.5 text-[8px] font-black uppercase tracking-wide text-purple-700 hover:bg-purple-50 transition-colors cursor-pointer"
                         >
                           Imprimir PDF
                         </span>
@@ -1080,30 +1080,30 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
             }
           />
         </div>
-        <div className="lg:col-span-1 dash-panel p-6 flex flex-col justify-between">
-          <div className="space-y-4">
+        <div className="lg:col-span-1 dash-panel p-4 flex flex-col justify-between">
+          <div className="space-y-3">
             <h3 className="font-black text-gray-400 dark:text-slate-400 uppercase tracking-widest text-[10px]">Indicadores Operacionais</h3>
-            <div className="space-y-3">
+            <div className="space-y-2">
               <button
                 onClick={() => navigate('/unit-sales')}
-                className="w-full text-left p-4 bg-indigo-50 dark:bg-indigo-500/10 rounded-2xl border border-indigo-100 dark:border-indigo-400/20 flex gap-3 items-center hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-all"
+                className="w-full text-left p-3 bg-indigo-50 dark:bg-indigo-500/10 rounded-xl border border-indigo-100 dark:border-indigo-400/20 flex gap-2.5 items-center hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-all"
               >
-                <div className="bg-indigo-600 text-white p-2 rounded-xl shadow-lg"><TrendingUp size={16} /></div>
+                <div className="bg-indigo-600 text-white p-1.5 rounded-lg shadow-lg"><TrendingUp size={14} /></div>
                 <div>
                   <p className="text-[9px] font-black text-indigo-900 dark:text-indigo-200 uppercase">Movimentações do Dia</p>
-                  <p className="text-base font-black text-indigo-600 leading-none mt-0.5">
+                  <p className="text-sm font-black text-indigo-600 leading-none mt-0.5">
                     R$ {dashboardMetrics.salesToday.toFixed(2)}
                   </p>
                 </div>
               </button>
               <button
                 onClick={() => navigate('/inventory')}
-                className="w-full text-left p-4 bg-amber-50 dark:bg-amber-500/10 rounded-2xl border border-amber-100 dark:border-amber-400/20 flex gap-3 items-center hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-all"
+                className="w-full text-left p-3 bg-amber-50 dark:bg-amber-500/10 rounded-xl border border-amber-100 dark:border-amber-400/20 flex gap-2.5 items-center hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-all"
               >
-                <div className="bg-amber-500 text-white p-2 rounded-xl shadow-lg"><AlertTriangle size={16} /></div>
+                <div className="bg-amber-500 text-white p-1.5 rounded-lg shadow-lg"><AlertTriangle size={14} /></div>
                 <div>
                   <p className="text-[9px] font-black text-amber-900 dark:text-amber-200 uppercase">Itens em Alerta de Estoque</p>
-                  <p className="text-base font-black text-amber-600 leading-none mt-0.5">
+                  <p className="text-sm font-black text-amber-600 leading-none mt-0.5">
                     {dashboardMetrics.criticalStockCount} itens
                   </p>
                 </div>
@@ -1112,22 +1112,22 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
           </div>
           <button
             onClick={() => navigate('/reports')}
-            className="w-full py-3 bg-gray-900 dark:bg-slate-700 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black dark:hover:bg-slate-600 transition-all flex items-center justify-center gap-2 mt-6 shadow-lg"
+            className="w-full py-2.5 bg-gray-900 dark:bg-slate-700 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-black dark:hover:bg-slate-600 transition-all flex items-center justify-center gap-2 mt-4 shadow-lg"
           >
             <FileBarChart size={14} /> Gerar Fechamento
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Gráfico Principal */}
-        <div className="lg:col-span-3 dash-panel p-8">
-          <div className="flex items-center justify-between mb-8">
+        <div className="lg:col-span-3 dash-panel p-5">
+          <div className="flex items-center justify-between mb-5">
             <h3 className="font-black text-gray-400 dark:text-slate-400 uppercase tracking-widest text-[10px]">
               {isRestaurant ? 'Mix de Vendas por Categoria (Hoje)' : isOwner ? 'Vendas por Hora (Unidade Selecionada)' : 'Performance Operacional por Hora'}
             </h3>
             {isRestaurant && (
-              <div className="flex gap-4 flex-wrap justify-end">
+                  <div className="flex gap-2.5 flex-wrap justify-end">
                 {dashboardMetrics.salesByCategory.slice(0, 3).map((item) => (
                   <LegendItem key={item.name} color={item.fill} label={item.name} />
                 ))}
@@ -1135,7 +1135,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
             )}
           </div>
           
-          <div ref={chartContainerRef} className="h-72 min-h-[288px] min-w-0">
+          <div ref={chartContainerRef} className="h-64 min-h-[250px] min-w-0">
             {chartContainerSize.width > 0 && chartContainerSize.height > 0 ? (
               isLoadingDashboardMetrics ? (
                 <div className="h-full w-full rounded-2xl border border-slate-100 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-700/40 animate-pulse" />
@@ -1199,15 +1199,15 @@ const StatCard: React.FC<any> = ({ title, value, change, isPositive, icon, isWar
   <button
     type="button"
     onClick={onClick}
-    className={`w-full text-left p-6 rounded-[32px] border shadow-sm transition-all hover:shadow-xl group backdrop-blur-md ring-1 ring-inset ${isWarning ? 'border-amber-200 dark:border-amber-500/30 bg-gradient-to-br from-amber-50/80 via-white to-rose-50/40 dark:from-amber-500/10 dark:via-slate-800 dark:to-rose-500/5 ring-amber-100 dark:ring-amber-500/10' : 'border-slate-200 dark:border-slate-700 bg-gradient-to-br from-white via-white to-indigo-50/40 dark:from-slate-800 dark:via-slate-800 dark:to-indigo-500/10 ring-white/70 dark:ring-slate-600/40'} ${onClick ? 'cursor-pointer' : 'cursor-default'}`}
+    className={`w-full text-left p-4 rounded-2xl border shadow-sm transition-all hover:shadow-xl group backdrop-blur-md ring-1 ring-inset ${isWarning ? 'border-amber-200 dark:border-amber-500/30 bg-gradient-to-br from-amber-50/80 via-white to-rose-50/40 dark:from-amber-500/10 dark:via-slate-800 dark:to-rose-500/5 ring-amber-100 dark:ring-amber-500/10' : 'border-slate-200 dark:border-slate-700 bg-gradient-to-br from-white via-white to-indigo-50/40 dark:from-slate-800 dark:via-slate-800 dark:to-indigo-500/10 ring-white/70 dark:ring-slate-600/40'} ${onClick ? 'cursor-pointer' : 'cursor-default'}`}
   >
-    <div className="flex items-center justify-between mb-4">
-      <div className="flex items-center gap-3">
-        <div className="p-3 bg-gray-50/90 rounded-2xl group-hover:bg-indigo-50 transition-colors shadow-inner">{icon}</div>
+    <div className="flex items-center justify-between mb-2.5">
+      <div className="flex items-center gap-2.5">
+        <div className="p-2 bg-gray-50/90 rounded-xl group-hover:bg-indigo-50 transition-colors shadow-inner">{icon}</div>
         {valueBesideIcon ? (
           loading
-            ? <div className="h-7 w-20 rounded-lg bg-slate-200 dark:bg-slate-700 animate-pulse" />
-            : <p className={`text-2xl font-black text-gray-800 dark:text-slate-100 leading-none ${monoValue ? 'font-mono' : ''}`}>{value}</p>
+            ? <div className="h-6 w-16 rounded-lg bg-slate-200 dark:bg-slate-700 animate-pulse" />
+            : <p className={`text-xl font-black text-gray-800 dark:text-slate-100 leading-none ${monoValue ? 'font-mono' : ''}`}>{value}</p>
         ) : null}
       </div>
       <div className={`flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full border ${isPositive ? 'bg-green-50 text-green-600 border-green-100' : 'bg-red-50 text-red-600 border-red-100'}`}>
@@ -1217,12 +1217,12 @@ const StatCard: React.FC<any> = ({ title, value, change, isPositive, icon, isWar
     <p className="text-gray-400 dark:text-slate-400 text-[10px] font-black uppercase tracking-widest">{title}</p>
     {!hideMainValue ? (
       loading
-        ? <div className="mt-2 h-8 w-28 rounded-lg bg-slate-200 dark:bg-slate-700 animate-pulse" />
-        : <p className={`text-2xl font-black text-gray-800 dark:text-slate-100 mt-1 ${monoValue ? 'font-mono' : ''}`}>{value}</p>
+        ? <div className="mt-1.5 h-7 w-24 rounded-lg bg-slate-200 dark:bg-slate-700 animate-pulse" />
+        : <p className={`text-xl font-black text-gray-800 dark:text-slate-100 mt-1 ${monoValue ? 'font-mono' : ''}`}>{value}</p>
     ) : null}
     {renderExtra || null}
     {cta ? (
-      <div className="mt-4 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-indigo-600">
+      <div className="mt-3 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-indigo-600">
         {cta} <ChevronRight size={13} />
       </div>
     ) : null}

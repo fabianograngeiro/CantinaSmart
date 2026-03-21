@@ -58,7 +58,8 @@ export type Enterprise = {
   monthlyFee?: number;
   expirationDate?: string;
   ownerName?: string;
-  planType?: 'BASIC' | 'PRO' | 'ENTERPRISE';
+  planType?: 'BASIC' | 'PREMIUM' | 'PRO' | 'ENTERPRISE';
+  serviceStatus?: 'TRIAL' | 'ATIVO' | 'PAUSADO' | 'INADIMPLENTE' | 'CANCELADO';
   lastPaymentStatus?: 'PAID' | 'PENDING' | 'OVERDUE';
   collaboratorPaymentStartDay?: number; // Dia do mês para início do período de consumo (1-31) - Exemplo: 5 significa 5 março até 4 abril
   collaboratorPaymentDueDay?: number; // Dia do mês para vencimento do pagamento do mês anterior (1-31) - Exemplo: 7 de abril para consumo de março

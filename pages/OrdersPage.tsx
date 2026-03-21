@@ -188,54 +188,54 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
   };
 
   return (
-    <div className="orders-shell space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden">
+    <div className="orders-shell space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 print:hidden">
         <div>
-          <h1 className="text-2xl font-black text-gray-800 tracking-tight flex items-center gap-2">
-            <ClipboardList className="text-indigo-600" size={28} /> Suprimentos Enterprise
+          <h1 className="text-xl font-black text-gray-800 tracking-tight flex items-center gap-2">
+            <ClipboardList className="text-indigo-600" size={22} /> Suprimentos Enterprise
           </h1>
-          <p className="text-gray-500 text-sm font-medium">Gestão de pedidos de compra e auditoria de custos.</p>
+          <p className="text-gray-500 text-xs font-medium">Gestão de pedidos de compra e auditoria de custos.</p>
         </div>
         {isOwner && (
           <button 
             onClick={handleOpenNewOrder}
-            className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2"
+            className="bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-black uppercase tracking-widest text-[11px] shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2"
           >
-            <Plus size={18} /> Novo Pedido de Compra
+            <Plus size={14} /> Novo Pedido de Compra
           </button>
         )}
       </div>
 
-      <div className="flex gap-4 border-b print:hidden">
-         <button onClick={() => setActiveTab('LIST')} className={`pb-4 px-2 text-xs font-black uppercase tracking-widest border-b-2 transition-all ${activeTab === 'LIST' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
+      <div className="flex gap-3 border-b print:hidden">
+         <button onClick={() => setActiveTab('LIST')} className={`pb-3 px-2 text-[11px] font-black uppercase tracking-widest border-b-2 transition-all ${activeTab === 'LIST' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
            Lista de Pedidos
          </button>
          {isOwner && (
-           <button onClick={() => setActiveTab('REPORTS')} className={`pb-4 px-2 text-xs font-black uppercase tracking-widest border-b-2 transition-all ${activeTab === 'REPORTS' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
+           <button onClick={() => setActiveTab('REPORTS')} className={`pb-3 px-2 text-[11px] font-black uppercase tracking-widest border-b-2 transition-all ${activeTab === 'REPORTS' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
              Relatórios Analíticos
            </button>
          )}
       </div>
 
       {activeTab === 'LIST' ? (
-        <div className="space-y-6 animate-in fade-in duration-300 print:hidden">
-           <div className="bg-white p-4 rounded-3xl border shadow-sm flex flex-col md:flex-row gap-4">
+        <div className="space-y-4 animate-in fade-in duration-300 print:hidden">
+           <div className="bg-white p-3 rounded-2xl border shadow-sm flex flex-col md:flex-row gap-3">
               <div className="relative flex-1">
                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                  <input 
                    type="text" 
                    placeholder="Filtrar por ID ou Fornecedor..." 
-                   className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-4 focus:ring-indigo-50 font-medium text-sm"
+                   className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-100 rounded-lg outline-none focus:ring-2 focus:ring-indigo-50 font-medium text-xs"
                    value={searchTerm}
                    onChange={e => setSearchTerm(e.target.value)}
                  />
               </div>
            </div>
 
-           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-4">
               {sortedAndFilteredOrders.map(order => (
-                <div key={order.id} className="bg-white rounded-[32px] border border-gray-100 shadow-sm overflow-hidden hover:shadow-xl transition-all group flex flex-col">
-                  <div className="p-6 flex-1 space-y-4">
+                <div key={order.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-lg transition-all group flex flex-col">
+                  <div className="p-4 flex-1 space-y-3">
                       <div className="flex justify-between items-start">
                         <span className="text-[10px] font-black bg-indigo-50 text-indigo-600 px-2.5 py-1 rounded-lg tracking-widest">#{order.id}</span>
                         <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${
@@ -252,7 +252,7 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
                         </h3>
                         <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase tracking-tighter">Data: {new Date(order.date).toLocaleDateString()}</p>
                       </div>
-                      <div className="bg-gray-50 p-4 rounded-2xl space-y-2">
+                      <div className="bg-gray-50 p-3 rounded-xl space-y-1.5">
                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Resumo Atual</p>
                         <div className="space-y-1">
                             {order.items.slice(0, 2).map((i, idx) => (
@@ -265,10 +265,10 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
                       </div>
                   </div>
                   
-                  <div className="px-6 py-5 bg-gray-50 border-t border-gray-100">
+                  <div className="px-4 py-3.5 bg-gray-50 border-t border-gray-100">
                     <div className="flex flex-col gap-2 mb-4">
                         <div className="flex justify-between items-center">
-                           <p className="text-lg font-black text-indigo-600 leading-none">R$ {order.total.toFixed(2)}</p>
+                           <p className="text-base font-black text-indigo-600 leading-none">R$ {order.total.toFixed(2)}</p>
                            <button onClick={() => { setSelectedOrderForView(order); setIsViewModalOpen(true); }} className="flex items-center gap-1 text-[9px] font-black text-indigo-400 uppercase tracking-widest hover:text-indigo-600 transition-colors">
                               <Eye size={12} /> Ver Faturado
                            </button>
@@ -277,7 +277,7 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
                            <History size={12} /> Ver Pedido Original
                         </button>
                     </div>
-                    <div className={`grid ${isOwner ? 'grid-cols-3' : 'grid-cols-1'} gap-2`}>
+	                    <div className={`grid ${isOwner ? 'grid-cols-3' : 'grid-cols-1'} gap-1.5`}>
                        <button 
                         onClick={() => {
                           setOrderToReceive(order);
@@ -287,16 +287,16 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
                           setIsReceiveModalOpen(true);
                         }}
                         disabled={order.status !== 'ABERTO'}
-                        className={`py-2.5 bg-emerald-600 text-white rounded-xl font-black text-[9px] uppercase tracking-widest shadow-lg shadow-emerald-100 hover:bg-emerald-700 disabled:opacity-30 flex items-center justify-center gap-1 transition-all ${!isOwner ? 'h-12 text-xs' : ''}`}
+	                        className={`py-2 bg-emerald-600 text-white rounded-lg font-black text-[9px] uppercase tracking-widest shadow-md shadow-emerald-100 hover:bg-emerald-700 disabled:opacity-30 flex items-center justify-center gap-1 transition-all ${!isOwner ? 'h-10 text-[11px]' : ''}`}
                        >
                          <CheckSquare size={isOwner ? 12 : 16} /> Receber
                        </button>
                        {isOwner && (
                          <>
-                           <button onClick={() => handleEditOrder(order)} disabled={order.status !== 'ABERTO'} className="py-2.5 bg-indigo-600 text-white rounded-xl font-black text-[9px] uppercase tracking-widest shadow-lg shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-30 flex items-center justify-center gap-1">
+                           <button onClick={() => handleEditOrder(order)} disabled={order.status !== 'ABERTO'} className="py-2 bg-indigo-600 text-white rounded-lg font-black text-[9px] uppercase tracking-widest shadow-md shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-30 flex items-center justify-center gap-1">
                              <Edit size={12} /> Editar
                            </button>
-                           <button onClick={() => handleCancelOrder(order.id)} disabled={order.status !== 'ABERTO'} className="py-2.5 bg-white border border-red-200 text-red-500 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-red-50 disabled:opacity-30 flex items-center justify-center gap-1">
+                           <button onClick={() => handleCancelOrder(order.id)} disabled={order.status !== 'ABERTO'} className="py-2 bg-white border border-red-200 text-red-500 rounded-lg font-black text-[9px] uppercase tracking-widest hover:bg-red-50 disabled:opacity-30 flex items-center justify-center gap-1">
                              <Ban size={12} /> Cancelar
                            </button>
                          </>
@@ -317,23 +317,23 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
       {isReceiveModalOpen && orderToReceive && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 print:hidden">
           <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-md animate-in fade-in" onClick={() => setIsReceiveModalOpen(false)}></div>
-          <div className="relative w-full max-w-4xl bg-white rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
-             <div className="bg-emerald-600 p-8 text-white flex items-center justify-between shrink-0 shadow-lg shadow-emerald-900/20">
-                <div className="flex items-center gap-4">
-                   <div className="bg-white/20 p-3 rounded-2xl backdrop-blur-md">
-                      <Scale size={32} />
+          <div className="relative w-full max-w-4xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
+             <div className="bg-emerald-600 p-5 text-white flex items-center justify-between shrink-0 shadow-lg shadow-emerald-900/20">
+                <div className="flex items-center gap-3">
+                   <div className="bg-white/20 p-2 rounded-xl backdrop-blur-md">
+                      <Scale size={22} />
                    </div>
                    <div>
-                      <h2 className="text-2xl font-black leading-none">Conferência e Giro de Estoque</h2>
+                      <h2 className="text-xl font-black leading-none">Conferência e Giro de Estoque</h2>
                       <p className="text-[10px] font-bold text-emerald-100 uppercase tracking-widest mt-1">Pedido #{orderToReceive.id} • Auditoria de Entrada Física</p>
                    </div>
                 </div>
-                <button onClick={() => setIsReceiveModalOpen(false)}><X size={28} /></button>
+                <button onClick={() => setIsReceiveModalOpen(false)}><X size={22} /></button>
              </div>
              
-             <div className="flex-1 overflow-y-auto p-8 space-y-6 scrollbar-hide">
-                <div className="bg-amber-50 border-l-4 border-amber-400 p-5 rounded-2xl flex items-start gap-4 shadow-sm">
-                   <div className="p-2 bg-amber-100 rounded-xl text-amber-600"><AlertCircle size={24} /></div>
+             <div className="flex-1 overflow-y-auto p-5 space-y-4 scrollbar-hide">
+                <div className="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-xl flex items-start gap-3 shadow-sm">
+                   <div className="p-1.5 bg-amber-100 rounded-lg text-amber-600"><AlertCircle size={18} /></div>
                    <div>
                       <p className="text-sm font-black text-amber-900 uppercase leading-none">Instruções de Movimentação</p>
                       <p className="text-[11px] text-amber-700 mt-1 font-medium leading-relaxed">As quantidades recebidas serão somadas ao saldo atual do estoque.</p>
@@ -341,7 +341,7 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
                 </div>
 
                 <div className="space-y-3">
-                   <div className="grid grid-cols-12 gap-4 px-6 text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
+                   <div className="grid grid-cols-12 gap-3 px-4 text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5">
                       <div className="col-span-4">Descrição do Produto</div>
                       <div className="col-span-2 text-center">Pedida</div>
                       <div className="col-span-3 text-center">Recebida</div>
@@ -351,35 +351,35 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
                      const isDivergent = receiveQuantities[item.productName] !== item.quantity;
                      const subtotal = (receiveQuantities[item.productName] || 0) * item.cost;
                      return (
-                       <div key={idx} className={`grid grid-cols-12 gap-4 items-center p-5 rounded-[24px] border-2 transition-all ${isDivergent ? 'border-amber-200 bg-amber-50/20' : 'border-gray-50 bg-white shadow-sm'}`}>
-                          <div className="col-span-4 flex items-center gap-3">
-                             <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isDivergent ? 'bg-amber-100 text-amber-600' : 'bg-indigo-50 text-indigo-500'}`}><Package size={20} /></div>
+                       <div key={idx} className={`grid grid-cols-12 gap-3 items-center p-3.5 rounded-xl border transition-all ${isDivergent ? 'border-amber-200 bg-amber-50/20' : 'border-gray-50 bg-white shadow-sm'}`}>
+                          <div className="col-span-4 flex items-center gap-2.5">
+                             <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isDivergent ? 'bg-amber-100 text-amber-600' : 'bg-indigo-50 text-indigo-500'}`}><Package size={16} /></div>
                              <div>
-                                <p className="text-sm font-black text-gray-800 leading-none">{item.productName}</p>
+                                <p className="text-xs font-black text-gray-800 leading-none">{item.productName}</p>
                                 <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Custo: R$ {item.cost.toFixed(2)}</p>
                              </div>
                           </div>
-                          <div className="col-span-2 text-center"><span className="text-sm font-black text-gray-400">{item.quantity}</span></div>
-                          <div className="col-span-3 flex items-center justify-center gap-3">
-                             <button type="button" onClick={() => setReceiveQuantities(prev => ({...prev, [item.productName]: Math.max(0, prev[item.productName]-1)}))} className="p-1.5 bg-white border rounded-xl text-gray-400 hover:text-indigo-600 transition-all shadow-sm"><MinusCircle size={20} /></button>
-                             <input type="number" value={receiveQuantities[item.productName]} onChange={(e) => setReceiveQuantities(prev => ({...prev, [item.productName]: parseInt(e.target.value) || 0}))} className="w-16 text-center bg-white border-2 rounded-xl font-black text-gray-800 py-2 outline-none focus:border-emerald-500" />
-                             <button type="button" onClick={() => setReceiveQuantities(prev => ({...prev, [item.productName]: prev[item.productName]+1}))} className="p-1.5 bg-white border rounded-xl text-gray-400 hover:text-indigo-600 transition-all shadow-sm"><PlusCircle size={20} /></button>
+                          <div className="col-span-2 text-center"><span className="text-xs font-black text-gray-400">{item.quantity}</span></div>
+                          <div className="col-span-3 flex items-center justify-center gap-2">
+                             <button type="button" onClick={() => setReceiveQuantities(prev => ({...prev, [item.productName]: Math.max(0, prev[item.productName]-1)}))} className="p-1 bg-white border rounded-lg text-gray-400 hover:text-indigo-600 transition-all shadow-sm"><MinusCircle size={16} /></button>
+                             <input type="number" value={receiveQuantities[item.productName]} onChange={(e) => setReceiveQuantities(prev => ({...prev, [item.productName]: parseInt(e.target.value) || 0}))} className="w-14 text-center bg-white border rounded-lg font-black text-gray-800 py-1.5 outline-none focus:border-emerald-500" />
+                             <button type="button" onClick={() => setReceiveQuantities(prev => ({...prev, [item.productName]: prev[item.productName]+1}))} className="p-1 bg-white border rounded-lg text-gray-400 hover:text-indigo-600 transition-all shadow-sm"><PlusCircle size={16} /></button>
                           </div>
-                          <div className="col-span-3 text-right"><p className={`text-sm font-black ${isDivergent ? 'text-amber-600' : 'text-gray-800'}`}>R$ {subtotal.toFixed(2)}</p></div>
+                          <div className="col-span-3 text-right"><p className={`text-xs font-black ${isDivergent ? 'text-amber-600' : 'text-gray-800'}`}>R$ {subtotal.toFixed(2)}</p></div>
                        </div>
                      );
                    })}
                 </div>
              </div>
 
-             <div className="p-8 bg-gray-50 border-t flex flex-col md:flex-row items-center justify-between gap-6 shrink-0">
+             <div className="p-5 bg-gray-50 border-t flex flex-col md:flex-row items-center justify-between gap-4 shrink-0">
                 <div className="text-left">
                   <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1 animate-pulse">Total à Receber (Estoque)</p>
-                  <p className="text-3xl font-black text-emerald-600">R$ {totalReceivedAmount.toFixed(2)}</p>
+                  <p className="text-2xl font-black text-emerald-600">R$ {totalReceivedAmount.toFixed(2)}</p>
                 </div>
-                <div className="flex gap-4 w-full md:w-auto">
-                   <button onClick={() => setIsReceiveModalOpen(false)} className="flex-1 md:px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-widest">Descartar</button>
-                   <button onClick={confirmReceipt} className="flex-[2] md:px-10 py-5 bg-emerald-600 text-white rounded-[24px] font-black uppercase tracking-widest text-sm shadow-xl shadow-emerald-200 hover:bg-emerald-700 flex items-center justify-center gap-3 transition-all"><ArrowDownToLine size={20} /> Finalizar e Atualizar Estoque</button>
+                <div className="flex gap-3 w-full md:w-auto">
+                   <button onClick={() => setIsReceiveModalOpen(false)} className="flex-1 md:px-6 py-3 text-[11px] font-black text-gray-400 uppercase tracking-widest">Descartar</button>
+                   <button onClick={confirmReceipt} className="flex-[2] md:px-8 py-3 bg-emerald-600 text-white rounded-xl font-black uppercase tracking-widest text-xs shadow-lg shadow-emerald-200 hover:bg-emerald-700 flex items-center justify-center gap-2 transition-all"><ArrowDownToLine size={16} /> Finalizar e Atualizar Estoque</button>
                 </div>
              </div>
           </div>
@@ -406,7 +406,7 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
       {isModalOpen && isOwner && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-indigo-950/40 backdrop-blur-sm animate-in fade-in" onClick={() => setIsModalOpen(false)}></div>
-          <form onSubmit={handleCreateOrUpdateOrder} className="relative w-full max-w-4xl bg-white rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col h-[85vh]">
+          <form onSubmit={handleCreateOrUpdateOrder} className="relative w-full max-w-4xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col h-[85vh]">
             <div className="bg-indigo-600 p-5 text-white flex items-center justify-between shrink-0">
                <div className="flex items-center gap-3">
                   <div className="bg-white/20 p-2 rounded-xl backdrop-blur-md">
@@ -471,7 +471,7 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
 
                   {/* Carrinho à Direita (Com Controles de Qtd) */}
                   <div className="lg:col-span-7 flex flex-col gap-3 overflow-hidden">
-                     <div className="bg-gray-900 rounded-[28px] overflow-hidden shadow-xl flex flex-col h-full">
+                     <div className="bg-gray-900 rounded-2xl overflow-hidden shadow-xl flex flex-col h-full">
                         <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
                            {orderItems.length === 0 ? (
                              <div className="h-full flex flex-col items-center justify-center opacity-30 text-white gap-2">
@@ -479,7 +479,7 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
                                 <p className="text-[10px] font-black uppercase tracking-[3px]">Lista de Compra Vazia</p>
                              </div>
                            ) : orderItems.map((item, idx) => (
-                             <div key={idx} className="flex items-center justify-between bg-white/5 p-3 rounded-2xl border border-white/5 animate-in slide-in-from-right-2">
+                             <div key={idx} className="flex items-center justify-between bg-white/5 p-2.5 rounded-xl border border-white/5 animate-in slide-in-from-right-2">
                                 <div className="flex-1 pr-3">
                                    <p className="text-xs font-black text-white leading-tight">{item.productName}</p>
                                    <p className="text-[9px] text-gray-500 font-bold uppercase mt-0.5">R$ {item.cost.toFixed(2)} / un</p>
@@ -519,8 +519,8 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
 
             <div className="p-5 bg-gray-50 border-t flex gap-3 shrink-0">
                <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest">Descartar</button>
-               <button type="submit" className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-[2px] text-xs shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
-                 <PrinterCheck size={18} /> {editingOrderId ? 'Salvar e Imprimir' : 'Faturar e Gerar Ordem'}
+               <button type="submit" className="flex-[2] py-3 bg-indigo-600 text-white rounded-xl font-black uppercase tracking-[2px] text-xs shadow-lg hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
+                 <PrinterCheck size={16} /> {editingOrderId ? 'Salvar e Imprimir' : 'Faturar e Gerar Ordem'}
                </button>
             </div>
           </form>
@@ -534,12 +534,12 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
 const OrderPrintView = ({ order, enterprise, format, setFormat, onClose, onPrint, isOriginal, title, subTitle }: any) => (
   <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 print:p-0 print:block print:relative print:z-0">
     <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-md animate-in fade-in print:hidden" onClick={onClose}></div>
-    <div className={`relative w-full max-w-4xl bg-white rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh] print:max-h-none print:shadow-none print:rounded-none print:w-full`}>
-       <div className={`${isOriginal ? 'bg-slate-700' : 'bg-gray-900'} p-8 text-white flex items-center justify-between shrink-0 print:hidden`}>
-          <div className="flex items-center gap-4">
-             <div className="bg-white/20 p-3 rounded-2xl backdrop-blur-md">{isOriginal ? <History size={32} /> : <FileText size={32} />}</div>
+    <div className={`relative w-full max-w-4xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh] print:max-h-none print:shadow-none print:rounded-none print:w-full`}>
+       <div className={`${isOriginal ? 'bg-slate-700' : 'bg-gray-900'} p-5 text-white flex items-center justify-between shrink-0 print:hidden`}>
+          <div className="flex items-center gap-3">
+             <div className="bg-white/20 p-2 rounded-xl backdrop-blur-md">{isOriginal ? <History size={22} /> : <FileText size={22} />}</div>
              <div>
-                <h2 className="text-2xl font-black">{title}</h2>
+                <h2 className="text-xl font-black">{title}</h2>
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">{subTitle}</p>
              </div>
           </div>
@@ -549,11 +549,11 @@ const OrderPrintView = ({ order, enterprise, format, setFormat, onClose, onPrint
                <option value="80mm" className="text-gray-800">Formato 80mm</option>
                <option value="58mm" className="text-gray-800">Formato 58mm</option>
              </select>
-             <button onClick={onPrint} className="bg-indigo-600 text-white p-3 rounded-xl hover:bg-indigo-700 transition-all"><Printer size={20} /></button>
-             <button onClick={onClose} className="p-3 text-gray-400 hover:text-white transition-all"><X size={24} /></button>
+             <button onClick={onPrint} className="bg-indigo-600 text-white p-2 rounded-lg hover:bg-indigo-700 transition-all"><Printer size={16} /></button>
+             <button onClick={onClose} className="p-2 text-gray-400 hover:text-white transition-all"><X size={18} /></button>
           </div>
        </div>
-       <div className={`flex-1 overflow-y-auto p-12 bg-white scrollbar-hide print:p-0 print:overflow-visible ${format === '80mm' ? 'max-w-[80mm] mx-auto' : format === '58mm' ? 'max-w-[58mm] mx-auto' : ''}`}>
+       <div className={`flex-1 overflow-y-auto p-8 bg-white scrollbar-hide print:p-0 print:overflow-visible ${format === '80mm' ? 'max-w-[80mm] mx-auto' : format === '58mm' ? 'max-w-[58mm] mx-auto' : ''}`}>
           <style>{`@media print { body { margin: 0; padding: 0; background: white; } .print-content { width: ${format === 'A4' ? '100%' : format}; margin: 0 auto; font-family: 'Courier New', Courier, monospace; font-size: ${format === 'A4' ? '12pt' : '8pt'}; } @page { margin: 0.5cm; } }`}</style>
           <div className="print-content space-y-8 relative">
              {isOriginal && <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-45 pointer-events-none opacity-[0.03] select-none"><p className="text-[120px] font-black leading-none">ORIGINAL</p></div>}
@@ -579,20 +579,20 @@ const OrderPrintView = ({ order, enterprise, format, setFormat, onClose, onPrint
              <div className="pt-8 flex flex-col items-end space-y-4"><div className="w-full md:w-1/2 space-y-2 border-t-2 border-gray-900 pt-4"><div className="flex justify-between items-center text-xs font-bold text-gray-400 uppercase tracking-widest"><span>Total de Itens</span><span>{order.items.length}</span></div><div className="flex justify-between items-center pt-2"><span className="text-xl font-black text-gray-900 uppercase">Valor do Pedido</span><span className={`text-3xl font-black ${isOriginal ? 'text-slate-600' : 'text-indigo-600'} tracking-tighter`}>R$ {order.total.toFixed(2)}</span></div></div></div>
           </div>
        </div>
-       <div className="p-6 bg-gray-50 flex justify-end gap-3 shrink-0 print:hidden">
-          <button onClick={onClose} className="px-8 py-4 bg-white border text-gray-600 rounded-2xl font-black uppercase text-xs tracking-widest shadow-sm hover:bg-gray-100 transition-all">Fechar</button>
-          <button onClick={onPrint} className={`px-8 py-4 ${isOriginal ? 'bg-slate-700' : 'bg-indigo-600'} text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl hover:opacity-90 transition-all flex items-center gap-2`}><Printer size={16} /> Imprimir {isOriginal ? 'Original' : 'Documento'}</button>
+       <div className="p-5 bg-gray-50 flex justify-end gap-3 shrink-0 print:hidden">
+          <button onClick={onClose} className="px-6 py-3 bg-white border text-gray-600 rounded-xl font-black uppercase text-[11px] tracking-widest shadow-sm hover:bg-gray-100 transition-all">Fechar</button>
+          <button onClick={onPrint} className={`px-6 py-3 ${isOriginal ? 'bg-slate-700' : 'bg-indigo-600'} text-white rounded-xl font-black uppercase text-[11px] tracking-widest shadow-lg hover:opacity-90 transition-all flex items-center gap-2`}><Printer size={14} /> Imprimir {isOriginal ? 'Original' : 'Documento'}</button>
        </div>
     </div>
   </div>
 );
 
 const SummaryCard = ({ label, value, icon, color }: any) => (
-  <div className="bg-white p-5 rounded-[28px] border border-gray-100 shadow-sm flex items-center gap-4 group hover:shadow-lg transition-all">
-    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${color} shadow-inner group-hover:scale-110 transition-transform`}>{React.cloneElement(icon as React.ReactElement, { size: 24 })}</div>
+  <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3 group hover:shadow-lg transition-all">
+    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${color} shadow-inner group-hover:scale-110 transition-transform`}>{React.cloneElement(icon as React.ReactElement, { size: 18 })}</div>
     <div>
       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">{label}</p>
-      <p className="text-xl font-black text-gray-800 leading-none">{value}</p>
+      <p className="text-lg font-black text-gray-800 leading-none">{value}</p>
     </div>
   </div>
 );

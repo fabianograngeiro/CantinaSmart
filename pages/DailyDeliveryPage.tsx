@@ -633,7 +633,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
       unit: 'mm',
       format: 'a4'
     });
-    const tableColumn = ["Aluno", "Matrícula", "Ano/Turma", "Responsável", "Turno", "Plano", "Data Refeição", "Descrição", "Status"];
+    const tableColumn = ["Aluno", "Matrícula", "Ano/Turma", "Plano", "Data Refeição", "Status"];
     const tableRows: any[] = [];
 
     filteredData.forEach(student => {
@@ -641,11 +641,8 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
         student.name,
         student.registrationId,
         `${student.year} - ${student.class}`,
-        student.responsibleName,
-        student.scheduledPeriod === 'MORNING' ? 'Manhã' : student.scheduledPeriod === 'AFTERNOON' ? 'Tarde' : student.scheduledPeriod === 'NIGHT' ? 'Noite' : 'Todos',
         student.planName.replace('_', ' '),
         student.scheduledDate ? new Date(`${student.scheduledDate}T00:00:00`).toLocaleDateString('pt-BR') : '-',
-        student.description,
         student.items.every(i => i.status === 'SERVIDO') ? 'Servido' : 'Pendente'
       ];
       tableRows.push(studentData);
@@ -708,58 +705,58 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
   };
 
   return (
-    <div className="dash-shell daily-delivery-shell space-y-8 animate-in fade-in duration-500 bg-gray-50 dark:bg-zinc-900/50">
+    <div className="dash-shell daily-delivery-shell space-y-3 animate-in fade-in duration-500 bg-gray-50 dark:bg-zinc-900/50">
       
       {/* HEADER OPERACIONAL - FOCO EM COZINHA */}
-      <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-6">
-        <div className="space-y-2">
-          <div className="flex items-center gap-4">
-            <div className="p-4 bg-indigo-600 rounded-[24px] text-white shadow-2xl shadow-indigo-200 dark:shadow-indigo-900/40">
-              <Truck size={36} />
+      <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-3">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2.5 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-200 dark:shadow-indigo-900/40">
+              <Truck size={22} />
             </div>
             <div>
-              <h1 className="text-4xl font-black text-gray-900 dark:text-zinc-100 tracking-tight leading-none uppercase">
+              <h1 className="text-xl sm:text-2xl font-black text-gray-900 dark:text-zinc-100 tracking-tight leading-none uppercase">
                 Esteira de Produção
               </h1>
-              <p className="text-gray-500 dark:text-zinc-400 text-[10px] font-black uppercase tracking-[4px] mt-1 opacity-80">
+              <p className="text-gray-500 dark:text-zinc-400 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.14em] mt-1 opacity-80">
                 Logística em Tempo Real • Expedição Canteen Pro
               </p>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-           <div className="bg-white dark:bg-[#121214] px-6 py-4 rounded-2xl border-2 border-gray-100 dark:border-white/10 dark:ring-1 dark:ring-white/5 flex items-center gap-6 shadow-sm">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+           <div className="bg-white dark:bg-[#121214] px-3 py-2 rounded-xl border border-gray-100 dark:border-white/10 dark:ring-1 dark:ring-white/5 flex items-center gap-4 shadow-sm">
               <div className="text-center">
-                 <p className="text-[8px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-widest">Pendentes</p>
-                 <p className="text-xl font-black text-indigo-600">{students.filter(s => s.items.some(i => i.status === 'PENDENTE')).length}</p>
+                 <p className="text-[8px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-[0.12em]">Pendentes</p>
+                 <p className="text-base font-black text-indigo-600">{students.filter(s => s.items.some(i => i.status === 'PENDENTE')).length}</p>
               </div>
               <div className="w-px h-8 bg-gray-100 dark:bg-white/10"></div>
               <div className="text-center">
-                 <p className="text-[8px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-widest">Servidos</p>
-                 <p className="text-xl font-black text-emerald-600">{students.filter(s => s.items.every(i => i.status === 'SERVIDO')).length}</p>
+                 <p className="text-[8px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-[0.12em]">Servidos</p>
+                 <p className="text-base font-black text-emerald-600">{students.filter(s => s.items.every(i => i.status === 'SERVIDO')).length}</p>
               </div>
            </div>
-           <button onClick={exportToPDF} className="bg-indigo-600 text-white px-6 py-4 rounded-2xl hover:bg-indigo-700 transition-all shadow-lg dark:shadow-indigo-900/40 flex items-center gap-2 font-black text-[10px] uppercase tracking-widest">
-             <FileText size={20} /> Exportar PDF
+           <button onClick={exportToPDF} className="bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 transition-all shadow-md dark:shadow-indigo-900/40 flex items-center gap-1.5 font-black text-[9px] uppercase tracking-[0.12em]">
+             <FileText size={13} /> Exportar PDF
            </button>
-           <button onClick={() => window.print()} className="bg-white dark:bg-[#121214] border-2 border-gray-100 dark:border-white/10 p-4 rounded-2xl text-gray-400 hover:text-indigo-600 transition-all shadow-sm dark:ring-1 dark:ring-white/5">
-             <Printer size={20} />
+           <button onClick={() => window.print()} className="bg-white dark:bg-[#121214] border border-gray-100 dark:border-white/10 p-2 rounded-lg text-gray-400 hover:text-indigo-600 transition-all shadow-sm dark:ring-1 dark:ring-white/5">
+             <Printer size={14} />
            </button>
         </div>
       </header>
 
       {/* PAINEL DE CONTROLE DE FILTROS - OTIMIZADO PARA TURNOS */}
-      <div className="bg-white dark:bg-[#121214] p-6 rounded-[40px] border border-gray-100 dark:border-white/10 shadow-xl dark:ring-1 dark:ring-white/5 space-y-8">
-         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="bg-white dark:bg-[#121214] p-3 rounded-[22px] border border-gray-100 dark:border-white/10 shadow-xl dark:ring-1 dark:ring-white/5 space-y-3">
+         <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
             
             {/* 1. SELEÇÃO DE DIA (MULTI-SELEÇÃO) */}
-            <div className="lg:col-span-4 space-y-3">
-               <label className="text-[10px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-widest ml-4 flex items-center gap-2">
+            <div className="lg:col-span-4 space-y-2">
+               <label className="text-[9px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-[0.12em] ml-2 flex items-center gap-1.5">
                   <Calendar size={12} className="text-indigo-600"/> Dias de Referência
                </label>
                <div className="flex gap-2">
-                  <div className="flex flex-1 gap-2 bg-gray-100 dark:bg-zinc-900 p-1 rounded-2xl border border-transparent dark:border-white/10">
+                  <div className="flex flex-1 gap-1.5 bg-gray-100 dark:bg-zinc-900 p-1 rounded-xl border border-transparent dark:border-white/10">
                     <button
                       key="TODAY"
                       onClick={() => {
@@ -767,7 +764,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                           prev.includes('TODAY') ? prev.filter(d => d !== 'TODAY') : ['TODAY']
                         );
                       }}
-                      className={`flex-1 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${
+                      className={`flex-1 py-1.5 rounded-lg font-black text-[9px] uppercase tracking-[0.12em] transition-all ${
                         selectedDays.includes('TODAY')
                           ? 'bg-indigo-600 text-white shadow-lg'
                           : 'text-gray-400 hover:text-gray-600 dark:text-zinc-400 dark:hover:text-zinc-200'
@@ -781,20 +778,20 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                       type="date"
                       value={customDate}
                       onChange={(e) => setCustomDate(e.target.value)}
-                      className={`w-full pl-12 pr-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest border-2 transition-all outline-none ${
+                      className={`w-full pl-10 pr-3 py-2 rounded-xl font-black text-[9px] uppercase tracking-[0.12em] border transition-all outline-none ${
                         customDate 
                         ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' 
                         : 'bg-white dark:bg-[#121214] border-gray-100 dark:border-white/10 text-gray-400 dark:text-zinc-300 hover:border-indigo-100 dark:hover:border-indigo-400/50'
                       }`}
                     />
-                    <Calendar size={19} className={`absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none ${customDate ? 'text-white' : 'text-indigo-600'}`} />
+                    <Calendar size={14} className={`absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none ${customDate ? 'text-white' : 'text-indigo-600'}`} />
                   </div>
                </div>
             </div>
 
             {/* 1.5 SELEÇÃO DE PLANO (MULTI-SELEÇÃO) */}
-            <div className="lg:col-span-4 space-y-3">
-               <label className="text-[10px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-widest ml-4 flex items-center gap-2">
+            <div className="lg:col-span-4 space-y-2">
+               <label className="text-[9px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-[0.12em] ml-2 flex items-center gap-1.5">
                   <Sparkles size={12} className="text-indigo-600"/> Planos Ativos
                </label>
                <div className="flex flex-wrap gap-2">
@@ -808,7 +805,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                           : [...prev, plan]
                         );
                       }}
-                      className={`px-3 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest border-2 transition-all ${
+                      className={`px-2.5 py-1.5 rounded-lg font-black text-[8px] uppercase tracking-[0.12em] border transition-all ${
                         selectedPlans.includes(plan)
                         ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg'
                         : 'bg-white dark:bg-[#121214] border-gray-100 dark:border-white/10 text-gray-400 dark:text-zinc-300 hover:border-emerald-100 dark:hover:border-emerald-400/40'
@@ -821,8 +818,8 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
             </div>
 
             {/* 2. FILTRO POR TURNO - O MAIS IMPORTANTE NA COZINHA */}
-            <div className="lg:col-span-4 space-y-3">
-               <label className="text-[10px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-widest ml-4 flex items-center gap-2">
+            <div className="lg:col-span-4 space-y-2">
+               <label className="text-[9px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-[0.12em] ml-2 flex items-center gap-1.5">
                   <Clock size={12} className="text-indigo-600"/> Filtrar por Turno de Preparo
                </label>
                <div className="grid grid-cols-4 gap-2">
@@ -834,15 +831,15 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
             </div>
 
             {/* 3. BUSCA POR ALUNO */}
-            <div className="lg:col-span-12 space-y-3">
-               <label className="text-[10px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-widest ml-4 flex items-center gap-2">
+            <div className="lg:col-span-12 space-y-2">
+               <label className="text-[9px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-[0.12em] ml-2 flex items-center gap-1.5">
                   <User size={12} className="text-indigo-600"/> Pesquisa e Período
                </label>
                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                   <select
                     value={searchFieldFilter}
                     onChange={(e) => setSearchFieldFilter(e.target.value as SearchFieldFilter)}
-                    className="px-4 py-3.5 bg-gray-50 dark:bg-zinc-900 border-2 border-transparent dark:border-white/10 focus:border-indigo-500 rounded-3xl outline-none font-bold text-sm transition-all"
+                    className="px-3 py-2.5 bg-gray-50 dark:bg-zinc-900 border border-transparent dark:border-white/10 focus:border-indigo-500 rounded-xl outline-none font-semibold text-xs transition-all"
                   >
                     <option value="NAME">Por nome</option>
                     <option value="RESPONSIBLE">Por responsável</option>
@@ -852,7 +849,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                   </select>
 
                   <div className="relative md:col-span-2">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
                     <input
                       type="text"
                       value={searchTerm}
@@ -868,7 +865,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                                 ? 'Ex: pendente, pronto, servido...'
                                 : 'Nome ou matrícula do aluno...'
                       }
-                      className="w-full pl-12 pr-6 py-3.5 bg-gray-50 dark:bg-zinc-900 border-2 border-transparent dark:border-white/10 focus:border-indigo-500 rounded-3xl outline-none font-bold text-sm transition-all"
+                      className="w-full pl-9 pr-3 py-2.5 bg-gray-50 dark:bg-zinc-900 border border-transparent dark:border-white/10 focus:border-indigo-500 rounded-xl outline-none font-semibold text-xs transition-all"
                     />
                   </div>
 
@@ -878,20 +875,20 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
       </div>
 
       {/* RESUMO POR PLANO */}
-      <div className="flex gap-3 overflow-x-auto pb-1">
-         <div className="min-w-[180px] bg-amber-50 dark:bg-amber-500/10 p-4 rounded-2xl border border-amber-100 dark:border-amber-400/30 shadow-sm flex items-center justify-between">
+      <div className="flex gap-2 overflow-x-auto pb-1">
+         <div className="min-w-[150px] bg-amber-50 dark:bg-amber-500/10 p-3 rounded-xl border border-amber-100 dark:border-amber-400/30 shadow-sm flex items-center justify-between">
             <div>
-               <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Total Lanches</p>
-               <p className="text-xl font-black text-amber-900 dark:text-amber-300">{planSummary['LANCHE'] || 0}</p>
+               <p className="text-[8px] font-black text-amber-600 uppercase tracking-[0.12em]">Total Lanches</p>
+               <p className="text-base font-black text-amber-900 dark:text-amber-300">{planSummary['LANCHE'] || 0}</p>
             </div>
-            <div className="p-2.5 bg-white dark:bg-[#121214] rounded-xl text-amber-500 shadow-sm"><Sandwich size={20}/></div>
+            <div className="p-2 bg-white dark:bg-[#121214] rounded-lg text-amber-500 shadow-sm"><Sandwich size={14}/></div>
          </div>
-         <div className="min-w-[180px] bg-emerald-50 dark:bg-emerald-500/10 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-400/30 shadow-sm flex items-center justify-between">
+         <div className="min-w-[150px] bg-emerald-50 dark:bg-emerald-500/10 p-3 rounded-xl border border-emerald-100 dark:border-emerald-400/30 shadow-sm flex items-center justify-between">
             <div>
-               <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Total Almoços</p>
-               <p className="text-xl font-black text-emerald-900 dark:text-emerald-300">{planSummary['ALMOCO'] || 0}</p>
+               <p className="text-[8px] font-black text-emerald-600 uppercase tracking-[0.12em]">Total Almoços</p>
+               <p className="text-base font-black text-emerald-900 dark:text-emerald-300">{planSummary['ALMOCO'] || 0}</p>
             </div>
-            <div className="p-2.5 bg-white dark:bg-[#121214] rounded-xl text-emerald-500 shadow-sm"><Beef size={20}/></div>
+            <div className="p-2 bg-white dark:bg-[#121214] rounded-lg text-emerald-500 shadow-sm"><Beef size={14}/></div>
          </div>
       
         {planCreatedSummary.length === 0 ? (
@@ -919,21 +916,18 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
       </div>
 
       {/* ESTEIRA DE PRODUÇÃO - LISTA DETALHADA */}
-      <div className="bg-white dark:bg-[#121214] rounded-[40px] border border-gray-100 dark:border-white/10 shadow-xl dark:ring-1 dark:ring-white/5 overflow-hidden">
+      <div className="bg-white dark:bg-[#121214] rounded-[22px] border border-gray-100 dark:border-white/10 shadow-xl dark:ring-1 dark:ring-white/5 overflow-hidden">
          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full table-fixed text-left border-collapse min-w-[760px]">
                <thead>
                   <tr className="bg-gray-50 dark:bg-zinc-900 border-b border-gray-100 dark:border-white/10">
-                     <th className="px-8 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Aluno / Matrícula</th>
-                     <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Ano / Turma</th>
-                     <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Responsável</th>
-                     <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Turno</th>
-                     <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest w-[190px]">Plano</th>
-                     <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Data Refeição</th>
-                     <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Descrição</th>
-                     <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Restrições</th>
-                     <th className="px-6 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
-                     <th className="px-8 py-6 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Ações</th>
+                     <th className="px-2 py-2.5 text-[9px] font-black text-gray-400 uppercase tracking-[0.12em] w-[150px]">Aluno / Matrícula</th>
+                     <th className="pl-2 pr-0.5 py-2.5 text-[9px] font-black text-gray-400 uppercase tracking-[0.12em] w-[98px]">Ano / Turma</th>
+                     <th className="pl-0.5 pr-2 py-2.5 text-[9px] font-black text-gray-400 uppercase tracking-[0.12em] w-[96px]">Plano</th>
+                     <th className="px-2 py-2.5 text-[9px] font-black text-gray-400 uppercase tracking-[0.12em] w-[108px]">Data Refeição</th>
+                     <th className="pl-2 pr-0.5 py-2.5 text-[9px] font-black text-gray-400 uppercase tracking-[0.12em] w-[72px]">Restrições</th>
+                     <th className="pl-0.5 pr-0.5 py-2.5 text-[9px] font-black text-gray-400 uppercase tracking-[0.12em] w-[68px]">Status</th>
+                     <th className="pl-0.5 pr-0.5 py-2.5 text-[9px] font-black text-gray-400 uppercase tracking-[0.12em] text-left w-[72px]">Ações</th>
                   </tr>
                </thead>
                <tbody className="divide-y divide-gray-50 dark:divide-white/10">
@@ -944,40 +938,22 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
 
                      return (
                         <tr key={student.id} className={`group transition-all hover:bg-gray-50/70 dark:hover:bg-indigo-500/10 ${idx % 2 === 1 ? 'bg-gray-50/30 dark:bg-zinc-900/30' : ''} ${allServiced ? 'opacity-70' : ''}`}>
-                           <td className="px-8 py-6">
-                              <div className="flex items-center gap-4">
-                                 <img src={student.photo} className="w-12 h-12 rounded-2xl object-cover border-2 border-white dark:border-zinc-800 shadow-sm" />
-                                 <div>
-                                    <p className="text-sm font-black text-gray-800 uppercase tracking-tight">{student.name}</p>
-                                    <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-tighter">Mat: #{student.registrationId}</p>
+                           <td className="px-2 py-2 w-[150px]">
+                              <div className="flex items-center gap-2">
+                                 <img src={student.photo} className="w-8 h-8 rounded-xl object-cover border-2 border-white dark:border-zinc-800 shadow-sm" />
+                                 <div className="min-w-0">
+                                    <p className="text-xs font-black text-gray-800 uppercase tracking-tight truncate">{student.name}</p>
+                                    <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-tighter">Mat: #{student.registrationId}</p>
                                  </div>
                               </div>
                            </td>
-                           <td className="px-6 py-6">
-                              <div className="space-y-1">
-                                 <p className="text-xs font-black text-gray-700 uppercase">{student.year}</p>
+                           <td className="pl-2 pr-0.5 py-2 w-[98px]">
+                              <div className="space-y-0.5">
+                                 <p className="text-[11px] font-black text-gray-700 uppercase">{student.year}</p>
                                  <span className="text-[9px] font-black text-indigo-500 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-0.5 rounded-md border border-indigo-100 dark:border-indigo-400/30 uppercase">Turma {student.class}</span>
                               </div>
                            </td>
-                           <td className="px-6 py-6">
-                              <p className="text-xs font-black text-gray-700 uppercase tracking-tight">{student.responsibleName}</p>
-                           </td>
-                           <td className="px-6 py-6">
-                              <div className="flex items-center gap-2">
-                                 <div className={`p-1.5 rounded-lg ${
-                                    student.scheduledPeriod === 'MORNING' ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-300' :
-                                    student.scheduledPeriod === 'AFTERNOON' ? 'bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-300' :
-                                    student.scheduledPeriod === 'NIGHT' ? 'bg-indigo-100 dark:bg-indigo-500/20 text-indigo-900 dark:text-indigo-200' :
-                                    'bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300'
-                                 }`}>
-                                    {student.scheduledPeriod === 'MORNING' ? <Sun size={12}/> : student.scheduledPeriod === 'AFTERNOON' ? <Sunset size={12}/> : student.scheduledPeriod === 'NIGHT' ? <Moon size={12}/> : <Clock size={12}/>}
-                                 </div>
-                                 <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest">
-                                   {student.scheduledPeriod === 'MORNING' ? 'MANHÃ' : student.scheduledPeriod === 'AFTERNOON' ? 'TARDE' : student.scheduledPeriod === 'NIGHT' ? 'NOITE' : 'TODOS'}
-                                 </span>
-                              </div>
-                           </td>
-                           <td className="px-6 py-6 min-w-[190px]">
+                           <td className="pl-0.5 pr-2 py-2 w-[96px] min-w-[96px]">
                               <span className={`text-[10px] font-black px-3 py-1 rounded-full border uppercase ${
                                 student.planName === 'PF_FIXO' ? 'bg-orange-50 dark:bg-orange-500/10 text-orange-600 border-orange-100 dark:border-orange-400/30' :
                                 student.planName === 'LANCHE_FIXO' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 border-amber-100 dark:border-amber-400/30' :
@@ -986,8 +962,8 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                                 {student.planName.replace('_', ' ')}
                               </span>
                            </td>
-                           <td className="px-6 py-6">
-                              <div className="inline-flex flex-col items-center gap-1">
+                           <td className="px-2 py-2 w-[108px]">
+                              <div className="inline-flex flex-col items-center gap-0.5">
                                 <span className="text-[10px] font-black px-3 py-1 rounded-full border border-cyan-100 dark:border-cyan-400/30 bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 uppercase tracking-widest">
                                   {student.scheduledDate ? new Date(`${student.scheduledDate}T00:00:00`).toLocaleDateString('pt-BR') : '-'}
                                 </span>
@@ -1002,13 +978,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                                 </span>
                               </div>
                            </td>
-                           <td className="px-6 py-6">
-                              <div className="flex items-center gap-2">
-                                 <div className="p-1.5 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 rounded-lg"><Beef size={12}/></div>
-                                 <p className="text-xs font-black text-gray-700 uppercase tracking-tight">{student.description}</p>
-                              </div>
-                           </td>
-                           <td className="px-6 py-6">
+                           <td className="pl-2 pr-0.5 py-2 w-[72px]">
                               <div className="flex flex-wrap gap-1.5">
                                  {someAllergy ? (
                                     student.restrictions.map(res => (
@@ -1021,8 +991,8 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                                  )}
                               </div>
                            </td>
-                           <td className="px-6 py-6">
-                              <div className="flex items-center gap-2">
+                           <td className="pl-0.5 pr-0.5 py-2 w-[68px]">
+                              <div className="flex items-center gap-1.5">
                                  <div className={`w-2 h-2 rounded-full ${allServiced ? 'bg-emerald-500' : hasReadyItem ? 'bg-blue-500' : 'bg-amber-500 animate-pulse'}`}></div>
                                  <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${
                                    allServiced
@@ -1035,16 +1005,16 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                                  </span>
                               </div>
                            </td>
-                           <td className="px-8 py-6 text-right">
+                           <td className="pl-0.5 pr-0.5 py-2 text-left w-[72px]">
                               {!allServiced ? (
                                  <button 
                                     onClick={() => serveStudent(student.id)}
-                                    className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest shadow-lg shadow-indigo-100 dark:shadow-indigo-900/40 hover:bg-indigo-700 active:scale-95 transition-all ml-auto"
+                                    className="bg-indigo-600 text-white px-3 py-1.5 rounded-xl font-black text-[9px] uppercase tracking-widest shadow-lg shadow-indigo-100 dark:shadow-indigo-900/40 hover:bg-indigo-700 active:scale-95 transition-all"
                                  >
                                     Entregar
                                  </button>
                               ) : (
-                                 <div className="flex items-center justify-end gap-2">
+                                 <div className="flex items-center justify-start gap-1.5">
                                     <div className="text-emerald-500 flex items-center gap-2">
                                        <CheckCircle2 size={18} />
                                        <span className="text-[10px] font-black uppercase tracking-widest">Concluído</span>

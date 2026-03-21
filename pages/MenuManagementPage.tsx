@@ -732,7 +732,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
   };
 
   return (
-    <div className="dash-shell menu-shell max-w-[1600px] min-h-screen">
+    <div className="dash-shell menu-shell min-h-screen space-y-3">
       {!activeEnterprise ? (
         <div className="flex items-center justify-center h-96">
           <div className="text-center space-y-4">
@@ -742,23 +742,23 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
         </div>
       ) : (
       <>
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="space-y-1">
-          <h1 className="text-2xl font-black text-gray-800 tracking-tight flex items-center gap-3 leading-none">
-            <UtensilsCrossed className="text-indigo-600" />
+          <h1 className="text-xl sm:text-2xl font-black text-gray-800 tracking-tight flex items-center gap-2 leading-none">
+            <UtensilsCrossed className="text-indigo-600" size={18} />
             Grade Semanal: Cardápio da Semana
           </h1>
-          <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest">
+          <p className="text-gray-500 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.12em]">
             Defina o cardápio com base nos planos contratados
           </p>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5 sm:gap-2">
           <button
             onClick={exportWeeklyCalendarPdf}
-            className="px-6 py-3 bg-white border-2 border-indigo-100 text-indigo-700 rounded-2xl font-black text-xs uppercase tracking-widest shadow-sm hover:bg-indigo-50 transition-all flex items-center justify-center gap-2"
+            className="px-3 py-2 bg-white border border-indigo-200 text-indigo-700 rounded-lg font-black text-[9px] uppercase tracking-[0.12em] shadow-sm hover:bg-indigo-50 transition-all flex items-center justify-center gap-1.5"
           >
-            <Calendar size={16} /> Baixar Calendario PDF
+            <Calendar size={12} /> Baixar Calendario PDF
           </button>
           {isOwner && (
             <div className="relative group min-w-[240px]">
@@ -768,7 +768,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
               <select 
                 value={selectedUnitId}
                 onChange={(e) => setSelectedUnitId(e.target.value)}
-                className="w-full pl-12 pr-10 py-3 bg-white border-2 border-transparent focus:border-indigo-500 rounded-2xl shadow-sm outline-none font-black text-xs uppercase tracking-widest appearance-none cursor-pointer transition-all hover:shadow-md"
+                className="w-full pl-10 pr-9 py-2 bg-white border border-transparent focus:border-indigo-500 rounded-lg shadow-sm outline-none font-black text-[9px] uppercase tracking-[0.12em] appearance-none cursor-pointer transition-all hover:shadow-md"
               >
                 {enterprises.map(ent => (
                   <option key={ent.id} value={ent.id}>{ent.name}</option>
@@ -780,8 +780,8 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
             </div>
           )}
           
-          <button className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2">
-            <Save size={18} /> Publicar Grade
+          <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-black text-[9px] uppercase tracking-[0.12em] shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-1.5">
+            <Save size={13} /> Publicar Grade
           </button>
         </div>
       </header>
@@ -792,13 +792,13 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
            <p className="text-[10px] font-black text-gray-400 uppercase tracking-[4px]">Sincronizando cardápio semanal...</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 animate-in fade-in duration-500">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2.5 animate-in fade-in duration-500">
           {weeklyMenu.map(day => (
-            <div key={day.id} className="flex flex-col gap-4">
-              <div className="bg-white p-4 rounded-2xl border-b-4 border-indigo-500 shadow-sm flex items-center justify-between gap-2">
+            <div key={day.id} className="flex flex-col gap-2.5">
+              <div className="bg-white p-3 rounded-xl border-b-2 border-indigo-500 shadow-sm flex items-center justify-between gap-2">
                 <div>
-                   <h3 className="text-xs font-black text-gray-800 uppercase tracking-widest">{day.dayOfWeek}</h3>
-                   <p className="text-[9px] font-bold text-gray-400 uppercase">{day.items.length} Opções</p>
+                   <h3 className="text-[10px] font-black text-gray-800 uppercase tracking-[0.12em]">{day.dayOfWeek}</h3>
+                   <p className="text-[8px] font-bold text-gray-400 uppercase">{day.items.length} Opções</p>
                 </div>
                 <button 
                   onClick={() => {
@@ -812,15 +812,15 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                       [day.id]: prev[day.id] || plansCatalog[0]?.id || '',
                     }));
                   }}
-                  className="w-8 h-8 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center hover:bg-indigo-600 hover:text-white transition-all shadow-inner"
+                  className="w-7 h-7 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center hover:bg-indigo-600 hover:text-white transition-all shadow-inner"
                   title="Adicionar opção"
                 >
-                  <Plus size={18} />
+                  <Plus size={14} />
                 </button>
               </div>
               {openPlanPickerDayId === day.id && (
-                <div className="bg-white rounded-2xl border border-indigo-100 shadow-sm p-3 space-y-2">
-                  <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Escolha o plano para criar o cardápio</p>
+                <div className="bg-white rounded-xl border border-indigo-100 shadow-sm p-2.5 space-y-1.5">
+                  <p className="text-[9px] font-black text-gray-500 uppercase tracking-[0.12em]">Escolha o plano para criar o cardápio</p>
                   <div className="flex items-center gap-2">
                     <select
                       value={newItemPlanByDay[day.id] || ''}
@@ -828,7 +828,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                         const nextPlanId = e.target.value;
                         setNewItemPlanByDay((prev) => ({ ...prev, [day.id]: nextPlanId }));
                       }}
-                      className="flex-1 h-10 rounded-xl border border-gray-200 px-3 text-xs font-black uppercase tracking-wider text-gray-700 focus:outline-none focus:border-indigo-400"
+                      className="flex-1 h-8 rounded-lg border border-gray-200 px-2.5 text-[10px] font-black uppercase tracking-[0.1em] text-gray-700 focus:outline-none focus:border-indigo-400"
                     >
                       {plansCatalog.length === 0 ? (
                         <option value="">Sem planos ativos</option>
@@ -842,7 +842,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                     </select>
                     <button
                       onClick={() => addItemToDay(day.id, newItemPlanByDay[day.id])}
-                      className="h-10 px-3 rounded-xl bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700"
+                      className="h-8 px-2.5 rounded-lg bg-indigo-600 text-white text-[9px] font-black uppercase tracking-[0.12em] hover:bg-indigo-700"
                     >
                       Criar
                     </button>
@@ -850,26 +850,26 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                 </div>
               )}
 
-              <div className="min-h-[300px]">
+              <div className="min-h-[250px]">
                 {day.items.length === 0 ? (
-                  <div className="h-full border-2 border-dashed border-gray-200 rounded-3xl flex flex-col items-center justify-center p-6 text-center opacity-40">
-                     <Clock size={24} className="mb-2" />
-                     <p className="text-[9px] font-black uppercase">Sem Itens</p>
+                  <div className="h-full border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center p-5 text-center opacity-40">
+                     <Clock size={18} className="mb-2" />
+                     <p className="text-[8px] font-black uppercase">Sem Itens</p>
                   </div>
                 ) : (
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm divide-y divide-gray-100 overflow-hidden">
+                  <div className="bg-white rounded-xl border border-gray-100 shadow-sm divide-y divide-gray-100 overflow-hidden">
                     {day.items.map(item => (
                       <div
                         key={item.id}
-                        className="px-3 py-2.5 hover:bg-gray-50 transition-colors group"
+                        className="px-2.5 py-2 hover:bg-gray-50 transition-colors group"
                       >
                         <div className="flex items-start gap-3">
                           <div className="min-w-0 flex-1">
-                            <p className="text-xs font-black text-gray-800 uppercase tracking-tight truncate">
+                            <p className="text-[11px] font-black text-gray-800 uppercase tracking-tight truncate">
                               {item.name}
                             </p>
                             {item.planId && (
-                              <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mt-0.5 truncate">
+                              <p className="text-[9px] font-black text-indigo-600 uppercase tracking-[0.12em] mt-0.5 truncate">
                                 Plano: {plansCatalog.find((plan) => plan.id === item.planId)?.name || 'Plano vinculado'}
                               </p>
                             )}

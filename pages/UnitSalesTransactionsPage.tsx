@@ -69,7 +69,11 @@ const parseDateOnly = (dateStr?: string): Date | null => {
 const formatDateBr = (dateStr?: string) => {
   const parsed = parseDateOnly(dateStr);
   if (!parsed) return '';
-  return parsed.toLocaleDateString('pt-BR');
+  return parsed.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+  });
 };
 
 const resolveTransactionReferenceDate = (tx: any): string => {
@@ -145,6 +149,17 @@ const formatTransactionItemsForExport = (row: ExtendedTransactionRecord) => {
     .join(' | ');
 };
 
+const formatUnitsProgressValue = (value: number) => {
+  const safe = Number(value || 0);
+  if (!Number.isFinite(safe)) return '0';
+  const rounded = Math.round((safe + Number.EPSILON) * 100) / 100;
+  if (Math.abs(rounded - Math.trunc(rounded)) < 0.000001) return String(Math.trunc(rounded));
+  return rounded.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+};
+
+const buildUnitsProgressLabel = (remaining: number, total: number) =>
+  `${formatUnitsProgressValue(remaining)}/${formatUnitsProgressValue(total)}`;
+
 const resolveExecutionSource = (tx: any): 'USUARIO' | 'SISTEMA' => {
   const rawSource = String(tx?.executionSource || tx?.source || tx?.origin || '').trim().toUpperCase();
   if (rawSource === 'SISTEMA') return 'SISTEMA';
@@ -159,7 +174,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
     return (
-      <div className="dash-shell transactions-shell max-w-[1600px] min-h-screen flex items-center justify-center">
+      <div className="dash-shell transactions-shell min-h-screen flex items-center justify-center">
         <div className="text-center space-y-4">
           <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full"></div>
           <p className="text-gray-600 dark:text-zinc-300 font-medium">Carregando transações...</p>
@@ -413,6 +428,229 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       plan: resolvePlanOrigin(row)
     }));
   }, [sourceTransactions, createdPlansById, createdPlansByName]);
+
+  const clientPlanProgressLookup = useMemo(() => {
+    const byClientPlanId = new Map<string, string>();
+    const byClientPlanName = new Map<string, string>();
+    clients.forEach((client: any) => {
+      const clientId = String(client?.id || '').trim();
+      if (!clientId) return;
+      const balances = client?.planCreditBalances && typeof client.planCreditBalances === 'object'
+        ? Object.values(client.planCreditBalances)
+        : [];
+      (Array.isArray(balances) ? balances : []).forEach((entry: any) => {
+        const planId = String(entry?.planId || '').trim();
+        const planName = normalizedPlanName(String(entry?.planName || ''));
+        const directProgress = String(entry?.unitsProgress || '').trim();
+        const balanceUnits = Number(entry?.balanceUnits);
+        const totalUnits = Number(entry?.totalUnits);
+        const resolvedProgress = directProgress
+          || (Number.isFinite(balanceUnits) && Number.isFinite(totalUnits) && totalUnits > 0
+            ? buildUnitsProgressLabel(Math.max(0, balanceUnits), Math.max(balanceUnits, totalUnits))
+            : '');
+        if (!resolvedProgress) return;
+        if (planId) byClientPlanId.set(`${clientId}|${planId}`, resolvedProgress);
+        if (planName) byClientPlanName.set(`${clientId}|${planName}`, resolvedProgress);
+      });
+    });
+    return { byClientPlanId, byClientPlanName };
+  }, [clients]);
+
+  const consumedPlanProgressLookup = useMemo(() => {
+    const byClientPlanId = new Map<string, string>();
+    const byClientPlanName = new Map<string, string>();
+    const planUnitValueByClientPlanId = new Map<string, number>();
+    const planUnitValueByClientPlanName = new Map<string, number>();
+    const catalogUnitByPlanName = new Map<string, number>();
+
+    editPlans.forEach((plan: any) => {
+      const planName = normalizedPlanName(String(plan?.name || ''));
+      const unitValue = Number(plan?.price ?? plan?.unitPrice ?? plan?.amount ?? plan?.value ?? 0);
+      if (planName && Number.isFinite(unitValue) && unitValue > 0) {
+        catalogUnitByPlanName.set(planName, unitValue);
+      }
+    });
+
+    clients.forEach((client: any) => {
+      const clientId = String(client?.id || '').trim();
+      if (!clientId) return;
+      const balances = client?.planCreditBalances && typeof client.planCreditBalances === 'object'
+        ? Object.values(client.planCreditBalances)
+        : [];
+      (Array.isArray(balances) ? balances : []).forEach((entry: any) => {
+        const planId = String(entry?.planId || '').trim();
+        const planName = normalizedPlanName(String(entry?.planName || ''));
+        const unitValue = Number(entry?.unitValue ?? entry?.planPrice ?? entry?.price ?? 0);
+        if (!Number.isFinite(unitValue) || unitValue <= 0) return;
+        if (planId) planUnitValueByClientPlanId.set(`${clientId}|${planId}`, unitValue);
+        if (planName) planUnitValueByClientPlanName.set(`${clientId}|${planName}`, unitValue);
+      });
+    });
+
+    const resolveTxTimestamp = (row: ExtendedTransactionRecord) => {
+      const rawTs = new Date(String(row.raw?.timestamp || '')).getTime();
+      if (Number.isFinite(rawTs) && rawTs > 0) return rawTs;
+      const dateKey = String(row.date || '').slice(0, 10);
+      const timeKey = String(row.time || '00:00').slice(0, 5);
+      const composed = new Date(`${dateKey}T${timeKey || '00:00'}:00`).getTime();
+      if (Number.isFinite(composed) && composed > 0) return composed;
+      const fallbackDate = parseDateOnly(row.date);
+      return fallbackDate ? fallbackDate.getTime() : 0;
+    };
+    const resolveEffectiveDateKey = (row: ExtendedTransactionRecord) => {
+      const direct = String(row.raw?.deliveryDate || row.raw?.scheduledDate || row.raw?.mealDate || row.date || '').slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(direct)) return direct;
+      const description = String(row.raw?.description || row.raw?.item || row.description || row.item || '');
+      const isoMatch = description.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+      if (isoMatch?.[1]) return isoMatch[1];
+      const brMatch = description.match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/);
+      if (brMatch) {
+        const [, dd, mm, yyyy] = brMatch;
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      return '0000-00-00';
+    };
+
+    const readAmount = (row: ExtendedTransactionRecord) => {
+      const raw = Number(row.raw?.amount ?? row.raw?.total ?? row.raw?.value ?? row.total ?? row.value ?? 0);
+      return Number.isFinite(raw) ? raw : 0;
+    };
+
+    const resolveUnits = (row: ExtendedTransactionRecord, unitValue: number) => {
+      const rawDirect = Number(row.raw?.planUnits ?? row.raw?.balanceUnits ?? row.raw?.units ?? row.raw?.quantity ?? row.quantity);
+      if (Number.isFinite(rawDirect) && Math.abs(rawDirect) > 0) return Math.abs(rawDirect);
+
+      const amount = Math.abs(readAmount(row));
+      if (amount > 0 && unitValue > 0) return amount / unitValue;
+
+      const text = normalizedPlanName(`${row.raw?.description || ''} ${row.raw?.item || ''} ${row.description || ''} ${row.item || ''}`);
+      if (text.includes('ENTREGA DO DIA') || text.includes('CONSUMO DE 1 UNIDADE')) return 1;
+      if (row.type === 'CONSUMO') return 1;
+      return 0;
+    };
+
+    type State = { purchasedUnits: number; consumedUnits: number };
+    const stateByClientPlan = new Map<string, State>();
+    const canonicalKeyByClientPlanId = new Map<string, string>();
+    const canonicalKeyByClientPlanName = new Map<string, string>();
+    const resolveCanonicalKey = (clientId: string, planId: string, planName: string) => {
+      const byIdKey = planId ? canonicalKeyByClientPlanId.get(`${clientId}|${planId}`) : '';
+      if (byIdKey) {
+        if (planName) canonicalKeyByClientPlanName.set(`${clientId}|${planName}`, byIdKey);
+        return byIdKey;
+      }
+      const byNameKey = planName ? canonicalKeyByClientPlanName.get(`${clientId}|${planName}`) : '';
+      if (byNameKey) {
+        if (planId) canonicalKeyByClientPlanId.set(`${clientId}|${planId}`, byNameKey);
+        return byNameKey;
+      }
+      const fresh = `${clientId}|${planId || planName}`;
+      if (planId) canonicalKeyByClientPlanId.set(`${clientId}|${planId}`, fresh);
+      if (planName) canonicalKeyByClientPlanName.set(`${clientId}|${planName}`, fresh);
+      return fresh;
+    };
+    const sorted = [...normalizedTransactions].sort((a, b) => {
+      const aDateKey = resolveEffectiveDateKey(a);
+      const bDateKey = resolveEffectiveDateKey(b);
+      if (aDateKey !== bDateKey) return aDateKey.localeCompare(bDateKey);
+      const aTs = resolveTxTimestamp(a);
+      const bTs = resolveTxTimestamp(b);
+      if (aTs !== bTs) return aTs - bTs;
+      return String(a.id || '').localeCompare(String(b.id || ''));
+    });
+
+    sorted.forEach((row) => {
+      const clientId = String(row.clientId || row.raw?.clientId || '').trim();
+      const planId = String(row.raw?.planId || row.planId || '').trim();
+      const planName = normalizedPlanName(String(row.raw?.plan || row.raw?.planName || row.plan || row.item || ''));
+      const isPlanRow = row.plan !== 'Venda' && row.plan !== 'Crédito Cantina';
+      if (!clientId || !isPlanRow || (!planId && !planName)) return;
+
+      const key = resolveCanonicalKey(clientId, planId, planName);
+      const state = stateByClientPlan.get(key) || { purchasedUnits: 0, consumedUnits: 0 };
+      const lookupKeyById = `${clientId}|${planId}`;
+      const lookupKeyByName = `${clientId}|${planName}`;
+      const resolvedUnitValue = Number(
+        row.raw?.planUnitValue
+        ?? row.raw?.unitValue
+        ?? row.raw?.planPrice
+        ?? (planId ? planUnitValueByClientPlanId.get(lookupKeyById) : undefined)
+        ?? planUnitValueByClientPlanName.get(lookupKeyByName)
+        ?? catalogUnitByPlanName.get(planName)
+        ?? 0
+      );
+      const unitValue = Number.isFinite(resolvedUnitValue) && resolvedUnitValue > 0 ? resolvedUnitValue : 0;
+      const units = Math.max(0, Number(resolveUnits(row, unitValue) || 0));
+      if (units <= 0) return;
+
+      if (row.type === 'CREDITO') {
+        state.purchasedUnits += units;
+        stateByClientPlan.set(key, state);
+        return;
+      }
+
+      if (row.type === 'CONSUMO') {
+        state.consumedUnits += units;
+        if (state.consumedUnits < 0) state.consumedUnits = 0;
+        if (state.purchasedUnits < state.consumedUnits) state.purchasedUnits = state.consumedUnits;
+        stateByClientPlan.set(key, state);
+      }
+    });
+
+    const labelByCanonical = new Map<string, string>();
+    stateByClientPlan.forEach((state, canonicalKey) => {
+      labelByCanonical.set(
+        canonicalKey,
+        buildUnitsProgressLabel(
+          Math.max(0, state.consumedUnits),
+          Math.max(0, state.purchasedUnits, state.consumedUnits)
+        )
+      );
+    });
+
+    canonicalKeyByClientPlanId.forEach((canonicalKey, lookupKey) => {
+      const label = labelByCanonical.get(canonicalKey);
+      if (label) byClientPlanId.set(lookupKey, label);
+    });
+    canonicalKeyByClientPlanName.forEach((canonicalKey, lookupKey) => {
+      const label = labelByCanonical.get(canonicalKey);
+      if (label) byClientPlanName.set(lookupKey, label);
+    });
+
+    return { byClientPlanId, byClientPlanName };
+  }, [normalizedTransactions, clients, editPlans]);
+
+  const resolveRowUnitsProgress = (row: ExtendedTransactionRecord) => {
+    const fromSnapshot = String(row.raw?.unitsProgressSnapshot || row.raw?.unitsProgress || '').trim();
+    if (fromSnapshot) return fromSnapshot;
+
+    const clientId = String(row.clientId || row.raw?.clientId || '').trim();
+    const planId = String(row.raw?.planId || row.planId || '').trim();
+    const planName = normalizedPlanName(String(row.raw?.plan || row.raw?.planName || row.plan || ''));
+    const isPlanConsumption = row.type === 'CONSUMO' && row.plan !== 'Venda' && row.plan !== 'Crédito Cantina';
+    if (isPlanConsumption && clientId && (planId || planName)) {
+      if (planId) {
+        const consumedById = consumedPlanProgressLookup.byClientPlanId.get(`${clientId}|${planId}`);
+        if (consumedById) return consumedById;
+      }
+      if (planName) {
+        const consumedByName = consumedPlanProgressLookup.byClientPlanName.get(`${clientId}|${planName}`);
+        if (consumedByName) return consumedByName;
+      }
+    }
+
+    if (!clientId || (!planId && !planName)) return '';
+
+    if (planId) {
+      const byId = clientPlanProgressLookup.byClientPlanId.get(`${clientId}|${planId}`);
+      if (byId) return byId;
+    }
+    if (planName) {
+      const byName = clientPlanProgressLookup.byClientPlanName.get(`${clientId}|${planName}`);
+      if (byName) return byName;
+    }
+    return '';
+  };
 
   const parseTransactionDate = (row: ExtendedTransactionRecord): Date | null => {
     return parseDateOnly(row?.date);
@@ -1116,18 +1354,34 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
         return {
           mode: 'PREPAGA' as const,
           consumedTotal,
+          consumedQty: 0,
+          totalQty: 0,
           saldoQty: 0,
           saldoValue: saldoCantina,
+          unitValue: 0,
         };
       }
 
       let saldoMoney = 0;
+      let saldoUnits = 0;
+      let unitValueFromBalances = 0;
       reportClients.forEach((client) => {
         const balances = (client as any)?.planCreditBalances || {};
         Object.values(balances).forEach((entry: any) => {
           const entryName = normalizeSearchText(String(entry?.planName || ''));
           if (entryName === normalizedPlan) {
-            saldoMoney += Number(entry?.balance || 0);
+            const entryBalance = Number(entry?.balance || 0);
+            const entryUnitValue = Number(entry?.unitValue || entry?.planPrice || 0);
+            const entryUnitsDirect = Number(entry?.balanceUnits);
+            const entryUnits = Number.isFinite(entryUnitsDirect)
+              ? Math.max(0, entryUnitsDirect)
+              : (entryUnitValue > 0 ? Math.max(0, entryBalance / entryUnitValue) : 0);
+
+            saldoMoney += entryBalance;
+            saldoUnits += entryUnits;
+            if (!unitValueFromBalances && Number.isFinite(entryUnitValue) && entryUnitValue > 0) {
+              unitValueFromBalances = entryUnitValue;
+            }
           }
         });
       });
@@ -1150,19 +1404,24 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       const definedPlanUnit = Number(planUnitPriceByName.get(normalizedPlan) || 0);
       const unitValue = definedPlanUnit > 0
         ? definedPlanUnit
-        : (qtyAccumulator > 0 ? (unitAccumulator / qtyAccumulator) : 0);
+        : (unitValueFromBalances > 0 ? unitValueFromBalances : (qtyAccumulator > 0 ? (unitAccumulator / qtyAccumulator) : 0));
       const saldoValue = Number(saldoMoney || 0);
-      const saldoQty = unitValue > 0 ? (saldoValue / unitValue) : 0;
+      const saldoQty = saldoUnits > 0
+        ? saldoUnits
+        : (unitValue > 0 ? (saldoValue / unitValue) : 0);
       const consumedQty = Number(consumedQtyByPlanMap.get(planName) || 0);
       const consumedTotalRaw = Number(consumedValueByPlanMap.get(planName) || 0);
       const consumedTotal = consumedTotalRaw > 0 ? consumedTotalRaw : (consumedQty * unitValue);
+      const totalQty = consumedQty + saldoQty;
 
       return {
         mode: 'PLANO' as const,
         consumedQty,
         consumedTotal,
+        totalQty,
         saldoQty,
         saldoValue,
+        unitValue,
       };
     };
 
@@ -1322,10 +1581,10 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
       const consumedText = balanceInfo.mode === 'PREPAGA'
         ? `Consumo: ${formatCurrencyBr(balanceInfo.consumedTotal)}`
-        : `Consumido: ${formatNumber(balanceInfo.consumedQty || 0)} un. (${formatCurrencyBr(balanceInfo.consumedTotal)})`;
+        : `Consumido: ${formatNumber(balanceInfo.consumedQty || 0)}/${formatNumber(balanceInfo.totalQty || 0)} un. (${formatCurrencyBr(balanceInfo.consumedTotal)})`;
       const balanceText = balanceInfo.mode === 'PREPAGA'
         ? `Saldo atual: ${formatCurrencyBr(balanceInfo.saldoValue)}`
-        : `Saldo atual: ${formatNumber(balanceInfo.saldoQty || 0)} un. (${formatCurrencyBr(Number(balanceInfo.saldoValue || 0))})`;
+        : `Restante: ${formatNumber(balanceInfo.saldoQty || 0)} un. (${formatCurrencyBr(Number(balanceInfo.saldoValue || 0))})`;
       planSummaryCards.push({
         planName,
         consumedText,
@@ -1333,9 +1592,13 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
         isPrepaid: balanceInfo.mode === 'PREPAGA',
       });
 
+      const planLineSuffix = balanceInfo.mode === 'PREPAGA'
+        ? ''
+        : ` • ${formatNumber(balanceInfo.consumedQty || 0)}/${formatNumber(balanceInfo.totalQty || 0)} un.`;
+
       tableRows.push([
         {
-          content: `PLANO: ${planName}`,
+          content: `PLANO: ${planName}${planLineSuffix}`,
           colSpan: 5,
           styles: {
             fillColor: [219, 234, 254],
@@ -1470,82 +1733,82 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       {/* Header Contextual */}
       <header className="dash-header">
         <div>
-           <div className="flex items-center gap-3 mb-2">
-              <div className="p-3 bg-indigo-600 rounded-2xl text-white shadow-xl shadow-indigo-100">
-                 <ReceiptText size={32} />
+           <div className="flex items-center gap-2 mb-1.5">
+              <div className="p-2 bg-indigo-600 rounded-lg text-white shadow-md shadow-indigo-100">
+                 <ReceiptText size={18} />
               </div>
               <div>
-                 <h1 className="dash-title">Consumo de Pacotes e Créditos</h1>
-                 <p className="dash-subtitle flex items-center gap-2">
-                    <Building size={14} className="text-indigo-400"/> {activeEnterprise.name}
+                 <h1 className="text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight leading-none uppercase">Consumo de Pacotes e Créditos</h1>
+                 <p className="text-[8px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-[0.14em] mt-1 flex items-center gap-1">
+                    <Building size={10} className="text-indigo-400"/> {activeEnterprise.name}
                  </p>
               </div>
            </div>
         </div>
 
-        <div className="dash-actions">
+        <div className="dash-actions gap-1.5 sm:gap-2">
            <button
              onClick={openCreateModal}
-             className="flex items-center gap-2 px-5 py-3.5 bg-emerald-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-100"
+             className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg font-black text-[9px] uppercase tracking-[0.12em] hover:bg-emerald-700 transition-all shadow-md shadow-emerald-100"
            >
-             <ReceiptText size={18} />
+             <ReceiptText size={12} />
              Registrar Transação
            </button>
            <button
              onClick={handleClearAllTransactions}
              disabled={isClearingTransactions}
-             className="flex items-center gap-2 px-5 py-3.5 bg-red-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-red-700 transition-all shadow-xl shadow-red-100 disabled:opacity-60 disabled:cursor-not-allowed"
+             className="flex items-center gap-1.5 px-3 py-2 bg-red-600 text-white rounded-lg font-black text-[9px] uppercase tracking-[0.12em] hover:bg-red-700 transition-all shadow-md shadow-red-100 disabled:opacity-60 disabled:cursor-not-allowed"
            >
-             <Trash2 size={18} />
+             <Trash2 size={12} />
              {isClearingTransactions ? 'Limpando...' : 'Limpar Transações'}
            </button>
            <button 
              onClick={exportToCSV}
-             className="flex items-center gap-2 px-5 py-3.5 bg-white border-2 border-gray-100 text-gray-700 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-gray-50 transition-all shadow-sm"
+             className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg font-black text-[9px] uppercase tracking-[0.12em] hover:bg-gray-50 transition-all shadow-sm"
            >
-             <FileSpreadsheet size={18} className="text-emerald-500" /> Exportar CSV
+             <FileSpreadsheet size={12} className="text-emerald-500" /> Exportar CSV
            </button>
            <button 
              onClick={exportToPDF}
-             className="flex items-center gap-2 px-5 py-3.5 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100"
+             className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg font-black text-[9px] uppercase tracking-[0.12em] hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100"
            >
-             <Printer size={18} /> Imprimir Relatório
+             <Printer size={12} /> Imprimir Relatório
            </button>
         </div>
       </header>
 
       {/* MOTOR DE FILTRAGEM AVANÇADA UNIFICADO */}
-      <div className="dash-filterbar space-y-6">
+      <div className="dash-filterbar space-y-4">
          
-         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             
             {/* Pesquisa por Nome/ID */}
-            <div className="space-y-2">
-               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+            <div className="space-y-1.5">
+               <label className="text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] ml-1 flex items-center gap-1.5">
                   <UserCircle size={12} className="text-indigo-400"/> Nome ou Registro
                </label>
                <div className="relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
                   <input 
                     type="text" 
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
                     placeholder="Pesquisar..." 
-                    className="w-full pl-11 pr-4 py-3 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-bold text-sm transition-all" 
+                    className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-semibold text-xs transition-all" 
                   />
                </div>
             </div>
 
             {/* Filtro por Tipo */}
-            <div className="space-y-2">
-               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+            <div className="space-y-1.5">
+               <label className="text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] ml-1 flex items-center gap-1.5">
                   <ListFilter size={12} className="text-indigo-400"/> Tipo de Registro
                </label>
                <div className="relative">
                   <select 
                     value={typeFilter}
                     onChange={e => setTypeFilter(e.target.value as TransactionType)}
-                    className="w-full px-5 py-3 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-black text-[10px] uppercase tracking-widest appearance-none cursor-pointer"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-black text-[9px] uppercase tracking-[0.12em] appearance-none cursor-pointer"
                   >
                      <option value="ALL">Todos os Tipos</option>
                      <option value="CREDITO">Crédito</option>
@@ -1557,15 +1820,15 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
             </div>
 
             {/* Filtro por Plano/Origem */}
-            <div className="space-y-2">
-               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+            <div className="space-y-1.5">
+               <label className="text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] ml-1 flex items-center gap-1.5">
                   <Tag size={12} className="text-indigo-400"/> Plano / Origem
                </label>
                <div className="relative">
                   <select 
                     value={planFilter}
                     onChange={e => setPlanFilter(e.target.value)}
-                    className="w-full px-5 py-3 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-black text-[10px] uppercase tracking-widest appearance-none cursor-pointer"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-black text-[9px] uppercase tracking-[0.12em] appearance-none cursor-pointer"
                   >
                      <option value="ALL">Todos</option>
                      {plansList.map(p => <option key={p} value={p}>{p}</option>)}
@@ -1575,15 +1838,15 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
             </div>
 
             {/* Filtro por Data */}
-            <div className="space-y-2">
-               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+            <div className="space-y-1.5">
+               <label className="text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] ml-1 flex items-center gap-1.5">
                   <Calendar size={12} className="text-indigo-400"/> Período de Busca
                </label>
                <div className="relative">
                   <select 
                     value={timeFilter}
                     onChange={e => setTimeFilter(e.target.value as TimeFilter)}
-                    className="w-full px-5 py-3 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-black text-[10px] uppercase tracking-widest appearance-none cursor-pointer"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-black text-[9px] uppercase tracking-[0.12em] appearance-none cursor-pointer"
                   >
                      <option value="TODAY">Hoje</option>
                      <option value="7DAYS">Últimos 7 dias</option>
@@ -1612,82 +1875,88 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       </div>
 
       {/* TABELA UNIFICADA DE RESULTADOS */}
-      <div className="dash-panel rounded-[40px] shadow-xl overflow-hidden animate-in slide-in-from-bottom-4">
-        <div className="p-8 border-b bg-gray-50/50 flex items-center justify-between">
+      <div className="dash-panel rounded-[28px] shadow-xl overflow-hidden animate-in slide-in-from-bottom-4">
+        <div className="p-4 sm:p-5 border-b bg-gray-50/50 flex items-center justify-between gap-3">
            <div>
-              <h3 className="text-xl font-black text-indigo-900 uppercase tracking-tight flex items-center gap-2">
-                 <History size={24} className="text-indigo-600" /> Histórico Operacional Consolidado
+              <h3 className="text-sm sm:text-base font-black text-indigo-900 uppercase tracking-tight flex items-center gap-2">
+                 <History size={18} className="text-indigo-600" /> Histórico Operacional Consolidado
               </h3>
-              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">Auditória de baixas automáticas, créditos e vendas diretas</p>
+              <p className="text-[8px] sm:text-[9px] text-gray-400 font-bold uppercase tracking-[0.14em] mt-1">Auditória de baixas automáticas, créditos e vendas diretas</p>
            </div>
-           <div className="bg-indigo-50 px-4 py-2 rounded-xl text-xs font-black text-indigo-600 border border-indigo-100 uppercase">
+           <div className="bg-indigo-50 px-3 py-1.5 rounded-lg text-[10px] font-black text-indigo-600 border border-indigo-100 uppercase whitespace-nowrap">
               Total: {filteredTransactions.length} Operações
            </div>
         </div>
 
-        <div className="overflow-x-hidden">
-           <table className="w-full text-left table-fixed">
-              <thead className="bg-gray-50 text-[9px] font-black text-gray-400 uppercase tracking-[2px] border-b">
+        <div className="overflow-x-auto">
+           <table className="w-full text-left table-fixed min-w-[1120px]">
+              <thead className="bg-gray-50 text-[8px] sm:text-[9px] font-black text-gray-400 uppercase tracking-[0.12em] border-b">
                  <tr>
-                    <th className="px-4 py-6 w-[11%]">ID / Data</th>
-                    <th className="px-4 py-6 w-[9%]">Referência</th>
-                    <th className="px-4 py-6 w-[12%]">Cliente</th>
-                    <th className="px-4 py-6 w-[8%]">Plano / Origem</th>
-                    <th className="px-4 py-6 w-[14%]">Itens</th>
-                    <th className="px-4 py-6 w-[8%]">Tipo</th>
-                    <th className="px-4 py-6 w-[8%]">Movimentação</th>
-                    <th className="px-4 py-6 w-[9%] text-right">Valor Final</th>
-                    <th className="px-4 py-6 w-[8%] text-center">Status</th>
-                    <th className="px-4 py-6 w-[13%] text-right">Ações</th>
+                    <th className="px-3 py-3.5 w-[6%] text-center">Data</th>
+                    <th className="px-3 py-3.5 w-[7%] text-center">REF.</th>
+                    <th className="px-3 py-3.5 w-[12%] text-center">Cliente</th>
+                    <th className="px-3 py-3.5 w-[8%] text-center">Plano / Origem</th>
+                    <th className="px-3 py-3.5 w-[12%] text-center">Itens</th>
+                    <th className="px-3 py-3.5 w-[6%] text-center">Tipo</th>
+                    <th className="px-3 py-3.5 w-[6%] text-center">FLUXO</th>
+                    <th className="px-3 py-3.5 w-[8%] text-center">Valor Final</th>
+                    <th className="px-3 py-3.5 w-[6%] text-center">Status</th>
+                    <th className="px-3 py-3.5 w-[10%] text-center">Ações</th>
                  </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50 text-sm">
+              <tbody className="divide-y divide-gray-50 text-xs">
                  {filteredTransactions.length === 0 ? (
                    <tr>
                      <td colSpan={10} className="px-8 py-20 text-center text-gray-300 font-black uppercase text-xs tracking-widest">Nenhum registro corresponde aos filtros</td>
                    </tr>
-                 ) : filteredTransactions.map(row => (
+                 ) : filteredTransactions.map(row => {
+                   const rowUnitsProgress = resolveRowUnitsProgress(row);
+                   const isPlanRow = row.plan !== 'Venda' && row.plan !== 'Crédito Cantina';
+                   const planLabel = rowUnitsProgress && isPlanRow
+                     ? `${row.plan} • ${rowUnitsProgress}`
+                     : row.plan;
+                   const itemLabel = rowUnitsProgress && isPlanRow && row.type === 'CONSUMO'
+                     ? `${row.item} • ${rowUnitsProgress}`
+                     : row.item;
+                   return (
                    <tr key={row.id} className="hover:bg-indigo-50/30 transition-colors group">
-                      <td className="px-4 py-6 align-top">
-                         <div className="flex flex-col">
-                            <span className="font-mono text-[10px] font-black text-indigo-600">#{row.id}</span>
-                           <span className="text-[9px] font-bold text-gray-400 flex items-center gap-1 uppercase tracking-tighter">
-                               <Calendar size={10}/>
-                               {formatDateBr(row.date)}
-                               {String(row.method || '').toUpperCase() !== 'PLANO' ? ` • ${row.time}` : ''}
-                            </span>
-                         </div>
+                      <td className="px-3 py-3.5 align-top">
+                        <span className="text-[9px] font-bold text-gray-400 flex items-center gap-1 uppercase tracking-tighter">
+                          <Calendar size={10}/>
+                          {formatDateBr(row.date)}
+                          {String(row.method || '').toUpperCase() !== 'PLANO' ? ` • ${row.time}` : ''}
+                        </span>
                       </td>
-                      <td className="px-4 py-6 align-top">
+                      <td className="px-3 py-3.5 align-top text-center">
                          <span className="text-[11px] font-black text-gray-700 uppercase tracking-tight">
                            {formatDateBr(row.referenceDate) || '-'}
                          </span>
                       </td>
-                      <td className="px-4 py-6 align-top">
+                      <td className="px-3 py-3.5 align-top">
                          <div className="flex items-center gap-3">
-                            <div className={`w-9 h-9 rounded-full flex items-center justify-center ${row.client === 'Consumidor Final' ? 'bg-gray-100 text-gray-400' : 'bg-indigo-50 text-indigo-600'}`}>
-                               <User size={18}/>
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${row.client === 'Consumidor Final' ? 'bg-gray-100 text-gray-400' : 'bg-indigo-50 text-indigo-600'}`}>
+                               <User size={14}/>
                             </div>
-                            <p className="font-black text-indigo-900 uppercase tracking-tight break-words leading-tight">{row.client}</p>
+                            <p className="font-black text-indigo-900 uppercase tracking-tight break-words leading-tight text-[11px]">{row.client}</p>
                          </div>
                       </td>
-                      <td className="px-4 py-6 align-top">
-                         <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-tighter shadow-sm border ${
+                      <td className="px-3 py-3.5 align-top text-center">
+                         <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-tight shadow-sm border ${
                            row.plan === 'Venda'
                              ? 'bg-gray-50 text-gray-500 border-gray-100'
                              : row.plan === 'Crédito Cantina'
                                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
                                : 'bg-white text-indigo-600 border-indigo-100'
                          }`}>
-                           {row.plan}
+                           {planLabel}
                          </span>
                       </td>
-                      <td className="px-4 py-6 align-top">
-                         <p className="font-bold text-gray-700 uppercase text-[11px] leading-tight max-w-[200px] truncate" title={row.item}>
-                           {row.item}
+                      <td className="px-3 py-3.5 align-top text-center">
+                         <p className="font-bold text-gray-700 uppercase text-[10px] leading-tight max-w-[180px] truncate mx-auto text-center" title={itemLabel}>
+                           {itemLabel}
                          </p>
                       </td>
-                      <td className="px-4 py-6 align-top">
+                      <td className="px-3 py-3.5 align-top text-center">
                          <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-md border ${
                            row.type === 'CREDITO'
                              ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
@@ -1698,7 +1967,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                            {row.type.replace('_', ' ')}
                          </span>
                       </td>
-                      <td className="px-4 py-6 align-top">
+                      <td className="px-3 py-3.5 align-top text-center">
                          <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-md border ${
                            row.type === 'CREDITO'
                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -1707,16 +1976,16 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                            {row.type === 'CREDITO' ? 'ENTRADA' : 'SAÍDA'}
                          </span>
                       </td>
-                      <td className="px-4 py-6 text-right align-top">
-                         <div className="flex flex-col items-end">
-                            <p className={`font-black text-base ${(row.value || row.total) > 0 ? 'text-indigo-900' : 'text-gray-300'}`}>
-                               { (row.value || row.total) > 0 ? `R$ ${(row.value || row.total).toFixed(2)}` : 'BAIXA PACOTE' }
+                      <td className="px-3 py-3.5 text-center align-top">
+                         <div className="flex flex-col items-center">
+                            <p className={`font-black ${(row.value || row.total) > 0 ? 'text-sm text-indigo-900' : 'text-[10px] text-gray-500'} uppercase tracking-tight`}>
+                               { (row.value || row.total) > 0 ? `R$ ${(row.value || row.total).toFixed(2)}` : 'BAIXA' }
                             </p>
                             <span className="text-[8px] font-black text-gray-400 uppercase tracking-tighter">{row.method}</span>
                          </div>
                       </td>
-                      <td className="px-4 py-6 text-center align-top">
-                         <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase border ${
+                      <td className="px-3 py-3.5 text-center align-top">
+                         <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase border ${
                            row.status === 'SISTEMA'
                              ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
                              : 'bg-emerald-50 text-emerald-700 border-emerald-100'
@@ -1724,34 +1993,34 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                             {row.status}
                          </span>
                       </td>
-                      <td className="px-4 py-6 text-right align-top">
-                         <div className="flex justify-end gap-1.5 flex-wrap">
+                      <td className="px-3 py-3.5 text-left align-top">
+                         <div className="flex justify-start gap-1 flex-wrap">
                            <button
                              onClick={() => openEditModal(row)}
-                             className="p-2 bg-white border text-gray-400 rounded-xl hover:text-amber-600 hover:bg-amber-50 transition-all shadow-sm flex items-center gap-2"
+                             className="p-1.5 bg-white border text-gray-400 rounded-lg hover:text-amber-600 hover:bg-amber-50 transition-all shadow-sm flex items-center gap-1"
                              title="Editar Transação"
                            >
-                              <Pencil size={16} />
+                              <Pencil size={13} />
                            </button>
                            <button 
                              onClick={() => setSelectedTransaction(row)}
-                             className="p-2 bg-white border text-gray-400 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm flex items-center gap-2"
+                             className="p-1.5 bg-white border text-gray-400 rounded-lg hover:text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm flex items-center gap-1"
                              title="Ver"
                            >
-                              <Eye size={16} />
+                              <Eye size={13} />
                            </button>
                            <button
                              onClick={() => handleDeleteTransaction(row)}
                              disabled={deletingTransactionId === row.id}
-                             className="p-2 bg-white border text-red-400 rounded-xl hover:text-red-600 hover:bg-red-50 transition-all shadow-sm flex items-center gap-2 disabled:opacity-50"
+                             className="p-1.5 bg-white border text-red-400 rounded-lg hover:text-red-600 hover:bg-red-50 transition-all shadow-sm flex items-center gap-1 disabled:opacity-50"
                              title="Excluir Transação"
                            >
-                              <Trash2 size={16} />
+                              <Trash2 size={13} />
                             </button>
                          </div>
                       </td>
                    </tr>
-                 ))}
+                 )})}
               </tbody>
            </table>
         </div>

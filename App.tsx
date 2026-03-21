@@ -7,7 +7,8 @@ import {
   UserCircle, Globe, ClipboardList, 
   Sparkles, Beef, Store, Calendar,
   LogOut, Menu, DollarSign, MessageCircle,
-  Truck, Settings, AlertTriangle, X, Plus, Check, Sun, Moon // Ícones adicionais
+  Truck, Settings, AlertTriangle, X, Plus, Check, Sun, Moon,
+  ChevronLeft, ChevronRight // Ícones adicionais
 } from 'lucide-react';
 
 // Pages
@@ -20,6 +21,11 @@ import ClientsPage from './pages/ClientsPage';
 import ProductsPage from './pages/ProductsPage';
 import InventoryPage from './pages/InventoryPage';
 import ReportsPage from './pages/ReportsPage';
+import SaasPlansPage from './pages/SaasPlansPage';
+import SaasBillingPage from './pages/SaasBillingPage';
+import SaasFinancialPage from './pages/SaasFinancialPage';
+import SaasWhatsAppPage from './pages/SaasWhatsAppPage';
+import SaasAuditPage from './pages/SaasAuditPage';
 import EnterprisesPage from './pages/EnterprisesPage';
 import SuppliersPage from './pages/SuppliersPage';
 import ClientPortalPage from './pages/ClientPortalPage';
@@ -47,6 +53,8 @@ import notificationService from './services/notificationService';
 
 const AUTH_USER_STORAGE_KEY = 'canteen_auth_user';
 const ACTIVE_ENTERPRISE_STORAGE_KEY = 'canteen_active_enterprise';
+const normalizeRole = (role?: string): string => String(role || '').trim().toUpperCase();
+const isSuperAdminRole = (role?: string): boolean => normalizeRole(role) === Role.SUPERADMIN;
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -127,7 +135,7 @@ const App: React.FC = () => {
   // Recarregar empresas quando usuário autenticado não tiver empresa selecionada
   useEffect(() => {
     const loadEnterprises = async () => {
-      if (isAuthenticated && currentUser && currentUser.role !== 'SUPERADMIN' && !activeEnterprise) {
+      if (isAuthenticated && currentUser && !isSuperAdminRole(String(currentUser.role)) && !activeEnterprise) {
         try {
           const enterprises = await ApiService.getEnterprises();
           setAvailableEnterprises(enterprises);
@@ -157,7 +165,7 @@ const App: React.FC = () => {
       localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user));
       
       // Para SUPERADMIN, não precisa de activeEnterprise
-      if (user.role === 'SUPERADMIN') {
+      if (isSuperAdminRole(String(user.role))) {
         return;
       }
       
@@ -198,14 +206,15 @@ const App: React.FC = () => {
     setNeedsSetup(false);
   };
 
-  const isSuperAdmin = currentUser?.role === Role.SUPERADMIN;
-  const isOwner = currentUser?.role === Role.OWNER;
-  const isAdminUnit = currentUser?.role === Role.ADMIN
-    || currentUser?.role === Role.ADMIN_RESTAURANTE
-    || currentUser?.role === Role.GERENTE
-    || currentUser?.role === Role.FUNCIONARIO_BASICO;
+  const isSuperAdmin = isSuperAdminRole(String(currentUser?.role || ''));
+  const roleKey = normalizeRole(String(currentUser?.role || ''));
+  const isOwner = roleKey === Role.OWNER;
+  const isAdminUnit = roleKey === Role.ADMIN
+    || roleKey === Role.ADMIN_RESTAURANTE
+    || roleKey === Role.GERENTE
+    || roleKey === Role.FUNCIONARIO_BASICO;
   const roleDefaultPermissions = (() => {
-    switch (currentUser?.role) {
+    switch (roleKey) {
       case Role.FUNCIONARIO_BASICO:
         return {
           canAccessInventory: false,
@@ -354,7 +363,15 @@ const AppContent: React.FC<any> = (props) => {
         ) : (
           // Admin users - com sidebar completo
           <>
-            <aside className={`${isSidebarOpen ? 'w-64' : 'w-20'} bg-slate-900 dark:bg-zinc-950 text-white transition-all duration-300 flex flex-col hidden md:flex z-50 shadow-2xl border-r border-slate-800/40 dark:border-white/5`}>
+            <aside className={`${isSidebarOpen ? 'w-64' : 'w-20'} relative bg-slate-900 dark:bg-zinc-950 text-white transition-all duration-300 flex flex-col hidden md:flex z-50 shadow-2xl border-r border-slate-800/40 dark:border-white/5`}>
+              <button
+                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                className="absolute -right-3 top-1/2 -translate-y-1/2 h-24 w-6 rounded-r-2xl border border-slate-700/70 dark:border-white/10 bg-slate-900 dark:bg-zinc-950 text-slate-300 hover:text-white hover:bg-slate-800 dark:hover:bg-zinc-900 transition-all flex items-center justify-center shadow-lg"
+                title={isSidebarOpen ? 'Recolher menu lateral' : 'Expandir menu lateral'}
+                aria-label={isSidebarOpen ? 'Recolher menu lateral' : 'Expandir menu lateral'}
+              >
+                {isSidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+              </button>
               <div className="p-5 flex items-center justify-between border-b border-slate-800/50 dark:border-white/5">
                 {isSidebarOpen ? (
                   <span className="text-xl font-black tracking-tight flex items-center gap-2">
@@ -367,15 +384,19 @@ const AppContent: React.FC<any> = (props) => {
                 <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-1 hover:bg-slate-800 dark:hover:bg-white/5 rounded-md transition-colors"><Menu size={20} /></button>
               </div>
 
-              <nav className="flex-1 mt-4 px-3 space-y-1 overflow-y-auto scrollbar-hide pb-10">
+              <nav className="flex-1 mt-4 px-3 space-y-1 overflow-y-auto overflow-x-visible scrollbar-hide pb-10">
                 <SidebarItem icon={<LayoutDashboard size={20} />} label="Início" to="/" isOpen={isSidebarOpen} />
                 
                 {isSuperAdmin && (
                   <div className="pt-4 pb-2 space-y-1">
                     <p className={`text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Master Control</p>
                     <SidebarItem icon={<ShieldCheck size={20} />} label="Usuários" to="/users" isOpen={isSidebarOpen} />
-                    <SidebarItem icon={<Building2 size={20} />} label="Owners da Rede" to="/enterprises" isOpen={isSidebarOpen} />
-                    <SidebarItem icon={<ReceiptText size={20} />} label="Faturamento SaaS" to="/reports" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<Building2 size={20} />} label="Clientes SaaS" to="/enterprises" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<Sparkles size={20} />} label="Planos SaaS" to="/saas-plans" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<DollarSign size={20} />} label="Cobranças SaaS" to="/saas-billing" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<ReceiptText size={20} />} label="Financeiro SaaS" to="/saas-financial" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp SaaS" to="/saas-whatsapp" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<ClipboardList size={20} />} label="Auditoria SaaS" to="/saas-audit" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Settings size={20} />} label="Configurações" to="/system-settings" isOpen={isSidebarOpen} />
                   </div>
                 )}
@@ -397,6 +418,7 @@ const AppContent: React.FC<any> = (props) => {
                     {resolvedPermissions.canAccessReports && <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp" to="/whatsapp" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessInventory && <SidebarItem icon={<ArrowRightLeft size={20} />} label="Estoque Unidade" to="/inventory" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canManageStaff && <SidebarItem icon={<Settings size={20} />} label="Ajustes" to="/settings" isOpen={isSidebarOpen} />}
+                    {isOwner && <SidebarItem icon={<ShieldCheck size={20} />} label="Config. Sistema" to="/system-settings" isOpen={isSidebarOpen} />}
                   </div>
                 )}
 
@@ -413,14 +435,16 @@ const AppContent: React.FC<any> = (props) => {
                   <div className="py-4 border-t border-slate-800/50 dark:border-white/5 mt-4 space-y-1">
                     <p className={`text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Operacional</p>
                     {resolvedPermissions.canAccessPOS && <SidebarItem icon={<ShoppingCart size={20} />} label="Vender (PDV)" to="/pos" isOpen={isSidebarOpen} />}
-                    {resolvedPermissions.canAccessClients && <SidebarItem icon={<Users size={20} />} label="Clientes" to="/clients" isOpen={isSidebarOpen} />}
+                    {resolvedPermissions.canAccessClients && <SidebarItem icon={<UserCircle size={20} />} label="Cliente/Responsável" to="/clients-responsaveis" isOpen={isSidebarOpen} />}
+                    {resolvedPermissions.canAccessClients && <SidebarItem icon={<Users size={20} />} label="Alunos" to="/clients" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Package size={20} />} label="Produtos" to="/products" isOpen={isSidebarOpen} />}
                     <SidebarItem icon={<ClipboardList size={20} />} label="Suprimentos" to="/orders" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<Truck size={20} />} label="Fornecedores" to="/suppliers" isOpen={isSidebarOpen} />
                   </div>
                 )}
               </nav>
 
-              <div className="p-4 border-t border-slate-800 dark:border-white/5 space-y-2">
+              <div className="px-2 py-1.5 border-t border-slate-800/50 dark:border-white/5 space-y-1">
                 {/* Botão para trocar unidade (apenas para OWNER) */}
                 {isOwner && (
                   <button 
@@ -428,28 +452,28 @@ const AppContent: React.FC<any> = (props) => {
                       setActiveEnterprise(null);
                       // O modal será mostrado automaticamente quando activeEnterprise for null
                     }}
-                    className={`flex items-center w-full p-3 rounded-xl text-indigo-400 hover:bg-indigo-500/10 transition-all ${!isSidebarOpen && 'justify-center'}`}
+                    className={`flex items-center w-full px-2 py-1.5 rounded-lg text-indigo-400 hover:bg-indigo-500/10 transition-all ${!isSidebarOpen && 'justify-center'}`}
                   >
-                    <Building2 size={20} />
+                    <Building2 size={16} />
                     {isSidebarOpen && (
                       <div className="ml-3 flex-1 text-left">
-                        <span className="font-bold text-xs block">Trocar Unidade</span>
+                        <span className="font-bold text-[10px] block">Trocar Unidade</span>
                         {activeEnterprise && (
-                          <span className="text-[10px] text-slate-500 font-medium truncate block">{activeEnterprise.name}</span>
+                          <span className="text-[9px] text-slate-500 font-medium truncate block">{activeEnterprise.name}</span>
                         )}
                       </div>
                     )}
                   </button>
                 )}
                 
-                <button onClick={handleLogout} className={`flex items-center w-full p-3 rounded-xl text-red-400 hover:bg-red-500/10 transition-all ${!isSidebarOpen && 'justify-center'}`}>
-                  <LogOut size={20} />
-                  {isSidebarOpen && <span className="ml-3 font-bold text-sm">Sair</span>}
+                <button onClick={handleLogout} className={`flex items-center w-full px-2 py-1.5 rounded-lg text-red-400 hover:bg-red-500/10 transition-all ${!isSidebarOpen && 'justify-center'}`}>
+                  <LogOut size={16} />
+                  {isSidebarOpen && <span className="ml-2.5 font-bold text-[11px]">Sair</span>}
                 </button>
               </div>
             </aside>
 
-            <main className="flex-1 flex flex-col overflow-hidden relative bg-white dark:bg-zinc-900/50">
+            <main className="flex-1 min-w-0 flex flex-col overflow-hidden relative bg-white dark:bg-zinc-900/50">
               <header className="h-16 bg-white/95 dark:bg-zinc-900/90 border-b border-slate-200 dark:border-white/5 flex items-center justify-between px-6 shadow-sm z-40 md:flex hidden shrink-0">
                 <h2 className="text-[10px] font-black text-gray-800 dark:text-slate-200 uppercase tracking-[3px] flex items-center gap-2">
                   {isSuperAdmin ? (
@@ -479,14 +503,20 @@ const AppContent: React.FC<any> = (props) => {
                 </div>
               </header>
 
-              <div className="flex-1 overflow-y-auto bg-gray-50 dark:bg-zinc-900/50 scrollbar-hide">
+              <div className="flex-1 min-w-0 overflow-auto bg-gray-50 dark:bg-zinc-900/50">
                 <Routes>
                   <Route path="/" element={<DashboardPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
                   <Route path="/pos" element={resolvedPermissions.canAccessPOS ? (isRestaurant ? <RestaurantPOSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <POSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} />) : <Navigate to="/" />} />
-                  <Route path="/clients" element={resolvedPermissions.canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/clients" element={resolvedPermissions.canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="ALUNOS" /> : <Navigate to="/" />} />
+                  <Route path="/clients-responsaveis" element={resolvedPermissions.canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="CLIENTES_RESPONSAVEIS" /> : <Navigate to="/" />} />
                   <Route path="/products" element={resolvedPermissions.canAccessInventory ? <ProductsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/inventory" element={resolvedPermissions.canAccessInventory ? <InventoryPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/reports" element={resolvedPermissions.canAccessReports ? <ReportsPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-plans" element={isSuperAdmin ? <SaasPlansPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-billing" element={isSuperAdmin ? <SaasBillingPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-financial" element={isSuperAdmin ? <SaasFinancialPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-whatsapp" element={isSuperAdmin ? <SaasWhatsAppPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-audit" element={isSuperAdmin ? <SaasAuditPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/unit-sales" element={resolvedPermissions.canAccessReports ? <UnitSalesTransactionsPage activeEnterprise={activeEnterprise} transactions={transactions} /> : <Navigate to="/" />} />
                   <Route path="/financial" element={resolvedPermissions.canAccessReports ? <FinancialPage activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/whatsapp" element={resolvedPermissions.canAccessReports ? <WhatsAppPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
@@ -600,9 +630,14 @@ const SidebarItem: React.FC<any> = ({ icon, label, to, isOpen }) => {
   const location = useLocation();
   const isActive = location.pathname === to;
   return (
-    <Link to={to} className={`flex items-center p-3 rounded-xl transition-all duration-200 group border-l-2 ${isActive ? 'bg-indigo-600/90 dark:bg-white/5 text-white border-emerald-400 shadow-xl' : 'text-zinc-400 border-transparent hover:bg-slate-800 dark:hover:bg-white/5 hover:text-white'} ${!isOpen && 'justify-center'}`}>
+    <Link to={to} title={!isOpen ? label : undefined} className={`relative flex items-center p-3 rounded-xl transition-all duration-200 group border-l-2 ${isActive ? 'bg-indigo-600/90 dark:bg-white/5 text-white border-emerald-400 shadow-xl' : 'text-zinc-400 border-transparent hover:bg-slate-800 dark:hover:bg-white/5 hover:text-white'} ${!isOpen && 'justify-center'}`}>
       <div className={`${isActive ? 'text-white' : 'group-hover:scale-110 transition-transform'}`}>{icon}</div>
       {isOpen && <span className="ml-3 font-bold text-[13px] tracking-tight">{label}</span>}
+      {!isOpen && (
+        <span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-800 text-white text-[11px] font-bold px-2.5 py-1.5 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-[120]">
+          {label}
+        </span>
+      )}
     </Link>
   );
 };

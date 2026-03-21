@@ -20,7 +20,7 @@ const PlansPage: React.FC<PlansPageProps> = ({ activeEnterprise }) => {
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
     return (
-      <div className="dash-shell plans-shell max-w-[1400px] min-h-screen flex items-center justify-center">
+      <div className="dash-shell plans-shell min-h-screen flex items-center justify-center">
         <div className="text-center space-y-4">
           <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full"></div>
           <p className="text-gray-600 dark:text-zinc-300 font-medium">Carregando planos...</p>
@@ -235,29 +235,29 @@ const PlansPage: React.FC<PlansPageProps> = ({ activeEnterprise }) => {
   }, [inlineSelectionType, allProducts, allRecipes, formData.items, pickerSearchTerm, pickerCategory]);
 
   return (
-    <div className="dash-shell plans-shell space-y-8 max-w-[1400px] min-h-screen">
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <div className="dash-shell plans-shell space-y-3 min-h-screen">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="space-y-1">
-          <button onClick={() => navigate('/enterprises')} className="flex items-center gap-2 text-xs font-black text-indigo-600 uppercase tracking-widest mb-2 hover:translate-x-[-4px] transition-transform">
+          <button onClick={() => navigate('/enterprises')} className="flex items-center gap-1.5 text-[10px] font-black text-indigo-600 uppercase tracking-[0.12em] mb-1 hover:translate-x-[-4px] transition-transform">
             <ArrowLeft size={14} /> Voltar para Unidades
           </button>
-          <h1 className="text-3xl font-black text-gray-800 tracking-tight flex items-center gap-3 leading-none uppercase">
-            <Sparkles className="text-indigo-600" size={32} /> Planos de Alimentação
+          <h1 className="text-xl sm:text-2xl font-black text-gray-800 tracking-tight flex items-center gap-2 leading-none uppercase">
+            <Sparkles className="text-indigo-600" size={20} /> Planos de Alimentação
           </h1>
-          <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest mt-1">
+          <p className="text-gray-500 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.12em] mt-1">
             Gestão de pacotes e combos para a unidade: <span className="text-indigo-600">{activeEnterprise.name}</span>
           </p>
         </div>
         <button 
           onClick={() => handleOpenModal()}
-          className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2 active:scale-95"
+          className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-black uppercase tracking-[0.12em] text-[9px] shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-1.5 active:scale-95"
         >
-          <Plus size={20} /> Criar Novo Plano
+          <Plus size={13} /> Criar Novo Plano
         </button>
       </header>
 
       {/* Listagem de Planos */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
          {plans.length === 0 ? (
            <div className="col-span-full py-32 bg-white rounded-[48px] border-2 border-dashed border-gray-100 flex flex-col items-center justify-center text-center">
               <div className="w-24 h-24 bg-indigo-50 text-indigo-300 rounded-3xl flex items-center justify-center mb-6">
@@ -267,50 +267,50 @@ const PlansPage: React.FC<PlansPageProps> = ({ activeEnterprise }) => {
               <p className="text-xs font-bold text-gray-300 uppercase tracking-widest mt-2">Clique no botão acima para definir seu primeiro pacote alimentar.</p>
            </div>
          ) : plans.map(plan => (
-           <div key={plan.id} className={`bg-white rounded-[40px] border shadow-sm hover:shadow-2xl transition-all group overflow-hidden flex flex-col border-b-8 ${plan.isActive ? 'border-b-indigo-500/10' : 'border-b-red-500/10 opacity-75'}`}>
-              <div className="p-8 flex-1 space-y-6">
+           <div key={plan.id} className={`bg-white rounded-[22px] border shadow-sm hover:shadow-xl transition-all group overflow-hidden flex flex-col border-b-4 ${plan.isActive ? 'border-b-indigo-500/10' : 'border-b-red-500/10 opacity-75'}`}>
+              <div className="p-4 flex-1 space-y-3">
                  <div className="flex justify-between items-start">
-                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-inner group-hover:scale-110 transition-transform ${plan.isActive ? 'bg-indigo-50 text-indigo-600' : 'bg-gray-100 text-gray-400'}`}>
-                       <Star size={32} />
+                    <div className={`w-11 h-11 rounded-xl flex items-center justify-center shadow-inner group-hover:scale-105 transition-transform ${plan.isActive ? 'bg-indigo-50 text-indigo-600' : 'bg-gray-100 text-gray-400'}`}>
+                       <Star size={18} />
                     </div>
                     <div className="flex gap-2">
-                       <button onClick={() => togglePlanStatus(plan.id)} className={`p-2.5 rounded-xl transition-all shadow-sm bg-white border ${plan.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-red-400 hover:bg-red-50'}`} title={plan.isActive ? 'Desativar' : 'Ativar'}>
-                          {plan.isActive ? <Power size={18} /> : <PowerOff size={18} />}
+                       <button onClick={() => togglePlanStatus(plan.id)} className={`p-1.5 rounded-lg transition-all shadow-sm bg-white border ${plan.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-red-400 hover:bg-red-50'}`} title={plan.isActive ? 'Desativar' : 'Ativar'}>
+                          {plan.isActive ? <Power size={13} /> : <PowerOff size={13} />}
                        </button>
-                       <button onClick={() => handleOpenModal(plan)} className="p-2.5 text-indigo-600 bg-white border rounded-xl shadow-sm hover:bg-indigo-50 transition-colors" title="Editar"><Edit3 size={18}/></button>
-                       <button onClick={() => handleDelete(plan.id)} className="p-2.5 text-red-500 bg-white border rounded-xl shadow-sm hover:bg-red-50 transition-colors" title="Apagar"><Trash2 size={18}/></button>
+                       <button onClick={() => handleOpenModal(plan)} className="p-1.5 text-indigo-600 bg-white border rounded-lg shadow-sm hover:bg-indigo-50 transition-colors" title="Editar"><Edit3 size={13}/></button>
+                       <button onClick={() => handleDelete(plan.id)} className="p-1.5 text-red-500 bg-white border rounded-lg shadow-sm hover:bg-red-50 transition-colors" title="Apagar"><Trash2 size={13}/></button>
                     </div>
                  </div>
                  
                  <div>
-                    <h3 className="font-black text-gray-800 text-2xl uppercase tracking-tight leading-tight">{plan.name}</h3>
-                    <p className="text-xs font-medium text-gray-400 mt-2 line-clamp-2">{plan.description}</p>
-                    <div className="flex items-center gap-2 mt-6">
-                       <span className="text-4xl font-black text-indigo-600 tracking-tighter leading-none">R$ {plan.price.toFixed(2)}</span>
-                       <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none">/ Unidade</span>
+                    <h3 className="font-black text-gray-800 text-lg uppercase tracking-tight leading-tight">{plan.name}</h3>
+                    <p className="text-[11px] font-medium text-gray-400 mt-1.5 line-clamp-2">{plan.description}</p>
+                    <div className="flex items-center gap-2 mt-3">
+                       <span className="text-2xl font-black text-indigo-600 tracking-tight leading-none">R$ {plan.price.toFixed(2)}</span>
+                       <span className="text-[8px] font-black text-gray-400 uppercase tracking-[0.12em] leading-none">/ Unidade</span>
                     </div>
                  </div>
 
-                 <div className="pt-6 border-t border-gray-50 space-y-3">
-                    <p className="text-[10px] font-black text-gray-300 uppercase tracking-[2px]">Composição do Plano ({plan.items.length})</p>
+                 <div className="pt-3 border-t border-gray-50 space-y-2">
+                    <p className="text-[8px] font-black text-gray-300 uppercase tracking-[0.12em]">Composição do Plano ({plan.items.length})</p>
                     <div className="flex flex-wrap gap-2">
                        {plan.items.length === 0 ? (
                          <span className="text-[10px] font-bold text-gray-300 uppercase">Sem itens vinculados</span>
                        ) : plan.items.slice(0, 4).map(item => (
-                         <span key={item.id} className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase border flex items-center gap-1.5 ${item.type === 'PRODUCT' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
-                            {item.type === 'PRODUCT' ? <Package size={10}/> : <Beef size={10}/>}
-                            {item.name}
+                         <span key={item.id} className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase border flex items-center gap-1 ${item.type === 'PRODUCT' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
+                           {item.type === 'PRODUCT' ? <Package size={10}/> : <Beef size={10}/>}
+                           {item.name}
                          </span>
                        ))}
-                       {plan.items.length > 4 && <span className="px-2 py-1 rounded-lg bg-gray-50 text-gray-400 text-[9px] font-black uppercase">+{plan.items.length - 4}</span>}
+                       {plan.items.length > 4 && <span className="px-2 py-0.5 rounded-lg bg-gray-50 text-gray-400 text-[8px] font-black uppercase">+{plan.items.length - 4}</span>}
                     </div>
                  </div>
               </div>
-              <div className="px-8 py-5 bg-gray-50/50 border-t border-gray-100 flex items-center justify-between">
-                 <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest ${plan.isActive ? 'text-emerald-600' : 'text-red-500'}`}>
+              <div className="px-4 py-2.5 bg-gray-50/50 border-t border-gray-100 flex items-center justify-between">
+                 <div className={`flex items-center gap-1 text-[8px] font-black uppercase tracking-[0.12em] ${plan.isActive ? 'text-emerald-600' : 'text-red-500'}`}>
                     {plan.isActive ? <><CheckCircle2 size={14} /> Ativo</> : <><AlertCircle size={14} /> Desativado</>}
                  </div>
-                 <span className="text-[9px] font-bold text-gray-300 uppercase tracking-tighter">#{plan.id.toUpperCase()}</span>
+                 <span className="text-[8px] font-bold text-gray-300 uppercase tracking-tight">#{plan.id.toUpperCase()}</span>
               </div>
            </div>
          ))}

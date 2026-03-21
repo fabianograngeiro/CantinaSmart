@@ -176,22 +176,22 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
   ];
 
   return (
-    <div className="pos-shell space-y-6 animate-in fade-in duration-500 pb-10">
+    <div className="pos-shell space-y-4 animate-in fade-in duration-500 pb-8">
       {/* Header do Monitor com Seletor Dinâmico */}
-      <div className="flex flex-col md:flex-row items-center justify-between gap-4 bg-gray-900 p-6 rounded-[32px] text-white shadow-2xl">
-         <div className="flex items-center gap-4">
-            <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
-               <Activity size={32} />
+      <div className="flex flex-col md:flex-row items-center justify-between gap-3 bg-gray-900 p-4 rounded-2xl text-white shadow-2xl">
+         <div className="flex items-center gap-3">
+            <div className="w-11 h-11 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
+               <Activity size={24} />
             </div>
             <div>
-               <h1 className="text-xl font-black leading-tight">Painel de Controle da Rede</h1>
+               <h1 className="text-lg font-black leading-tight">Painel de Controle da Rede</h1>
                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mt-1">
                   {selectedUnitId === 'ALL' ? 'Visão Consolidada (Todas as Unidades)' : `Monitorando Unidade: ${enterprises.find(e => e.id === selectedUnitId)?.name}`}
                </p>
             </div>
          </div>
 
-         <div className="flex items-center gap-3 bg-white/5 p-2 rounded-2xl border border-white/10">
+         <div className="flex items-center gap-2.5 bg-white/5 p-1.5 rounded-xl border border-white/10">
             <Building size={16} className="text-gray-400 ml-2" />
             <select 
               value={selectedUnitId}
@@ -217,11 +217,11 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
          <MonitorStatCard title="Sangria Pendente" value={unitStats.sangriaNecessaria.toString()} sub="Caixas acima do limite" icon={<Banknote />} color="bg-amber-50 text-amber-600" isAlert={unitStats.sangriaNecessaria > 0} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
          {/* Painel de Alertas com Drill-down Local */}
-         <div className="lg:col-span-1 space-y-4">
-            <div className="bg-white rounded-[32px] border shadow-sm overflow-hidden flex flex-col min-h-[420px]">
-               <div className="p-6 border-b bg-gray-50 flex items-center justify-between">
+         <div className="lg:col-span-1 space-y-3">
+            <div className="bg-white rounded-2xl border shadow-sm overflow-hidden flex flex-col min-h-[390px]">
+               <div className="p-4 border-b bg-gray-50 flex items-center justify-between">
                   <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
                      <AlertTriangle size={16} className="text-amber-500" /> 
                      {activeAlertDetail ? 'Detalhamento de Alerta' : 'Alertas Críticos'}
@@ -236,7 +236,7 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
                   )}
                </div>
 
-               <div className="p-6 flex-1">
+               <div className="p-4 flex-1">
                   {!activeAlertDetail ? (
                     /* VISÃO DE RESUMO DOS ALERTAS */
                     <div className="space-y-3 animate-in fade-in zoom-in-95">
@@ -259,13 +259,13 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
                          onClick={() => setActiveAlertDetail('SALDO')}
                        />
                        
-                       <div className="pt-6 mt-6 border-t">
-                          <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 flex items-center justify-between">
+                       <div className="pt-4 mt-4 border-t">
+                          <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 flex items-center justify-between">
                              <div>
                                 <p className="text-[10px] font-black text-indigo-400 uppercase">Status Operacional</p>
                                 <p className="text-sm font-black text-indigo-700 mt-0.5">{selectedUnitId === 'ALL' ? '3 Caixas Abertos' : '1 Caixa Aberto'}</p>
                              </div>
-                             <Activity size={24} className="text-indigo-300 animate-pulse" />
+                             <Activity size={20} className="text-indigo-300 animate-pulse" />
                           </div>
                        </div>
                     </div>
@@ -280,7 +280,7 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
                        <div className="space-y-2 overflow-y-auto max-h-[300px] scrollbar-hide">
                           {activeAlertDetail === 'SALDO' ? (
                             alertLists.SALDO.map(client => (
-                              <div key={client.id} className="p-3 bg-gray-50 rounded-2xl flex items-center justify-between hover:bg-indigo-50 transition-colors group">
+                              <div key={client.id} className="p-2.5 bg-gray-50 rounded-xl flex items-center justify-between hover:bg-indigo-50 transition-colors group">
                                  <div className="flex items-center gap-3">
                                     <img
                                       src={resolveUserAvatar(client.photo, client.name)}
@@ -300,7 +300,7 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
                             ))
                           ) : (
                             alertLists[activeAlertDetail].map(product => (
-                              <div key={product.id} className="p-3 bg-gray-50 rounded-2xl flex items-center justify-between hover:bg-indigo-50 transition-colors group">
+                              <div key={product.id} className="p-2.5 bg-gray-50 rounded-xl flex items-center justify-between hover:bg-indigo-50 transition-colors group">
                                  <div className="flex items-center gap-3">
                                     <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center border text-gray-300">
                                        <Package size={16} />
@@ -323,16 +323,16 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
                </div>
             </div>
 
-            <div className="bg-white p-6 rounded-[32px] border shadow-sm">
-               <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">Performance do Dia</h3>
+            <div className="bg-white p-4 rounded-2xl border shadow-sm">
+               <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Performance do Dia</h3>
                <div className="flex items-center justify-between">
                   <div className="text-center flex-1">
-                     <p className="text-2xl font-black text-gray-800">{selectedUnitId === 'ALL' ? '84%' : '92%'}</p>
+                     <p className="text-xl font-black text-gray-800">{selectedUnitId === 'ALL' ? '84%' : '92%'}</p>
                      <p className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">Capacidade de Escala</p>
                   </div>
-                  <div className="w-px h-10 bg-gray-100"></div>
+                  <div className="w-px h-8 bg-gray-100"></div>
                   <div className="text-center flex-1">
-                     <p className="text-2xl font-black text-indigo-600">R$ {selectedUnitId === 'ALL' ? '24,50' : '28,10'}</p>
+                     <p className="text-xl font-black text-indigo-600">R$ {selectedUnitId === 'ALL' ? '24,50' : '28,10'}</p>
                      <p className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">Ticket Médio</p>
                   </div>
                </div>
@@ -340,49 +340,49 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
          </div>
 
          {/* Rankings de Produtos - Comportamento Fixo de Top 5 */}
-         <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-[32px] border shadow-sm flex flex-col">
-               <h3 className="text-xs font-black text-emerald-600 uppercase tracking-widest mb-6 flex items-center gap-2">
+         <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-white p-4 rounded-2xl border shadow-sm flex flex-col">
+               <h3 className="text-xs font-black text-emerald-600 uppercase tracking-widest mb-4 flex items-center gap-2">
                   <ArrowUpRight size={16} /> Top 5 Mais Vendidos
                </h3>
-               <div className="space-y-4 flex-1">
+               <div className="space-y-3 flex-1">
                   {top5Vendidos.map((item, idx) => (
                     <div key={idx} className="flex items-center justify-between group">
                        <div className="flex items-center gap-3">
-                          <span className="w-6 h-6 rounded-lg bg-gray-50 flex items-center justify-center text-[10px] font-black text-gray-400">{idx+1}</span>
+                          <span className="w-5 h-5 rounded-md bg-gray-50 flex items-center justify-center text-[9px] font-black text-gray-400">{idx+1}</span>
                           <div>
                              <p className="text-xs font-black text-gray-800 group-hover:text-indigo-600 transition-colors">{item.name}</p>
                              <p className="text-[9px] font-bold text-emerald-500 uppercase tracking-tighter">{item.trend} vs ontem</p>
                           </div>
                        </div>
-                       <span className="text-sm font-black text-gray-700">{Math.round(item.qty * (selectedUnitId === 'ALL' ? 1 : 0.4))} un</span>
+                       <span className="text-xs font-black text-gray-700">{Math.round(item.qty * (selectedUnitId === 'ALL' ? 1 : 0.4))} un</span>
                     </div>
                   ))}
                </div>
-               <button className="mt-6 w-full py-3 bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest rounded-xl hover:bg-gray-100 transition-all">Ver Relatório Completo</button>
+               <button className="mt-4 w-full py-2.5 bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest rounded-lg hover:bg-gray-100 transition-all">Ver Relatório Completo</button>
             </div>
 
-            <div className="bg-white p-6 rounded-[32px] border shadow-sm flex flex-col border-b-4 border-b-red-100">
-               <h3 className="text-xs font-black text-red-500 uppercase tracking-widest mb-6 flex items-center gap-2">
+            <div className="bg-white p-4 rounded-2xl border shadow-sm flex flex-col border-b-4 border-b-red-100">
+               <h3 className="text-xs font-black text-red-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                   <ArrowDownRight size={16} /> Bottom 5 (Menos Saída)
                </h3>
-               <div className="space-y-4 flex-1">
+               <div className="space-y-3 flex-1">
                   {top5Vendidos.slice().reverse().map((item, idx) => (
                     <div key={idx} className="flex items-center justify-between group opacity-80 hover:opacity-100">
                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-red-400">
-                             <Package size={14} />
+                          <div className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center text-red-400">
+                             <Package size={13} />
                           </div>
                           <p className="text-xs font-black text-gray-800">{item.name}</p>
                        </div>
                        <div className="text-right">
-                          <p className="text-sm font-black text-red-500">{Math.round((item.qty/5) * (selectedUnitId === 'ALL' ? 1 : 0.5))} un</p>
+                          <p className="text-xs font-black text-red-500">{Math.round((item.qty/5) * (selectedUnitId === 'ALL' ? 1 : 0.5))} un</p>
                           <p className="text-[8px] font-bold text-gray-400 uppercase">ESTAGNADO</p>
                        </div>
                     </div>
                   ))}
                </div>
-               <div className="mt-6 p-3 bg-red-50 rounded-xl flex items-center gap-2">
+               <div className="mt-4 p-2.5 bg-red-50 rounded-lg flex items-center gap-2">
                   <ShieldAlert size={14} className="text-red-500" />
                   <p className="text-[9px] font-black text-red-800 uppercase leading-tight">Sugestão: Descontinuar ou fazer promoção</p>
                </div>
@@ -394,13 +394,13 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
 };
 
 const MonitorStatCard = ({ title, value, sub, icon, color, isAlert }: any) => (
-  <div className={`bg-white p-6 rounded-[32px] border shadow-sm transition-all hover:shadow-xl group relative overflow-hidden ${isAlert ? 'border-amber-200' : 'border-gray-100'}`}>
-     <div className="flex justify-between items-start mb-4">
-        <div className={`p-3 rounded-2xl ${color} shadow-inner group-hover:scale-110 transition-transform`}>{icon}</div>
+  <div className={`bg-white p-4 rounded-2xl border shadow-sm transition-all hover:shadow-xl group relative overflow-hidden ${isAlert ? 'border-amber-200' : 'border-gray-100'}`}>
+     <div className="flex justify-between items-start mb-3">
+        <div className={`p-2 rounded-xl ${color} shadow-inner group-hover:scale-110 transition-transform`}>{icon}</div>
         {isAlert && <span className="flex h-2 w-2 rounded-full bg-amber-500 animate-ping"></span>}
      </div>
      <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">{title}</p>
-     <p className="text-2xl font-black text-gray-800 mt-1">{value}</p>
+     <p className="text-xl font-black text-gray-800 mt-1">{value}</p>
      <p className="text-[10px] font-bold text-indigo-400 mt-1 uppercase tracking-tighter opacity-70 group-hover:opacity-100 transition-opacity">{sub}</p>
   </div>
 );
@@ -414,7 +414,7 @@ const AlertItem = ({ label, value, color, onClick }: any) => {
   return (
     <button 
       onClick={onClick}
-      className={`w-full flex items-center justify-between p-3 rounded-2xl border transition-all active:scale-95 group ${colorMap[color]}`}
+      className={`w-full flex items-center justify-between p-2.5 rounded-xl border transition-all active:scale-95 group ${colorMap[color]}`}
     >
        <span className="text-[10px] font-black uppercase tracking-widest">{label}</span>
        <div className="flex items-center gap-2">
@@ -661,14 +661,6 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
       return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' });
     });
   }, [activeCategory, productSearch, products, posTransactions]);
-
-  const productsById = useMemo(() => {
-    const map = new Map<string, Product>();
-    products.forEach((product) => {
-      map.set(String(product.id), product);
-    });
-    return map;
-  }, [products]);
 
   const filteredPlans = useMemo(() => {
     const normalizedActiveCategory = String(activeCategory || '').trim().toUpperCase();
@@ -2032,11 +2024,11 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
   }, [selectedClient, availablePlans, posTransactions, cart]);
 
   return (
-    <div className="pos-shell flex flex-col lg:flex-row h-full lg:h-[calc(100vh-112px)] gap-6 relative" onClick={initAudio}>
-      <div className="w-full lg:basis-[52%] lg:max-w-[52%] flex flex-col space-y-4 min-w-0">
+    <div className="pos-shell flex flex-col lg:flex-row h-full min-h-full lg:min-h-0 gap-4 relative" onClick={initAudio}>
+      <div className="w-full lg:basis-[52%] lg:max-w-[52%] flex flex-col space-y-3 min-w-0 min-h-0">
         {/* Top Header POS */}
-        <div className="bg-white p-4 rounded-xl shadow-sm border space-y-4 relative z-20">
-          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+        <div className="bg-white p-3 rounded-xl shadow-sm border space-y-3 relative z-20">
+          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
             <div className="relative flex-1 w-full">
               <UserSearch className={`absolute left-3 top-1/2 -translate-y-1/2 transition-colors ${lastScanSuccess ? 'text-green-500' : 'text-indigo-400'}`} size={20} />
               <input 
@@ -2044,7 +2036,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                 type="text" 
                 disabled={isFinalConsumer}
                 placeholder={isFinalConsumer ? "Modo Consumidor Final Ativado" : "IDENTIFICAR ALUNO: Nome, Matrícula ou QR Code..."} 
-                className={`w-full pl-10 pr-12 py-3 bg-indigo-50/50 border-2 rounded-xl focus:ring-4 outline-none transition-all font-bold ${
+                className={`w-full pl-10 pr-12 py-2.5 bg-indigo-50/50 border-2 rounded-xl focus:ring-2 outline-none transition-all font-bold text-sm ${
                   isFinalConsumer ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' :
                   lastScanSuccess ? 'border-green-500 ring-green-100' : 'border-indigo-100 focus:border-indigo-500 focus:ring-indigo-100'
                 }`}
@@ -2071,7 +2063,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                      <button 
                         key={client.id}
                         onClick={() => selectClient(client)}
-                        className="w-full flex items-center gap-3 p-3 hover:bg-indigo-50 text-left border-b last:border-0 transition-colors"
+                        className="w-full flex items-center gap-2.5 p-2.5 hover:bg-indigo-50 text-left border-b last:border-0 transition-colors"
                      >
                         <img
                           src={resolveUserAvatar(client.photo, client.name)}
@@ -2079,10 +2071,10 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                             e.currentTarget.onerror = null;
                             e.currentTarget.src = resolveUserAvatar(undefined, client.name);
                           }}
-                          className="w-10 h-10 rounded-lg object-cover border"
+                          className="w-8 h-8 rounded-lg object-cover border"
                         />
                         <div>
-                           <p className="text-sm font-black text-gray-800">{client.name}</p>
+                           <p className="text-xs font-black text-gray-800">{client.name}</p>
                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{client.registrationId} • {client.class || 'Docente'}</p>
                         </div>
                         <ChevronRight className="ml-auto text-gray-300" size={16} />
@@ -2093,35 +2085,35 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
             </div>
 
             <div className="flex items-center gap-3 h-full">
-               <label className="flex items-center gap-2 px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl cursor-pointer hover:bg-gray-100 transition-all select-none group">
+               <label className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 border-2 border-gray-100 rounded-xl cursor-pointer hover:bg-gray-100 transition-all select-none group">
                   <input 
                     type="checkbox" 
-                    className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                     checked={isFinalConsumer}
                     onChange={handleToggleFinalConsumer}
                   />
                   <div className="flex flex-col leading-none">
                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest group-hover:text-indigo-600">Venda Rápida</span>
-                     <span className="text-xs font-black text-gray-700">Consumidor Final</span>
+                     <span className="text-[11px] font-black text-gray-700">Consumidor Final</span>
                   </div>
                </label>
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-4 pt-2">
+          <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
              <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                 <input 
                   type="text"
                   placeholder="Filtrar produtos no catálogo..."
-                  className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border rounded-lg text-sm focus:border-indigo-300 outline-none"
+                  className="w-full pl-9 pr-3 py-2 bg-gray-50 border rounded-lg text-xs focus:border-indigo-300 outline-none"
                   value={productSearch}
                   onChange={(e) => setProductSearch(e.target.value)}
                 />
              </div>
              <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
                {categories.map(cat => (
-                 <button key={cat} onClick={() => setActiveCategory(cat)} className={`px-4 py-2 rounded-lg text-[10px] font-black tracking-widest uppercase transition-all ${activeCategory === cat ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                 <button key={cat} onClick={() => setActiveCategory(cat)} className={`px-3 py-1.5 rounded-lg text-[10px] font-black tracking-widest uppercase transition-all ${activeCategory === cat ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
                    {cat}
                  </button>
                ))}
@@ -2130,7 +2122,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
         </div>
 
         {/* Catalog Grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-1.5 overflow-y-auto pr-2 flex-1 max-h-[calc(100vh-380px)] lg:max-h-full pb-10 product-grid-scrollbar">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-1 overflow-y-auto pr-1.5 flex-1 min-h-0 pb-2 product-grid-scrollbar">
           {String(activeCategory || '').trim().toUpperCase() === 'PLANOS' ? (
             filteredPlans.length === 0 ? (
               <div className="col-span-full bg-white border rounded-xl p-8 text-center">
@@ -2144,12 +2136,12 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                 <button
                   key={plan.id}
                   onClick={() => addPlanConsumptionToCart(plan)}
-                  className="bg-white p-1.5 rounded-xl border hover:border-indigo-400 hover:shadow-md transition-all text-left group"
+                    className="bg-white p-1 rounded-lg border hover:border-indigo-400 hover:shadow-md transition-all text-left group"
                 >
                   <div className="relative aspect-[17/10] mb-1 overflow-hidden rounded-lg bg-indigo-50 flex items-center justify-center">
                     <Layers size={22} className="text-indigo-300 group-hover:text-indigo-500 transition-colors" />
                   </div>
-                  <p className="text-[10px] font-semibold text-gray-800 line-clamp-2 h-7">{plan.name}</p>
+                  <p className="text-[9px] font-semibold text-gray-800 line-clamp-2 h-6">{plan.name}</p>
                   <div className="flex items-center justify-between mt-1">
                     <span className="text-[9px] text-indigo-600 font-black uppercase">Consumo un.</span>
                     <span className={`text-[9px] font-black ${remainingUnits > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
@@ -2164,11 +2156,11 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nenhum produto encontrado no catálogo</p>
             </div>
           ) : filteredProducts.map(product => (
-            <button key={product.id} onClick={() => addToCart(product)} className="bg-white p-1.5 rounded-xl border hover:border-indigo-400 hover:shadow-md transition-all text-left group">
+	            <button key={product.id} onClick={() => addToCart(product)} className="bg-white p-1 rounded-lg border hover:border-indigo-400 hover:shadow-md transition-all text-left group">
               <div className="relative aspect-[17/10] mb-1 overflow-hidden rounded-lg bg-gray-100">
                 <img src={toAbsoluteProductImageUrl(product.image, product.name)} alt={product.name} className="object-cover w-full h-full group-hover:scale-110 transition-transform" />
               </div>
-              <p className="text-[10px] font-semibold text-gray-800 line-clamp-2 h-7">{product.name}</p>
+	              <p className="text-[9px] font-semibold text-gray-800 line-clamp-2 h-6">{product.name}</p>
               <div className="flex items-center justify-between mt-1 font-bold">
                 <span className="text-indigo-600 text-[12px]">
                   {(product.unit || 'UN') === 'KG'
@@ -2185,7 +2177,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
       </div>
 
       {/* Sidebar Checkout Panel */}
-      <div className="w-full lg:basis-[48%] lg:max-w-[48%] grid grid-cols-1 lg:grid-cols-[0.7fr_1.3fr] gap-2 z-10 min-w-0 items-stretch lg:h-full">
+	      <div className="w-full lg:basis-[48%] lg:max-w-[48%] grid grid-cols-1 lg:grid-cols-[0.68fr_1.32fr] gap-1.5 z-10 min-w-0 min-h-0 items-stretch h-full">
         {/* Identification Card */}
         <div className={`bg-white p-3 rounded-2xl shadow-sm border-2 transition-all h-full min-h-0 flex flex-col ${selectedClient?.isBlocked ? 'border-red-500 animate-pulse' : 'border-indigo-50'}`}>
           <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Sessão de Atendimento</h3>
@@ -2211,8 +2203,8 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                <p className="text-xs font-black uppercase tracking-widest text-center px-4">Identifique o Aluno</p>
             </div>
           ) : (
-            <div className="space-y-4 animate-in zoom-in-95 duration-200">
-               <div className="flex items-center gap-4">
+            <div className="space-y-3 animate-in zoom-in-95 duration-200">
+               <div className="flex items-center gap-3">
                   <div className="relative">
                      <img
                        src={resolveUserAvatar(selectedClient.photo, selectedClient.name)}
@@ -2220,13 +2212,13 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                          e.currentTarget.onerror = null;
                          e.currentTarget.src = resolveUserAvatar(undefined, selectedClient.name);
                        }}
-                       className="w-20 h-20 rounded-2xl object-cover border-2 border-white shadow-lg"
+                       className="w-16 h-16 rounded-xl object-cover border-2 border-white shadow-lg"
                      />
                      {selectedClient.isBlocked && <div className="absolute -top-2 -right-2 bg-red-600 text-white p-1.5 rounded-full shadow-lg"><ShieldAlert size={16} /></div>}
                   </div>
                   <div className="flex-1 min-w-0">
                      <p className="text-[10px] text-indigo-600 font-black uppercase mb-0.5">{selectedClient.registrationId}</p>
-                     <p className="font-black text-gray-800 text-lg leading-tight truncate">{selectedClient.name}</p>
+                     <p className="font-black text-gray-800 text-base leading-tight truncate">{selectedClient.name}</p>
                   </div>
                </div>
                <div className="grid grid-cols-1 gap-1.5">
@@ -2240,7 +2232,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                    <p className="text-[10px] font-black opacity-60 uppercase">
                      {selectedClient.type === 'COLABORADOR' ? 'Consumo do Mês' : 'Saldo Cantina'}
                    </p>
-                   <p className="text-xl font-black">
+                   <p className="text-lg font-black">
                      R$ {selectedClient.type === 'COLABORADOR' 
                        ? (selectedClient.monthlyConsumption || 0).toFixed(2) 
                        : selectedClient.balance.toFixed(2)}
@@ -2359,10 +2351,6 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
 
               <div className="px-3 pb-2.5 space-y-0">
                 {cart.map((item, index) => {
-                  const cartProduct = productsById.get(String(item.productId));
-                  const thumbnailUrl = cartProduct
-                    ? toAbsoluteProductImageUrl(cartProduct.image, cartProduct.name)
-                    : '';
                   const isServiceItem = Boolean(item.serviceAction) || String(item.productId || '').startsWith('SERVICE_');
 
                   return (
@@ -2372,17 +2360,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                     >
                       <div className="h-px w-full bg-gray-100 mb-2" />
                       <div className="flex items-center justify-between">
-                        <div className="flex items-start gap-3 flex-1">
-                          <div className="w-10 h-10 rounded-lg overflow-hidden border border-gray-200 bg-gray-50 shrink-0 mt-0.5">
-                            {thumbnailUrl ? (
-                              <img src={thumbnailUrl} alt={item.name} className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-[10px] font-black text-gray-400 uppercase">
-                                {String(item.name || '?').slice(0, 2)}
-                              </div>
-                            )}
-                          </div>
-
+                        <div className="flex items-start gap-2.5 flex-1">
                           <div className="flex-1">
                             <p className="text-[13px] font-black text-gray-800 leading-tight">{item.name}</p>
                             {item.serviceAction && (
@@ -2466,7 +2444,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
           </div>
 
           {/* Payment Selection with Split Capability */}
-          <div className="p-3 border-t bg-gray-50 space-y-2.5">
+	          <div className="p-2.5 border-t bg-gray-50 space-y-2">
              {remainingToPay > 0.01 && cart.length > 0 && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -2496,11 +2474,12 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                       isSelected={activeSplitMethod === 'DINHEIRO'}
                     />
                     <PaymentButton 
-                      onClick={() => selectInlineSplitMethod('DEBITO')} 
-                      icon={<CardIcon size={16} />} 
-                      label="Débito" 
-                      color="blue" 
-                      isSelected={activeSplitMethod === 'DEBITO'}
+                      onClick={() => selectInlineSplitMethod('CREDITO_COLABORADOR')} 
+                      icon={<Wallet size={16} />} 
+                      label="Créd. Colaborador" 
+                      color="amber" 
+                      isSelected={activeSplitMethod === 'CREDITO_COLABORADOR'}
+                      disabled={isFinalConsumer || !selectedClient || selectedClient?.type !== 'COLABORADOR'} 
                     />
                     <PaymentButton 
                       onClick={() => selectInlineSplitMethod('CREDITO')} 
@@ -2510,12 +2489,11 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                       isSelected={activeSplitMethod === 'CREDITO'}
                     />
                     <PaymentButton 
-                      onClick={() => selectInlineSplitMethod('CREDITO_COLABORADOR')} 
-                      icon={<Wallet size={16} />} 
-                      label="Créd. Colaborador" 
-                      color="amber" 
-                      isSelected={activeSplitMethod === 'CREDITO_COLABORADOR'}
-                      disabled={isFinalConsumer || !selectedClient || selectedClient?.type !== 'COLABORADOR'} 
+                      onClick={() => selectInlineSplitMethod('DEBITO')} 
+                      icon={<CardIcon size={16} />} 
+                      label="Débito" 
+                      color="blue" 
+                      isSelected={activeSplitMethod === 'DEBITO'}
                     />
                   </div>
 
@@ -2625,10 +2603,10 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
           </div>
 
           {/* Totals & Checkout Button */}
-          <div className="p-4 bg-gray-900 text-white">
+	          <div className="p-3 bg-gray-900 text-white">
             <div className="flex justify-between items-center mb-1">
               <span className="text-xs font-black uppercase tracking-widest text-gray-500">Total Venda</span>
-              <span className="text-3xl font-black text-indigo-300">R$ {cartTotal.toFixed(2)}</span>
+              <span className="text-2xl font-black text-indigo-300">R$ {cartTotal.toFixed(2)}</span>
             </div>
             {totalPaid > 0 && (
               <div className="flex justify-between items-center text-sm text-gray-300 mb-2 font-bold">
@@ -2639,8 +2617,8 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
               </div>
             )}
             
-            <div className="grid grid-cols-2 gap-2 mt-4">
-              <button onClick={handleSuspend} disabled={cart.length === 0} className="py-3 rounded-xl font-black border border-gray-700 text-gray-400 hover:bg-gray-800 disabled:opacity-30 text-xs uppercase transition-all">Pausar</button>
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <button onClick={handleSuspend} disabled={cart.length === 0} className="py-2.5 rounded-lg font-black border border-gray-700 text-gray-400 hover:bg-gray-800 disabled:opacity-30 text-[11px] uppercase transition-all">Pausar</button>
               <button 
                 onClick={handleCheckout} 
                 disabled={isFinalizeDisabled}

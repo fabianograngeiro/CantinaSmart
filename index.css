@@ -45,7 +45,7 @@ html.dark .product-grid-scrollbar::-webkit-scrollbar-thumb {
 
 @layer components {
   .dash-shell {
-    @apply p-6 space-y-6 max-w-[1600px] mx-auto pb-20 text-slate-900 dark:text-slate-100;
+    @apply w-full px-3 sm:px-4 lg:px-6 xl:px-8 py-6 space-y-6 max-w-none mx-auto pb-20 text-slate-900 dark:text-slate-100;
   }
 
   .dash-header {
