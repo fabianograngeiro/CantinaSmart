@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Enterprise, Role, User } from '../types';
 import ApiService from '../services/api';
+import { appendSaasAuditLog } from '../services/saasAuditLog';
 
 interface EnterprisesPageProps {
   currentUser: User;
@@ -27,6 +28,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [successData, setSuccessData] = useState<{email: string, pass: string} | null>(null);
+  const [editingEnterprise, setEditingEnterprise] = useState<Enterprise | null>(null);
 
   // Carregar empresas da API
   useEffect(() => {
@@ -57,9 +59,43 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
     neighborhood: '',
     city: '',
     state: '', // UF
-    planType: 'PRO' as 'BASIC' | 'PRO' | 'ENTERPRISE',
-    monthlyFee: 450.00
+    planType: 'BASIC' as 'BASIC' | 'PREMIUM',
+    monthlyFee: 197.00
   });
+
+  const normalizePlanType = (plan?: string): 'BASIC' | 'PREMIUM' => {
+    const normalized = String(plan || '').trim().toUpperCase();
+    return normalized === 'PREMIUM' || normalized === 'PRO' || normalized === 'ENTERPRISE' ? 'PREMIUM' : 'BASIC';
+  };
+
+  const getDefaultFeeByPlan = (plan: 'BASIC' | 'PREMIUM'): number => (plan === 'PREMIUM' ? 397 : 197);
+
+  const parseAddressParts = (address?: string) => {
+    const raw = String(address || '').trim();
+    if (!raw) {
+      return { street: '', number: '', neighborhood: '', city: '', state: '', cep: '' };
+    }
+    const pattern = /^(.*?),\s*(.*?)\s*-\s*(.*?),\s*(.*?)\s*-\s*(.*?)(?:\s*\(CEP:\s*([0-9\-]+)\))?$/i;
+    const matched = raw.match(pattern);
+    if (matched) {
+      return {
+        street: matched[1] || '',
+        number: matched[2] || '',
+        neighborhood: matched[3] || '',
+        city: matched[4] || '',
+        state: matched[5] || '',
+        cep: matched[6] || ''
+      };
+    }
+    return {
+      street: raw,
+      number: '',
+      neighborhood: '',
+      city: '',
+      state: '',
+      cep: ''
+    };
+  };
 
   const filteredEnterprises = useMemo(() => {
     return enterprises.filter(e => {
@@ -106,14 +142,41 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
       ownerName: formData.managerName,
       planType: formData.planType,
       monthlyFee: formData.monthlyFee,
-      lastPaymentStatus: 'PAID'
+      lastPaymentStatus: 'PAID',
+      serviceStatus: 'ATIVO' as const
     };
 
     try {
-      // Criar a empresa via API
+      if (editingEnterprise) {
+        const updated = await ApiService.updateEnterprise(editingEnterprise.id, {
+          ...editingEnterprise,
+          ...newEnterprise,
+          isActive: editingEnterprise.serviceStatus !== 'CANCELADO'
+        });
+        setEnterprises((prev) => prev.map((ent) => (ent.id === editingEnterprise.id ? updated : ent)));
+        if (isSuperAdmin) {
+          appendSaasAuditLog({
+            actorName: currentUser.name,
+            actorRole: String(currentUser.role || ''),
+            module: 'CLIENTES',
+            action: 'SAAS_CLIENT_UPDATED',
+            entityType: 'ENTERPRISE',
+            entityId: editingEnterprise.id,
+            enterpriseId: editingEnterprise.id,
+            enterpriseName: newEnterprise.name,
+            summary: 'Cadastro de cliente SaaS atualizado',
+            metadata: {
+              planType: newEnterprise.planType,
+              monthlyFee: newEnterprise.monthlyFee
+            }
+          });
+        }
+        resetFormAndClose();
+        return;
+      }
+
       const createdEnterprise = await ApiService.createEnterprise(newEnterprise);
-      
-      // Criar usuário admin para a empresa
+
       const adminUser = {
         name: formData.managerName,
         email: formData.email,
@@ -122,11 +185,26 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
         enterpriseIds: [createdEnterprise.id],
         isActive: true
       };
-      
+
       await ApiService.createUser(adminUser);
-      
-      // Atualizar lista local
       setEnterprises(prev => [createdEnterprise, ...prev]);
+      if (isSuperAdmin) {
+        appendSaasAuditLog({
+          actorName: currentUser.name,
+          actorRole: String(currentUser.role || ''),
+          module: 'CLIENTES',
+          action: 'SAAS_CLIENT_CREATED',
+          entityType: 'ENTERPRISE',
+          entityId: createdEnterprise.id,
+          enterpriseId: createdEnterprise.id,
+          enterpriseName: createdEnterprise.name,
+          summary: 'Novo cliente SaaS criado',
+          metadata: {
+            planType: createdEnterprise.planType,
+            monthlyFee: createdEnterprise.monthlyFee
+          }
+        });
+      }
       setSuccessData({ email: formData.email, pass: 'Admin123' });
     } catch (err) {
       console.error('Erro ao criar empresa:', err);
@@ -150,27 +228,103 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
       neighborhood: '',
       city: '',
       state: '',
-      planType: 'PRO',
-      monthlyFee: 450.00
+      planType: 'BASIC',
+      monthlyFee: 197.00
     });
+    setEditingEnterprise(null);
     setSuccessData(null);
     setIsModalOpen(false);
   };
 
-  const toggleEnterpriseStatus = async (id: string) => {
+  const handleOpenCreateModal = () => {
+    setEditingEnterprise(null);
+    setSuccessData(null);
+    setIsModalOpen(true);
+  };
+
+  const handleOpenEditModal = (enterprise: Enterprise) => {
+    const addressParts = parseAddressParts(enterprise.address);
+    const normalizedPlan = normalizePlanType(enterprise.planType);
+    setEditingEnterprise(enterprise);
+    setSuccessData(null);
+    setFormData({
+      type: enterprise.type,
+      nomeFantasia: enterprise.name || '',
+      managerName: enterprise.ownerName || enterprise.managerName || '',
+      document: enterprise.document || '',
+      phone1: enterprise.phone1 || '',
+      phone2: enterprise.phone2 || '',
+      attachedSchoolName: enterprise.attachedSchoolName || '',
+      email: '',
+      cep: addressParts.cep,
+      street: addressParts.street,
+      number: addressParts.number,
+      neighborhood: addressParts.neighborhood,
+      city: addressParts.city,
+      state: addressParts.state,
+      planType: normalizedPlan,
+      monthlyFee: Number(enterprise.monthlyFee || getDefaultFeeByPlan(normalizedPlan))
+    });
+    setIsModalOpen(true);
+  };
+
+  const updateServiceStatus = async (enterprise: Enterprise, nextStatus: Enterprise['serviceStatus']) => {
     try {
-      const enterprise = enterprises.find(e => e.id === id);
-      if (!enterprise) return;
-      
-      const updated = await ApiService.updateEnterprise(id, { 
+      const updated = await ApiService.updateEnterprise(enterprise.id, {
         ...enterprise, 
-        isActive: !enterprise.isActive 
+        serviceStatus: nextStatus,
+        isActive: nextStatus !== 'CANCELADO'
       });
-      
-      setEnterprises(prev => prev.map(e => e.id === id ? updated : e));
+      setEnterprises(prev => prev.map(e => e.id === enterprise.id ? updated : e));
+      if (isSuperAdmin) {
+        appendSaasAuditLog({
+          actorName: currentUser.name,
+          actorRole: String(currentUser.role || ''),
+          module: 'CLIENTES',
+          action: 'SAAS_CLIENT_STATUS_CHANGED',
+          entityType: 'ENTERPRISE',
+          entityId: enterprise.id,
+          enterpriseId: enterprise.id,
+          enterpriseName: enterprise.name,
+          summary: `Status do serviço alterado para ${nextStatus}`,
+          metadata: {
+            fromStatus: enterprise.serviceStatus || 'ATIVO',
+            toStatus: nextStatus
+          }
+        });
+      }
     } catch (err) {
       console.error('Erro ao atualizar status da empresa:', err);
       alert('Erro ao atualizar status. Tente novamente.');
+    }
+  };
+
+  const handleDeleteEnterprise = async (enterprise: Enterprise) => {
+    const confirmed = window.confirm(`Deseja excluir o cliente SaaS "${enterprise.name}"? Essa ação é irreversível.`);
+    if (!confirmed) return;
+    try {
+      await ApiService.deleteEnterprise(enterprise.id);
+      setEnterprises((prev) => prev.filter((item) => item.id !== enterprise.id));
+      if (isSuperAdmin) {
+        appendSaasAuditLog({
+          actorName: currentUser.name,
+          actorRole: String(currentUser.role || ''),
+          module: 'CLIENTES',
+          action: 'SAAS_CLIENT_DELETED',
+          entityType: 'ENTERPRISE',
+          entityId: enterprise.id,
+          enterpriseId: enterprise.id,
+          enterpriseName: enterprise.name,
+          summary: 'Cliente SaaS excluído',
+          metadata: {
+            planType: enterprise.planType,
+            monthlyFee: enterprise.monthlyFee
+          }
+        });
+      }
+    } catch (err) {
+      console.error('Erro ao excluir empresa:', err);
+      alert('Erro ao excluir empresa. Tente novamente.');
     }
   };
 
@@ -194,13 +348,13 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
           </div>
         </div>
 
-        <button onClick={() => { setSuccessData(null); setIsModalOpen(true); }} className="bg-indigo-600 text-white px-6 py-3.5 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2">
-          <Plus size={18} /> {isSuperAdmin ? 'Cadastrar Novo Cliente SaaS' : 'Cadastrar Nova Unidade'}
+        <button onClick={handleOpenCreateModal} className="bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-black uppercase tracking-widest text-[11px] shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2">
+          <Plus size={14} /> {isSuperAdmin ? 'Cadastrar Novo Cliente SaaS' : 'Cadastrar Nova Unidade'}
         </button>
       </header>
 
       {isSuperAdmin && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
            <SaaSStatCard title="MRR Total" value={`R$ ${stats.totalMRR.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`} icon={<DollarSign className="text-emerald-500" />} />
            <SaaSStatCard title="Licenças Ativas" value={stats.active.toString()} icon={<CheckCircle2 className="text-indigo-500" />} />
            <SaaSStatCard title="Inadimplência" value={stats.pending.toString()} icon={<AlertCircle className="text-red-500" />} />
@@ -208,40 +362,59 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
         </div>
       )}
 
-      <div className="dash-filterbar flex flex-col md:flex-row items-center gap-4">
+      <div className="dash-filterbar flex flex-col md:flex-row items-center gap-3">
         <div className="relative flex-1 w-full">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-          <input type="text" placeholder="Buscar por nome, dono, endereço ou CNPJ..." className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border-transparent border-2 focus:border-indigo-500 rounded-2xl outline-none font-bold text-sm transition-all" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/>
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+          <input type="text" placeholder="Buscar por nome, dono, endereço ou CNPJ..." className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border-transparent border focus:border-indigo-500 rounded-xl outline-none font-bold text-xs transition-all" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredEnterprises.map(ent => (
-          <div key={ent.id} className="bg-white rounded-[48px] shadow-sm border border-gray-100 overflow-hidden hover:shadow-2xl transition-all group border-b-8 border-b-indigo-500/10 flex flex-col">
-            <div className="p-8 flex-1">
-              <div className="flex items-start justify-between mb-6">
-                <div className="flex items-center gap-4">
-                  <div className={`w-16 h-16 rounded-2xl flex items-center justify-center font-black text-2xl transition-transform group-hover:rotate-3 ${ent.isActive ? 'bg-indigo-50 text-indigo-600' : 'bg-gray-100 text-gray-400'}`}>{ent.name.charAt(0)}</div>
+          <div key={ent.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-lg transition-all group border-b-4 border-b-indigo-500/10 flex flex-col">
+            <div className="p-4 flex-1">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-black text-lg transition-transform group-hover:rotate-3 ${ent.isActive ? 'bg-indigo-50 text-indigo-600' : 'bg-gray-100 text-gray-400'}`}>{ent.name.charAt(0)}</div>
                   <div>
-                    <h3 className="text-xl font-black text-gray-900 tracking-tighter uppercase leading-tight">{ent.name}</h3>
+                    <h3 className="text-base font-black text-gray-900 tracking-tighter uppercase leading-tight">{ent.name}</h3>
                     <div className="flex items-center gap-2 mt-1">
                       <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest border ${ent.type === 'CANTINA' ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-orange-50 text-orange-600 border-orange-100'}`}>{ent.type}</span>
                       {!ent.isActive && <span className="text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest bg-red-50 text-red-500 border border-red-100">Inativo</span>}
                       {isSuperAdmin && (
-                        <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest border ${ent.lastPaymentStatus === 'PAID' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'}`}>
-                          {ent.lastPaymentStatus === 'PAID' ? 'Pago' : 'Pendente'}
+                        <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest border ${
+                          (ent.serviceStatus || 'ATIVO') === 'ATIVO'
+                            ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                            : (ent.serviceStatus || '') === 'PAUSADO'
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : 'bg-red-50 text-red-600 border-red-100'
+                        }`}>
+                          {ent.serviceStatus || 'ATIVO'}
                         </span>
                       )}
                     </div>
                   </div>
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                  <button onClick={() => toggleEnterpriseStatus(ent.id)} className={`p-2 rounded-xl transition-all shadow-sm bg-white border ${ent.isActive ? 'text-emerald-500 hover:bg-emerald-50' : 'text-gray-300 hover:bg-gray-100'}`} title={ent.isActive ? 'Desativar' : 'Ativar'}>{ent.isActive ? <Power size={14} /> : <PowerOff size={14} />}</button>
-                  <button className="p-2 text-indigo-400 bg-white border rounded-xl shadow-sm hover:bg-indigo-50" title="Editar"><Edit size={14} /></button>
+                  {isSuperAdmin && (
+                    <button
+                      onClick={() => updateServiceStatus(ent, (ent.serviceStatus || 'ATIVO') === 'PAUSADO' ? 'ATIVO' : 'PAUSADO')}
+                      className={`p-1.5 rounded-lg transition-all shadow-sm bg-white border ${
+                        (ent.serviceStatus || 'ATIVO') === 'PAUSADO' ? 'text-emerald-500 hover:bg-emerald-50' : 'text-amber-600 hover:bg-amber-50'
+                      }`}
+                      title={(ent.serviceStatus || 'ATIVO') === 'PAUSADO' ? 'Reativar serviço' : 'Pausar serviço'}
+                    >
+                      {(ent.serviceStatus || 'ATIVO') === 'PAUSADO' ? <Power size={12} /> : <PowerOff size={12} />}
+                    </button>
+                  )}
+                  <button onClick={() => handleOpenEditModal(ent)} className="p-1.5 text-indigo-400 bg-white border rounded-lg shadow-sm hover:bg-indigo-50" title="Editar"><Edit size={12} /></button>
+                  {isSuperAdmin && (
+                    <button onClick={() => handleDeleteEnterprise(ent)} className="p-1.5 text-red-500 bg-white border rounded-lg shadow-sm hover:bg-red-50" title="Excluir"><X size={12} /></button>
+                  )}
                 </div>
               </div>
               
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <div className="flex items-center gap-3 text-gray-500 text-xs font-bold">
                    <MapPin size={14} className="text-indigo-400" />
                    <span className="truncate">{ent.address}</span>
@@ -270,55 +443,55 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
 
               {/* Botões de Ação Rápida - Escondidos para SuperAdmin se não for necessário */}
               {!isSuperAdmin && (
-                <div className="grid grid-cols-1 gap-2 mt-8">
+                <div className="grid grid-cols-1 gap-1.5 mt-5">
                   <button 
                     onClick={() => navigate('/menu-lunch')}
-                    className="w-full flex items-center justify-between p-4 bg-gray-50 rounded-2xl hover:bg-indigo-600 hover:text-white transition-all group/btn border border-gray-100"
+                    className="w-full flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-indigo-600 hover:text-white transition-all group/btn border border-gray-100"
                   >
                     <div className="flex items-center gap-3">
-                        <Calendar size={18} className="text-indigo-400 group-hover/btn:text-white" />
+                        <Calendar size={14} className="text-indigo-400 group-hover/btn:text-white" />
                         <span className="text-[10px] font-black uppercase tracking-widest">Cardápio Semanal</span>
                     </div>
-                    <ChevronRight size={14} />
+                    <ChevronRight size={12} />
                   </button>
                   
                   <button 
                     onClick={() => navigate('/nutritional-info')}
-                    className="w-full flex items-center justify-between p-4 bg-gray-50 rounded-2xl hover:bg-indigo-600 hover:text-white transition-all group/btn border border-gray-100"
+                    className="w-full flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-indigo-600 hover:text-white transition-all group/btn border border-gray-100"
                   >
                     <div className="flex items-center gap-3">
-                        <Beef size={18} className="text-indigo-400 group-hover/btn:text-white" />
+                        <Beef size={14} className="text-indigo-400 group-hover/btn:text-white" />
                         <span className="text-[10px] font-black uppercase tracking-widest">ITENS COMIDA</span>
                     </div>
-                    <ChevronRight size={14} />
+                    <ChevronRight size={12} />
                   </button>
 
                   <button 
                     onClick={() => navigate(`/plans/${ent.id}`)}
-                    className="w-full flex items-center justify-between p-4 bg-gray-50 rounded-2xl hover:bg-indigo-600 hover:text-white transition-all group/btn border border-gray-100"
+                    className="w-full flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-indigo-600 hover:text-white transition-all group/btn border border-gray-100"
                   >
                     <div className="flex items-center gap-3">
-                        <Sparkles size={18} className="text-indigo-400 group-hover/btn:text-white" />
+                        <Sparkles size={14} className="text-indigo-400 group-hover/btn:text-white" />
                         <span className="text-[10px] font-black uppercase tracking-widest">Plano Alimentação</span>
                     </div>
-                    <ChevronRight size={14} />
+                    <ChevronRight size={12} />
                   </button>
 
                   <button 
                     onClick={() => navigate('/unit-sales')}
-                    className="w-full flex items-center justify-between p-4 bg-gray-50 rounded-2xl hover:bg-indigo-600 hover:text-white transition-all group/btn border border-gray-100"
+                    className="w-full flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-indigo-600 hover:text-white transition-all group/btn border border-gray-100"
                   >
                     <div className="flex items-center gap-3">
-                        <ReceiptText size={18} className="text-indigo-400 group-hover/btn:text-white" />
+                        <ReceiptText size={14} className="text-indigo-400 group-hover/btn:text-white" />
                         <span className="text-[10px] font-black uppercase tracking-widest">Transação de Vendas</span>
                     </div>
-                    <ChevronRight size={14} />
+                    <ChevronRight size={12} />
                   </button>
                 </div>
               )}
             </div>
             
-            <div className="px-8 py-4 bg-indigo-50/30 flex items-center justify-center border-t border-gray-100">
+            <div className="px-4 py-3 bg-indigo-50/30 flex items-center justify-center border-t border-gray-100">
                <button className="flex items-center gap-2 text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline">
                   {isSuperAdmin ? 'Gerenciar Assinatura e Faturamento' : 'Console Detalhado da Unidade'} <ExternalLink size={12} />
                </button>
@@ -330,43 +503,43 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
       {isModalOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
            <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-sm animate-in fade-in" onClick={resetFormAndClose}></div>
-           <div className="relative w-full max-w-3xl bg-white rounded-[48px] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[95vh]">
+           <div className="relative w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[95vh]">
               
               {!successData ? (
                 <form onSubmit={handleSaveEnterprise} className="flex flex-col h-full">
-                  <div className="bg-indigo-600 p-8 text-white flex items-center justify-between shrink-0">
-                     <div className="flex items-center gap-5">
-                        <div className="w-16 h-16 bg-white/20 rounded-[24px] flex items-center justify-center backdrop-blur-md border border-white/20">
-                          <Store size={32} />
+                  <div className="bg-indigo-600 p-5 text-white flex items-center justify-between shrink-0">
+                     <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-md border border-white/20">
+                          <Store size={22} />
                         </div>
                         <div>
-                           <h2 className="text-2xl font-black uppercase tracking-tight leading-none">
-                             {isSuperAdmin ? 'Novo Cliente SaaS' : 'Novo Registro de Filial'}
+                           <h2 className="text-xl font-black uppercase tracking-tight leading-none">
+                             {editingEnterprise ? (isSuperAdmin ? 'Editar Cliente SaaS' : 'Editar Unidade') : (isSuperAdmin ? 'Novo Cliente SaaS' : 'Novo Registro de Filial')}
                            </h2>
                            <p className="text-[10px] font-bold text-indigo-100 uppercase tracking-widest mt-1">
-                             {isSuperAdmin ? 'Configuração de Licença e Acesso Master' : 'Escolha única de operação e endereço'}
+                             {editingEnterprise ? 'Atualização de dados cadastrais e contrato' : (isSuperAdmin ? 'Configuração de Licença e Acesso Master' : 'Escolha única de operação e endereço')}
                            </p>
                         </div>
                      </div>
-                     <button type="button" onClick={resetFormAndClose} className="p-3 hover:bg-white/10 rounded-full transition-colors"><X size={28} /></button>
+                     <button type="button" onClick={resetFormAndClose} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={22} /></button>
                   </div>
 
-                  <div className="p-10 space-y-8 flex-1 overflow-y-auto scrollbar-hide">
+                  <div className="p-5 space-y-5 flex-1 overflow-y-auto scrollbar-hide">
                      {/* Escolha de Tipo de Unidade */}
                      <div className="space-y-4">
                         <label className="text-[11px] font-black text-gray-400 uppercase tracking-[3px] block text-center">Tipo de Unidade Operacional *</label>
-                        <div className="flex bg-gray-100 p-1.5 rounded-[32px] max-w-sm mx-auto border-2 border-gray-100">
+                        <div className="flex bg-gray-100 p-1 rounded-xl max-w-sm mx-auto border border-gray-100">
                            <button 
                              type="button"
                              onClick={() => setFormData({...formData, type: 'CANTINA'})}
-                             className={`flex-1 py-3.5 rounded-[28px] font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${formData.type === 'CANTINA' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-gray-600'}`}
+                             className={`flex-1 py-2.5 rounded-lg font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${formData.type === 'CANTINA' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-gray-600'}`}
                            >
                              <Store size={16} /> Cantina
                            </button>
                            <button 
                              type="button"
                              onClick={() => setFormData({...formData, type: 'RESTAURANTE'})}
-                             className={`flex-1 py-3.5 rounded-[28px] font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${formData.type === 'RESTAURANTE' ? 'bg-orange-500 text-white shadow-lg' : 'text-gray-400 hover:text-gray-600'}`}
+                             className={`flex-1 py-2.5 rounded-lg font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${formData.type === 'RESTAURANTE' ? 'bg-orange-500 text-white shadow-lg' : 'text-gray-400 hover:text-gray-600'}`}
                            >
                              <Utensils size={16} /> Restaurante
                            </button>
@@ -374,15 +547,15 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
                      </div>
 
                      {/* Informações da Filial */}
-                     <div className="space-y-6 pt-4 border-t border-gray-50">
+                     <div className="space-y-4 pt-3 border-t border-gray-50">
                         <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[4px] border-b pb-2 flex items-center gap-2">
                            <ShieldCheck size={14}/> Dados Gerais
                         </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                            <InputField label="Nome Fantasia *" value={formData.nomeFantasia} onChange={(v:string) => setFormData({...formData, nomeFantasia: v})} required placeholder="Ex: Cantina Central Alpha" />
                            <InputField label={isSuperAdmin ? "Nome do Proprietário *" : "Nome do Gerente Responsável *"} value={formData.managerName} onChange={(v:string) => setFormData({...formData, managerName: v})} required placeholder="Nome completo" />
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                            <InputField label="CNPJ Filial *" value={formData.document} onChange={(v:string) => setFormData({...formData, document: v})} required placeholder="00.000.000/0001-00" />
                            <InputField label="E-mail de Acesso (Login) *" type="email" value={formData.email} onChange={(v:string) => setFormData({...formData, email: v})} required placeholder="exemplo@email.com" />
                         </div>
@@ -393,28 +566,30 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
                            </div>
                         )}
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                            <InputField label="WhatsApp da Unidade *" value={formData.phone1} onChange={(v:string) => setFormData({...formData, phone1: v})} required placeholder="(00) 90000-0000" />
                            <InputField label="Telefone Contato" value={formData.phone2} onChange={(v:string) => setFormData({...formData, phone2: v})} placeholder="(00) 0000-0000" />
                         </div>
                      </div>
 
                      {isSuperAdmin && (
-                        <div className="space-y-6 pt-4 border-t border-gray-50">
+                        <div className="space-y-4 pt-3 border-t border-gray-50">
                            <h3 className="text-[10px] font-black text-amber-500 uppercase tracking-[4px] border-b pb-2 flex items-center gap-2">
                               <Sparkles size={14}/> Configuração SaaS
                            </h3>
-                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <div className="space-y-1.5">
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                             <div className="space-y-1.5">
                                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Plano de Licença *</label>
                                  <select 
                                     value={formData.planType}
-                                    onChange={e => setFormData({...formData, planType: e.target.value as any})}
-                                    className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-bold text-gray-800 transition-all shadow-inner"
+                                    onChange={e => {
+                                      const nextPlan = e.target.value as 'BASIC' | 'PREMIUM';
+                                      setFormData({...formData, planType: nextPlan, monthlyFee: getDefaultFeeByPlan(nextPlan)});
+                                    }}
+                                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-bold text-gray-800 transition-all shadow-inner text-sm"
                                  >
-                                    <option value="BASIC">BASIC</option>
-                                    <option value="PRO">PRO</option>
-                                    <option value="ENTERPRISE">ENTERPRISE</option>
+                                    <option value="BASIC">BÁSICO - R$ 197</option>
+                                    <option value="PREMIUM">PREMIUM - R$ 397</option>
                                  </select>
                               </div>
                               <InputField label="Mensalidade (R$) *" type="number" value={formData.monthlyFee.toString()} onChange={(v:string) => setFormData({...formData, monthlyFee: parseFloat(v) || 0})} required placeholder="450.00" />
@@ -423,11 +598,11 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
                      )}
 
                      {/* Endereço Operacional Detalhado */}
-                     <div className="space-y-6 pt-4 border-t border-gray-50">
+                     <div className="space-y-4 pt-3 border-t border-gray-50">
                         <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[4px] border-b pb-2 flex items-center gap-2">
                            <MapIcon size={14}/> Endereço Operacional
                         </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                            <div className="md:col-span-1">
                              <InputField label="CEP *" value={formData.cep} onChange={(v:string) => setFormData({...formData, cep: v})} required placeholder="00000-000" />
                            </div>
@@ -438,7 +613,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
                              <InputField label="Número *" value={formData.number} onChange={(v:string) => setFormData({...formData, number: v})} required placeholder="123" />
                            </div>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                            <InputField label="Bairro *" value={formData.neighborhood} onChange={(v:string) => setFormData({...formData, neighborhood: v})} required placeholder="Centro" />
                            <InputField label="Cidade *" value={formData.city} onChange={(v:string) => setFormData({...formData, city: v})} required placeholder="São Paulo" />
                            <InputField label="Estado (UF) *" value={formData.state} onChange={(v:string) => setFormData({...formData, state: v})} required placeholder="SP" />
@@ -446,20 +621,20 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
                      </div>
                   </div>
 
-                  <div className="p-8 bg-gray-50 border-t flex items-center justify-end gap-6 shrink-0">
-                     <button type="button" onClick={resetFormAndClose} className="px-10 py-5 text-xs font-black text-gray-400 uppercase tracking-widest hover:text-gray-600 transition-colors">Descartar</button>
-                     <button type="submit" className="px-12 py-5 bg-indigo-600 text-white rounded-[24px] font-black uppercase tracking-widest text-xs shadow-xl shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all flex items-center justify-center gap-3">
-                        <Save size={20} /> {isSuperAdmin ? 'Ativar Licença SaaS' : 'Salvar e Gerar Licença'}
+                  <div className="p-5 bg-gray-50 border-t flex items-center justify-end gap-4 shrink-0">
+                     <button type="button" onClick={resetFormAndClose} className="px-6 py-3 text-[11px] font-black text-gray-400 uppercase tracking-widest hover:text-gray-600 transition-colors">Descartar</button>
+                     <button type="submit" className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-black uppercase tracking-widest text-[11px] shadow-lg shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all flex items-center justify-center gap-2">
+                        <Save size={16} /> {editingEnterprise ? 'Salvar Alterações' : (isSuperAdmin ? 'Ativar Licença SaaS' : 'Salvar e Gerar Licença')}
                      </button>
                   </div>
                 </form>
               ) : (
-                <div className="p-12 flex flex-col items-center text-center space-y-10 animate-in zoom-in-95">
-                   <div className="w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center shadow-inner ring-8 ring-emerald-50">
-                      <CheckCircle2 size={48} />
+                <div className="p-8 flex flex-col items-center text-center space-y-6 animate-in zoom-in-95">
+                   <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center shadow-inner ring-4 ring-emerald-50">
+                      <CheckCircle2 size={30} />
                    </div>
                    <div className="space-y-2">
-                      <h2 className="text-3xl font-black text-gray-900 uppercase tracking-tight">
+                      <h2 className="text-2xl font-black text-gray-900 uppercase tracking-tight">
                         {isSuperAdmin ? 'Cliente Ativado!' : 'Unidade Ativada!'}
                       </h2>
                       <p className="text-gray-500 font-medium max-w-md mx-auto">
@@ -467,27 +642,27 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
                       </p>
                    </div>
 
-                   <div className="w-full max-w-md bg-indigo-50 rounded-[40px] p-8 border-2 border-indigo-100 space-y-6 relative overflow-hidden">
+                   <div className="w-full max-w-md bg-indigo-50 rounded-2xl p-5 border border-indigo-100 space-y-4 relative overflow-hidden">
                       <div className="space-y-5 relative z-10 text-left">
                          <div className="space-y-1">
                             <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest ml-1">E-mail de Login</p>
-                            <div className="w-full flex items-center justify-between bg-white px-5 py-4 rounded-2xl border border-indigo-100 shadow-sm">
+                            <div className="w-full flex items-center justify-between bg-white px-4 py-3 rounded-xl border border-indigo-100 shadow-sm">
                                <span className="font-bold text-gray-700 text-sm">{successData.email}</span>
-                               <button onClick={() => {navigator.clipboard.writeText(successData.email); alert('Copiado!')}} className="text-indigo-400 hover:text-indigo-600 p-2"><Copy size={18}/></button>
+                               <button onClick={() => {navigator.clipboard.writeText(successData.email); alert('Copiado!')}} className="text-indigo-400 hover:text-indigo-600 p-1.5"><Copy size={14}/></button>
                             </div>
                          </div>
                          <div className="space-y-1">
                             <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest ml-1">Senha Padrão</p>
-                            <div className="w-full flex items-center justify-between bg-white px-5 py-4 rounded-2xl border border-indigo-100 shadow-sm">
-                               <span className="font-black text-indigo-600 text-lg tracking-widest">{successData.pass}</span>
-                               <button onClick={() => {navigator.clipboard.writeText(successData.pass); alert('Copiado!')}} className="text-indigo-400 hover:text-indigo-600 p-2"><Copy size={18}/></button>
+                            <div className="w-full flex items-center justify-between bg-white px-4 py-3 rounded-xl border border-indigo-100 shadow-sm">
+                               <span className="font-black text-indigo-600 text-base tracking-widest">{successData.pass}</span>
+                               <button onClick={() => {navigator.clipboard.writeText(successData.pass); alert('Copiado!')}} className="text-indigo-400 hover:text-indigo-600 p-1.5"><Copy size={14}/></button>
                             </div>
                          </div>
                       </div>
                    </div>
 
-                   <button onClick={resetFormAndClose} className="px-14 py-5 bg-indigo-600 text-white rounded-[24px] font-black uppercase text-xs tracking-widest shadow-xl hover:bg-indigo-700 active:scale-95 transition-all flex items-center gap-3">
-                      Concluir e Voltar <ArrowRight size={20} />
+                   <button onClick={resetFormAndClose} className="px-10 py-3 bg-indigo-600 text-white rounded-xl font-black uppercase text-[11px] tracking-widest shadow-lg hover:bg-indigo-700 active:scale-95 transition-all flex items-center gap-2">
+                      Concluir e Voltar <ArrowRight size={16} />
                    </button>
                 </div>
               )}
@@ -499,14 +674,14 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
 };
 
 const SaaSStatCard = ({ title, value, icon }: any) => (
-  <div className="bg-white p-8 rounded-[40px] border border-gray-100 shadow-sm hover:shadow-xl transition-all group">
+  <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg transition-all group">
     <div className="flex items-center justify-between mb-4">
-      <div className="p-4 bg-gray-50 rounded-3xl group-hover:scale-110 transition-transform">
-        {React.cloneElement(icon as React.ReactElement, { size: 24, strokeWidth: 3 })}
+      <div className="p-2.5 bg-gray-50 rounded-xl group-hover:scale-110 transition-transform">
+        {React.cloneElement(icon as React.ReactElement, { size: 18, strokeWidth: 3 })}
       </div>
     </div>
-    <p className="text-gray-400 text-[10px] font-black uppercase tracking-[3px] mb-1">{title}</p>
-    <p className="text-3xl font-black text-gray-900 tracking-tighter leading-none">{value}</p>
+    <p className="text-gray-400 text-[9px] font-black uppercase tracking-[0.14em] mb-1">{title}</p>
+    <p className="text-2xl font-black text-gray-900 tracking-tighter leading-none">{value}</p>
   </div>
 );
 
@@ -514,13 +689,13 @@ const InputField = ({ label, value, onChange, placeholder, type = "text", requir
   <div className="space-y-1.5 relative">
     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{label}</label>
     <div className="relative">
-      {icon && <div className="absolute left-4 top-1/2 -translate-y-1/2">{icon}</div>}
+      {icon && <div className="absolute left-3 top-1/2 -translate-y-1/2">{icon}</div>}
       <input 
         type={type}
         required={required}
         value={value} 
         onChange={e => onChange(e.target.value)} 
-        className={`w-full ${icon ? 'pl-12' : 'px-6'} py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-bold text-gray-800 transition-all shadow-inner focus:bg-white`} 
+        className={`w-full ${icon ? 'pl-10 pr-3' : 'px-4'} py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-bold text-gray-800 text-sm transition-all shadow-inner focus:bg-white`} 
         placeholder={placeholder} 
       />
     </div>
