@@ -23,6 +23,7 @@ const getInitialTheme = (): Theme => {
 const applyThemeClass = (theme: Theme) => {
   if (typeof document === 'undefined') return;
   document.documentElement.classList.toggle('dark', theme === 'dark');
+  document.documentElement.style.colorScheme = theme;
 };
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -33,12 +34,39 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     window.localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const enforceTheme = () => {
+      applyThemeClass(theme);
+    };
+
+    window.addEventListener('focus', enforceTheme);
+    document.addEventListener('visibilitychange', enforceTheme);
+
+    return () => {
+      window.removeEventListener('focus', enforceTheme);
+      document.removeEventListener('visibilitychange', enforceTheme);
+    };
+  }, [theme]);
+
   const setTheme = (nextTheme: Theme) => {
+    applyThemeClass(nextTheme);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+    }
     setThemeState(nextTheme);
   };
 
   const toggleTheme = () => {
-    setThemeState((prev) => (prev === 'dark' ? 'light' : 'dark'));
+    setThemeState((prev) => {
+      const nextTheme: Theme = prev === 'dark' ? 'light' : 'dark';
+      applyThemeClass(nextTheme);
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+      }
+      return nextTheme;
+    });
   };
 
   const value = useMemo(
@@ -61,4 +89,3 @@ export const useTheme = () => {
   }
   return context;
 };
-
