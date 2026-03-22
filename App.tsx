@@ -8,7 +8,7 @@ import {
   Sparkles, Beef, Store, Calendar,
   LogOut, Menu, DollarSign, MessageCircle,
   Truck, Settings, AlertTriangle, X, Plus, Check, Sun, Moon,
-  ChevronLeft, ChevronRight // Ícones adicionais
+  ChevronLeft, ChevronRight, FolderTree // Ícones adicionais
 } from 'lucide-react';
 
 // Pages
@@ -43,6 +43,7 @@ import SystemSettingsPage from './pages/SystemSettingsPage';
 import SettingsPage from './pages/SettingsPage';
 import FinancialPage from './pages/FinancialPage';
 import WhatsAppPage from './pages/WhatsAppPage';
+import ProductCategoriesPage from './pages/ProductCategoriesPage';
 import NotificationCenter from './components/NotificationCenter';
 import { useTheme } from './components/ThemeProvider';
 
@@ -438,6 +439,7 @@ const AppContent: React.FC<any> = (props) => {
                     {resolvedPermissions.canAccessClients && <SidebarItem icon={<UserCircle size={20} />} label="Cliente/Responsável" to="/clients-responsaveis" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessClients && <SidebarItem icon={<Users size={20} />} label="Alunos" to="/clients" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Package size={20} />} label="Produtos" to="/products" isOpen={isSidebarOpen} />}
+                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<FolderTree size={20} />} label="Categoria Produto" to="/product-categories" isOpen={isSidebarOpen} />}
                     <SidebarItem icon={<ClipboardList size={20} />} label="Suprimentos" to="/orders" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Truck size={20} />} label="Fornecedores" to="/suppliers" isOpen={isSidebarOpen} />
                   </div>
@@ -510,6 +512,7 @@ const AppContent: React.FC<any> = (props) => {
                   <Route path="/clients" element={resolvedPermissions.canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="ALUNOS" /> : <Navigate to="/" />} />
                   <Route path="/clients-responsaveis" element={resolvedPermissions.canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="CLIENTES_RESPONSAVEIS" /> : <Navigate to="/" />} />
                   <Route path="/products" element={resolvedPermissions.canAccessInventory ? <ProductsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/product-categories" element={resolvedPermissions.canAccessInventory ? <ProductCategoriesPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/inventory" element={resolvedPermissions.canAccessInventory ? <InventoryPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/reports" element={resolvedPermissions.canAccessReports ? <ReportsPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/saas-plans" element={isSuperAdmin ? <SaasPlansPage currentUser={currentUser} /> : <Navigate to="/" />} />

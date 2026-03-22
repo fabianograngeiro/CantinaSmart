@@ -56,25 +56,19 @@ const WhatsAppPreview: React.FC<{
   }, [mensagemCorpo, clienteNome]);
 
   return (
-    <div className="rounded-2xl border border-slate-200 shadow-lg overflow-hidden bg-white">
+    <div className="rounded-2xl border border-slate-200 dark:border-zinc-700 shadow-lg overflow-hidden bg-white dark:bg-zinc-900">
       <div className="px-4 py-3 bg-emerald-700 text-white">
         <p className="text-sm font-black">{clienteNome || 'Cliente'}</p>
         <p className="text-[11px] font-semibold text-emerald-100">online</p>
       </div>
 
-      <div
-        className="p-4 min-h-[360px] flex items-start"
-        style={{ backgroundColor: '#e5ddd5' }}
-      >
-        <div
-          className="ml-auto max-w-[92%] rounded-2xl px-4 py-3 shadow-md border border-emerald-200"
-          style={{ backgroundColor: '#dcf8c6' }}
-        >
-          <p className="text-sm font-medium text-slate-800 whitespace-pre-wrap">
+      <div className="p-4 min-h-[360px] flex items-start bg-[#e5ddd5] dark:bg-zinc-800">
+        <div className="ml-auto max-w-[92%] rounded-2xl px-4 py-3 shadow-md border border-emerald-200 dark:border-emerald-700/40 bg-[#dcf8c6] dark:bg-emerald-900/40">
+          <p className="text-sm font-medium text-slate-800 dark:text-zinc-100 whitespace-pre-wrap">
             {mensagemFormatada || 'Sua mensagem aparecerá aqui...'}
           </p>
           <div className="mt-1.5 flex items-center justify-end gap-1">
-            <span className="text-[11px] text-slate-500">{horario}</span>
+            <span className="text-[11px] text-slate-500 dark:text-zinc-400">{horario}</span>
             <CheckCheck size={14} className="text-sky-500" />
           </div>
         </div>
@@ -255,16 +249,16 @@ const DisparoUnicoForm: React.FC = () => {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-      <section className="rounded-2xl border border-cyan-100 bg-white p-5 shadow-sm space-y-4">
+      <section className="rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 shadow-sm space-y-4">
         <div>
-          <h3 className="text-lg font-black text-slate-900">Disparo Único</h3>
-          <p className="text-sm font-semibold text-slate-500">
+          <h3 className="text-lg font-black text-slate-900 dark:text-zinc-100">Disparo Único</h3>
+          <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400">
             Monte a mensagem e visualize em tempo real no formato WhatsApp.
           </p>
         </div>
 
         <div className="space-y-2">
-          <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+          <label className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
             Buscar responsável
           </label>
           <div className="relative">
@@ -273,7 +267,7 @@ const DisparoUnicoForm: React.FC = () => {
               value={buscaCliente}
               onChange={(e) => setBuscaCliente(e.target.value)}
               placeholder="Pesquisar por nome..."
-              className="w-full pl-9 pr-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+              className="w-full pl-9 pr-3 py-2.5 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
             />
           </div>
           <select
@@ -284,7 +278,7 @@ const DisparoUnicoForm: React.FC = () => {
               const cliente = CLIENTES_MOCK.find((item) => item.id === id);
               setClienteNome(cliente?.nome || '');
             }}
-            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
           >
             <option value="">Selecione um cliente</option>
             {clientesFiltrados.map((cliente) => (
@@ -296,17 +290,17 @@ const DisparoUnicoForm: React.FC = () => {
         </div>
 
         <div className="space-y-2">
-          <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+          <label className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
             Mensagem
           </label>
           <textarea
             rows={8}
             value={mensagemCorpo}
             onChange={(e) => setMensagemCorpo(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium"
+            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-medium bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
             placeholder="Digite sua mensagem..."
           />
-          <p className="text-xs font-semibold text-slate-500">
+          <p className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
             Variáveis disponíveis: <span className="font-black">{'{{nome}}'}</span>,{' '}
             <span className="font-black">{'{{saldo}}'}</span>,{' '}
             <span className="font-black">{'{{aluno}}'}</span>.
@@ -315,21 +309,21 @@ const DisparoUnicoForm: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+            <label className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
               Agendamento
             </label>
             <input
               type="datetime-local"
               value={dataAgendamento}
               onChange={(e) => setDataAgendamento(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+              className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+            <label className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
               Anexo
             </label>
-            <label className="w-full inline-flex items-center gap-2 px-3 py-2 rounded-xl border-2 border-cyan-100 bg-cyan-50 text-cyan-700 text-sm font-black cursor-pointer hover:bg-cyan-100">
+            <label className="w-full inline-flex items-center gap-2 px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 bg-cyan-50 dark:bg-zinc-800 text-cyan-700 dark:text-cyan-300 text-sm font-black cursor-pointer hover:bg-cyan-100 dark:hover:bg-zinc-700">
               <Paperclip size={14} />
               {arquivo ? arquivo.name : 'Selecionar arquivo'}
               <input
@@ -343,7 +337,7 @@ const DisparoUnicoForm: React.FC = () => {
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+            <label className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
               Delay Min (s)
             </label>
             <input
@@ -351,11 +345,11 @@ const DisparoUnicoForm: React.FC = () => {
               min={0}
               value={delayMin}
               onChange={(e) => setDelayMin(Math.max(0, Number(e.target.value) || 0))}
-              className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+              className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+            <label className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
               Delay Max (s)
             </label>
             <input
@@ -363,20 +357,20 @@ const DisparoUnicoForm: React.FC = () => {
               min={0}
               value={delayMax}
               onChange={(e) => setDelayMax(Math.max(0, Number(e.target.value) || 0))}
-              className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+              className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
             />
           </div>
         </div>
 
         {isSending && (
-          <div className="rounded-xl border border-cyan-100 bg-cyan-50 p-3 space-y-2">
-            <div className="flex items-center gap-2 text-cyan-700">
+          <div className="rounded-xl border border-cyan-100 dark:border-cyan-900/50 bg-cyan-50 dark:bg-cyan-950/30 p-3 space-y-2">
+            <div className="flex items-center gap-2 text-cyan-700 dark:text-cyan-300">
               <Loader2 size={14} className="animate-spin" />
               <p className="text-xs font-black uppercase tracking-widest">
                 Aguardando envio {waitingSeconds > 0 ? `(${waitingSeconds}s)` : ''}
               </p>
             </div>
-            <div className="h-2 rounded-full bg-cyan-100 overflow-hidden">
+            <div className="h-2 rounded-full bg-cyan-100 dark:bg-cyan-950/40 overflow-hidden">
               <div
                 className="h-full bg-cyan-500 transition-all duration-300"
                 style={{ width: `${Math.min(100, Math.max(0, progressPct))}%` }}
@@ -386,7 +380,7 @@ const DisparoUnicoForm: React.FC = () => {
         )}
 
         <div className="flex items-center justify-between gap-3">
-          <p className={`text-sm font-semibold ${feedback ? 'text-cyan-700' : 'text-slate-500'}`}>
+          <p className={`text-sm font-semibold ${feedback ? 'text-cyan-700 dark:text-cyan-300' : 'text-slate-500 dark:text-zinc-400'}`}>
             {feedback || 'Configure e clique em processar envio.'}
           </p>
           <button
@@ -401,30 +395,30 @@ const DisparoUnicoForm: React.FC = () => {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-cyan-100 bg-white p-5 shadow-sm space-y-3">
-        <h3 className="text-lg font-black text-slate-900">Preview WhatsApp</h3>
+      <section className="rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 shadow-sm space-y-3">
+        <h3 className="text-lg font-black text-slate-900 dark:text-zinc-100">Preview WhatsApp</h3>
         <WhatsAppPreview clienteNome={clienteNome} mensagemCorpo={mensagemCorpo} horario={horaAtual} />
       </section>
       </div>
 
-      <section className="rounded-2xl border border-cyan-100 bg-white p-5 shadow-sm space-y-3">
-        <h3 className="text-lg font-black text-slate-900">Logs em tempo real</h3>
+      <section className="rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 shadow-sm space-y-3">
+        <h3 className="text-lg font-black text-slate-900 dark:text-zinc-100">Logs em tempo real</h3>
         {logs.length === 0 ? (
-          <p className="text-sm font-semibold text-slate-500">Nenhum envio processado ainda.</p>
+          <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400">Nenhum envio processado ainda.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-100 text-left">
-                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500">Nome</th>
-                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500">Status</th>
-                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500">Horário</th>
+                <tr className="border-b border-slate-100 dark:border-zinc-800 text-left">
+                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Nome</th>
+                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Status</th>
+                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Horário</th>
                 </tr>
               </thead>
               <tbody>
                 {logs.map((log) => (
-                  <tr key={log.id} className="border-b border-slate-100">
-                    <td className="py-2 pr-4 font-semibold text-slate-800">{log.nome}</td>
+                  <tr key={log.id} className="border-b border-slate-100 dark:border-zinc-800">
+                    <td className="py-2 pr-4 font-semibold text-slate-800 dark:text-zinc-200">{log.nome}</td>
                     <td className="py-2 pr-4">
                       <span
                         className={`px-2 py-1 rounded-full text-[11px] font-black ${
@@ -436,7 +430,7 @@ const DisparoUnicoForm: React.FC = () => {
                         {log.status}
                       </span>
                     </td>
-                    <td className="py-2 pr-4 font-semibold text-slate-600">
+                    <td className="py-2 pr-4 font-semibold text-slate-600 dark:text-zinc-400">
                       {log.horario.toLocaleString('pt-BR')}
                     </td>
                   </tr>

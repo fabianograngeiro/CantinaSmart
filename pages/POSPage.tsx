@@ -8,7 +8,7 @@ import {
   ArrowRight, Layers, LayoutDashboard,
   Building, TrendingUp, AlertTriangle, Package, Activity,
   ArrowUpRight, ArrowDownRight, Users, Flame, Percent, RefreshCw, Scale,
-  ArrowLeft, ChevronDown
+  ArrowLeft, ChevronDown, Plus
 } from 'lucide-react';
 import { ApiService } from '../services/api';
 import { Client, Product, SaleItem, PaymentMethod, PaymentEntry, SuspendedSale, Role, User as UserType, Enterprise, TransactionRecord, Plan } from '../types';
@@ -40,6 +40,18 @@ const WEEK_DAY_OPTIONS = [
 ];
 
 const MONTH_WEEK_HEADERS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'];
+const RESPONSIBLE_RELATION_OPTIONS = [
+  { value: 'PAIS', label: 'Pais' },
+  { value: 'AVOS', label: 'Avós' },
+  { value: 'TIOS', label: 'Tios' },
+  { value: 'TUTOR_LEGAL', label: 'Tutor legal' },
+];
+const STUDENT_GRADE_OPTIONS: Record<'INFANTIL' | 'FUNDAMENTAL' | 'MEDIO' | 'INTEGRAL', string[]> = {
+  INFANTIL: ['1', '2', '3', '4', '5'],
+  FUNDAMENTAL: ['1º ano', '2º ano', '3º ano', '4º ano', '5º ano', '6º ano', '7º ano', '8º ano', '9º ano'],
+  MEDIO: ['1º ano', '2º ano', '3º ano'],
+  INTEGRAL: [],
+};
 
 const weekDayToJsDay: Record<string, number> = {
   SEGUNDA: 1,
@@ -471,6 +483,60 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
   const [studentCreditPlanDates, setStudentCreditPlanDates] = useState<Record<string, string[]>>({});
   const [studentCreditOpenCalendarId, setStudentCreditOpenCalendarId] = useState<string | null>(null);
   const [studentCreditCalendarMonth, setStudentCreditCalendarMonth] = useState<Date>(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [isQuickClientModalOpen, setIsQuickClientModalOpen] = useState(false);
+  const [isCreatingQuickClient, setIsCreatingQuickClient] = useState(false);
+  const [quickClientForm, setQuickClientForm] = useState<{
+    type: 'ALUNO' | 'COLABORADOR';
+    name: string;
+    registrationId: string;
+    classType: '' | 'INFANTIL' | 'FUNDAMENTAL' | 'MEDIO' | 'INTEGRAL';
+    classGrade: string;
+    className: string;
+    dailyLimit: number;
+    restrictions: string;
+    phone: string;
+    countryCode: string;
+    parentName: string;
+    parentRelationship: 'PAIS' | 'AVOS' | 'TIOS' | 'TUTOR_LEGAL';
+    email: string;
+    cpf: string;
+    dietaryNotes: string;
+    hasRelatedStudent: boolean;
+    relatedStudentName: string;
+    relatedStudentRegistrationId: string;
+    relatedStudentClassType: '' | 'INFANTIL' | 'FUNDAMENTAL' | 'MEDIO' | 'INTEGRAL';
+    relatedStudentClassGrade: string;
+    relatedStudentDailyLimit: number;
+    relatedStudentRestrictions: string;
+    relatedStudentResponsibleType: 'PAIS' | 'AVOS' | 'TIOS' | 'TUTOR_LEGAL';
+  }>({
+    type: 'ALUNO',
+    name: '',
+    registrationId: '',
+    classType: '',
+    classGrade: '',
+    className: '',
+    dailyLimit: 0,
+    restrictions: '',
+    phone: '',
+    countryCode: '55',
+    parentName: '',
+    parentRelationship: 'PAIS',
+    email: '',
+    cpf: '',
+    dietaryNotes: '',
+    hasRelatedStudent: false,
+    relatedStudentName: '',
+    relatedStudentRegistrationId: '',
+    relatedStudentClassType: '',
+    relatedStudentClassGrade: '',
+    relatedStudentDailyLimit: 0,
+    relatedStudentRestrictions: '',
+    relatedStudentResponsibleType: 'PAIS',
+  });
+  const [quickResponsibleSourceMode, setQuickResponsibleSourceMode] = useState<'NEW' | 'COLABORADOR'>('NEW');
+  const [quickResponsibleCollaboratorSearch, setQuickResponsibleCollaboratorSearch] = useState('');
+  const [quickResponsibleCollaboratorId, setQuickResponsibleCollaboratorId] = useState<string | null>(null);
   
   const clientInputRef = useRef<HTMLInputElement>(null);
   const kgInputRef = useRef<HTMLInputElement>(null);
@@ -577,6 +643,211 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
     setTimeout(() => setLastScanSuccess(false), 2000);
   };
 
+  const openQuickClientModal = (prefilledName = '') => {
+    const normalizedName = String(prefilledName || '').trim();
+    setQuickClientForm({
+      type: 'ALUNO',
+      name: normalizedName,
+      registrationId: '',
+      classType: '',
+      classGrade: '',
+      className: '',
+      dailyLimit: 0,
+      restrictions: '',
+      phone: '',
+      countryCode: '55',
+      parentName: normalizedName ? `Responsável pelo(a) ${normalizedName}` : '',
+      parentRelationship: 'PAIS',
+      email: '',
+      cpf: '',
+      dietaryNotes: '',
+      hasRelatedStudent: false,
+      relatedStudentName: '',
+      relatedStudentRegistrationId: '',
+      relatedStudentClassType: '',
+      relatedStudentClassGrade: '',
+      relatedStudentDailyLimit: 0,
+      relatedStudentRestrictions: '',
+      relatedStudentResponsibleType: 'PAIS',
+    });
+    setQuickResponsibleSourceMode('NEW');
+    setQuickResponsibleCollaboratorSearch('');
+    setQuickResponsibleCollaboratorId(null);
+    setShowClientSuggestions(false);
+    setIsQuickClientModalOpen(true);
+  };
+
+  const closeQuickClientModal = () => {
+    if (isCreatingQuickClient) return;
+    setIsQuickClientModalOpen(false);
+  };
+
+  const normalizeBrazilPhone = (value: string) => {
+    const digits = String(value || '').replace(/\D/g, '');
+    return digits;
+  };
+  const splitPhoneByCountryCode = (rawPhone?: string, fallbackCode = '55') => {
+    const digits = String(rawPhone || '').replace(/\D/g, '');
+    if (!digits) return { countryCode: fallbackCode, localPhone: '' };
+    if (digits.startsWith('55') && digits.length > 10) {
+      return { countryCode: '55', localPhone: digits.slice(2) };
+    }
+    return { countryCode: fallbackCode, localPhone: digits };
+  };
+
+  const createQuickClient = async () => {
+    const normalizedName = String(quickClientForm.name || '').trim();
+    if (normalizedName.length < 2) {
+      alert('Informe o nome completo do cliente.');
+      return;
+    }
+
+    const registrationId = String(quickClientForm.registrationId || '').trim()
+      || `PDV${Date.now().toString().slice(-6)}`;
+    const normalizedCountryCode = String(quickClientForm.countryCode || '55').replace(/\D/g, '') || '55';
+    const selectedResponsiblePhoneParts = splitPhoneByCountryCode(selectedQuickResponsibleCollaborator?.phone || '');
+    const selectedResponsibleCountryCode = selectedResponsiblePhoneParts.countryCode || '55';
+    const selectedResponsibleLocalPhone = selectedResponsiblePhoneParts.localPhone || '';
+    const isStudentUsingCollaborator = quickClientForm.type === 'ALUNO' && quickResponsibleSourceMode === 'COLABORADOR' && Boolean(selectedQuickResponsibleCollaborator);
+    if (quickClientForm.type === 'ALUNO' && quickResponsibleSourceMode === 'COLABORADOR' && !selectedQuickResponsibleCollaborator) {
+      alert('Selecione um colaborador para vincular como responsável.');
+      return;
+    }
+    if (quickClientForm.type === 'ALUNO' && !String(quickClientForm.classType || '').trim()) {
+      alert('Para aluno, o nível de ensino é obrigatório.');
+      return;
+    }
+    if (
+      quickClientForm.type === 'ALUNO'
+      && String(quickClientForm.classType || '').trim() !== 'INTEGRAL'
+      && !String(quickClientForm.classGrade || '').trim()
+    ) {
+      alert('Para aluno, a série/ano é obrigatória.');
+      return;
+    }
+    const phoneCountryCodeToPersist = isStudentUsingCollaborator ? selectedResponsibleCountryCode : normalizedCountryCode;
+    const phoneLocalToPersist = isStudentUsingCollaborator ? selectedResponsibleLocalPhone : String(quickClientForm.phone || '');
+    const normalizedPhone = normalizeBrazilPhone(`${phoneCountryCodeToPersist}${phoneLocalToPersist}`);
+    if (quickClientForm.type === 'COLABORADOR' && normalizedPhone.length < 10) {
+      alert('Telefone é obrigatório para colaborador.');
+      return;
+    }
+    const normalizedParentName = String(quickClientForm.parentName || '').trim();
+    const normalizedEmail = String(quickClientForm.email || '').trim();
+    const normalizedCpf = String(quickClientForm.cpf || '').replace(/\D/g, '');
+    const selectedResponsibleEmail = String(selectedQuickResponsibleCollaborator?.email || (selectedQuickResponsibleCollaborator as any)?.parentEmail || '').trim();
+    const selectedResponsibleCpf = String((selectedQuickResponsibleCollaborator as any)?.cpf || (selectedQuickResponsibleCollaborator as any)?.parentCpf || '').replace(/\D/g, '');
+    const normalizedParentRelationship = String(quickClientForm.parentRelationship || 'PAIS').trim().toUpperCase();
+    if (quickClientForm.type === 'ALUNO' && quickResponsibleSourceMode === 'NEW' && normalizedParentName.length < 2) {
+      alert('Nome do responsável é obrigatório.');
+      return;
+    }
+    if (quickClientForm.type === 'ALUNO' && normalizedPhone.length < 10) {
+      alert('Telefone do responsável é obrigatório.');
+      return;
+    }
+    const parentName = quickClientForm.type === 'ALUNO'
+      ? (
+        isStudentUsingCollaborator
+          ? String(selectedQuickResponsibleCollaborator?.name || normalizedParentName || `Responsável pelo(a) ${normalizedName}`).trim()
+          : (normalizedParentName || `Responsável pelo(a) ${normalizedName}`)
+      )
+      : normalizedParentName;
+    const normalizedClassName =
+      quickClientForm.type === 'ALUNO'
+        ? [String(quickClientForm.classType || '').trim(), String(quickClientForm.classGrade || '').trim()]
+            .filter(Boolean)
+            .join(' - ')
+        : String(quickClientForm.className || '').trim();
+    const parsedRestrictions = String(quickClientForm.restrictions || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const parsedDailyLimit = Number(quickClientForm.dailyLimit || 0);
+    const hasRelatedStudent = quickClientForm.type === 'COLABORADOR';
+    const relatedStudentClass = [String(quickClientForm.relatedStudentClassType || '').trim(), String(quickClientForm.relatedStudentClassGrade || '').trim()]
+      .filter(Boolean)
+      .join(' - ');
+    const relatedStudentRestrictions = String(quickClientForm.relatedStudentRestrictions || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const relatedStudentData = hasRelatedStudent
+      ? {
+          name: String(quickClientForm.relatedStudentName || '').trim(),
+          registrationId: String(quickClientForm.relatedStudentRegistrationId || '').trim(),
+          class: relatedStudentClass,
+          classType: String(quickClientForm.relatedStudentClassType || '').trim(),
+          classGrade: String(quickClientForm.relatedStudentClassGrade || '').trim(),
+          dailyLimit: Number(quickClientForm.relatedStudentDailyLimit || 0),
+          restrictions: relatedStudentRestrictions,
+          responsibleType: quickClientForm.relatedStudentResponsibleType,
+        }
+      : null;
+    if (hasRelatedStudent && !String(quickClientForm.relatedStudentName || '').trim()) {
+      alert('Informe o nome do aluno relacionado.');
+      return;
+    }
+    if (hasRelatedStudent && !String(quickClientForm.relatedStudentClassType || '').trim()) {
+      alert('Informe o nível de ensino do aluno relacionado.');
+      return;
+    }
+    if (hasRelatedStudent && String(quickClientForm.relatedStudentClassType || '').trim() !== 'INTEGRAL' && !String(quickClientForm.relatedStudentClassGrade || '').trim()) {
+      alert('Informe a série/ano do aluno relacionado.');
+      return;
+    }
+
+    const payload = {
+      registrationId,
+      name: normalizedName,
+      type: quickClientForm.type,
+      class: normalizedClassName,
+      servicePlans: ['PREPAGO'],
+      selectedPlansConfig: [],
+      planCreditBalances: {},
+      balance: 0,
+      spentToday: 0,
+      isBlocked: false,
+      dailyLimit: Number.isFinite(parsedDailyLimit) ? Math.max(0, parsedDailyLimit) : 0,
+      restrictions: parsedRestrictions,
+      dietaryNotes: String(quickClientForm.dietaryNotes || '').trim(),
+      enterpriseId: activeEnterpriseId,
+      responsibleCollaboratorId: quickClientForm.type === 'ALUNO' && isStudentUsingCollaborator
+        ? String(selectedQuickResponsibleCollaborator?.id || '')
+        : '',
+      ...(quickClientForm.type === 'ALUNO' ? {
+        guardians: parentName ? [parentName] : [],
+        parentName,
+        parentRelationship: normalizedParentRelationship,
+        parentWhatsappCountryCode: phoneCountryCodeToPersist,
+        parentWhatsapp: normalizedPhone,
+        phone: normalizedPhone,
+        parentEmail: (isStudentUsingCollaborator ? selectedResponsibleEmail : normalizedEmail) || undefined,
+        parentCpf: (isStudentUsingCollaborator ? selectedResponsibleCpf : normalizedCpf) || undefined,
+        email: isStudentUsingCollaborator ? selectedResponsibleEmail : normalizedEmail,
+        cpf: isStudentUsingCollaborator ? selectedResponsibleCpf : normalizedCpf,
+      } : quickClientForm.type === 'COLABORADOR' ? {
+        phone: normalizedPhone,
+        email: normalizedEmail || undefined,
+        cpf: normalizedCpf || undefined,
+      } : {}),
+      ...(relatedStudentData ? { relatedStudent: relatedStudentData } : {}),
+    };
+
+    try {
+      setIsCreatingQuickClient(true);
+      const createdClient = await ApiService.createClient(payload);
+      setClients((prev) => [createdClient, ...prev]);
+      setIsQuickClientModalOpen(false);
+      selectClient(createdClient);
+    } catch (error) {
+      console.error('Erro ao criar cliente rápido no PDV:', error);
+      alert(error instanceof Error ? error.message : 'Não foi possível criar o cliente no PDV.');
+    } finally {
+      setIsCreatingQuickClient(false);
+    }
+  };
+
   const handleToggleFinalConsumer = () => {
     const newState = !isFinalConsumer;
     setIsFinalConsumer(newState);
@@ -594,6 +865,31 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
       normalizeSearchText(c.registrationId).includes(normalizedClientSearch)
     ).slice(0, 5);
   }, [clientSearch, clients]);
+  const quickResponsibleCollaborators = useMemo(() => {
+    return clients
+      .filter((client) => String(client.type || '').toUpperCase() === 'COLABORADOR')
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' }));
+  }, [clients]);
+  const selectedQuickResponsibleCollaborator = useMemo(
+    () => quickResponsibleCollaborators.find((client) => client.id === quickResponsibleCollaboratorId) || null,
+    [quickResponsibleCollaborators, quickResponsibleCollaboratorId]
+  );
+  const filteredQuickResponsibleCollaborators = useMemo(() => {
+    const query = normalizeSearchText(quickResponsibleCollaboratorSearch);
+    if (!query) return quickResponsibleCollaborators.slice(0, 8);
+    return quickResponsibleCollaborators
+      .filter((client) =>
+        normalizeSearchText(client.name).includes(query)
+        || normalizeSearchText(client.registrationId).includes(query)
+        || normalizeSearchText(client.class).includes(query)
+      )
+      .slice(0, 8);
+  }, [quickResponsibleCollaborators, quickResponsibleCollaboratorSearch]);
+
+  const shouldShowQuickCreateClientOption = useMemo(() => {
+    const normalizedClientSearch = normalizeSearchText(clientSearch);
+    return Boolean(normalizedClientSearch) && clientSuggestions.length === 0 && !isFinalConsumer;
+  }, [clientSearch, clientSuggestions.length, isFinalConsumer]);
 
   useEffect(() => {
     const handleGlobalClick = () => {
@@ -670,6 +966,49 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
       !normalizedSearch || normalizeSearchText(plan.name).includes(normalizedSearch)
     );
   }, [activeCategory, availablePlans, productSearch]);
+
+  const consumedPlanDatesByPlanId = useMemo(() => {
+    const result = new Map<string, Set<string>>();
+    if (!selectedClient) return result;
+
+    const normalizeTxDateKey = (raw: any) => {
+      const value = String(raw || '').trim();
+      if (!value) return '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+      const br4 = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (br4) return `${br4[3]}-${br4[2]}-${br4[1]}`;
+      const br2 = value.match(/^(\d{2})\/(\d{2})\/(\d{2})$/);
+      if (br2) return `20${br2[3]}-${br2[2]}-${br2[1]}`;
+      const parsed = new Date(value);
+      if (Number.isFinite(parsed.getTime())) return toDateKey(parsed);
+      return '';
+    };
+
+    posTransactions.forEach((tx: any) => {
+      if (String(tx?.clientId || '') !== String(selectedClient.id || '')) return;
+      if (String(tx?.type || '').toUpperCase() !== 'CONSUMO') return;
+      const statusRaw = String(tx?.status || '').toUpperCase();
+      if (statusRaw.includes('ESTORN')) return;
+      const descRaw = `${String(tx?.description || '')} ${String(tx?.item || '')}`.toUpperCase();
+      if (descRaw.includes('ESTORNO')) return;
+
+      const dateKey = normalizeTxDateKey(tx?.deliveryDate || tx?.scheduledDate || tx?.mealDate || tx?.date || tx?.timestamp);
+      if (!dateKey) return;
+
+      const txPlanId = String(tx?.planId || tx?.originPlanId || '').trim();
+      const txPlanName = String(tx?.plan || tx?.planName || '').trim().toUpperCase();
+      const matchById = availablePlans.find((plan) => String(plan.id) === txPlanId);
+      const matchByName = availablePlans.find((plan) => String(plan.name || '').trim().toUpperCase() === txPlanName);
+      const matchedPlanId = String(matchById?.id || matchByName?.id || '').trim();
+      if (!matchedPlanId) return;
+
+      const current = result.get(matchedPlanId) || new Set<string>();
+      current.add(dateKey);
+      result.set(matchedPlanId, current);
+    });
+
+    return result;
+  }, [posTransactions, selectedClient, availablePlans]);
 
   const getPlanUnitRemaining = (client: Client | null, plan: Plan) => {
     if (!client) return 0;
@@ -943,7 +1282,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
     setIsServiceActionModalOpen(true);
   };
 
-  const getDateKeysForWeekdayInStudentCreditMonth = (weekDayKey: string) => {
+  const getDateKeysForWeekdayInStudentCreditMonth = (weekDayKey: string, blockedDates?: Set<string>) => {
     const targetJsDay = weekDayToJsDay[weekDayKey];
     if (targetJsDay === undefined) return [];
 
@@ -954,7 +1293,10 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
 
     for (let day = 1; day <= totalDays; day += 1) {
       const date = new Date(year, month, day);
-      if (date.getDay() === targetJsDay) result.push(toDateKey(date));
+      if (date.getDay() !== targetJsDay) continue;
+      const key = toDateKey(date);
+      if (blockedDates?.has(key)) continue;
+      result.push(key);
     }
     return result;
   };
@@ -979,7 +1321,8 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
 
       setStudentCreditPlanDates(prevDates => {
         const currentDates = new Set(prevDates[planId] || []);
-        const weekdayDates = getDateKeysForWeekdayInStudentCreditMonth(dayKey);
+        const consumedDates = consumedPlanDatesByPlanId.get(planId) || new Set<string>();
+        const weekdayDates = getDateKeysForWeekdayInStudentCreditMonth(dayKey, consumedDates);
 
         if (hasDay) {
           weekdayDates.forEach(dateKey => currentDates.delete(dateKey));
@@ -1002,6 +1345,8 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
 
   const toggleStudentCreditPlanDate = (planId: string, date: Date) => {
     const dateKey = toDateKey(date);
+    const consumedDates = consumedPlanDatesByPlanId.get(planId) || new Set<string>();
+    if (consumedDates.has(dateKey)) return;
     setStudentCreditPlanDates(prev => {
       const current = prev[planId] || [];
       const exists = current.includes(dateKey);
@@ -1388,12 +1733,22 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
           || planFromId?.name
           || (item.name.match(/Crédito plano (.+?) \(/i)?.[1] || 'PLANO');
         const amount = Number((item.price * item.quantity) || 0);
+        const selectedDates = Array.from(new Set(item.selectedDates || []));
+        const consumedDatesForPlan = consumedPlanDatesByPlanId.get(parsedPlanId) || new Set<string>();
+        const todayDateKey = toDateKey(now);
+        const retroactiveConsumedDates = selectedDates
+          .filter((dateKey) => dateKey < todayDateKey && !consumedDatesForPlan.has(dateKey))
+          .sort();
+        const remainingDates = selectedDates
+          .filter((dateKey) => !retroactiveConsumedDates.includes(dateKey))
+          .sort();
         return {
           planId: parsedPlanId || `plan_virtual_${String(parsedPlanName).trim().toLowerCase().replace(/\s+/g, '_')}`,
           planName: String(parsedPlanName).trim() || 'PLANO',
           amount: Number.isFinite(amount) ? amount : 0,
           selectedDays: Array.from(new Set(item.selectedDays || [])),
-          selectedDates: Array.from(new Set(item.selectedDates || [])),
+          selectedDates: remainingDates,
+          retroactiveConsumedDates,
           planPrice: planFromId?.price || 0
         };
       });
@@ -1409,6 +1764,95 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
         const existingSelectedPlans = Array.isArray(clientData.selectedPlansConfig) ? [...clientData.selectedPlansConfig] : [];
         const existingServicePlans = Array.isArray(clientData.servicePlans) ? [...clientData.servicePlans] : [];
         const existingPlanCreditBalances = { ...(clientData.planCreditBalances || {}) };
+        const formatUnitsForItem = (value: number) => {
+          const safe = Number(value || 0);
+          if (!Number.isFinite(safe)) return '0';
+          const rounded = Math.round((safe + Number.EPSILON) * 100) / 100;
+          if (Math.abs(rounded - Math.trunc(rounded)) < 0.000001) return String(Math.trunc(rounded));
+          return rounded.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+        };
+        const parseUnitsProgressSnapshot = (raw: any) => {
+          const value = String(raw || '').trim();
+          const match = value.match(/^(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)$/);
+          if (!match) return null;
+          const consumed = Number(String(match[1]).replace(',', '.'));
+          const total = Number(String(match[2]).replace(',', '.'));
+          if (!Number.isFinite(consumed) || !Number.isFinite(total)) return null;
+          return {
+            consumed: Math.max(0, consumed),
+            total: Math.max(0, total)
+          };
+        };
+        const planCreditsWithPrevious = planCredits.map((planCredit) => {
+          const byId = existingPlanCreditBalances[planCredit.planId];
+          const byNameKey = Object.keys(existingPlanCreditBalances).find((key) =>
+            String(existingPlanCreditBalances[key]?.planName || '').trim().toUpperCase() === String(planCredit.planName || '').trim().toUpperCase()
+          );
+          const previousEntry = (byId || (byNameKey ? existingPlanCreditBalances[byNameKey] : undefined) || {}) as any;
+
+          const fallbackUnitPrice = Number(planCredit.planPrice || 0);
+          const previousFromTransactions = [...posTransactions]
+            .filter((tx: any) => {
+              if (String(tx?.clientId || '') !== String(selectedClient.id || '')) return false;
+              const txPlanId = String(tx?.planId || tx?.originPlanId || '').trim();
+              const txPlanName = String(tx?.plan || tx?.planName || '').trim().toUpperCase();
+              return (
+                (txPlanId && txPlanId === String(planCredit.planId || ''))
+                || (txPlanName && txPlanName === String(planCredit.planName || '').trim().toUpperCase())
+              );
+            })
+            .sort((a: any, b: any) => {
+              const aTs = new Date(a?.timestamp || `${a?.date || ''}T${a?.time || '00:00'}`).getTime();
+              const bTs = new Date(b?.timestamp || `${b?.date || ''}T${b?.time || '00:00'}`).getTime();
+              return (Number.isFinite(bTs) ? bTs : 0) - (Number.isFinite(aTs) ? aTs : 0);
+            })[0] || null;
+          const previousSnapshot = parseUnitsProgressSnapshot(
+            previousFromTransactions?.unitsProgressSnapshot
+            || previousFromTransactions?.unitsProgress
+          );
+
+          const previousBalanceValueFromEntry = Number(previousEntry?.balance || 0);
+          const previousBalanceUnitsRaw = Number(previousEntry?.balanceUnits);
+          const previousBalanceUnits = Number.isFinite(previousBalanceUnitsRaw)
+            ? Math.max(0, previousBalanceUnitsRaw)
+            : (
+              fallbackUnitPrice > 0
+                ? Math.max(0, previousBalanceValueFromEntry / fallbackUnitPrice)
+                : 0
+            );
+          const previousTotalUnitsRaw = Number(previousEntry?.totalUnits);
+          const previousConsumedUnitsRaw = Number(previousEntry?.consumedUnits);
+          const previousTotalUnitsFromEntry = Number.isFinite(previousTotalUnitsRaw)
+            ? Math.max(0, previousTotalUnitsRaw)
+            : (
+              Number.isFinite(previousConsumedUnitsRaw)
+                ? Math.max(0, previousConsumedUnitsRaw + previousBalanceUnits)
+                : previousBalanceUnits
+            );
+          const previousConsumedUnitsFromEntry = Number.isFinite(previousConsumedUnitsRaw)
+            ? Math.max(0, previousConsumedUnitsRaw)
+            : Math.max(0, previousTotalUnitsFromEntry - previousBalanceUnits);
+          const previousConsumedUnits = previousSnapshot
+            ? Math.max(0, previousSnapshot.consumed)
+            : previousConsumedUnitsFromEntry;
+          const previousTotalUnits = previousSnapshot
+            ? Math.max(previousConsumedUnits, previousSnapshot.total)
+            : previousTotalUnitsFromEntry;
+          const previousBalanceUnitsFromProgress = Math.max(0, previousTotalUnits - previousConsumedUnits);
+          const previousBalanceValue = previousBalanceUnitsFromProgress > 0 && fallbackUnitPrice > 0
+            ? Number((previousBalanceUnitsFromProgress * fallbackUnitPrice).toFixed(2))
+            : previousBalanceValueFromEntry;
+          const safeProgressTotal = Math.max(previousTotalUnits, previousConsumedUnits);
+          const hasPreviousData = safeProgressTotal > 0.0001 || previousBalanceValue > 0.0001;
+          const previousSummary = hasPreviousData
+            ? `Anterior ${formatUnitsForItem(previousConsumedUnits)}/${formatUnitsForItem(safeProgressTotal)} • Saldo R$ ${formatCurrencyBRL(previousBalanceValue)}`
+            : '';
+
+          return {
+            ...planCredit,
+            previousSummary
+          };
+        });
 
         const upsertPlanConfig = (planCredit: {
           planId: string;
@@ -1416,6 +1860,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
           amount: number;
           selectedDays: string[];
           selectedDates: string[];
+          retroactiveConsumedDates: string[];
           planPrice: number;
         }) => {
           if (!planCredit.planName) return;
@@ -1459,17 +1904,22 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
           }
 
           const currentBalanceEntry = existingPlanCreditBalances[planCredit.planId] || {};
-          const nextPlanBalance = Number(currentBalanceEntry.balance || 0) + planCredit.amount;
+          const retroactiveConsumedValue = Number(
+            (Math.max(0, planCredit.retroactiveConsumedDates.length) * Number(planCredit.planPrice || 0)).toFixed(2)
+          );
+          const nextPlanBalance = Number(currentBalanceEntry.balance || 0) + planCredit.amount - retroactiveConsumedValue;
           existingPlanCreditBalances[planCredit.planId] = {
             ...currentBalanceEntry,
             planId: planCredit.planId,
             planName: planCredit.planName,
-            balance: Number.isFinite(nextPlanBalance) ? Number(nextPlanBalance.toFixed(2)) : Number(currentBalanceEntry.balance || 0),
+            balance: Number.isFinite(nextPlanBalance)
+              ? Number(Math.max(0, nextPlanBalance).toFixed(2))
+              : Number(currentBalanceEntry.balance || 0),
             updatedAt: now.toISOString()
           };
         };
 
-        planCredits.forEach(upsertPlanConfig);
+        planCreditsWithPrevious.forEach(upsertPlanConfig);
 
         const creditedClient = await ApiService.updateClient(selectedClient.id, {
           balance: Number(((updatedSelectedClient?.balance || 0) + freeCantinaCreditTotal).toFixed(2)),
@@ -1505,15 +1955,15 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
           createdTransactions.push(createdTx);
         }
 
-        if (planCredits.length > 0) {
-          const createdPlanTx = await Promise.all(planCredits.map((planCredit) => ApiService.createTransaction({
+        if (planCreditsWithPrevious.length > 0) {
+          const createdPlanTx = await Promise.all(planCreditsWithPrevious.map((planCredit) => ApiService.createTransaction({
             clientId: selectedClient.id,
             clientName: selectedClient.name,
             enterpriseId: activeEnterpriseId,
             type: 'CREDIT',
             amount: Number(planCredit.amount.toFixed(2)),
             description: `Recarga de plano ${planCredit.planName} via PDV`,
-            item: `Crédito plano ${planCredit.planName}`,
+            item: `Crédito plano ${planCredit.planName}${planCredit.previousSummary ? ` • ${planCredit.previousSummary}` : ''}`,
             plan: planCredit.planName,
             paymentMethod: creditMethod,
             method: creditMethod,
@@ -1526,6 +1976,39 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
             selectedDays: planCredit.selectedDays
           })));
           createdTransactions.push(...createdPlanTx);
+
+          const autoPastConsumptionTxPromises = planCreditsWithPrevious.flatMap((planCredit) => {
+            if (!Array.isArray(planCredit.retroactiveConsumedDates) || planCredit.retroactiveConsumedDates.length === 0) {
+              return [];
+            }
+            return planCredit.retroactiveConsumedDates.map((referenceDateKey, index) => {
+              const consumeTimestamp = new Date(now.getTime() + (index + 1) * 1000);
+              return ApiService.createTransaction({
+                clientId: selectedClient.id,
+                clientName: selectedClient.name,
+                enterpriseId: activeEnterpriseId,
+                type: 'CONSUMO',
+                amount: Number((planCredit.planPrice || 0).toFixed(2)),
+                total: 0,
+                description: `Baixa retroativa automática do plano ${planCredit.planName} (ref. ${referenceDateKey})`,
+                item: `${planCredit.planName} • ref. ${referenceDateKey}`,
+                plan: planCredit.planName,
+                planId: planCredit.planId,
+                paymentMethod: 'PLANO',
+                method: 'PLANO',
+                executionSource: 'SISTEMA',
+                timestamp: consumeTimestamp.toISOString(),
+                date: toDateKey(now),
+                deliveryDate: referenceDateKey,
+                time: consumeTimestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+                status: 'CONCLUIDA'
+              });
+            });
+          });
+          if (autoPastConsumptionTxPromises.length > 0) {
+            const autoPastConsumptionTx = await Promise.all(autoPastConsumptionTxPromises);
+            createdTransactions.push(...autoPastConsumptionTx);
+          }
         }
       }
 
@@ -2050,6 +2533,11 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                   if (e.key === 'Enter' && clientSuggestions.length > 0) {
                     e.preventDefault();
                     selectClient(clientSuggestions[0]);
+                  } else if (e.key === 'Enter' && shouldShowQuickCreateClientOption) {
+                    e.preventDefault();
+                    openQuickClientModal(clientSearch);
+                  } else if (e.key === 'Escape') {
+                    setShowClientSuggestions(false);
                   }
                 }}
               />
@@ -2057,7 +2545,7 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                  <QrCode size={20} className={lastScanSuccess ? 'text-green-500' : 'text-gray-300'} />
               </div>
 
-              {showClientSuggestions && clientSuggestions.length > 0 && (
+              {showClientSuggestions && (clientSuggestions.length > 0 || shouldShowQuickCreateClientOption) && (
                 <div className="absolute top-full left-0 w-full bg-white mt-1 border rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
                    {clientSuggestions.map(client => (
                      <button 
@@ -2080,6 +2568,22 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                         <ChevronRight className="ml-auto text-gray-300" size={16} />
                      </button>
                    ))}
+                   {shouldShowQuickCreateClientOption && (
+                     <button
+                       type="button"
+                       onClick={() => openQuickClientModal(clientSearch)}
+                       className="w-full flex items-center gap-2.5 p-2.5 hover:bg-emerald-50 text-left border-t border-gray-100 transition-colors"
+                     >
+                       <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                         <Plus size={16} />
+                       </div>
+                       <div>
+                         <p className="text-xs font-black text-emerald-700">Adicionar novo cliente</p>
+                         <p className="text-[10px] text-emerald-600/80 font-bold uppercase tracking-widest">Cadastro rápido no PDV</p>
+                       </div>
+                       <ChevronRight className="ml-auto text-emerald-400" size={16} />
+                     </button>
+                   )}
                 </div>
               )}
             </div>
@@ -2100,8 +2604,15 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
-             <div className="relative flex-1">
+          <div className="flex flex-col gap-2.5 pt-1">
+             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+               {categories.map(cat => (
+                 <button key={cat} onClick={() => setActiveCategory(cat)} className={`px-3 py-1.5 rounded-lg text-[10px] font-black tracking-widest uppercase transition-all ${activeCategory === cat ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                   {cat}
+                 </button>
+               ))}
+             </div>
+             <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                 <input 
                   type="text"
@@ -2110,13 +2621,6 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                   value={productSearch}
                   onChange={(e) => setProductSearch(e.target.value)}
                 />
-             </div>
-             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-               {categories.map(cat => (
-                 <button key={cat} onClick={() => setActiveCategory(cat)} className={`px-3 py-1.5 rounded-lg text-[10px] font-black tracking-widest uppercase transition-all ${activeCategory === cat ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                   {cat}
-                 </button>
-               ))}
              </div>
           </div>
         </div>
@@ -2631,6 +3135,494 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
         </div>
       </div>
 
+      {isQuickClientModalOpen && (
+        <div className="fixed inset-0 z-[102] flex items-center justify-center p-4 overflow-y-auto">
+          <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-sm animate-in fade-in" onClick={closeQuickClientModal}></div>
+          <div className="relative my-6 w-full max-w-2xl max-h-[92vh] bg-white rounded-3xl shadow-2xl overflow-y-auto animate-in zoom-in-95">
+            <div className="bg-emerald-600 p-6 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="bg-white/20 p-2 rounded-xl">
+                  <Plus size={22} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-black">Novo Cliente no PDV</h2>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-100">
+                    Cadastro rápido sem sair da venda
+                  </p>
+                </div>
+              </div>
+              <button onClick={closeQuickClientModal} disabled={isCreatingQuickClient} className="p-1">
+                <X size={22} />
+              </button>
+            </div>
+
+            <div className="p-6 sm:p-8 space-y-5">
+              <div>
+                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Tipo de cliente</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      {
+                        setQuickResponsibleSourceMode('NEW');
+                        setQuickResponsibleCollaboratorSearch('');
+                        setQuickResponsibleCollaboratorId(null);
+                        setQuickClientForm((prev) => ({
+                          ...prev,
+                          type: 'ALUNO',
+                          parentName: prev.parentName || (prev.name ? `Responsável pelo(a) ${prev.name}` : ''),
+                        }));
+                      }
+                    }
+                    className={`h-11 rounded-xl border-2 text-xs font-black uppercase tracking-widest transition-all ${
+                      quickClientForm.type === 'ALUNO'
+                        ? 'bg-indigo-600 border-indigo-600 text-white'
+                        : 'bg-white border-gray-200 text-gray-600 hover:border-indigo-300'
+                    }`}
+                  >
+                    Aluno
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuickResponsibleSourceMode('NEW');
+                      setQuickResponsibleCollaboratorSearch('');
+                      setQuickResponsibleCollaboratorId(null);
+                      setQuickClientForm((prev) => ({ ...prev, type: 'COLABORADOR' }));
+                    }}
+                    className={`h-11 rounded-xl border-2 text-xs font-black uppercase tracking-widest transition-all ${
+                      quickClientForm.type === 'COLABORADOR'
+                        ? 'bg-indigo-600 border-indigo-600 text-white'
+                        : 'bg-white border-gray-200 text-gray-600 hover:border-indigo-300'
+                    }`}
+                  >
+                    Colaborador
+                  </button>
+                </div>
+              </div>
+
+              <section className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600 mb-3">
+                  {quickClientForm.type === 'ALUNO' ? 'Dados do Aluno' : 'Dados do Colaborador'}
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="md:col-span-2">
+                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Nome completo</label>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={quickClientForm.name}
+                      onChange={(e) => {
+                        const nextName = e.target.value;
+                        setQuickClientForm((prev) => {
+                          const isAutoParentName = !prev.parentName || prev.parentName.startsWith('Responsável pelo(a) ');
+                          return {
+                            ...prev,
+                            name: nextName,
+                            parentName: isAutoParentName
+                              ? (nextName.trim() ? `Responsável pelo(a) ${nextName.trim()}` : '')
+                              : prev.parentName,
+                          };
+                        });
+                      }}
+                      placeholder={quickClientForm.type === 'ALUNO' ? 'NOME DO ALUNO' : 'NOME DO COLABORADOR'}
+                      className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Matrícula / Registro</label>
+                    <input
+                      type="text"
+                      value={quickClientForm.registrationId}
+                      onChange={(e) => setQuickClientForm((prev) => ({ ...prev, registrationId: e.target.value }))}
+                      placeholder="Automático se vazio"
+                      className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
+                    />
+                  </div>
+
+                  {quickClientForm.type === 'ALUNO' ? (
+                    <>
+                      <div>
+                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Nível de ensino</label>
+                        <select
+                          value={quickClientForm.classType}
+                          onChange={(e) =>
+                            setQuickClientForm((prev) => ({
+                              ...prev,
+                              classType: e.target.value as '' | 'INFANTIL' | 'FUNDAMENTAL' | 'MEDIO' | 'INTEGRAL',
+                              classGrade: '',
+                            }))
+                          }
+                          className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
+                        >
+                          <option value="">Selecione o nível...</option>
+                          <option value="INFANTIL">Educação Infantil</option>
+                          <option value="FUNDAMENTAL">Ensino Fundamental</option>
+                          <option value="MEDIO">Ensino Médio</option>
+                          <option value="INTEGRAL">Integral</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Série / Ano</label>
+                        <select
+                          value={quickClientForm.classGrade}
+                          onChange={(e) => setQuickClientForm((prev) => ({ ...prev, classGrade: e.target.value }))}
+                          className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
+                        >
+                          <option value="">Selecione a série...</option>
+                          {(quickClientForm.classType ? STUDENT_GRADE_OPTIONS[quickClientForm.classType] : []).map((grade) => (
+                            <option key={grade} value={grade}>{grade}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Limite diário (R$)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={quickClientForm.dailyLimit}
+                          onChange={(e) => setQuickClientForm((prev) => ({ ...prev, dailyLimit: Number(e.target.value || 0) }))}
+                          className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Restrições alimentares</label>
+                        <input
+                          type="text"
+                          value={quickClientForm.restrictions}
+                          onChange={(e) => setQuickClientForm((prev) => ({ ...prev, restrictions: e.target.value }))}
+                          placeholder="Ex: Lactose, Glúten, Amendoim"
+                          className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="md:col-span-2">
+                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Setor / Cargo</label>
+                        <input
+                          type="text"
+                          value={quickClientForm.className}
+                          onChange={(e) => setQuickClientForm((prev) => ({ ...prev, className: e.target.value }))}
+                          placeholder="Ex.: Cozinha / Auxiliar"
+                          className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Telefone do colaborador *</label>
+                        <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-2">
+                          <input
+                            type="text"
+                            value={quickClientForm.countryCode}
+                            onChange={(e) => setQuickClientForm((prev) => ({ ...prev, countryCode: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
+                            placeholder="55"
+                            className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
+                          />
+                          <input
+                            type="text"
+                            value={quickClientForm.phone}
+                            onChange={(e) => setQuickClientForm((prev) => ({ ...prev, phone: e.target.value }))}
+                            placeholder="DDD + número"
+                            className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">E-mail do colaborador</label>
+                        <input
+                          type="email"
+                          value={quickClientForm.email}
+                          onChange={(e) => setQuickClientForm((prev) => ({ ...prev, email: e.target.value }))}
+                          placeholder="nome@exemplo.com"
+                          className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">CPF do colaborador</label>
+                        <input
+                          type="text"
+                          value={quickClientForm.cpf}
+                          onChange={(e) => setQuickClientForm((prev) => ({ ...prev, cpf: e.target.value }))}
+                          placeholder="000.000.000-00"
+                          className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <div className="md:col-span-2">
+                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Observações alimentares</label>
+                    <input
+                      type="text"
+                      value={quickClientForm.dietaryNotes}
+                      onChange={(e) => setQuickClientForm((prev) => ({ ...prev, dietaryNotes: e.target.value }))}
+                      placeholder="Observações gerais"
+                      className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
+                    />
+                  </div>
+                </div>
+              </section>
+
+              {quickClientForm.type === 'ALUNO' ? (
+                <section className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-4">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 mb-3">Dados do Responsável</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Origem do responsável</label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setQuickResponsibleSourceMode('NEW')}
+                          className={`px-3 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
+                            quickResponsibleSourceMode === 'NEW'
+                              ? 'bg-emerald-600 border-emerald-600 text-white'
+                              : 'bg-white border-gray-200 text-gray-600 hover:border-emerald-300'
+                          }`}
+                        >
+                          Cadastrar Novo Responsável
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQuickResponsibleSourceMode('COLABORADOR')}
+                          className={`px-3 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
+                            quickResponsibleSourceMode === 'COLABORADOR'
+                              ? 'bg-indigo-600 border-indigo-600 text-white'
+                              : 'bg-white border-gray-200 text-gray-600 hover:border-indigo-300'
+                          }`}
+                        >
+                          Inserir Colaborador
+                        </button>
+                      </div>
+                    </div>
+
+                    {quickResponsibleSourceMode === 'COLABORADOR' ? (
+                      <>
+                        <div className="md:col-span-2">
+                          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Buscar colaborador</label>
+                          <input
+                            type="text"
+                            value={quickResponsibleCollaboratorSearch}
+                            onChange={(e) => {
+                              setQuickResponsibleCollaboratorSearch(e.target.value);
+                              setQuickResponsibleCollaboratorId(null);
+                            }}
+                            placeholder="Digite nome, matrícula ou setor do colaborador"
+                            className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
+                          />
+                        </div>
+                        <div className="md:col-span-2 max-h-40 overflow-y-auto rounded-xl border border-gray-200 bg-white">
+                          {filteredQuickResponsibleCollaborators.length === 0 ? (
+                            <p className="px-4 py-3 text-xs font-semibold text-gray-500">Nenhum colaborador encontrado.</p>
+                          ) : (
+                            filteredQuickResponsibleCollaborators.map((collaborator) => {
+                              const isSelected = quickResponsibleCollaboratorId === collaborator.id;
+                              return (
+                                <button
+                                  type="button"
+                                  key={collaborator.id}
+                                  onClick={() => {
+                                    setQuickResponsibleCollaboratorId(collaborator.id);
+                                    setQuickResponsibleCollaboratorSearch(String(collaborator.name || ''));
+                                  }}
+                                  className={`w-full px-4 py-3 text-left border-b border-gray-100 last:border-b-0 transition-colors ${
+                                    isSelected ? 'bg-indigo-100/70' : 'hover:bg-indigo-50'
+                                  }`}
+                                >
+                                  <p className="text-sm font-black text-gray-800">{collaborator.name}</p>
+                                  <p className="text-[11px] font-semibold text-gray-500">
+                                    {collaborator.registrationId ? `#${collaborator.registrationId}` : 'Sem matrícula'} • {collaborator.class || 'Sem setor'}
+                                  </p>
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Nome do responsável</label>
+                          <input
+                            type="text"
+                            value={quickClientForm.parentName}
+                            onChange={(e) => setQuickClientForm((prev) => ({ ...prev, parentName: e.target.value }))}
+                            placeholder="Nome completo do responsável"
+                            className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-emerald-400 font-bold text-sm"
+                          />
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Telefone do responsável</label>
+                          <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-2">
+                            <input
+                              type="text"
+                              value={quickClientForm.countryCode}
+                              onChange={(e) => setQuickClientForm((prev) => ({ ...prev, countryCode: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
+                              placeholder="55"
+                              className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-emerald-400 font-bold text-sm"
+                            />
+                            <input
+                              type="text"
+                              value={quickClientForm.phone}
+                              onChange={(e) => setQuickClientForm((prev) => ({ ...prev, phone: e.target.value }))}
+                              placeholder="DDD + número"
+                              className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-emerald-400 font-bold text-sm"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">E-mail do responsável</label>
+                          <input
+                            type="email"
+                            value={quickClientForm.email}
+                            onChange={(e) => setQuickClientForm((prev) => ({ ...prev, email: e.target.value }))}
+                            placeholder="nome@exemplo.com"
+                            className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-emerald-400 font-bold text-sm"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">CPF do responsável</label>
+                          <input
+                            type="text"
+                            value={quickClientForm.cpf}
+                            onChange={(e) => setQuickClientForm((prev) => ({ ...prev, cpf: e.target.value }))}
+                            placeholder="000.000.000-00"
+                            className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-emerald-400 font-bold text-sm"
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    <div>
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Tipo de responsável</label>
+                      <select
+                        value={quickClientForm.parentRelationship}
+                        onChange={(e) =>
+                          setQuickClientForm((prev) => ({
+                            ...prev,
+                            parentRelationship: e.target.value as 'PAIS' | 'AVOS' | 'TIOS' | 'TUTOR_LEGAL',
+                          }))
+                        }
+                        className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-emerald-400 font-bold text-sm"
+                      >
+                        {RESPONSIBLE_RELATION_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </section>
+              ) : (
+                <section className="rounded-2xl border border-cyan-100 bg-cyan-50/40 p-4">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-cyan-700 mb-3">Cadastrar Aluno Relacionado</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Nome do aluno relacionado</label>
+                      <input
+                        type="text"
+                        value={quickClientForm.relatedStudentName}
+                        onChange={(e) => setQuickClientForm((prev) => ({ ...prev, relatedStudentName: e.target.value }))}
+                        placeholder="Nome completo do aluno"
+                        className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-cyan-400 font-bold text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Matrícula do aluno</label>
+                      <input
+                        type="text"
+                        value={quickClientForm.relatedStudentRegistrationId}
+                        onChange={(e) => setQuickClientForm((prev) => ({ ...prev, relatedStudentRegistrationId: e.target.value }))}
+                        placeholder="Opcional"
+                        className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-cyan-400 font-bold text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Tipo de responsável</label>
+                      <select
+                        value={quickClientForm.relatedStudentResponsibleType}
+                        onChange={(e) => setQuickClientForm((prev) => ({ ...prev, relatedStudentResponsibleType: e.target.value as 'PAIS' | 'AVOS' | 'TIOS' | 'TUTOR_LEGAL' }))}
+                        className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-cyan-400 font-bold text-sm"
+                      >
+                        {RESPONSIBLE_RELATION_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Nível de ensino</label>
+                      <select
+                        value={quickClientForm.relatedStudentClassType}
+                        onChange={(e) => setQuickClientForm((prev) => ({ ...prev, relatedStudentClassType: e.target.value as '' | 'INFANTIL' | 'FUNDAMENTAL' | 'MEDIO' | 'INTEGRAL', relatedStudentClassGrade: '' }))}
+                        className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-cyan-400 font-bold text-sm"
+                      >
+                        <option value="">Selecione o nível...</option>
+                        <option value="INFANTIL">Educação Infantil</option>
+                        <option value="FUNDAMENTAL">Ensino Fundamental</option>
+                        <option value="MEDIO">Ensino Médio</option>
+                        <option value="INTEGRAL">Integral</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Série / Ano</label>
+                      <select
+                        value={quickClientForm.relatedStudentClassGrade}
+                        onChange={(e) => setQuickClientForm((prev) => ({ ...prev, relatedStudentClassGrade: e.target.value }))}
+                        className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-cyan-400 font-bold text-sm"
+                      >
+                        <option value="">Selecione a série...</option>
+                        {(quickClientForm.relatedStudentClassType ? STUDENT_GRADE_OPTIONS[quickClientForm.relatedStudentClassType] : []).map((grade) => (
+                          <option key={grade} value={grade}>{grade}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Limite diário (R$)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={quickClientForm.relatedStudentDailyLimit}
+                        onChange={(e) => setQuickClientForm((prev) => ({ ...prev, relatedStudentDailyLimit: Number(e.target.value || 0) }))}
+                        className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-cyan-400 font-bold text-sm"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Restrições alimentares</label>
+                      <input
+                        type="text"
+                        value={quickClientForm.relatedStudentRestrictions}
+                        onChange={(e) => setQuickClientForm((prev) => ({ ...prev, relatedStudentRestrictions: e.target.value }))}
+                        placeholder="Ex: Lactose, Glúten, Amendoim"
+                        className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-cyan-400 font-bold text-sm"
+                      />
+                    </div>
+                  </div>
+                </section>
+              )}
+            </div>
+
+            <div className="p-6 bg-gray-50 border-t flex gap-3">
+              <button
+                onClick={closeQuickClientModal}
+                disabled={isCreatingQuickClient}
+                className="flex-1 py-3 rounded-2xl border-2 border-gray-200 text-gray-600 font-black uppercase tracking-widest text-xs disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={createQuickClient}
+                disabled={isCreatingQuickClient || String(quickClientForm.name || '').trim().length < 2}
+                className="flex-1 py-3 rounded-2xl bg-emerald-600 text-white font-black uppercase tracking-widest text-xs hover:bg-emerald-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                {isCreatingQuickClient ? 'Salvando...' : 'Cadastrar e selecionar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL DE PAGAMENTO EM DINHEIRO (TROCO) */}
       {isKgModalOpen && kgProduct && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -2806,12 +3798,21 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                                     <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mb-4">
                                       {WEEK_DAY_OPTIONS.map(day => {
                                         const active = studentCreditPlanDays[plan.id]?.includes(day.key);
+                                        const consumedDatesForPlan = consumedPlanDatesByPlanId.get(plan.id) || new Set<string>();
+                                        const selectableWeekdayDates = getDateKeysForWeekdayInStudentCreditMonth(day.key, consumedDatesForPlan);
+                                        const isWeekdayDisabled = selectableWeekdayDates.length === 0;
                                         return (
                                           <button
                                             type="button"
                                             key={`${plan.id}-pdv-${day.key}`}
+                                            disabled={isWeekdayDisabled}
                                             onClick={() => toggleStudentCreditPlanDay(plan.id, day.key)}
-                                            className={`w-full h-11 rounded-xl text-[10px] font-black uppercase tracking-wider border-2 transition-all flex items-center justify-center text-center ${active ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-indigo-100 text-indigo-500 hover:border-indigo-300'}`}
+                                            className={`w-full h-11 rounded-xl text-[10px] font-black uppercase tracking-wider border-2 transition-all flex items-center justify-center text-center ${
+                                              isWeekdayDisabled
+                                                ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+                                                : (active ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-indigo-100 text-indigo-500 hover:border-indigo-300')
+                                            }`}
+                                            title={isWeekdayDisabled ? 'Todos os dias deste período já estão entregues' : ''}
                                           >
                                             {day.label}
                                           </button>
@@ -2869,14 +3870,34 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                                           }
                                           const dateKey = toDateKey(dateCell);
                                           const isSelectedDate = (studentCreditPlanDates[plan.id] || []).includes(dateKey);
+                                          const consumedDatesForPlan = consumedPlanDatesByPlanId.get(plan.id) || new Set<string>();
+                                          const isDeliveredDate = consumedDatesForPlan.has(dateKey);
                                           return (
                                             <button
                                               type="button"
                                               key={`${plan.id}-pdv-${dateKey}`}
+                                              disabled={isDeliveredDate}
                                               onClick={() => toggleStudentCreditPlanDate(plan.id, dateCell)}
-                                              className={`w-full h-9 rounded-lg border text-[10px] font-black transition-all flex items-center justify-center text-center ${isSelectedDate ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300'}`}
+                                              className={`relative w-full h-9 rounded-lg border text-[10px] font-black transition-all flex items-center justify-center text-center ${
+                                                isDeliveredDate
+                                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700 cursor-not-allowed'
+                                                  : (isSelectedDate ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300')
+                                              }`}
+                                              title={isDeliveredDate ? 'Entregue' : ''}
                                             >
-                                              {dateCell.getDate()}
+                                              {isDeliveredDate ? (
+                                                <span className="flex flex-col items-center leading-none">
+                                                  <span>{dateCell.getDate()}</span>
+                                                  <span className="text-[7px] font-black uppercase tracking-wider">Entregue</span>
+                                                </span>
+                                              ) : (
+                                                dateCell.getDate()
+                                              )}
+                                              {isDeliveredDate && (
+                                                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 text-white text-[9px] leading-none flex items-center justify-center">
+                                                  ✓
+                                                </span>
+                                              )}
                                             </button>
                                           );
                                         })}

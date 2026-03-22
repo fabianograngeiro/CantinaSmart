@@ -375,7 +375,9 @@ router.get('/qr', async (_req: Request, res: Response) => {
     sessionName: snapshot.sessionName,
     startDate: snapshot.startDate,
     endDate: snapshot.endDate,
-    syncFullHistory: snapshot.syncFullHistory
+    syncFullHistory: snapshot.syncFullHistory,
+    safeSyncMode: snapshot.safeSyncMode,
+    syncProgress: snapshot.syncProgress
   });
 });
 
@@ -385,12 +387,14 @@ router.post('/start', async (_req: Request, res: Response) => {
   const startDate = String(_req.body?.startDate || '').trim();
   const endDate = String(_req.body?.endDate || '').trim();
   const syncFullHistory = Boolean(_req.body?.syncFullHistory);
+  const safeSyncMode = _req.body?.safeSyncMode !== false;
   const snapshot = await whatsappSession.start({
     forceNewSession,
     sessionName,
     startDate,
     endDate,
-    syncFullHistory
+    syncFullHistory,
+    safeSyncMode
   });
   res.json({
     success: true,

@@ -14,7 +14,7 @@ const CentralDisparos: React.FC<CentralDisparosProps> = ({ activeEnterprise }) =
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-cyan-100 bg-white p-4">
+      <div className="rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -22,7 +22,7 @@ const CentralDisparos: React.FC<CentralDisparosProps> = ({ activeEnterprise }) =
             className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest ${
               activeSubTab === 'DISPARO_UNICO'
                 ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                : 'bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700'
             }`}
           >
             Disparo Único
@@ -33,7 +33,7 @@ const CentralDisparos: React.FC<CentralDisparosProps> = ({ activeEnterprise }) =
             className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest ${
               activeSubTab === 'DISPARO_MASSA'
                 ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                : 'bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700'
             }`}
           >
             Disparo em Massa

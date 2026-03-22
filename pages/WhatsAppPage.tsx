@@ -814,9 +814,16 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const [newChatMode, setNewChatMode] = useState<'AGENDA' | 'NEW_CONTACT'>('AGENDA');
   const [agendaSearch, setAgendaSearch] = useState('');
   const [selectedAgendaClientId, setSelectedAgendaClientId] = useState<string | null>(null);
+  const [newChatType, setNewChatType] = useState<'ALUNO' | 'RESPONSAVEL' | 'COLABORADOR'>('ALUNO');
   const [newChatName, setNewChatName] = useState('');
+  const [newChatRegistrationId, setNewChatRegistrationId] = useState('');
+  const [newChatClassName, setNewChatClassName] = useState('');
   const [newChatCountryCode, setNewChatCountryCode] = useState('55');
   const [newChatPhone, setNewChatPhone] = useState('');
+  const [newChatEmail, setNewChatEmail] = useState('');
+  const [newChatCpf, setNewChatCpf] = useState('');
+  const [newChatResponsibleName, setNewChatResponsibleName] = useState('');
+  const [newChatResponsibleType, setNewChatResponsibleType] = useState<'PAIS' | 'AVOS' | 'TIOS' | 'TUTOR_LEGAL'>('PAIS');
   const [isSavingNewContact, setIsSavingNewContact] = useState(false);
   const [signatureEnabled, setSignatureEnabled] = useState(false);
   const [signatureName, setSignatureName] = useState('');
@@ -4591,6 +4598,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
   const handleReply = async () => {
     if (!selectedChatId) return;
+    if (!status.connected) {
+      setFeedback('Conecte o WhatsApp na aba QR CODE para enviar mensagens.');
+      return;
+    }
     if (!chatReply.trim() && !chatAttachment) return;
     if (isSendingChatRef.current) return;
 
@@ -4741,6 +4752,12 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   };
 
   const handleCreateDraftChat = async () => {
+    if (!status.connected) {
+      setFeedback('Para abrir uma nova conversa, conecte o WhatsApp na aba QR CODE.');
+      setActiveTab('SESSION_QR');
+      return;
+    }
+
     if (newChatMode === 'AGENDA') {
       const selected = agendaClients.find((entry) => entry.client.id === selectedAgendaClientId);
       if (!selected || !selected.phone) {
@@ -4762,6 +4779,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     const normalizedPhone = normalizePhone(newChatPhone);
     const fullPhone = `${normalizedCountry}${normalizedPhone}`;
     const contactName = newChatName.trim();
+    const registrationId = String(newChatRegistrationId || '').trim() || `WA${Date.now()}`;
+    const className = String(newChatClassName || '').trim();
+    const contactEmail = String(newChatEmail || '').trim();
+    const contactCpf = String(newChatCpf || '').replace(/\D/g, '');
+    const normalizedResponsibleName = String(newChatResponsibleName || '').trim();
+    const responsibleName = newChatType === 'ALUNO'
+      ? (normalizedResponsibleName || `Responsável pelo(a) ${contactName}`)
+      : normalizedResponsibleName;
 
     if (!contactName) {
       setFeedback('Informe o nome completo do contato.');
@@ -4779,14 +4804,18 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     setIsSavingNewContact(true);
     try {
       const payload = {
-        registrationId: `WA${Date.now()}`,
+        registrationId,
         name: contactName,
-        type: 'ALUNO',
+        type: newChatType,
         enterpriseId: activeEnterprise.id,
+        class: className,
         phone: fullPhone,
+        email: contactEmail || undefined,
+        cpf: contactCpf || undefined,
         parentWhatsappCountryCode: normalizedCountry,
         parentWhatsapp: fullPhone,
-        parentName: contactName,
+        parentName: responsibleName || contactName,
+        parentRelationship: newChatType === 'ALUNO' ? newChatResponsibleType : '',
         servicePlans: [],
         balance: 0,
         spentToday: 0,
@@ -4801,13 +4830,20 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       openDraftConversation({
         phone: resolveClientPhone(createdClient) || fullPhone,
         displayName: resolveConversationPrimaryName(createdClient) || createdClient.name || contactName,
-        contactType: createdClient.type || 'ALUNO',
-        responsibleName: resolveResponsibleName(createdClient),
+        contactType: createdClient.type || newChatType,
+        responsibleName: resolveResponsibleName(createdClient) || responsibleName || contactName,
         registrationId: String(createdClient.registrationId || ''),
       });
 
+      setNewChatType('ALUNO');
       setNewChatName('');
+      setNewChatRegistrationId('');
+      setNewChatClassName('');
       setNewChatPhone('');
+      setNewChatEmail('');
+      setNewChatCpf('');
+      setNewChatResponsibleName('');
+      setNewChatResponsibleType('PAIS');
       setSelectedAgendaClientId(null);
       setAgendaSearch('');
       setFeedback('Novo contato criado e conversa iniciada.');
@@ -5522,17 +5558,51 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
               )}
 
               {crmView === 'CONVERSAS' && (
-                <div className="flex-1 min-h-0 h-[calc(100vh-190px)] max-h-[calc(100vh-190px)] overflow-hidden">
-                  <div className="h-full overflow-hidden grid grid-cols-1 xl:grid-cols-[360px_1fr_300px]">
+                <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                  {!status.connected && (
+                    <div className="mx-3 mt-3 mb-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-center justify-between gap-3 dark:bg-zinc-900/80 dark:border-amber-500/30">
+                      <p className="text-xs font-black text-amber-700 dark:text-amber-300 uppercase tracking-wide">
+                        WhatsApp desconectado. Para usar Conversas, faça a conexão na aba QR CODE.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('SESSION_QR')}
+                        className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-black uppercase tracking-widest"
+                      >
+                        Abrir QR CODE
+                      </button>
+                    </div>
+                  )}
+                  <div
+                    className={`flex-1 min-h-0 overflow-hidden grid grid-cols-1 ${
+                      selectedChat && isContactDetailsVisible
+                        ? 'xl:grid-cols-[360px_1fr_300px]'
+                        : 'xl:grid-cols-[360px_1fr]'
+                    }`}
+                  >
                   <section className="border-r-2 border-cyan-100 flex flex-col min-h-0 h-full overflow-hidden dark:border-white/10">
                     <div className="p-4 border-b-2 border-cyan-100 space-y-3 bg-slate-50/70 dark:bg-zinc-900/70 dark:border-white/10">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Conversas ({crmVisibleChats.length})</p>
                         <button
                           onClick={() => {
+                            if (!status.connected) {
+                              setFeedback('Para abrir uma nova conversa, conecte o WhatsApp na aba QR CODE.');
+                              setActiveTab('SESSION_QR');
+                              return;
+                            }
                             setNewChatMode('AGENDA');
                             setSelectedAgendaClientId(null);
                             setAgendaSearch('');
+                            setNewChatType('ALUNO');
+                            setNewChatName('');
+                            setNewChatRegistrationId('');
+                            setNewChatClassName('');
+                            setNewChatPhone('');
+                            setNewChatEmail('');
+                            setNewChatCpf('');
+                            setNewChatResponsibleName('');
+                            setNewChatResponsibleType('PAIS');
                             setIsNewChatModalOpen(true);
                           }}
                           className="px-3 py-2 rounded-xl bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 flex items-center gap-1"
@@ -5700,7 +5770,9 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                   <section className="flex flex-col min-h-0 h-full overflow-hidden bg-slate-50/70 dark:bg-zinc-950/60">
                     {!selectedChat ? (
                       <div className="flex-1 flex items-center justify-center text-slate-500 dark:text-zinc-400 font-semibold">
-                        Selecione uma conversa para abrir o CRM.
+                        {status.connected
+                          ? 'Selecione uma conversa para abrir o CRM.'
+                          : 'WhatsApp desconectado. Faça a conexão na aba QR CODE para abrir as conversas.'}
                       </div>
                     ) : (
                       <>
@@ -5966,13 +6038,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             rows={2}
                             value={chatReply}
                             onChange={(e) => setChatReply(e.target.value)}
-                            placeholder="Digite uma mensagem..."
+                            placeholder={status.connected ? 'Digite uma mensagem...' : 'Conecte na aba QR CODE para enviar mensagens...'}
+                            disabled={!status.connected}
                             className="flex-1 px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
                           />
                           <button
                             type="button"
                             onClick={handleReply}
-                            disabled={isSendingChat || (!chatReply.trim() && !chatAttachment)}
+                            disabled={!status.connected || isSendingChat || (!chatReply.trim() && !chatAttachment)}
                             className="px-4 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white font-black"
                           >
                             <Send size={15} />
@@ -5983,6 +6056,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                     )}
                   </section>
 
+                  {selectedChat && isContactDetailsVisible && (
                   <aside className="p-5 bg-white border-l-2 border-cyan-100 min-h-0 h-full overflow-y-auto dark:bg-zinc-900/75 dark:border-white/10">
                     {selectedChat ? (
                       <div className="space-y-5">
@@ -6153,6 +6227,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                       <div className="text-sm font-semibold text-slate-500 dark:text-zinc-400">Nenhum contato selecionado.</div>
                     )}
                   </aside>
+                  )}
                   </div>
                 </div>
               )}
@@ -6468,7 +6543,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                     max={28}
                                     value={planConsumptionMonthlyStartDay}
                                     onChange={(e) => setPlanConsumptionMonthlyStartDay(clampMonthDay(Number(e.target.value)))}
-                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold bg-white"
+                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                                   />
                                 </label>
                                 <label className="space-y-1">
@@ -6479,7 +6554,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                     max={28}
                                     value={planConsumptionMonthlyEndDay}
                                     onChange={(e) => setPlanConsumptionMonthlyEndDay(clampMonthDay(Number(e.target.value)))}
-                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold bg-white"
+                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                                   />
                                 </label>
                                 <label className="space-y-1">
@@ -6490,7 +6565,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                     max={31}
                                     value={planConsumptionMonthlyDay}
                                     onChange={(e) => setPlanConsumptionMonthlyDay(Math.min(31, Math.max(1, Number(e.target.value) || 1)))}
-                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold bg-white"
+                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                                   />
                                 </label>
                               </div>
@@ -6501,7 +6576,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                   <select
                                     value={planConsumptionWeeklyStartDay}
                                     onChange={(e) => setPlanConsumptionWeeklyStartDay(Number(e.target.value))}
-                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold bg-white"
+                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                                   >
                                     {WEEKLY_DISPATCH_OPTIONS.map((option) => (
                                       <option key={`start_${option.value}`} value={option.value}>{option.label}</option>
@@ -6513,7 +6588,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                   <select
                                     value={planConsumptionWeeklyEndDay}
                                     onChange={(e) => setPlanConsumptionWeeklyEndDay(Number(e.target.value))}
-                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold bg-white"
+                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                                   >
                                     {WEEKLY_DISPATCH_OPTIONS.map((option) => (
                                       <option key={`end_${option.value}`} value={option.value}>{option.label}</option>
@@ -6525,7 +6600,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                   <select
                                     value={planConsumptionWeeklyDay}
                                     onChange={(e) => setPlanConsumptionWeeklyDay(Number(e.target.value))}
-                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold bg-white"
+                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                                   >
                                     {WEEKLY_DISPATCH_OPTIONS.map((option) => (
                                       <option key={option.value} value={option.value}>{option.label}</option>
@@ -6533,24 +6608,24 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                   </select>
                                 </label>
                                 <label className="space-y-1">
-                                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Hora do envio</span>
+                                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Hora do envio</span>
                                   <input
                                     type="time"
                                     value={planConsumptionSendTime}
                                     onChange={(e) => setPlanConsumptionSendTime(e.target.value)}
-                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold bg-white"
+                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                                   />
                                 </label>
                               </div>
                             )}
 
-                            <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-xs font-semibold text-blue-900">
+                            <div className="rounded-xl border border-blue-100 dark:border-blue-900/40 bg-blue-50/60 dark:bg-blue-950/30 p-3 text-xs font-semibold text-blue-900 dark:text-blue-200">
                               Fechamento base em <span className="font-black">Ajustes &gt; Pagamento</span>:
                               início <span className="font-black">{Math.min(28, Math.max(1, Number(activeEnterprise?.collaboratorPaymentStartDay || 1) || 1))}</span>
                               {' '}e vencimento <span className="font-black">{Math.min(28, Math.max(1, Number(activeEnterprise?.collaboratorPaymentDueDay || 7) || 7))}</span>.
                             </div>
 
-                            <p className="text-xs font-semibold text-slate-500">
+                            <p className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
                               O envio recorrente usa automaticamente o período configurado e anexa o relatório em PDF no disparo.
                             </p>
                           </div>
@@ -6558,7 +6633,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
-                            <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                            <p className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
                               {campaignMode === 'FOLLOWUP' ? 'Sequência da Campanha' : 'Mensagem da Campanha'}
                             </p>
                             {campaignMode === 'FOLLOWUP' && (
@@ -6575,21 +6650,21 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                           {campaignMode === 'FOLLOWUP' ? (
                             <div className="space-y-3">
                               {campaignSteps.map((step, index) => (
-                                <div key={step.id} className="rounded-xl border border-cyan-100 bg-cyan-50/20 p-3 space-y-2">
+                                <div key={step.id} className="rounded-xl border border-cyan-100 dark:border-zinc-700 bg-cyan-50/20 dark:bg-zinc-900/40 p-3 space-y-2">
                                   <div className="flex items-center justify-between gap-2">
                                     <input
                                       value={step.title}
                                       onChange={(e) => handleCampaignStepChange(step.id, { title: e.target.value })}
-                                      className="flex-1 px-2 py-1 rounded-lg border border-cyan-100 bg-white text-sm font-black text-slate-700"
+                                      className="flex-1 px-2 py-1 rounded-lg border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm font-black text-slate-700 dark:text-zinc-200"
                                     />
                                     <input
                                       type="number"
                                       min={0}
                                       value={step.delayDays}
                                       onChange={(e) => handleCampaignStepChange(step.id, { delayDays: Math.max(0, Number(e.target.value) || 0) })}
-                                      className="w-24 px-2 py-1 rounded-lg border border-cyan-100 bg-white text-xs font-black text-slate-700"
+                                      className="w-24 px-2 py-1 rounded-lg border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-xs font-black text-slate-700 dark:text-zinc-200"
                                     />
-                                    <span className="text-xs font-black text-slate-500">dias</span>
+                                    <span className="text-xs font-black text-slate-500 dark:text-zinc-400">dias</span>
                                     {campaignSteps.length > 1 && (
                                       <button
                                         type="button"
@@ -6605,7 +6680,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                     value={step.message}
                                     onChange={(e) => handleCampaignStepChange(step.id, { message: e.target.value })}
                                     placeholder={`Mensagem da etapa ${index + 1}`}
-                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-white"
+                                    className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-medium bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                                   />
                                 </div>
                               ))}
@@ -6628,10 +6703,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                     ? 'Exemplo (demonstração): Olá {primeiro_nome_responsavel}, segue o resumo de {periodo_referencia} para {nome_completo_alunos}.'
                                     : 'Digite a mensagem da campanha...'
                                 }
-                                className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-white placeholder:text-slate-400"
+                                className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-medium bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200 placeholder:text-slate-400 dark:placeholder:text-zinc-500"
                               />
                               {campaignMode === 'RECURRING' && (
-                                <p className="text-[11px] font-semibold text-slate-500">
+                                <p className="text-[11px] font-semibold text-slate-500 dark:text-zinc-400">
                                   Dica: use as variáveis abaixo para montar a mensagem dinâmica do relatório.
                                 </p>
                               )}
@@ -6645,7 +6720,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                   key={variable.key}
                                   type="button"
                                   onClick={() => insertCampaignTokenAtCursor(variable.key)}
-                                  className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-black border border-emerald-200 hover:bg-emerald-100"
+                                  className="px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 text-xs font-black border border-emerald-200 dark:border-emerald-900/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
                                   title={variable.label}
                                 >
                                   {variable.key}
@@ -6665,7 +6740,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                     }
                                     setCampaignMessage((prev) => `${prev}${prev ? ' ' : ''}${token}`);
                                   }}
-                                  className="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-black"
+                                  className="px-3 py-1 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 text-xs font-black"
                                 >
                                   {token}
                                 </button>
@@ -6673,8 +6748,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             )}
                           </div>
                           {campaignMode === 'RECURRING' && (
-                            <div className="rounded-xl border border-cyan-100 bg-cyan-50/30 p-3 space-y-2">
-                              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                            <div className="rounded-xl border border-cyan-100 dark:border-zinc-700 bg-cyan-50/30 dark:bg-zinc-900/40 p-3 space-y-2">
+                              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
                                 Exemplo de cada variável
                               </p>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
@@ -6682,7 +6757,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                   const keyName = variable.key.replace(/^\{|\}$/g, '');
                                   const exampleValue = recurringPreviewExampleValues[keyName] || '-';
                                   return (
-                                    <p key={`example_${variable.key}`} className="text-xs font-semibold text-slate-700">
+                                    <p key={`example_${variable.key}`} className="text-xs font-semibold text-slate-700 dark:text-zinc-200">
                                       <span className="font-black text-emerald-700">{variable.key}</span>
                                       {' '}= {exampleValue}
                                     </p>
@@ -6700,29 +6775,29 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
                     {campaignSubTab === 'GERENCIAR_CAMPANHA' && (
                       <div className="space-y-4">
-                        <section className="rounded-2xl border border-cyan-100 bg-white p-5 space-y-3">
+                        <section className="rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 space-y-3">
                           <div className="flex items-center justify-between">
                             <div>
-                              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Gerenciar campanhas</p>
-                              <h4 className="text-lg font-black text-slate-900">Campanhas criadas</h4>
+                              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Gerenciar campanhas</p>
+                              <h4 className="text-lg font-black text-slate-900 dark:text-zinc-100">Campanhas criadas</h4>
                             </div>
                             <button
                               type="button"
                               onClick={() => persistCampaignReports([])}
                               disabled={campaignReports.length === 0}
-                              className="px-3 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-black uppercase tracking-widest hover:bg-slate-50 disabled:opacity-60"
+                              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 text-xs font-black uppercase tracking-widest hover:bg-slate-50 dark:hover:bg-zinc-800 disabled:opacity-60"
                             >
                               Limpar campanhas
                             </button>
                           </div>
 
                           {campaignReports.length === 0 ? (
-                            <p className="text-sm font-semibold text-slate-500">Nenhuma campanha criada ainda.</p>
+                            <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400">Nenhuma campanha criada ainda.</p>
                           ) : (
                             <div className="overflow-x-auto">
                               <table className="min-w-full text-sm">
                                 <thead>
-                                  <tr className="text-left text-[11px] uppercase tracking-widest text-slate-500 border-b border-slate-100">
+                                  <tr className="text-left text-[11px] uppercase tracking-widest text-slate-500 dark:text-zinc-400 border-b border-slate-100 dark:border-zinc-800">
                                     <th className="py-2 pr-3 font-black">Campanha</th>
                                     <th className="py-2 pr-3 font-black">Público</th>
                                     <th className="py-2 pr-3 font-black">Início</th>
@@ -6733,10 +6808,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                 </thead>
                                 <tbody>
                                   {campaignReports.map((item) => (
-                                    <tr key={item.id} className="border-b border-slate-100 last:border-b-0">
+                                    <tr key={item.id} className="border-b border-slate-100 dark:border-zinc-800 last:border-b-0">
                                       <td className="py-2 pr-3">
-                                        <p className="font-black text-slate-800">{item.name}</p>
-                                        <p className="text-xs font-semibold text-slate-500">
+                                        <p className="font-black text-slate-800 dark:text-zinc-100">{item.name}</p>
+                                        <p className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
                                           {item.mode === 'BROADCAST' ? 'Envio Único' : item.mode === 'RECURRING' ? 'Recorrente' : 'Follow-up'}
                                           {' • '}
                                           intervalo médio {item.intervalSeconds}s
@@ -6744,7 +6819,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                           {item.withSignature ? ' • com assinatura' : ''}
                                         </p>
                                       </td>
-                                      <td className="py-2 pr-3 font-semibold text-slate-600">
+                                      <td className="py-2 pr-3 font-semibold text-slate-600 dark:text-zinc-300">
                                         {item.audience === 'ALL'
                                           ? 'Todos'
                                           : item.audience === 'ALUNO'
@@ -6753,7 +6828,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                               ? 'Colaboradores'
                                               : `Etiqueta: ${String(item.audience).replace('LABEL:', '')}`}
                                       </td>
-                                      <td className="py-2 pr-3 font-semibold text-slate-600">{new Date(item.startAt).toLocaleString('pt-BR')}</td>
+                                      <td className="py-2 pr-3 font-semibold text-slate-600 dark:text-zinc-300">{new Date(item.startAt).toLocaleString('pt-BR')}</td>
                                       <td className="py-2 pr-3">
                                         <div className="flex items-center gap-2 flex-wrap">
                                           <span className={`px-2 py-1 rounded-full text-[11px] font-black ${
@@ -6775,10 +6850,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                         </div>
                                       </td>
                                       <td className="py-2 pr-3">
-                                        <p className="text-xs font-semibold text-slate-600">
+                                        <p className="text-xs font-semibold text-slate-600 dark:text-zinc-300">
                                           Alvo: <span className="font-black">{item.targetCount}</span>
                                         </p>
-                                        <p className="text-xs font-semibold text-slate-600">
+                                        <p className="text-xs font-semibold text-slate-600 dark:text-zinc-300">
                                           Enviadas: <span className="font-black text-emerald-700">{item.sentCount}</span> •
                                           Agendadas: <span className="font-black text-cyan-700"> {item.scheduledCount}</span> •
                                           Falhas: <span className="font-black text-rose-700"> {item.failedCount}</span>
@@ -6873,11 +6948,11 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                 </thead>
                                 <tbody>
                                   {planConsumptionReports.map((item) => (
-                                    <tr key={item.id} className="border-b border-slate-100 last:border-b-0">
-                                      <td className="py-2 pr-3 font-semibold text-slate-600">{new Date(item.createdAt).toLocaleString('pt-BR')}</td>
-                                      <td className="py-2 pr-3 font-semibold text-slate-600">{item.mode === 'NOW' ? 'Enviado agora' : 'Agendado'}</td>
-                                      <td className="py-2 pr-3 font-semibold text-slate-600">{item.periodLabel}</td>
-                                      <td className="py-2 pr-3 text-xs font-semibold text-slate-600">
+                                    <tr key={item.id} className="border-b border-slate-100 dark:border-zinc-800 last:border-b-0">
+                                      <td className="py-2 pr-3 font-semibold text-slate-600 dark:text-zinc-300">{new Date(item.createdAt).toLocaleString('pt-BR')}</td>
+                                      <td className="py-2 pr-3 font-semibold text-slate-600 dark:text-zinc-300">{item.mode === 'NOW' ? 'Enviado agora' : 'Agendado'}</td>
+                                      <td className="py-2 pr-3 font-semibold text-slate-600 dark:text-zinc-300">{item.periodLabel}</td>
+                                      <td className="py-2 pr-3 text-xs font-semibold text-slate-600 dark:text-zinc-300">
                                         {item.sentCount} enviadas • {item.scheduledCount} agendadas • {item.failedCount} falhas
                                       </td>
                                     </tr>
@@ -8109,7 +8184,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                   <input
                     type="checkbox"
                     checked={newChatMode === 'NEW_CONTACT'}
-                    onChange={() => setNewChatMode('NEW_CONTACT')}
+                    onChange={() => {
+                      setNewChatMode('NEW_CONTACT');
+                      setNewChatType('ALUNO');
+                    }}
                     className="w-4 h-4 mt-0.5 accent-indigo-600"
                   />
                   <div className="min-w-0">
@@ -8217,13 +8295,103 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
               ) : (
                 <div className="space-y-5">
                   <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Tipo de cadastro</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewChatType('ALUNO');
+                          if (!String(newChatResponsibleName || '').trim() && String(newChatName || '').trim()) {
+                            setNewChatResponsibleName(`Responsável pelo(a) ${String(newChatName || '').trim()}`);
+                          }
+                        }}
+                        className={`h-10 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest transition-all ${
+                          newChatType === 'ALUNO'
+                            ? 'bg-indigo-600 border-indigo-600 text-white'
+                            : 'bg-white border-gray-200 text-gray-600 hover:border-indigo-300'
+                        }`}
+                      >
+                        Aluno
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewChatType('RESPONSAVEL')}
+                        className={`h-10 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest transition-all ${
+                          newChatType === 'RESPONSAVEL'
+                            ? 'bg-indigo-600 border-indigo-600 text-white'
+                            : 'bg-white border-gray-200 text-gray-600 hover:border-indigo-300'
+                        }`}
+                      >
+                        Responsável
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewChatType('COLABORADOR')}
+                        className={`h-10 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest transition-all ${
+                          newChatType === 'COLABORADOR'
+                            ? 'bg-indigo-600 border-indigo-600 text-white'
+                            : 'bg-white border-gray-200 text-gray-600 hover:border-indigo-300'
+                        }`}
+                      >
+                        Colaborador
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
                     <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Nome completo do contato</label>
                     <input
                       value={newChatName}
-                      onChange={(e) => setNewChatName(e.target.value)}
-                      placeholder="Ex: Maria Oliveira"
+                      onChange={(e) => {
+                        const nextName = e.target.value;
+                        setNewChatName(nextName);
+                        const isAutoResponsible = !newChatResponsibleName || newChatResponsibleName.startsWith('Responsável pelo(a) ');
+                        if (newChatType === 'ALUNO' && isAutoResponsible) {
+                          setNewChatResponsibleName(nextName.trim() ? `Responsável pelo(a) ${nextName.trim()}` : '');
+                        }
+                      }}
+                      placeholder={
+                        newChatType === 'ALUNO'
+                          ? 'NOME DO ALUNO'
+                          : newChatType === 'RESPONSAVEL'
+                            ? 'NOME DO RESPONSÁVEL'
+                            : 'NOME DO COLABORADOR'
+                      }
                       className="w-full px-4 py-3 rounded-2xl border-2 border-gray-100 focus:border-indigo-500 outline-none text-sm font-medium"
                     />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Matrícula / Registro</label>
+                      <input
+                        value={newChatRegistrationId}
+                        onChange={(e) => setNewChatRegistrationId(e.target.value)}
+                        placeholder="Automático se vazio"
+                        className="w-full px-4 py-3 rounded-2xl border-2 border-gray-100 focus:border-indigo-500 outline-none text-sm font-medium"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                        {newChatType === 'ALUNO'
+                          ? 'Turma / Série'
+                          : newChatType === 'RESPONSAVEL'
+                            ? 'Vínculo / Parentesco'
+                            : 'Setor / Cargo'}
+                      </label>
+                      <input
+                        value={newChatClassName}
+                        onChange={(e) => setNewChatClassName(e.target.value)}
+                        placeholder={
+                          newChatType === 'ALUNO'
+                            ? 'Ex.: Fundamental - 4º Ano'
+                            : newChatType === 'RESPONSAVEL'
+                              ? 'Ex.: Pais, Avós, Tios, Tutor legal'
+                              : 'Ex.: Cozinha / Auxiliar'
+                        }
+                        className="w-full px-4 py-3 rounded-2xl border-2 border-gray-100 focus:border-indigo-500 outline-none text-sm font-medium"
+                      />
+                    </div>
                   </div>
 
                   <div className="space-y-1.5">
@@ -8247,6 +8415,56 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         className="w-full px-4 py-3 rounded-2xl border-2 border-gray-100 focus:border-indigo-500 outline-none text-sm font-medium"
                       />
                     </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">E-mail</label>
+                      <input
+                        value={newChatEmail}
+                        onChange={(e) => setNewChatEmail(e.target.value)}
+                        placeholder="nome@exemplo.com"
+                        className="w-full px-4 py-3 rounded-2xl border-2 border-gray-100 focus:border-indigo-500 outline-none text-sm font-medium"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">CPF</label>
+                      <input
+                        value={newChatCpf}
+                        onChange={(e) => setNewChatCpf(e.target.value)}
+                        placeholder="000.000.000-00"
+                        className="w-full px-4 py-3 rounded-2xl border-2 border-gray-100 focus:border-indigo-500 outline-none text-sm font-medium"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                        {newChatType === 'ALUNO' ? 'Nome do responsável' : 'Contato responsável'}
+                      </label>
+                      <input
+                        value={newChatResponsibleName}
+                        onChange={(e) => setNewChatResponsibleName(e.target.value)}
+                        placeholder={newChatType === 'ALUNO' ? 'Nome completo do responsável' : 'Opcional'}
+                        className="w-full px-4 py-3 rounded-2xl border-2 border-gray-100 focus:border-indigo-500 outline-none text-sm font-medium"
+                      />
+                    </div>
+                    {newChatType === 'ALUNO' && (
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Tipo de responsável</label>
+                        <select
+                          value={newChatResponsibleType}
+                          onChange={(e) => setNewChatResponsibleType(e.target.value as 'PAIS' | 'AVOS' | 'TIOS' | 'TUTOR_LEGAL')}
+                          className="w-full px-4 py-3 rounded-2xl border-2 border-gray-100 focus:border-indigo-500 outline-none text-sm font-medium bg-white"
+                        >
+                          <option value="PAIS">Pais</option>
+                          <option value="AVOS">Avós</option>
+                          <option value="TIOS">Tios</option>
+                          <option value="TUTOR_LEGAL">Tutor legal</option>
+                        </select>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

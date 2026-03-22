@@ -6,9 +6,9 @@ import autoTable from 'jspdf-autotable';
 import { 
   Search, Plus, Wallet, X, User as UserIcon, History, 
   ShieldCheck, ArrowRight, CheckCircle2, DollarSign,
-  Check, Smartphone, QrCode, Copy, FileText, Building2,
+  Check, Copy, FileText, Building2,
   ChevronDown, UserPlus, ChevronLeft, Eye, ShieldAlert,
-  Phone, Mail, Fingerprint, GraduationCap, AlertTriangle, Trash2,
+  Phone, GraduationCap, AlertTriangle, Trash2,
   Beef, HeartPulse, CreditCard, Landmark, Edit, ShoppingCart, Layers, Upload, FileSpreadsheet, Printer
 } from 'lucide-react';
 import { Client, ClientPlanType, User, Enterprise, Role, Plan, TransactionRecord } from '../types';
@@ -47,6 +47,13 @@ const DELIVERY_SHIFT_OPTIONS = [
   { key: 'MORNING', label: 'Manhã' },
   { key: 'AFTERNOON', label: 'Tarde' },
   { key: 'NIGHT', label: 'Noite' },
+];
+
+const RESPONSIBLE_RELATION_OPTIONS = [
+  { value: 'PAIS', label: 'Pais' },
+  { value: 'AVOS', label: 'Avós' },
+  { value: 'TIOS', label: 'Tios' },
+  { value: 'TUTOR_LEGAL', label: 'Tutor legal' },
 ];
 
 const weekDayToJsDay: Record<string, number> = {
@@ -241,7 +248,6 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const [isStudentOnlyMode, setIsStudentOnlyMode] = useState(false);
   
   const [paymentMethod, setPaymentMethod] = useState<'PIX' | 'BOLETO' | 'CAIXA'>('PIX');
-  const [showPaymentFlow, setShowPaymentFlow] = useState(false);
 
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [rechargingClient, setRechargingClient] = useState<Client | null>(null);
@@ -269,6 +275,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     || currentUser?.role === Role.ADMIN_RESTAURANTE
     || currentUser?.role === Role.GERENTE
     || currentUser?.role === Role.FUNCIONARIO_BASICO;
+  const isResponsibleView = viewMode === 'CLIENTES_RESPONSAVEIS';
 
   // Carregar clientes, empresas, planos e transações da API
   const showPlanNotice = (message: string, type: 'warning' | 'success' | 'error' = 'warning') => {
@@ -313,7 +320,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
   const [formData, setFormData] = useState({
     name: '',
-    type: 'ALUNO' as 'ALUNO' | 'COLABORADOR',
+    type: 'ALUNO' as 'ALUNO' | 'RESPONSAVEL' | 'COLABORADOR',
     servicePlans: [] as ClientPlanType[],
     class: '',
     classType: '' as '' | 'INFANTIL' | 'FUNDAMENTAL' | 'MEDIO' | 'INTEGRAL',
@@ -326,12 +333,16 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     restrictions: [] as string[],
     dietaryNotes: '',
     parentName: '',
+    parentRelationship: 'PAIS',
     parentWhatsappCountryCode: '55',
     parentWhatsapp: '',
     parentCpf: '',
     parentEmail: '',
     photo: ''
   });
+  const [responsibleSourceMode, setResponsibleSourceMode] = useState<'NEW' | 'COLABORADOR'>('NEW');
+  const [responsibleCollaboratorSearch, setResponsibleCollaboratorSearch] = useState('');
+  const [responsibleCollaboratorId, setResponsibleCollaboratorId] = useState<string | null>(null);
 
   const gradeOptions = {
     INFANTIL: ['1', '2', '3', '4', '5'],
@@ -339,6 +350,28 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     MEDIO: ['1º ano', '2º ano', '3º ano'],
     INTEGRAL: []
   };
+  const collaboratorCandidates = useMemo(() => {
+    return clients
+      .filter((client) => String(client.type || '').toUpperCase() === 'COLABORADOR')
+      .filter((client) => !isUnitAdmin || client.enterpriseId === activeEnterprise.id)
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' }));
+  }, [clients, isUnitAdmin, activeEnterprise.id]);
+  const selectedResponsibleCollaborator = useMemo(
+    () => collaboratorCandidates.find((client) => client.id === responsibleCollaboratorId) || null,
+    [collaboratorCandidates, responsibleCollaboratorId]
+  );
+  const filteredResponsibleCollaborators = useMemo(() => {
+    const query = normalizeSearchText(responsibleCollaboratorSearch);
+    const base = collaboratorCandidates;
+    if (!query) return base.slice(0, 8);
+    return base
+      .filter((client) =>
+        normalizeSearchText(client.name).includes(query)
+        || normalizeSearchText(client.registrationId).includes(query)
+        || normalizeSearchText(client.class).includes(query)
+      )
+      .slice(0, 8);
+  }, [collaboratorCandidates, responsibleCollaboratorSearch]);
 
   const filteredClients = useMemo(() => {
     const normalizedSearch = normalizeSearchText(searchTerm);
@@ -375,7 +408,17 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     if (normalized.includes('mae') || normalized.includes('mãe')) return 'Mãe';
     if (normalized.includes('avo') || normalized.includes('avô') || normalized.includes('avó')) return 'Avós';
     if (normalized.includes('tio') || normalized.includes('tia')) return 'Tios';
+    if (normalized.includes('tutor')) return 'Tutor legal';
     return 'Indefinido';
+  };
+
+  const formatParentRelationship = (value?: string) => {
+    const normalized = String(value || '').trim().toUpperCase();
+    if (normalized === 'PAIS') return 'Pais';
+    if (normalized === 'AVOS') return 'Avós';
+    if (normalized === 'TIOS') return 'Tios';
+    if (normalized === 'TUTOR_LEGAL') return 'Tutor legal';
+    return '';
   };
 
   const responsibleOrCollaboratorRows = useMemo<ResponsibleOrCollaboratorRow[]>(() => {
@@ -424,7 +467,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
           name: responsibleName || 'Não informado',
           photo: client.photo,
           tipoConta: 'RESPONSAVEL',
-          cargoParentesco: resolveKinshipOrRole(`${client.parentName || ''} ${client.guardianName || ''}`),
+          cargoParentesco: formatParentRelationship((client as any)?.parentRelationship) || resolveKinshipOrRole(`${client.parentName || ''} ${client.guardianName || ''}`),
           phone: responsiblePhone,
           email: client.parentEmail || client.guardianEmail || '',
         });
@@ -449,6 +492,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const normalizePhoneDigits = (phone?: string) => String(phone || '').replace(/\D/g, '');
 
   const resolveResponsibleRelationshipLabel = (client: Client) => {
+    const direct = formatParentRelationship((client as any)?.parentRelationship);
+    if (direct) return direct;
     const raw = `${client.parentName || ''} ${client.guardianName || ''}`.trim();
     const kinship = resolveKinshipOrRole(raw);
     return kinship || 'Indefinido';
@@ -629,7 +674,6 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const handleOpenCreateModal = () => {
     setEditingClient(null);
     setIsStudentOnlyMode(false);
-    setShowPaymentFlow(false);
     setSelectedPlanDays({});
     setSelectedPlanDates({});
     setSelectedPlanShifts({});
@@ -637,10 +681,13 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     setOpenPlanCalendarId(null);
     setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
     setFormData({
-      name: '', type: 'ALUNO', servicePlans: ['PREPAGO'], class: '', classType: '', classGrade: '', balance: 0,
+      name: '', type: isResponsibleView ? 'COLABORADOR' : 'ALUNO', servicePlans: ['PREPAGO'], class: '', classType: '', classGrade: '', balance: 0,
       dailyLimit: 30, initialCredit: 0, isDailyLimitActive: false, isBlocked: false,
-      restrictions: [], dietaryNotes: '', parentName: '', parentWhatsappCountryCode: '55', parentWhatsapp: '', parentCpf: '', parentEmail: '', photo: ''
+      restrictions: [], dietaryNotes: '', parentName: '', parentRelationship: 'PAIS', parentWhatsappCountryCode: '55', parentWhatsapp: '', parentCpf: '', parentEmail: '', photo: ''
     });
+    setResponsibleSourceMode('NEW');
+    setResponsibleCollaboratorSearch('');
+    setResponsibleCollaboratorId(null);
     setClientPhotoFile(null);
     setClientPhotoPreview('');
     setIsClientModalOpen(true);
@@ -650,7 +697,6 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     const phoneParts = splitPhoneByCountryCode(viewingClient?.parentWhatsapp || '');
     setEditingClient(null);
     setIsStudentOnlyMode(true);
-    setShowPaymentFlow(false);
     setSelectedPlanDays({});
     setSelectedPlanDates({});
     setSelectedPlanShifts({});
@@ -671,12 +717,22 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       restrictions: [],
       dietaryNotes: '',
       parentName: viewingClient?.parentName || '',
+      parentRelationship: String((viewingClient as any)?.parentRelationship || 'PAIS'),
       parentWhatsappCountryCode: phoneParts.countryCode,
       parentWhatsapp: phoneParts.localPhone,
       parentCpf: viewingClient?.parentCpf || '',
       parentEmail: viewingClient?.parentEmail || '',
       photo: ''
     });
+    if (String(viewingClient?.type || '').toUpperCase() === 'COLABORADOR' && viewingClient?.id) {
+      setResponsibleSourceMode('COLABORADOR');
+      setResponsibleCollaboratorId(viewingClient.id);
+      setResponsibleCollaboratorSearch(String(viewingClient.name || ''));
+    } else {
+      setResponsibleSourceMode('NEW');
+      setResponsibleCollaboratorSearch('');
+      setResponsibleCollaboratorId(null);
+    }
     setClientPhotoFile(null);
     setClientPhotoPreview('');
     setIsDetailModalOpen(false);
@@ -729,12 +785,11 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
     setEditingClient(client);
     setIsStudentOnlyMode(false);
-    setShowPaymentFlow(false);
     setOpenPlanCalendarId(null);
     setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
     setFormData({
       name: client.name || '',
-      type: (client.type === 'COLABORADOR' ? 'COLABORADOR' : 'ALUNO') as 'ALUNO' | 'COLABORADOR',
+      type: (client.type === 'COLABORADOR' ? 'COLABORADOR' : client.type === 'RESPONSAVEL' ? 'RESPONSAVEL' : 'ALUNO') as 'ALUNO' | 'RESPONSAVEL' | 'COLABORADOR',
       servicePlans: (Array.isArray(client.servicePlans) ? client.servicePlans : ['PREPAGO']) as ClientPlanType[],
       class: client.type === 'COLABORADOR' ? (client.class || '') : '',
       classType: client.type === 'ALUNO' ? parsedClassType : '',
@@ -747,12 +802,30 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       restrictions: client.restrictions || [],
       dietaryNotes: client.dietaryNotes || '',
       parentName: client.parentName || '',
+      parentRelationship: String((client as any)?.parentRelationship || 'PAIS'),
       parentWhatsappCountryCode: phoneParts.countryCode,
       parentWhatsapp: phoneParts.localPhone,
       parentCpf: client.parentCpf || '',
       parentEmail: client.parentEmail || '',
       photo: client.photo || ''
     });
+    const matchedCollaborator = clients.find((candidate) => {
+      if (String(candidate.type || '').toUpperCase() !== 'COLABORADOR') return false;
+      const sameEnterprise = !isUnitAdmin || candidate.enterpriseId === activeEnterprise.id;
+      if (!sameEnterprise) return false;
+      const sameName = normalizeSearchText(candidate.name) === normalizeSearchText(client.parentName || '');
+      const samePhone = normalizePhoneDigits(candidate.phone || '') && normalizePhoneDigits(candidate.phone || '') === normalizePhoneDigits(client.parentWhatsapp || '');
+      return sameName || samePhone;
+    });
+    if (client.type === 'ALUNO' && matchedCollaborator?.id) {
+      setResponsibleSourceMode('COLABORADOR');
+      setResponsibleCollaboratorId(matchedCollaborator.id);
+      setResponsibleCollaboratorSearch(String(matchedCollaborator.name || ''));
+    } else {
+      setResponsibleSourceMode('NEW');
+      setResponsibleCollaboratorSearch('');
+      setResponsibleCollaboratorId(null);
+    }
     setClientPhotoFile(null);
     setClientPhotoPreview(resolveClientPhotoUrl(client.photo, client.name));
     setIsClientModalOpen(true);
@@ -1118,6 +1191,28 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
           : (formData.classType && formData.classGrade ? `${formData.classType} - ${formData.classGrade}` : '')
       )
       : formData.class;
+    const normalizedClientName = String(formData.name || '').trim();
+    if (normalizedClientName.length < 2) {
+      alert('Informe o nome completo.');
+      return;
+    }
+    if (formData.type === 'ALUNO' && !String(classValue || '').trim()) {
+      alert('Para aluno, a turma/série é obrigatória.');
+      return;
+    }
+    const normalizedParentPhoneDigits = normalizePhoneDigits(joinPhoneWithCountryCode(formData.parentWhatsappCountryCode, formData.parentWhatsapp));
+    if (formData.type === 'ALUNO' && responsibleSourceMode === 'NEW' && String(formData.parentName || '').trim().length < 2) {
+      alert('Nome do responsável é obrigatório.');
+      return;
+    }
+    if (formData.type === 'ALUNO' && normalizedParentPhoneDigits.length < 10 && responsibleSourceMode === 'NEW') {
+      alert('Telefone do responsável é obrigatório.');
+      return;
+    }
+    if ((formData.type === 'RESPONSAVEL' || formData.type === 'COLABORADOR') && normalizedParentPhoneDigits.length < 10) {
+      alert('Telefone é obrigatório para responsável e colaborador.');
+      return;
+    }
 
     const parsedFormBalance = Number(formData.initialCredit || 0);
     const balanceToPersist = formData.type === 'ALUNO'
@@ -1125,12 +1220,37 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       : (editingClient?.balance || 0);
     const normalizedStudentName = String(formData.name || '').trim();
     const normalizedParentName = String(formData.parentName || '').trim();
+    const normalizedParentRelationship = String(formData.parentRelationship || 'PAIS').trim().toUpperCase();
+    const collaboratorPhoneParts = splitPhoneByCountryCode(selectedResponsibleCollaborator?.phone || '');
+    const collaboratorPhone = collaboratorPhoneParts.localPhone || normalizePhoneDigits(selectedResponsibleCollaborator?.phone || '');
+    const collaboratorCountryCode = collaboratorPhoneParts.countryCode || '55';
+    const collaboratorParentEmail = String(selectedResponsibleCollaborator?.email || '').trim();
+    const collaboratorParentCpf = String((selectedResponsibleCollaborator as any)?.cpf || '').trim();
+    const isStudentUsingCollaborator = formData.type === 'ALUNO' && responsibleSourceMode === 'COLABORADOR' && Boolean(selectedResponsibleCollaborator);
+    if (formData.type === 'ALUNO' && responsibleSourceMode === 'COLABORADOR' && !selectedResponsibleCollaborator) {
+      alert('Selecione um colaborador para vincular como responsável.');
+      return;
+    }
     const fallbackParentName = normalizedStudentName
       ? `Responsável pelo(a) ${normalizedStudentName}`
       : 'Responsável não informado';
     const parentNameToPersist = formData.type === 'ALUNO'
-      ? (normalizedParentName || fallbackParentName)
+      ? (isStudentUsingCollaborator
+        ? String(selectedResponsibleCollaborator?.name || normalizedParentName || fallbackParentName).trim()
+        : (normalizedParentName || fallbackParentName))
       : formData.parentName;
+    const parentWhatsappCountryCodeToPersist = isStudentUsingCollaborator
+      ? collaboratorCountryCode
+      : formData.parentWhatsappCountryCode;
+    const parentWhatsappToPersist = isStudentUsingCollaborator
+      ? collaboratorPhone
+      : formData.parentWhatsapp;
+    const parentEmailToPersist = isStudentUsingCollaborator
+      ? (collaboratorParentEmail || formData.parentEmail)
+      : formData.parentEmail;
+    const parentCpfToPersist = isStudentUsingCollaborator
+      ? (collaboratorParentCpf || formData.parentCpf)
+      : formData.parentCpf;
     
     let finalPhoto = formData.photo || editingClient?.photo || `https://api.dicebear.com/7.x/avataaars/svg?seed=${formData.name}`;
 
@@ -1168,10 +1288,15 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       photo: finalPhoto,
       enterpriseId: editingClient?.enterpriseId || activeEnterprise.id,
       parentName: parentNameToPersist,
-      parentWhatsappCountryCode: formData.parentWhatsappCountryCode,
-      parentWhatsapp: joinPhoneWithCountryCode(formData.parentWhatsappCountryCode, formData.parentWhatsapp),
-      parentCpf: formData.parentCpf,
-      parentEmail: formData.parentEmail
+      parentRelationship: formData.type === 'ALUNO' ? normalizedParentRelationship : '',
+      phone: joinPhoneWithCountryCode(parentWhatsappCountryCodeToPersist, parentWhatsappToPersist),
+      email: parentEmailToPersist,
+      cpf: parentCpfToPersist,
+      parentWhatsappCountryCode: parentWhatsappCountryCodeToPersist,
+      parentWhatsapp: joinPhoneWithCountryCode(parentWhatsappCountryCodeToPersist, parentWhatsappToPersist),
+      parentCpf: parentCpfToPersist,
+      parentEmail: parentEmailToPersist,
+      responsibleCollaboratorId: isStudentUsingCollaborator ? String(selectedResponsibleCollaborator?.id || '') : ''
     };
 
     try {
@@ -1207,14 +1332,23 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       return;
     }
     
-    const newBalance = (rechargingClient.balance || 0) + amount;
-    const newPlans = planName && !rechargingClient.servicePlans.includes(planName as any) 
+    const isPlanRecharge = Boolean(planName && planConfig);
+    const purchasedUnits = planConfig
+      ? ((planConfig.selectedDates.length > 0 ? planConfig.selectedDates.length : planConfig.daysOfWeek.length) || 0)
+      : 0;
+
+    const newBalance = isPlanRecharge
+      ? Number(rechargingClient.balance || 0)
+      : Number((rechargingClient.balance || 0) + amount);
+    const newPlans = planName && !rechargingClient.servicePlans.includes(planName as any)
       ? [...rechargingClient.servicePlans, planName as any] 
       : rechargingClient.servicePlans;
 
     const existingSelectedPlansRaw = (rechargingClient as any).selectedPlansConfig;
     const existingSelectedPlans = ((Array.isArray(existingSelectedPlansRaw) ? existingSelectedPlansRaw : []) as Array<any>);
+    const existingPlanCreditBalances = ({ ...(((rechargingClient as any).planCreditBalances || {}) as Record<string, any>) });
     let nextSelectedPlans = existingSelectedPlans;
+    let nextPlanCreditBalances = existingPlanCreditBalances;
 
     if (planConfig) {
       const normalizedPlanConfig = {
@@ -1228,10 +1362,67 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
       const index = existingSelectedPlans.findIndex((cfg: any) => cfg?.planId === planConfig.planId);
       if (index >= 0) {
-        nextSelectedPlans = existingSelectedPlans.map((cfg: any, idx: number) => idx === index ? normalizedPlanConfig : cfg);
+        nextSelectedPlans = existingSelectedPlans.map((cfg: any, idx: number) => {
+          if (idx !== index) return cfg;
+          const currentDates = Array.isArray(cfg?.selectedDates) ? cfg.selectedDates : [];
+          const currentDays = Array.isArray(cfg?.daysOfWeek) ? cfg.daysOfWeek : [];
+          return {
+            ...cfg,
+            ...normalizedPlanConfig,
+            selectedDates: Array.from(new Set([...(currentDates || []), ...(planConfig.selectedDates || [])])).sort(),
+            daysOfWeek: Array.from(new Set([...(currentDays || []), ...(planConfig.daysOfWeek || [])])),
+            subtotal: Number(cfg?.subtotal || 0) + Number(planConfig.subtotal || 0),
+          };
+        });
       } else {
         nextSelectedPlans = [...existingSelectedPlans, normalizedPlanConfig];
       }
+
+      const normalizedPlanName = String(planName || '').trim();
+      const matchedBalanceEntry = Object.entries(existingPlanCreditBalances).find(([, entry]) => {
+        const entryPlanId = String((entry as any)?.planId || '').trim();
+        const entryPlanName = String((entry as any)?.planName || '').trim();
+        return (
+          (entryPlanId && entryPlanId === String(planConfig.planId || '').trim())
+          || (entryPlanName && normalizeSearchText(entryPlanName) === normalizeSearchText(normalizedPlanName))
+        );
+      });
+      const balanceKey = String(
+        matchedBalanceEntry?.[0]
+        || planConfig.planId
+        || normalizeSearchText(normalizedPlanName)
+      ).trim();
+      const currentBalanceEntry = (matchedBalanceEntry?.[1] || existingPlanCreditBalances[balanceKey] || {}) as any;
+      const unitValue = Math.max(0, Number(planConfig.planPrice || currentBalanceEntry?.unitValue || 0));
+      const currentBalanceUnitsRaw = Number(currentBalanceEntry?.balanceUnits);
+      const currentBalanceUnits = Number.isFinite(currentBalanceUnitsRaw)
+        ? Math.max(0, currentBalanceUnitsRaw)
+        : (unitValue > 0 ? Math.max(0, Number(currentBalanceEntry?.balance || 0) / unitValue) : 0);
+      const currentTotalUnitsRaw = Number(currentBalanceEntry?.totalUnits);
+      const currentTotalUnits = Number.isFinite(currentTotalUnitsRaw)
+        ? Math.max(0, currentTotalUnitsRaw)
+        : currentBalanceUnits;
+      const nextBalanceUnits = Math.max(0, currentBalanceUnits + purchasedUnits);
+      const nextTotalUnits = Math.max(0, currentTotalUnits + purchasedUnits);
+      const nextConsumedUnits = Math.max(0, nextTotalUnits - nextBalanceUnits);
+      const nextBalanceValue = unitValue > 0 ? Number((nextBalanceUnits * unitValue).toFixed(2)) : Number(currentBalanceEntry?.balance || 0);
+
+      nextPlanCreditBalances = {
+        ...existingPlanCreditBalances,
+        [balanceKey]: {
+          ...currentBalanceEntry,
+          planId: String(planConfig.planId || currentBalanceEntry?.planId || balanceKey).trim() || balanceKey,
+          planName: normalizedPlanName || String(currentBalanceEntry?.planName || 'PLANO'),
+          unitValue,
+          planPrice: unitValue,
+          balanceUnits: Number(nextBalanceUnits.toFixed(4)),
+          totalUnits: Number(nextTotalUnits.toFixed(4)),
+          consumedUnits: Number(nextConsumedUnits.toFixed(4)),
+          unitsProgress: `${Math.max(0, Number((nextTotalUnits - nextBalanceUnits).toFixed(4)))}/${Math.max(0, Number(nextTotalUnits.toFixed(4)))}`,
+          balance: nextBalanceValue,
+          updatedAt: new Date().toISOString(),
+        }
+      };
     }
     
     try {
@@ -1239,6 +1430,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         balance: newBalance,
         servicePlans: newPlans,
         selectedPlansConfig: nextSelectedPlans,
+        ...(isPlanRecharge ? { planCreditBalances: nextPlanCreditBalances } : {}),
       });
       const createdTransaction = await ApiService.createTransaction({
         clientId: rechargingClient.id,
@@ -1246,9 +1438,16 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         enterpriseId: rechargingClient.enterpriseId,
         type: 'CREDIT',
         amount,
+        plan: planName || 'PREPAGO',
+        planId: planConfig?.planId,
+        planUnitValue: planConfig?.planPrice,
+        planUnits: isPlanRecharge ? purchasedUnits : undefined,
+        selectedDates: planConfig?.selectedDates || [],
+        selectedDays: planConfig?.daysOfWeek || [],
         description: planName
-          ? `Recarga de plano: ${planName}${planConfig ? ` (${planConfig.selectedDates.length || planConfig.daysOfWeek.length} dia(s))` : ''}`
+          ? `Recarga de plano: ${planName}${planConfig ? ` (${purchasedUnits} unidade(s))` : ''}`
           : 'Recarga de saldo',
+        item: planName ? `Crédito plano ${planName}` : 'Crédito livre cantina',
         paymentMethod: paymentMethod,
         method: paymentMethod,
         timestamp: new Date().toISOString(),
@@ -2174,7 +2373,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-black text-gray-800 tracking-tight uppercase">
-            {viewMode === 'ALUNOS' ? 'Gestão de Alunos' : 'Gestão de Cliente/Responsável'}
+            {viewMode === 'ALUNOS' ? 'Gestão de Alunos' : 'Gestão de Clientes/Responsáveis'}
           </h1>
           <p className="text-gray-400 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.14em] mt-1">
             {viewMode === 'ALUNOS'
@@ -2184,7 +2383,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         </div>
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           <button onClick={handleOpenCreateModal} className="bg-indigo-600 text-white px-3.5 py-2 rounded-xl font-black uppercase tracking-[0.12em] text-[9px] shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-1.5">
-            <Plus size={12} /> Adicionar
+            <Plus size={12} /> {viewMode === 'ALUNOS' ? 'Adicionar' : 'Novo Responsável'}
           </button>
           <button onClick={handleExportCsv} className="bg-white border border-gray-200 text-gray-700 px-3 py-2 rounded-xl font-black uppercase tracking-[0.12em] text-[9px] hover:border-indigo-200 hover:text-indigo-700 transition-all flex items-center gap-1.5">
             <FileSpreadsheet size={12} /> CSV
@@ -2224,13 +2423,13 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
         <div className="relative flex-1 w-full">
            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-           <input type="text" placeholder="Pesquisar por matrícula, nome ou turma..." className="w-full pl-10 pr-3 py-2 sm:py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl sm:rounded-2xl outline-none font-semibold text-[11px] sm:text-xs transition-all shadow-inner" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+           <input type="text" placeholder={viewMode === 'ALUNOS' ? 'Pesquisar por matrícula, nome ou turma...' : 'Pesquisar por nome, vínculo ou telefone...'} className="w-full pl-10 pr-3 py-2 sm:py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl sm:rounded-2xl outline-none font-semibold text-[11px] sm:text-xs transition-all shadow-inner" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
       </div>
 
       <div className="bg-white rounded-[24px] sm:rounded-[32px] shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto scrollbar-thin">
-          <table className={`w-full text-left ${viewMode === 'ALUNOS' ? 'min-w-[980px] lg:min-w-[1080px]' : 'min-w-[860px] lg:min-w-[940px]'}`}>
+          <table className={`w-full text-left ${viewMode === 'ALUNOS' ? 'min-w-[1060px] lg:min-w-[1160px]' : 'min-w-[860px] lg:min-w-[940px]'}`}>
             <thead className="bg-gray-50 text-[8px] sm:text-[9px] font-black text-gray-500 uppercase tracking-[0.14em] border-b">
               <tr>
                 <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">ID</th>
@@ -2238,6 +2437,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                 {viewMode === 'ALUNOS' ? (
                   <>
                     <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">Responsável / Setor</th>
+                    <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">Tipo Responsável</th>
                     <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">Telefone</th>
                     <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">Turma</th>
                     <th className="px-2.5 sm:px-4 py-2.5 sm:py-3 text-center">Restrição</th>
@@ -2255,7 +2455,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
             <tbody className="divide-y divide-gray-100">
               {(viewMode === 'ALUNOS' ? filteredClients.length : responsibleOrCollaboratorRows.length) === 0 ? (
                 <tr>
-                  <td colSpan={viewMode === 'ALUNOS' ? 7 : 6} className="px-4 sm:px-6 py-20 text-center text-gray-400 font-bold uppercase text-xs tracking-widest opacity-40">
+                  <td colSpan={viewMode === 'ALUNOS' ? 8 : 6} className="px-4 sm:px-6 py-20 text-center text-gray-400 font-bold uppercase text-xs tracking-widest opacity-40">
                     {viewMode === 'ALUNOS' ? 'Nenhum aluno na base' : 'Nenhum responsável ou colaborador na base'}
                   </td>
                 </tr>
@@ -2271,6 +2471,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                 const responsiblePhone = client.type === 'ALUNO'
                   ? (client.parentWhatsapp || client.guardianPhone || client.phone || 'Não informado')
                   : (client.phone || client.parentWhatsapp || 'Não informado');
+                const responsibleTypeLabel = formatParentRelationship((client as any)?.parentRelationship) || resolveResponsibleRelationshipLabel(client);
                 const responsiblePhoneDigits = normalizePhoneDigits(responsiblePhone);
                 const whatsappStatusLabel = !responsiblePhoneDigits
                   ? 'SEM NÚMERO'
@@ -2298,6 +2499,11 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                           {responsibleEmail}
                         </p>
                       </div>
+                    </td>
+                    <td className="px-2.5 sm:px-4 py-2.5 sm:py-3">
+                      <span className="inline-flex px-2 py-1 rounded-full text-[8px] font-black uppercase tracking-wider bg-cyan-50 text-cyan-700 border border-cyan-100">
+                        {responsibleTypeLabel}
+                      </span>
                     </td>
                     <td className="px-2.5 sm:px-4 py-2.5 sm:py-3">
                       <div className="flex items-center justify-between gap-3">
@@ -2569,6 +2775,9 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                       <div className="bg-emerald-50/70 p-5 rounded-[24px] border border-emerald-100 space-y-2">
                         <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Contato principal</p>
                         {viewingClient.parentName && <InfoItem label="Nome" value={viewingClient.parentName} />}
+                        {Boolean((viewingClient as any).parentRelationship) && (
+                          <InfoItem label="Tipo" value={formatParentRelationship((viewingClient as any).parentRelationship) || 'Indefinido'} />
+                        )}
                         {viewingClient.parentWhatsapp && <InfoItem label="WhatsApp" value={viewingClient.parentWhatsapp} />}
                         {viewingClient.parentEmail && <InfoItem label="E-mail" value={viewingClient.parentEmail} />}
                         {!viewingClient.parentName && !viewingClient.parentWhatsapp && !viewingClient.parentEmail && (
@@ -2797,160 +3006,374 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                  <div className="flex items-center gap-4">
                     <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center"><UserPlus size={28} /></div>
                     <div>
-                       <h2 className="text-xl font-black uppercase tracking-tight">{editingClient ? 'Editar Cliente' : 'Novo Cadastro de Cliente'}</h2>
+                       <h2 className="text-xl font-black uppercase tracking-tight">{editingClient ? 'Editar Cliente' : (isResponsibleView ? 'Novo Responsável/Colaborador' : 'Novo Cadastro de Cliente')}</h2>
                        <p className="text-[10px] font-bold text-indigo-200 uppercase tracking-widest mt-0.5">
-                         {editingClient ? 'Atualização de dados cadastrais e planos' : 'Gestão de perfil e carteira pré-paga'}
+                         {editingClient ? 'Atualização de dados cadastrais' : (isResponsibleView ? 'Gestão de responsável e colaborador' : 'Gestão de perfil cadastral')}
                        </p>
                     </div>
                  </div>
                  <button type="button" onClick={() => setIsClientModalOpen(false)} className="p-3 hover:bg-white/10 rounded-full transition-all"><X size={28} /></button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-10 space-y-12 scrollbar-hide">
-                 {!showPaymentFlow ? (
-                   <>
-                     <div className="space-y-6">
-                        <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[4px] border-b pb-2 flex items-center gap-2"><UserIcon size={14} className="text-indigo-600"/> Dados Cadastrais</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                           <div className="space-y-1.5 md:col-span-2">
-                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nome Completo *</label>
-                              <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-[24px] outline-none font-bold text-sm transition-all shadow-inner" />
-                           </div>
-                           <div className="space-y-1.5 md:col-span-2">
-                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Foto do Cliente (Opcional)</label>
-                              <div className="bg-gray-50 border-2 border-dashed border-gray-200 rounded-[24px] p-4 flex flex-col md:flex-row md:items-center gap-4">
-                                <img
-                                  src={clientPhotoPreview || resolveClientPhotoUrl(formData.photo, formData.name)}
-                                  className="w-20 h-20 rounded-2xl object-cover border-2 border-white shadow-sm"
-                                />
-                                <div className="flex-1 space-y-2">
-                                  <label className="inline-flex items-center gap-2 px-4 py-2 bg-white border rounded-xl text-[10px] font-black uppercase tracking-widest text-indigo-600 cursor-pointer hover:bg-indigo-50 transition-all">
-                                    <Upload size={14} />
-                                    Enviar Foto
-                                    <input
-                                      type="file"
-                                      accept="image/png,image/jpeg,image/webp"
-                                      className="hidden"
-                                      onChange={(e) => {
-                                        const file = e.target.files?.[0] || null;
-                                        if (!file) return;
-                                        if (file.size > 5 * 1024 * 1024) {
-                                          alert('A imagem deve ter no máximo 5MB.');
-                                          return;
-                                        }
-                                        setClientPhotoFile(file);
-                                        setClientPhotoPreview(URL.createObjectURL(file));
-                                      }}
-                                    />
-                                  </label>
-                                  {clientPhotoFile && (
-                                    <p className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">
-                                      Arquivo: {clientPhotoFile.name}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                           </div>
-                           <div className="space-y-1.5">
-                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Tipo de Cadastro</label>
-                              {isStudentOnlyMode ? (
-                                <div className="w-full px-6 py-4 bg-emerald-50 border-2 border-emerald-200 rounded-[24px] font-bold text-sm text-emerald-700 uppercase tracking-widest">
-                                  Aluno
-                                </div>
-                              ) : (
-                                <select
-                                  value={formData.type}
-                                  onChange={e => {
-                                    const newType = e.target.value as 'ALUNO' | 'COLABORADOR';
-                                    setSelectedPlanDays({});
-                                    setSelectedPlanDates({});
-                                    setOpenPlanCalendarId(null);
-                                    setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-                                    setFormData({...formData, type: newType, servicePlans: ['PREPAGO']});
-                                  }}
-                                  className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-[24px] outline-none font-bold text-sm transition-all shadow-inner"
-                                >
-                                  <option value="ALUNO">Aluno</option>
-                                  <option value="COLABORADOR">Colaborador</option>
-                                </select>
-                              )}
-                           </div>
-                           {formData.type === 'ALUNO' ? (
-                             <>
-                               <div className="space-y-1.5">
-                                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nível de Ensino</label>
-                                  <select
-                                    value={formData.classType}
-                                    onChange={e => setFormData({...formData, classType: e.target.value as '' | 'INFANTIL' | 'FUNDAMENTAL' | 'MEDIO' | 'INTEGRAL', classGrade: ''})}
-                                    className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-[24px] outline-none font-bold text-sm transition-all shadow-inner"
-                                  >
-                                    <option value="">Selecione o nível...</option>
-                                    <option value="INFANTIL">Educação Infantil</option>
-                                    <option value="FUNDAMENTAL">Ensino Fundamental</option>
-                                    <option value="MEDIO">Ensino Médio</option>
-                                    <option value="INTEGRAL">Integral</option>
-                                  </select>
-                               </div>
-                               {formData.classType && formData.classType !== 'INTEGRAL' && (
-                                 <div className="space-y-1.5 animate-in fade-in">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Série / Ano</label>
-                                    <select
-                                      value={formData.classGrade}
-                                      onChange={e => setFormData({...formData, classGrade: e.target.value})}
-                                      className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-[24px] outline-none font-bold text-sm transition-all shadow-inner"
-                                    >
-                                      <option value="">Selecione a série...</option>
-                                      {gradeOptions[formData.classType as keyof typeof gradeOptions].map(grade => (
-                                        <option key={grade} value={grade}>{grade}</option>
-                                      ))}
-                                    </select>
-                                 </div>
-                               )}
-                             </>
-                           ) : (
-                             <div className="space-y-1.5 md:col-span-2">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Departamento / Área</label>
-                                <input value={formData.class} onChange={e => setFormData({...formData, class: e.target.value})} className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-[24px] outline-none font-bold text-sm transition-all shadow-inner" />
-                             </div>
-                           )}
-                           {formData.type === 'ALUNO' && (
-                             <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Limite Diário (R$)</label>
-                                <input type="number" value={formData.dailyLimit} onChange={e => setFormData({...formData, dailyLimit: Number(e.target.value)})} className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-[24px] outline-none font-bold text-sm transition-all shadow-inner" />
-                             </div>
-                           )}
-                           <div className="space-y-1.5 md:col-span-2">
-                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Restrição Alimentar</label>
-                              <input
-                                value={formData.restrictions.join(', ')}
-                                onChange={e => {
-                                  const parsed = e.target.value
-                                    .split(',')
-                                    .map(item => item.trim())
-                                    .filter(Boolean);
-                                  setFormData({ ...formData, restrictions: parsed });
-                                }}
-                                className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-[24px] outline-none font-bold text-sm transition-all shadow-inner"
-                                placeholder="Ex: Lactose, Glúten, Amendoim"
-                              />
-                           </div>
+              <div className="flex-1 overflow-y-auto bg-slate-50/60 p-6 sm:p-8 lg:p-10 space-y-6 scrollbar-hide">
+                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                    <section className="xl:col-span-2 bg-white rounded-[28px] border border-slate-200 shadow-sm p-6 sm:p-7 space-y-5">
+                      <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                            <UserIcon size={16} />
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-black text-slate-800 uppercase tracking-wide">Dados Cadastrais</h3>
+                            <p className="text-[11px] font-semibold text-slate-400">
+                              {isResponsibleView ? 'Informações principais do responsável/colaborador' : 'Informações principais do aluno/colaborador'}
+                            </p>
+                          </div>
                         </div>
-                     </div>
+                        <span className="text-[10px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full border border-indigo-100">
+                          Cadastro
+                        </span>
+                      </div>
 
-                     <div className="space-y-6">
-                        <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[4px] border-b pb-2 flex items-center gap-2"><UserIcon size={14} className={formData.type === 'ALUNO' ? 'text-emerald-600' : 'text-blue-600'}/> {formData.type === 'ALUNO' ? 'Dados do Responsável' : 'Dados do Colaborador'}</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                           <div className="space-y-1.5 md:col-span-2">
-                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{formData.type === 'ALUNO' ? 'Nome do Pai/Responsável' : 'Nome do Colaborador'}</label>
-                              <input value={formData.parentName} onChange={e => setFormData({...formData, parentName: e.target.value})} className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-[24px] outline-none font-bold text-sm transition-all shadow-inner" placeholder={formData.type === 'ALUNO' ? 'Nome completo do responsável' : 'Nome completo do colaborador'} />
-                           </div>
-                           <div className="space-y-1.5">
-                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{formData.type === 'ALUNO' ? 'WhatsApp do Responsável' : 'WhatsApp do Colaborador'}</label>
-                              <div className="grid grid-cols-[160px_minmax(0,1fr)] gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div className="space-y-1.5 md:col-span-2">
+                          <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Nome completo *</label>
+                          <input
+                            required
+                            value={formData.name}
+                            onChange={e => setFormData({ ...formData, name: e.target.value })}
+                            className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                            placeholder={formData.type === 'ALUNO' ? 'NOME DO ALUNO' : (formData.type === 'RESPONSAVEL' ? 'NOME DO RESPONSÁVEL' : 'NOME DO COLABORADOR')}
+                          />
+                        </div>
+
+                        <div className="space-y-2 md:col-span-2">
+                          <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Foto do Cliente (Opcional)</label>
+                          <div className="bg-slate-50 border border-dashed border-slate-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-4">
+                            <img
+                              src={clientPhotoPreview || resolveClientPhotoUrl(formData.photo, formData.name)}
+                              className="w-20 h-20 rounded-2xl object-cover border-2 border-white shadow-sm"
+                            />
+                            <div className="flex-1 space-y-2">
+                              <label className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-wider text-indigo-600 cursor-pointer hover:bg-indigo-50 transition-all">
+                                <Upload size={14} />
+                                Enviar Foto
+                                <input
+                                  type="file"
+                                  accept="image/png,image/jpeg,image/webp"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0] || null;
+                                    if (!file) return;
+                                    if (file.size > 5 * 1024 * 1024) {
+                                      alert('A imagem deve ter no máximo 5MB.');
+                                      return;
+                                    }
+                                    setClientPhotoFile(file);
+                                    setClientPhotoPreview(URL.createObjectURL(file));
+                                  }}
+                                />
+                              </label>
+                              {clientPhotoFile && (
+                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                                  Arquivo: {clientPhotoFile.name}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Tipo de Cadastro</label>
+                          {isStudentOnlyMode ? (
+                            <div className="w-full px-5 py-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl font-black text-sm text-emerald-700 uppercase tracking-widest">
+                              Aluno
+                            </div>
+                          ) : isResponsibleView ? (
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFormData({ ...formData, type: 'RESPONSAVEL' });
+                                  setResponsibleSourceMode('NEW');
+                                  setResponsibleCollaboratorSearch('');
+                                  setResponsibleCollaboratorId(null);
+                                }}
+                                className={`w-full px-4 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest border transition-all ${
+                                  formData.type === 'RESPONSAVEL'
+                                    ? 'bg-emerald-600 border-emerald-600 text-white'
+                                    : 'bg-white border-slate-200 text-slate-600 hover:border-emerald-300'
+                                }`}
+                              >
+                                Responsável
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFormData({ ...formData, type: 'COLABORADOR' });
+                                  setResponsibleSourceMode('NEW');
+                                  setResponsibleCollaboratorSearch('');
+                                  setResponsibleCollaboratorId(null);
+                                }}
+                                className={`w-full px-4 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest border transition-all ${
+                                  formData.type === 'COLABORADOR'
+                                    ? 'bg-blue-600 border-blue-600 text-white'
+                                    : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300'
+                                }`}
+                              >
+                                Colaborador
+                              </button>
+                            </div>
+                          ) : (
+                            <select
+                              value={formData.type}
+                              onChange={e => {
+                                const newType = e.target.value as 'ALUNO' | 'COLABORADOR' | 'RESPONSAVEL';
+                                setSelectedPlanDays({});
+                                setSelectedPlanDates({});
+                                setOpenPlanCalendarId(null);
+                                setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+                                if (newType !== 'ALUNO') {
+                                  setResponsibleSourceMode('NEW');
+                                  setResponsibleCollaboratorSearch('');
+                                  setResponsibleCollaboratorId(null);
+                                }
+                                setFormData({ ...formData, type: newType, servicePlans: ['PREPAGO'] });
+                              }}
+                              className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                            >
+                              <option value="ALUNO">Aluno</option>
+                              <option value="COLABORADOR">Colaborador</option>
+                              <option value="RESPONSAVEL">Responsável</option>
+                            </select>
+                          )}
+                        </div>
+
+                        {formData.type === 'ALUNO' ? (
+                          <>
+                            <div className="space-y-1.5">
+                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Nível de Ensino</label>
+                              <select
+                                value={formData.classType}
+                                onChange={e => setFormData({ ...formData, classType: e.target.value as '' | 'INFANTIL' | 'FUNDAMENTAL' | 'MEDIO' | 'INTEGRAL', classGrade: '' })}
+                                className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                              >
+                                <option value="">Selecione o nível...</option>
+                                <option value="INFANTIL">Educação Infantil</option>
+                                <option value="FUNDAMENTAL">Ensino Fundamental</option>
+                                <option value="MEDIO">Ensino Médio</option>
+                                <option value="INTEGRAL">Integral</option>
+                              </select>
+                            </div>
+                            {formData.classType && formData.classType !== 'INTEGRAL' && (
+                              <div className="space-y-1.5 animate-in fade-in">
+                                <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Série / Ano</label>
+                                <select
+                                  value={formData.classGrade}
+                                  onChange={e => setFormData({ ...formData, classGrade: e.target.value })}
+                                  className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                >
+                                  <option value="">Selecione a série...</option>
+                                  {gradeOptions[formData.classType as keyof typeof gradeOptions].map(grade => (
+                                    <option key={grade} value={grade}>{grade}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="space-y-1.5 md:col-span-2">
+                            <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">
+                              {formData.type === 'RESPONSAVEL' ? 'Vínculo / Parentesco' : 'Departamento / Área'}
+                            </label>
+                            <input
+                              value={formData.class}
+                              onChange={e => setFormData({ ...formData, class: e.target.value })}
+                              className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                              placeholder={formData.type === 'RESPONSAVEL' ? 'Ex.: Pais, Avós, Tios, Tutor legal' : 'Ex.: Cozinha, Limpeza, Administrativo'}
+                            />
+                          </div>
+                        )}
+
+                        {formData.type === 'ALUNO' && (
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Limite Diário (R$)</label>
+                            <input
+                              type="number"
+                              value={formData.dailyLimit}
+                              onChange={e => setFormData({ ...formData, dailyLimit: Number(e.target.value) })}
+                              className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                            />
+                          </div>
+                        )}
+
+                        <div className="space-y-1.5 md:col-span-2">
+                          <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Restrições Alimentares</label>
+                          <input
+                            value={formData.restrictions.join(', ')}
+                            onChange={e => {
+                              const parsed = e.target.value
+                                .split(',')
+                                .map(item => item.trim())
+                                .filter(Boolean);
+                              setFormData({ ...formData, restrictions: parsed });
+                            }}
+                            className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                            placeholder="Ex: Lactose, Glúten, Amendoim"
+                          />
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="xl:col-span-2 bg-white rounded-[28px] border border-slate-200 shadow-sm p-6 sm:p-7 space-y-5">
+                      <div className="flex items-center gap-2.5 border-b border-slate-100 pb-4">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${formData.type === 'ALUNO' ? 'bg-emerald-100 text-emerald-600' : (formData.type === 'RESPONSAVEL' ? 'bg-cyan-100 text-cyan-600' : 'bg-blue-100 text-blue-600')}`}>
+                          <Phone size={16} />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-black text-slate-800 uppercase tracking-wide">
+                            {formData.type === 'ALUNO' ? 'Dados do Responsável' : (formData.type === 'RESPONSAVEL' ? 'Dados do Responsável' : 'Dados do Colaborador')}
+                          </h3>
+                          <p className="text-[11px] font-semibold text-slate-400">Contato principal para comunicação e cobrança</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        {formData.type === 'ALUNO' && (
+                          <div className="md:col-span-2 space-y-2">
+                            <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Origem do responsável</label>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setResponsibleSourceMode('NEW')}
+                                className={`px-4 py-3 rounded-2xl border text-[11px] font-black uppercase tracking-widest transition-all ${
+                                  responsibleSourceMode === 'NEW'
+                                    ? 'bg-emerald-600 border-emerald-600 text-white'
+                                    : 'bg-white border-slate-200 text-slate-600 hover:border-emerald-300'
+                                }`}
+                              >
+                                Cadastrar Novo Responsável
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setResponsibleSourceMode('COLABORADOR')}
+                                className={`px-4 py-3 rounded-2xl border text-[11px] font-black uppercase tracking-widest transition-all ${
+                                  responsibleSourceMode === 'COLABORADOR'
+                                    ? 'bg-indigo-600 border-indigo-600 text-white'
+                                    : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300'
+                                }`}
+                              >
+                                Inserir Colaborador
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {formData.type === 'ALUNO' && responsibleSourceMode === 'COLABORADOR' ? (
+                          <>
+                            <div className="md:col-span-2 space-y-1.5">
+                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Buscar colaborador</label>
+                              <input
+                                value={responsibleCollaboratorSearch}
+                                onChange={(e) => {
+                                  setResponsibleCollaboratorSearch(e.target.value);
+                                  setResponsibleCollaboratorId(null);
+                                }}
+                                className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                placeholder="Digite nome, matrícula ou setor do colaborador"
+                              />
+                            </div>
+                            <div className="md:col-span-2 max-h-44 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50">
+                              {filteredResponsibleCollaborators.length === 0 ? (
+                                <p className="px-4 py-3 text-xs font-semibold text-slate-500">Nenhum colaborador encontrado.</p>
+                              ) : (
+                                filteredResponsibleCollaborators.map((collaborator) => {
+                                  const phoneParts = splitPhoneByCountryCode(collaborator.phone || '');
+                                  const isSelected = responsibleCollaboratorId === collaborator.id;
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={collaborator.id}
+                                      onClick={() => {
+                                        setResponsibleCollaboratorId(collaborator.id);
+                                        setResponsibleCollaboratorSearch(String(collaborator.name || ''));
+                                        setFormData((prev) => ({
+                                          ...prev,
+                                          parentName: String(collaborator.name || ''),
+                                          parentWhatsappCountryCode: phoneParts.countryCode || '55',
+                                          parentWhatsapp: phoneParts.localPhone || normalizePhoneDigits(collaborator.phone || ''),
+                                          parentEmail: String(collaborator.email || ''),
+                                        }));
+                                      }}
+                                      className={`w-full px-4 py-3 text-left border-b border-slate-200 last:border-b-0 transition-colors ${
+                                        isSelected ? 'bg-indigo-100/70' : 'hover:bg-indigo-50'
+                                      }`}
+                                    >
+                                      <p className="text-sm font-black text-slate-800">{collaborator.name}</p>
+                                      <p className="text-[11px] font-semibold text-slate-500">
+                                        {collaborator.registrationId ? `#${collaborator.registrationId}` : 'Sem matrícula'} • {collaborator.class || 'Sem setor'} • {formatPhoneNumber(collaborator.phone || '')}
+                                      </p>
+                                    </button>
+                                  );
+                                })
+                              )}
+                            </div>
+                            {selectedResponsibleCollaborator && (
+                              <div className="md:col-span-2 rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Colaborador selecionado</p>
+                                <p className="text-sm font-black text-slate-800 mt-1">{selectedResponsibleCollaborator.name}</p>
+                                <p className="text-xs font-semibold text-slate-600">
+                                  {formatPhoneNumber(selectedResponsibleCollaborator.phone || '')} • {selectedResponsibleCollaborator.email || 'Sem e-mail'}
+                                </p>
+                              </div>
+                            )}
+                            <div className="space-y-1.5">
+                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Tipo de Responsável</label>
+                              <select
+                                value={formData.parentRelationship}
+                                onChange={e => setFormData({ ...formData, parentRelationship: e.target.value })}
+                                className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                              >
+                                {RESPONSIBLE_RELATION_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="space-y-1.5 md:col-span-2">
+                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">{formData.type === 'ALUNO' ? 'Nome do Pai/Responsável' : (formData.type === 'RESPONSAVEL' ? 'Nome do Responsável' : 'Nome do Colaborador')}</label>
+                              <input
+                                value={formData.parentName}
+                                onChange={e => setFormData({ ...formData, parentName: e.target.value })}
+                                className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                placeholder={formData.type === 'ALUNO' ? 'Nome completo do responsável' : (formData.type === 'RESPONSAVEL' ? 'Nome completo do responsável' : 'Nome completo do colaborador')}
+                              />
+                            </div>
+
+                            {formData.type === 'ALUNO' && (
+                              <div className="space-y-1.5">
+                                <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Tipo de Responsável</label>
+                                <select
+                                  value={formData.parentRelationship}
+                                  onChange={e => setFormData({ ...formData, parentRelationship: e.target.value })}
+                                  className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                >
+                                  {RESPONSIBLE_RELATION_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+
+                            <div className="space-y-1.5">
+                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">WhatsApp</label>
+                              <div className="grid grid-cols-[150px_minmax(0,1fr)] gap-2.5">
                                 <select
                                   value={formData.parentWhatsappCountryCode}
-                                  onChange={e => setFormData({...formData, parentWhatsappCountryCode: e.target.value})}
-                                  className="w-full px-4 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-[24px] outline-none font-bold text-sm transition-all shadow-inner"
+                                  onChange={e => setFormData({ ...formData, parentWhatsappCountryCode: e.target.value })}
+                                  className="w-full px-3.5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
                                 >
                                   {COUNTRY_OPTIONS.map((country) => (
                                     <option key={country.code} value={country.code}>
@@ -2960,354 +3383,55 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                 </select>
                                 <input
                                   value={formData.parentWhatsapp}
-                                  onChange={e => setFormData({...formData, parentWhatsapp: e.target.value})}
-                                  className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-[24px] outline-none font-bold text-sm transition-all shadow-inner"
+                                  onChange={e => setFormData({ ...formData, parentWhatsapp: e.target.value })}
+                                  className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
                                   placeholder="DDD + número"
                                 />
                               </div>
-                           </div>
-                           <div className="space-y-1.5">
-                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{formData.type === 'ALUNO' ? 'CPF do Responsável' : 'CPF do Colaborador'}</label>
-                              <input value={formData.parentCpf} onChange={e => setFormData({...formData, parentCpf: e.target.value})} className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-[24px] outline-none font-bold text-sm transition-all shadow-inner" placeholder="000.000.000-00" />
-                           </div>
-                           <div className="space-y-1.5 md:col-span-2">
-                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{formData.type === 'ALUNO' ? 'E-mail do Responsável' : 'E-mail do Colaborador'}</label>
-                              <input type="email" value={formData.parentEmail} onChange={e => setFormData({...formData, parentEmail: e.target.value})} className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-[24px] outline-none font-bold text-sm transition-all shadow-inner" placeholder="email@exemplo.com" />
-                           </div>
-                        </div>
-                     </div>
-
-                     {!editingClient && (
-                       <div className="space-y-6">
-                         <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[3px] border-b pb-2 flex items-center gap-2"><ShieldCheck size={14} className="text-indigo-600"/> {formData.type === 'ALUNO' ? 'Créditos e Planos' : 'Crédito para Colaborador'}</h3>
-                         {formData.type === 'ALUNO' ? (
-                          <>
-                            <div className="grid grid-cols-1 gap-4">
-                               <PlanToggleCard active={formData.servicePlans.includes('PREPAGO')} onClick={() => togglePlan('PREPAGO')} icon={<Wallet size={24} />} label="Carteira Pré-Paga" desc="Uso livre no caixa" color="indigo" />
                             </div>
 
-                            {formData.servicePlans.includes('PREPAGO') && (
-                              <div className="bg-emerald-50 p-8 rounded-[40px] border-2 border-emerald-100 animate-in zoom-in-95 text-center shadow-inner">
-                                 <p className="text-[10px] font-black text-emerald-900 uppercase tracking-widest mb-4">Carga Inicial de Créditos</p>
-                                 <div className="relative max-w-[240px] mx-auto">
-                                    <span className="absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-black text-emerald-300">R$</span>
-                                    <input 
-                                      type="number" 
-                                      value={formData.initialCredit || ''} 
-                                      onChange={e => setFormData({...formData, initialCredit: parseFloat(e.target.value) || 0})}
-                                      className="w-full pl-16 pr-6 py-5 bg-white border-2 border-emerald-200 rounded-[24px] outline-none text-3xl font-black text-emerald-600 text-center"
-                                      placeholder="0,00"
-                                    />
-                                </div>
-                              </div>
-                            )}
+                            <div className="space-y-1.5">
+                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">CPF</label>
+                              <input
+                                value={formData.parentCpf}
+                                onChange={e => setFormData({ ...formData, parentCpf: e.target.value })}
+                                className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                placeholder="000.000.000-00"
+                              />
+                            </div>
 
-                            <div className="space-y-4">
-                              <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Planos Cadastrados para Matrícula</p>
-                              {availablePlans.length > 0 ? (
-                                <div className="space-y-4">
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {availablePlans.map(plan => {
-                                      const planSelected = Boolean(selectedPlanDays[plan.id]);
-                                      const selectedDaysCount = selectedPlanDays[plan.id]?.length || 0;
-                                      const selectedDatesCount = selectedPlanDates[plan.id]?.length || 0;
-                                      const planSubtotal = plan.price * selectedDatesCount;
-                                      const isCalendarOpen = openPlanCalendarId === plan.id;
-                                      return (
-                                        <div
-                                          key={plan.id}
-                                          className={`p-5 rounded-[24px] border-2 text-left transition-all ${planSelected ? 'bg-indigo-50 border-indigo-400 shadow-lg shadow-indigo-100' : 'bg-white border-gray-100 hover:border-indigo-200'}`}
-                                        >
-                                          <div className="flex items-start justify-between gap-4">
-                                            <div>
-                                              <p className="text-xs font-black text-gray-800 uppercase">{plan.name}</p>
-                                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">{plan.description || 'Plano de consumo'}</p>
-                                            </div>
-                                            <div className="text-right">
-                                              <p className="text-lg font-black text-indigo-600">R$ {plan.price.toFixed(2)}</p>
-                                              <p className="text-[9px] font-black text-gray-400 uppercase">por dia</p>
-                                            </div>
-                                          </div>
-                                          <div className="mt-4 pt-4 border-t border-indigo-100 flex flex-wrap items-center gap-2">
-                                            <button
-                                              type="button"
-                                              onClick={() => toggleCreatedPlan(plan.id)}
-                                              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${planSelected ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-indigo-300'}`}
-                                            >
-                                              {planSelected ? 'Remover Plano' : 'Selecionar Plano'}
-                                            </button>
-                                            {planSelected && (
-                                              <button
-                                                type="button"
-                                                onClick={() => setOpenPlanCalendarId(isCalendarOpen ? null : plan.id)}
-                                                className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 bg-white border-indigo-200 text-indigo-600 hover:border-indigo-400 transition-all"
-                                              >
-                                                {isCalendarOpen ? 'Fechar Calendário' : 'Escolher Dias'}
-                                              </button>
-                                            )}
-                                          </div>
-
-                                          {planSelected && (
-                                            <div className="mt-3">
-                                              <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">
-                                                {selectedDatesCount} dia(s) do mês selecionado(s) • Subtotal: R$ {planSubtotal.toFixed(2)}
-                                              </p>
-                                              <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-1">
-                                                {selectedDaysCount} dia(s) da semana marcado(s)
-                                              </p>
-                                              <div className="mt-3">
-                                                <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2">
-                                                  Turnos de Entrega
-                                                </p>
-                                                <div className="flex flex-wrap gap-2">
-                                                  {DELIVERY_SHIFT_OPTIONS.map(shift => {
-                                                    const activeShift = (selectedPlanShifts[plan.id] || []).includes(shift.key);
-                                                    return (
-                                                      <label
-                                                        key={`${plan.id}-shift-${shift.key}`}
-                                                        className={`px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase tracking-widest cursor-pointer transition-all ${
-                                                          activeShift
-                                                            ? 'bg-indigo-600 border-indigo-600 text-white'
-                                                            : 'bg-white border-indigo-100 text-indigo-500 hover:border-indigo-300'
-                                                        }`}
-                                                      >
-                                                        <input
-                                                          type="checkbox"
-                                                          className="sr-only"
-                                                          checked={activeShift}
-                                                          onChange={() => togglePlanShift(plan.id, shift.key)}
-                                                        />
-                                                        {shift.label}
-                                                      </label>
-                                                    );
-                                                  })}
-                                                </div>
-                                              </div>
-                                            </div>
-                                          )}
-
-                                          {planSelected && isCalendarOpen && (
-                                            <div className="mt-4 bg-white border border-indigo-200 rounded-2xl p-4">
-                                              <p className="text-[10px] font-black text-indigo-700 uppercase tracking-widest mb-3">
-                                                Calendário de Entregas - Dias da Semana e do Mês
-                                              </p>
-                                              {allowedServiceDayKeys.length === 0 && (
-                                                <p className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-3">
-                                                  Nenhum dia de atendimento ativo em Ajustes da Unidade.
-                                                </p>
-                                              )}
-                                              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mb-4">
-                                                {WEEK_DAY_OPTIONS.map(day => {
-                                                  const active = selectedPlanDays[plan.id]?.includes(day.key);
-                                                  const isAllowedDay = allowedServiceDayKeySet.has(day.key);
-                                                  return (
-                                                    <button
-                                                      type="button"
-                                                      key={`${plan.id}-${day.key}`}
-                                                      onClick={() => togglePlanDay(plan.id, day.key)}
-                                                      disabled={!isAllowedDay}
-                                                      className={`w-full h-11 rounded-xl text-[10px] font-black uppercase tracking-wider border-2 transition-all flex items-center justify-center text-center ${
-                                                        !isAllowedDay
-                                                          ? 'bg-gray-100 border-gray-200 text-gray-300 cursor-not-allowed'
-                                                          : active
-                                                            ? 'bg-indigo-600 border-indigo-600 text-white'
-                                                            : 'bg-white border-indigo-100 text-indigo-500 hover:border-indigo-300'
-                                                      }`}
-                                                    >
-                                                      {day.label}
-                                                    </button>
-                                                  );
-                                                })}
-                                              </div>
-
-                                              <div className="bg-indigo-50/60 rounded-2xl p-4 border border-indigo-100 space-y-3">
-                                                <div className="flex items-center justify-between">
-                                                  <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">
-                                                    {calendarMonthLabel}
-                                                  </p>
-                                                  <div className="flex items-center gap-2">
-                                                    <button
-                                                      type="button"
-                                                      onClick={() => setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
-                                                      className="w-8 h-8 rounded-lg border border-indigo-200 bg-white text-indigo-600 text-xs font-black"
-                                                      title="Mês anterior"
-                                                    >
-                                                      {'<'}
-                                                    </button>
-                                                    <button
-                                                      type="button"
-                                                      onClick={() => setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}
-                                                      className="px-2 h-8 rounded-lg border border-indigo-200 bg-white text-indigo-600 text-[9px] font-black uppercase tracking-widest"
-                                                    >
-                                                      Hoje
-                                                    </button>
-                                                    <button
-                                                      type="button"
-                                                      onClick={() => setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
-                                                      className="w-8 h-8 rounded-lg border border-indigo-200 bg-white text-indigo-600 text-xs font-black"
-                                                      title="Próximo mês"
-                                                    >
-                                                      {'>'}
-                                                    </button>
-                                                  </div>
-                                                </div>
-
-                                                <div className="grid grid-cols-7 gap-2">
-                                                  {WEEK_DAY_OPTIONS.map(day => (
-                                                    <div
-                                                      key={`${plan.id}-header-${day.key}`}
-                                                      className={`w-full h-9 rounded-lg border text-[10px] font-black uppercase flex items-center justify-center text-center ${
-                                                        allowedServiceDayKeySet.has(day.key)
-                                                          ? 'bg-white border-indigo-100 text-indigo-500'
-                                                          : 'bg-gray-100 border-gray-200 text-gray-300'
-                                                      }`}
-                                                    >
-                                                      {day.label}
-                                                    </div>
-                                                  ))}
-                                                </div>
-
-                                                <div className="grid grid-cols-7 gap-2">
-                                                  {calendarGrid.map((dateCell, index) => {
-                                                    if (!dateCell) {
-                                                      return <div key={`${plan.id}-empty-${index}`} className="w-full h-9 rounded-lg bg-transparent" />;
-                                                    }
-                                                    const isAllowedDate = isServiceDateAllowed(dateCell);
-                                                    const dateKey = toDateKey(dateCell);
-                                                    const isSelected = (selectedPlanDates[plan.id] || []).includes(dateKey);
-                                                    return (
-                                                      <button
-                                                        type="button"
-                                                        key={`${plan.id}-${dateKey}`}
-                                                        onClick={() => togglePlanDate(plan.id, dateCell)}
-                                                        disabled={!isAllowedDate}
-                                                        className={`w-full h-9 rounded-lg border text-[10px] font-black transition-all flex items-center justify-center text-center ${
-                                                          !isAllowedDate
-                                                            ? 'bg-gray-100 border-gray-200 text-gray-300 cursor-not-allowed'
-                                                            : isSelected
-                                                              ? 'bg-indigo-600 border-indigo-600 text-white'
-                                                              : 'bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300'
-                                                        }`}
-                                                      >
-                                                        {dateCell.getDate()}
-                                                      </button>
-                                                    );
-                                                  })}
-                                                </div>
-                                              </div>
-                                            </div>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="bg-amber-50 border border-amber-100 rounded-[24px] p-4">
-                                  <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">
-                                    Nenhum plano ativo cadastrado para esta unidade.
-                                  </p>
-                                </div>
-                              )}
+                            <div className="space-y-1.5 md:col-span-2">
+                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">E-mail</label>
+                              <input
+                                type="email"
+                                value={formData.parentEmail}
+                                onChange={e => setFormData({ ...formData, parentEmail: e.target.value })}
+                                className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                placeholder="email@exemplo.com"
+                              />
                             </div>
                           </>
-                         ) : (
-                          <div className="bg-blue-50 p-8 rounded-[40px] border-2 border-blue-100 shadow-inner space-y-4">
-                            <p className="text-[10px] font-black text-blue-900 uppercase tracking-widest">Saldo para Pagamento ao Final do Mês</p>
-                            <p className="text-sm text-blue-700 font-bold">O colaborador pagará suas despesas no final do mês</p>
-                          </div>
-                         )}
-                       </div>
-                     )}
-                   </>
-                 ) : (
-                   <div className="space-y-10 animate-in slide-in-from-right-10 text-center">
-                      {formData.type === 'ALUNO' ? (
-                        <>
-                          <div className="w-24 h-24 bg-indigo-100 text-indigo-600 rounded-[32px] flex items-center justify-center mx-auto mb-4"><DollarSign size={48} /></div>
-                          <h3 className="text-3xl font-black text-gray-800 uppercase tracking-tight">Pagamento de Matrícula</h3>
-                          
-                          <div className="bg-gray-900 rounded-[40px] p-8 text-white shadow-2xl relative overflow-hidden">
-                             <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 relative z-10">Total à Receber</p>
-                             <p className="text-5xl font-black tracking-tighter relative z-10">R$ {totalToPay.toFixed(2)}</p>
-                             <div className="mt-4 relative z-10 space-y-1">
-                               {formData.servicePlans.includes('PREPAGO') && (
-                                 <p className="text-[10px] font-black text-indigo-200 uppercase tracking-widest">
-                                   Crédito Inicial: R$ {formData.initialCredit.toFixed(2)}
-                                 </p>
-                               )}
-                               {selectedPlanConfigs.length > 0 && (
-                                 <p className="text-[10px] font-black text-indigo-200 uppercase tracking-widest">
-                                   Planos ({selectedPlanConfigs.length}): R$ {selectedPlansTotal.toFixed(2)}
-                                 </p>
-                               )}
-                             </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                             <PaymentOptionCard active={paymentMethod === 'PIX'} onClick={() => setPaymentMethod('PIX')} icon={<QrCode size={24} />} label="Pix Online" desc="Liberação na hora" />
-                             <PaymentOptionCard active={paymentMethod === 'CAIXA'} onClick={() => setPaymentMethod('CAIXA')} icon={<Smartphone size={24} />} label="Caixa Local" desc="Dinheiro ou Cartão" />
-                             <PaymentOptionCard active={paymentMethod === 'BOLETO'} onClick={() => setPaymentMethod('BOLETO')} icon={<FileText size={24} />} label="Boleto Bancário" desc="Emissão instantânea" />
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="w-24 h-24 bg-blue-100 text-blue-600 rounded-[32px] flex items-center justify-center mx-auto mb-4"><Wallet size={48} /></div>
-                          <h3 className="text-3xl font-black text-gray-800 uppercase tracking-tight">Confirmação de Colaborador</h3>
-                          
-                          <div className="bg-blue-50 p-8 rounded-[40px] border-2 border-blue-100 space-y-4 text-center">
-                             <p className="text-sm font-black text-blue-900 uppercase tracking-widest">Cadastro de Colaborador</p>
-                             <p className="text-base text-blue-700 font-bold">O colaborador não possui saldo inicial</p>
-                             <p className="text-[10px] text-blue-600 italic">Suas despesas serão cobradas ao final do mês</p>
-                          </div>
-
-                          <div className="bg-blue-50 p-8 rounded-[40px] border-2 border-blue-100 space-y-3">
-                             <p className="text-sm font-black text-blue-900 uppercase tracking-widest">Resumo do Cadastro</p>
-                             <div className="space-y-2 text-left">
-                                <p className="text-xs text-gray-700"><span className="font-black text-blue-600">Nome:</span> {formData.parentName || 'Não informado'}</p>
-                                <p className="text-xs text-gray-700"><span className="font-black text-blue-600">CPF:</span> {formData.parentCpf || 'Não informado'}</p>
-                                <p className="text-xs text-gray-700"><span className="font-black text-blue-600">Departamento:</span> {formData.class || 'Não informado'}</p>
-                             </div>
-                          </div>
-                        </>
-                      )}
-                   </div>
-                 )}
+                        )}
+                      </div>
+                    </section>
+                 </div>
               </div>
 
-              <div className="p-8 bg-gray-50 border-t flex gap-4 shrink-0 shadow-[0_-15px_45px_rgba(0,0,0,0.05)]">
-                 {!showPaymentFlow ? (
-                   <>
-                     <button type="button" onClick={() => setIsClientModalOpen(false)} className="flex-1 py-5 text-xs font-black text-gray-400 uppercase tracking-widest">Descartar</button>
-                     {editingClient ? (
-                       <button
-                         disabled={!formData.name}
-                         onClick={handleFinishRegistration}
-                         className="flex-[2] py-5 bg-indigo-600 text-white rounded-[24px] font-black uppercase tracking-widest text-sm shadow-xl shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-30 active:scale-95 transition-all flex items-center justify-center gap-3"
-                       >
-                         <CheckCircle2 size={22} /> Salvar Alterações
-                       </button>
-                     ) : (
-                       <button 
-                         disabled={!formData.name}
-                         onClick={() => setShowPaymentFlow(true)} 
-                         className="flex-[2] py-5 bg-indigo-600 text-white rounded-[24px] font-black uppercase tracking-widest text-sm shadow-xl shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-30 active:scale-95 transition-all flex items-center justify-center gap-3"
-                       >
-                         Próxima Etapa <ArrowRight size={22} />
-                       </button>
-                     )}
-                   </>
-                 ) : (
-                   <>
-                     <button type="button" onClick={() => setShowPaymentFlow(false)} className="flex-1 py-5 text-xs font-black text-gray-400 uppercase tracking-widest flex items-center justify-center gap-2"><ChevronLeft size={18}/> Voltar</button>
-                     <button 
-                       onClick={handleFinishRegistration}
-                       className="flex-[2] py-5 bg-indigo-900 text-white rounded-[24px] font-black uppercase tracking-widest text-sm shadow-xl hover:bg-black active:scale-95 transition-all flex items-center justify-center gap-3"
-                     >
-                        <CheckCircle2 size={22} /> {formData.type === 'COLABORADOR' ? 'Confirmar Cadastro de Colaborador' : (paymentMethod === 'CAIXA' ? 'Finalizar e Receber no Caixa' : 'Confirmar e Gerar Cobrança')}
-                     </button>
-                   </>
-                 )}
+              <div className="p-5 sm:p-6 bg-white border-t border-slate-200 flex flex-col sm:flex-row gap-3 shrink-0">
+                 <button
+                   type="button"
+                   onClick={() => setIsClientModalOpen(false)}
+                   className="sm:flex-1 py-3.5 px-5 rounded-2xl border border-slate-300 text-slate-600 text-xs font-black uppercase tracking-widest hover:bg-slate-100 transition-all"
+                 >
+                   Cancelar
+                 </button>
+                 <button
+                   disabled={!formData.name}
+                   onClick={handleFinishRegistration}
+                   className="sm:flex-[1.8] py-3.5 px-6 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest text-sm shadow-lg shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.99] transition-all flex items-center justify-center gap-2"
+                 >
+                   <CheckCircle2 size={20} /> {editingClient ? 'Salvar Alterações' : 'Concluir Cadastro'}
+                 </button>
               </div>
            </div>
         </div>
@@ -3379,12 +3503,12 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                             <p className="text-xs font-black text-indigo-700 uppercase">{rechargeSelectedPlanSummary.planName}</p>
                           </div>
                           <div>
-                            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Valor por Dia</p>
+                            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Valor por Unidade</p>
                             <p className="text-xs font-black text-indigo-700">R$ {rechargeSelectedPlanSummary.unitPrice.toFixed(2)}</p>
                           </div>
                           <div>
-                            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Dias Selecionados</p>
-                            <p className="text-xs font-black text-indigo-700">{rechargeSelectedPlanSummary.selectedCount} dia(s)</p>
+                            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Unidades Selecionadas</p>
+                            <p className="text-xs font-black text-indigo-700">{rechargeSelectedPlanSummary.selectedCount} un</p>
                           </div>
                           <div>
                             <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Total</p>
@@ -3410,7 +3534,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                              <div className="flex items-start justify-between gap-4">
                                <div>
                                  <p className="text-xs font-black text-gray-800 uppercase tracking-tight">{plan.name}</p>
-                                 <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mt-0.5">Valor por dia</p>
+                                 <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mt-0.5">Valor por unidade</p>
                                </div>
                                <div className="text-right">
                                  <p className="text-lg font-black text-indigo-600 tracking-tighter">R$ {plan.price.toFixed(2)}</p>
@@ -3431,7 +3555,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                    onClick={() => setRechargeOpenCalendarId(isCalendarOpen ? null : plan.id)}
                                    className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 bg-white border-indigo-200 text-indigo-600 hover:border-indigo-400 transition-all"
                                  >
-                                   {isCalendarOpen ? 'Fechar Calendário' : 'Escolher Dias'}
+                                   {isCalendarOpen ? 'Fechar Calendário' : 'Escolher Unidades'}
                                  </button>
                                )}
                              </div>
@@ -3439,10 +3563,10 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                              {isSelected && (
                                <div className="mt-3">
                                  <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">
-                                   {selectedDatesCount} dia(s) do mês selecionado(s) • Subtotal: R$ {subtotal.toFixed(2)}
+                                   {selectedDatesCount} un do mês selecionada(s) • Subtotal: R$ {subtotal.toFixed(2)}
                                  </p>
                                  <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-1">
-                                   {selectedDaysCount} dia(s) da semana marcado(s)
+                                   {selectedDaysCount} un por dia da semana marcado(s)
                                  </p>
                                </div>
                              )}
@@ -3723,33 +3847,6 @@ const InfoItem = ({ label, value }: { label: string, value: string }) => (
     <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{label}</p>
     <p className="text-sm font-bold text-gray-700 truncate">{value}</p>
   </div>
-);
-
-const PlanToggleCard = ({ active, onClick, icon, label, desc, color }: any) => {
-  const colorMap: any = {
-    indigo: active ? 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-lg ring-4 ring-indigo-500/10' : 'border-gray-100 bg-white text-gray-400',
-    orange: active ? 'border-orange-500 bg-orange-50 text-orange-700 shadow-lg ring-4 ring-orange-500/10' : 'border-gray-100 bg-white text-gray-400',
-  };
-  return (
-    <button type="button" onClick={onClick} className={`p-6 rounded-[32px] border-2 flex flex-col items-center text-center gap-2 transition-all relative overflow-hidden group ${colorMap[color]}`}>
-      <div className={`p-4 rounded-2xl transition-all ${active ? 'bg-white shadow-sm' : 'bg-gray-50'}`}>{icon}</div>
-      <div>
-        <p className="text-[11px] font-black uppercase tracking-tight leading-none">{label}</p>
-        <p className="text-[9px] font-bold opacity-60 mt-1">{desc}</p>
-      </div>
-      <div className={`absolute top-3 right-3 w-5 h-5 rounded-full border flex items-center justify-center transition-all ${active ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm' : 'bg-white border-gray-200 text-transparent'}`}><Check size={12} strokeWidth={4} /></div>
-    </button>
-  );
-};
-
-const PaymentOptionCard = ({ active, onClick, icon, label, desc }: any) => (
-  <button type="button" onClick={onClick} className={`p-6 rounded-[32px] border-2 flex flex-col items-center text-center gap-2 transition-all relative group ${active ? 'border-indigo-600 bg-indigo-50 shadow-xl ring-4 ring-indigo-500/10' : 'border-gray-100 bg-white text-gray-400 hover:border-indigo-200'}`}>
-    <div className={`p-4 rounded-2xl transition-all ${active ? 'bg-white shadow-sm text-indigo-600' : 'bg-gray-50 text-gray-300'}`}>{icon}</div>
-    <div>
-      <p className={`text-xs font-black uppercase tracking-tight leading-none ${active ? 'text-indigo-900' : ''}`}>{label}</p>
-      <p className="text-[9px] font-bold opacity-60 mt-1">{desc}</p>
-    </div>
-  </button>
 );
 
 export default ClientsPage;
