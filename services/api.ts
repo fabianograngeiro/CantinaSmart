@@ -571,7 +571,7 @@ export class ApiService {
     return response.json();
   }
 
-  static async searchIngredients(query: string, limit = 10) {
+  static async searchIngredients(query: string, limit = 120) {
     const url = new URL(`${API_URL}/ingredients/search`);
     url.searchParams.set('q', query);
     url.searchParams.set('limit', String(limit));
@@ -620,10 +620,19 @@ export class ApiService {
   }
 
   // ===== MENUS =====
-  static async getWeeklyMenu(enterpriseId: string, type: 'ALMOCO' | 'LANCHE') {
+  static async getWeeklyMenu(
+    enterpriseId: string,
+    type: 'ALMOCO' | 'LANCHE',
+    weekIndex: number = 1,
+    monthKey: string = ''
+  ) {
     const url = new URL(`${API_URL}/menus`);
     url.searchParams.set('enterpriseId', enterpriseId);
     url.searchParams.set('type', type);
+    url.searchParams.set('weekIndex', String(Math.max(1, Math.min(5, Number(weekIndex || 1) || 1))));
+    if (String(monthKey || '').trim()) {
+      url.searchParams.set('monthKey', String(monthKey).trim());
+    }
     const response = await fetch(url.toString(), {
       headers: this.getHeaders(),
     });
@@ -631,11 +640,23 @@ export class ApiService {
     return response.json();
   }
 
-  static async saveWeeklyMenu(enterpriseId: string, type: 'ALMOCO' | 'LANCHE', days: any[]) {
+  static async saveWeeklyMenu(
+    enterpriseId: string,
+    type: 'ALMOCO' | 'LANCHE',
+    days: any[],
+    weekIndex: number = 1,
+    monthKey: string = ''
+  ) {
     const response = await fetch(`${API_URL}/menus`, {
       method: 'PUT',
       headers: this.getHeaders(),
-      body: JSON.stringify({ enterpriseId, type, days }),
+      body: JSON.stringify({
+        enterpriseId,
+        type,
+        weekIndex: Math.max(1, Math.min(5, Number(weekIndex || 1) || 1)),
+        monthKey: String(monthKey || '').trim(),
+        days
+      }),
     });
     if (!response.ok) throw new Error('Falha ao salvar cardápio semanal');
     return response.json();

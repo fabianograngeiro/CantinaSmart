@@ -2,12 +2,18 @@ import { Router, Request, Response } from 'express';
 import { db } from '../database';
 
 const router = Router();
+const normalizeSearchText = (value: string) =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
 
 // Search ingredients by name
 router.get('/search', (req: Request, res: Response) => {
-  const query = String(req.query.q || '').trim().toLowerCase();
+  const query = normalizeSearchText(String(req.query.q || ''));
   const limitRaw = Number(req.query.limit);
-  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(20, limitRaw)) : 10;
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(500, limitRaw)) : 120;
 
   if (!query) {
     return res.json([]);
@@ -15,7 +21,11 @@ router.get('/search', (req: Request, res: Response) => {
 
   const ingredients = db
     .getIngredients()
-    .filter((ingredient: any) => String(ingredient?.name || '').toLowerCase().includes(query))
+    .filter((ingredient: any) => {
+      const name = normalizeSearchText(String(ingredient?.name || ''));
+      const category = normalizeSearchText(String(ingredient?.category || ''));
+      return name.includes(query) || category.includes(query);
+    })
     .slice(0, limit);
 
   res.json(ingredients);

@@ -298,6 +298,12 @@ type AiConfigState = {
   openAiToken: string;
   geminiToken: string;
   groqToken: string;
+  systemAiEnabled: boolean;
+  userOwnAiEnabled: boolean;
+  systemPreferredProvider: AiProvider;
+  systemOpenAiToken: string;
+  systemGeminiToken: string;
+  systemGroqToken: string;
   sttEnabled: boolean;
   sttModel: string;
   companyName: string;
@@ -566,6 +572,12 @@ const getDefaultAiConfig = (): AiConfigState => ({
   openAiToken: '',
   geminiToken: '',
   groqToken: '',
+  systemAiEnabled: true,
+  userOwnAiEnabled: false,
+  systemPreferredProvider: 'groq',
+  systemOpenAiToken: '',
+  systemGeminiToken: '',
+  systemGroqToken: '',
   sttEnabled: true,
   sttModel: 'whisper-1',
   companyName: '',
@@ -725,6 +737,16 @@ const normalizeAiConfigState = (raw: any): AiConfigState => {
     openAiToken: String(raw?.openAiToken || ''),
     geminiToken: String(raw?.geminiToken || ''),
     groqToken: String(raw?.groqToken || ''),
+    systemAiEnabled: raw?.systemAiEnabled === undefined ? true : Boolean(raw?.systemAiEnabled),
+    userOwnAiEnabled: Boolean(raw?.userOwnAiEnabled),
+    systemPreferredProvider: String(raw?.systemPreferredProvider || '').toLowerCase() === 'openai'
+      ? 'openai'
+      : String(raw?.systemPreferredProvider || '').toLowerCase() === 'gemini'
+        ? 'gemini'
+        : 'groq',
+    systemOpenAiToken: String(raw?.systemOpenAiToken || ''),
+    systemGeminiToken: String(raw?.systemGeminiToken || ''),
+    systemGroqToken: String(raw?.systemGroqToken || ''),
     sttEnabled: raw?.sttEnabled === undefined ? fallback.sttEnabled : Boolean(raw?.sttEnabled),
     sttModel: AI_STT_MODELS[provider].includes(String(raw?.sttModel || '').trim())
       ? String(raw?.sttModel || '').trim()
@@ -4400,6 +4422,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     const sttModels = AI_STT_MODELS[provider];
     setAiConfig((prev) => ({
       ...prev,
+      systemAiEnabled: false,
+      userOwnAiEnabled: true,
       provider,
       model: models.includes(prev.model) ? prev.model : models[0],
       sttModel: sttModels.includes(prev.sttModel) ? prev.sttModel : sttModels[0],
@@ -4407,9 +4431,23 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   };
 
   const handleSaveAiConfig = () => {
-    ApiService.updateWhatsAppAiConfig(aiConfig)
+    const payload: AiConfigState = { ...aiConfig };
+    if (payload.systemAiEnabled) {
+      payload.userOwnAiEnabled = false;
+      const provider = payload.systemPreferredProvider || 'groq';
+      payload.provider = provider;
+      const models = AI_PROVIDER_MODELS[provider] || AI_PROVIDER_MODELS.groq;
+      payload.model = models.includes(payload.model) ? payload.model : models[0];
+      payload.openAiToken = String(payload.systemOpenAiToken || payload.openAiToken || '').trim();
+      payload.geminiToken = String(payload.systemGeminiToken || payload.geminiToken || '').trim();
+      payload.groqToken = String(payload.systemGroqToken || payload.groqToken || '').trim();
+    } else if (payload.userOwnAiEnabled) {
+      payload.systemAiEnabled = false;
+    }
+
+    ApiService.updateWhatsAppAiConfig(payload)
       .then((result) => {
-        const nextConfig = normalizeAiConfigState(result?.config || aiConfig);
+        const nextConfig = normalizeAiConfigState(result?.config || payload);
         setAiConfig(nextConfig);
         setSavedAiConfig(nextConfig);
         localStorage.setItem(WHATSAPP_AI_CONFIG_KEY, JSON.stringify(nextConfig));
@@ -7020,13 +7058,81 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
                     <section className="rounded-2xl border border-cyan-100 bg-white p-5 space-y-3">
                       <p className="text-sm font-black text-slate-800">1. API e Modelo</p>
+                      <div className="rounded-xl border-2 border-cyan-100 bg-cyan-50/40 px-3 py-2.5 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">AI do sistema</p>
+                          <p className="text-sm font-semibold text-slate-700">Ativa a IA global definida pelo sistema Master.</p>
+                        </div>
+                        <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(aiConfig.systemAiEnabled)}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setAiConfig((prev) => ({
+                                ...prev,
+                                systemAiEnabled: checked,
+                                userOwnAiEnabled: checked ? false : prev.userOwnAiEnabled,
+                                provider: checked ? (prev.systemPreferredProvider || 'groq') : prev.provider,
+                                model: checked
+                                  ? (() => {
+                                      const provider = prev.systemPreferredProvider || 'groq';
+                                      const models = AI_PROVIDER_MODELS[provider] || AI_PROVIDER_MODELS.groq;
+                                      return models.includes(prev.model) ? prev.model : models[0];
+                                    })()
+                                  : prev.model,
+                                groqToken: checked
+                                  ? String(prev.systemGroqToken || prev.groqToken || '').trim()
+                                  : prev.groqToken,
+                                openAiToken: checked
+                                  ? String(prev.systemOpenAiToken || prev.openAiToken || '').trim()
+                                  : prev.openAiToken,
+                                geminiToken: checked
+                                  ? String(prev.systemGeminiToken || prev.geminiToken || '').trim()
+                                  : prev.geminiToken,
+                              }));
+                            }}
+                            className="sr-only peer"
+                          />
+                          <span className="h-6 w-11 rounded-full bg-slate-300 transition-colors peer-checked:bg-emerald-500 relative after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-5" />
+                          <span className={`text-xs font-black uppercase tracking-widest ${aiConfig.systemAiEnabled ? 'text-emerald-700' : 'text-slate-500'}`}>
+                            {aiConfig.systemAiEnabled ? 'Ativada' : 'Desativada'}
+                          </span>
+                        </label>
+                      </div>
+                      <div className="rounded-xl border-2 border-cyan-100 bg-white px-3 py-2.5 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Usar minha chave</p>
+                          <p className="text-sm font-semibold text-slate-700">Ativa API/modelo da unidade com chave própria.</p>
+                        </div>
+                        <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(aiConfig.userOwnAiEnabled)}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setAiConfig((prev) => ({
+                                ...prev,
+                                userOwnAiEnabled: checked,
+                                systemAiEnabled: checked ? false : prev.systemAiEnabled,
+                              }));
+                            }}
+                            className="sr-only peer"
+                          />
+                          <span className="h-6 w-11 rounded-full bg-slate-300 transition-colors peer-checked:bg-emerald-500 relative after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-5" />
+                          <span className={`text-xs font-black uppercase tracking-widest ${aiConfig.userOwnAiEnabled ? 'text-emerald-700' : 'text-slate-500'}`}>
+                            {aiConfig.userOwnAiEnabled ? 'Ativada' : 'Desativada'}
+                          </span>
+                        </label>
+                      </div>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <label className="space-y-1">
                           <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Escolher API</span>
                           <select
                             value={aiConfig.provider}
                             onChange={(e) => handleAiProviderChange(e.target.value as AiProvider)}
-                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            disabled={Boolean(aiConfig.systemAiEnabled) || !Boolean(aiConfig.userOwnAiEnabled)}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
                           >
                             <option value="openai">OpenAI</option>
                             <option value="gemini">Gemini</option>
@@ -7037,8 +7143,9 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                           <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Modelo do agente</span>
                           <select
                             value={aiConfig.model}
-                            onChange={(e) => setAiConfig((prev) => ({ ...prev, model: e.target.value }))}
-                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            onChange={(e) => setAiConfig((prev) => ({ ...prev, systemAiEnabled: false, userOwnAiEnabled: true, model: e.target.value }))}
+                            disabled={Boolean(aiConfig.systemAiEnabled) || !Boolean(aiConfig.userOwnAiEnabled)}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
                           >
                             {availableAiModels.map((model) => (
                               <option key={model} value={model}>{model}</option>
@@ -7052,8 +7159,9 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                           <input
                             type="password"
                             value={aiConfig.openAiToken}
-                            onChange={(e) => setAiConfig((prev) => ({ ...prev, openAiToken: e.target.value }))}
-                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            onChange={(e) => setAiConfig((prev) => ({ ...prev, systemAiEnabled: false, userOwnAiEnabled: true, openAiToken: e.target.value }))}
+                            disabled={Boolean(aiConfig.systemAiEnabled) || !Boolean(aiConfig.userOwnAiEnabled)}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
                             placeholder="sk-..."
                           />
                         </label>
@@ -7062,8 +7170,9 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                           <input
                             type="password"
                             value={aiConfig.geminiToken}
-                            onChange={(e) => setAiConfig((prev) => ({ ...prev, geminiToken: e.target.value }))}
-                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            onChange={(e) => setAiConfig((prev) => ({ ...prev, systemAiEnabled: false, userOwnAiEnabled: true, geminiToken: e.target.value }))}
+                            disabled={Boolean(aiConfig.systemAiEnabled) || !Boolean(aiConfig.userOwnAiEnabled)}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
                             placeholder="Gemini API Key"
                           />
                         </label>
@@ -7072,12 +7181,23 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                           <input
                             type="password"
                             value={aiConfig.groqToken}
-                            onChange={(e) => setAiConfig((prev) => ({ ...prev, groqToken: e.target.value }))}
-                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            onChange={(e) => setAiConfig((prev) => ({ ...prev, systemAiEnabled: false, userOwnAiEnabled: true, groqToken: e.target.value }))}
+                            disabled={Boolean(aiConfig.systemAiEnabled) || !Boolean(aiConfig.userOwnAiEnabled)}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
                             placeholder="gsk_..."
                           />
                         </label>
                       </div>
+                      {aiConfig.systemAiEnabled && (
+                        <p className="text-[11px] font-semibold text-cyan-700">
+                          IA do sistema ativa: a configuração manual de API e modelo do usuário fica bloqueada.
+                        </p>
+                      )}
+                      {!aiConfig.systemAiEnabled && !aiConfig.userOwnAiEnabled && (
+                        <p className="text-[11px] font-semibold text-amber-700">
+                          Ative "AI do sistema" ou "Usar minha chave" para habilitar o assistente.
+                        </p>
+                      )}
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div className="rounded-xl border-2 border-cyan-100 bg-cyan-50/40 px-3 py-2.5 flex items-center justify-between gap-3">
                           <div>

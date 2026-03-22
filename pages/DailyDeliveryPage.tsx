@@ -834,13 +834,13 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
       unit: 'mm',
       format: 'a4'
     });
-    const tableColumn = ["Aluno", "Matrícula", "Ano/Turma", "Plano", "Data Refeição", "Status"];
+    const tableColumn = ["Matrícula", "Aluno", "Ano/Turma", "Plano", "Data Refeição", "Status"];
     const tableRows: any[] = [];
 
     filteredData.forEach(student => {
       const studentData = [
-        student.name,
         student.registrationId,
+        student.name,
         `${student.year} - ${student.class}`,
         `${student.planName.replace('_', ' ')} • ${Math.max(0, Number(student.planProgressConsumed || 0))}/${Math.max(Number(student.planProgressTotal || 0), Number(student.planProgressConsumed || 0), 0)}`,
         student.scheduledDate ? new Date(`${student.scheduledDate}T00:00:00`).toLocaleDateString('pt-BR') : '-',
@@ -849,44 +849,87 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
       tableRows.push(studentData);
     });
 
-    // Cabeçalho da Empresa
-    doc.setFontSize(18);
-    doc.setTextColor(79, 70, 229); // Indigo 600
-    doc.text(activeEnterprise?.name || "CantinaSmart", 14, 15);
-    
-    doc.setFontSize(10);
-    doc.setTextColor(100);
+    const deliveredByPlan = new Map<string, number>();
+    filteredData.forEach((student) => {
+      const isServed = student.items.every((item) => item.status === 'SERVIDO');
+      if (!isServed) return;
+      const planName = String(student.planName || 'PLANO').replace(/_/g, ' ').toUpperCase();
+      const units = Array.isArray(student.items) && student.items.length > 0 ? student.items.length : 1;
+      deliveredByPlan.set(planName, (deliveredByPlan.get(planName) || 0) + units);
+    });
+    const deliveredPlanSummary = Array.from(deliveredByPlan.entries())
+      .map(([planName, count]) => `${planName}: ${count} entregue(s)`)
+      .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+    const generatedAt = new Date().toLocaleString('pt-BR');
+    const totalServed = filteredData.filter((student) => student.items.every((item) => item.status === 'SERVIDO')).length;
+    const totalPending = filteredData.filter((student) => student.items.some((item) => item.status !== 'SERVIDO')).length;
+
+    doc.setFillColor(79, 70, 229);
+    doc.rect(0, 0, 297, 17, 'F');
+    doc.setFontSize(12);
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.text("RELATÓRIO DE ENTREGA DIÁRIA", 14, 10.7);
+    doc.setFontSize(8.8);
+    doc.setFont('helvetica', 'normal');
+    doc.text(activeEnterprise?.name || "CantinaSmart", 283, 10.7, { align: 'right' });
+
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(14, 21, 269, 20, 2.5, 2.5, 'FD');
+    doc.setTextColor(51, 65, 85);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text(`Escola: ${activeEnterprise?.attachedSchoolName || '-'}`, 17, 27.4);
+    doc.text(`Gerado em: ${generatedAt}`, 283, 27.4, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.2);
     const enterpriseInfo = [
-      activeEnterprise?.attachedSchoolName ? `Escola: ${activeEnterprise.attachedSchoolName}` : null,
       activeEnterprise?.address ? `Endereço: ${activeEnterprise.address}` : null,
       activeEnterprise?.phone1 ? `WhatsApp: ${formatPhoneWithFlag(activeEnterprise.phone1, '-')}` : null
-    ].filter(Boolean).join(' | ');
-    
-    doc.text(enterpriseInfo, 14, 20);
+    ].filter(Boolean).join('  |  ');
+    doc.text(enterpriseInfo || '-', 17, 32.4);
+    doc.text(`Total registros: ${filteredData.length}  |  Servidos: ${totalServed}  |  Pendentes: ${totalPending}`, 17, 37.1);
 
-    doc.setDrawColor(230);
-    doc.line(14, 23, 283, 23);
+    doc.setFillColor(241, 245, 249);
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(14, 44, 269, 13, 2.5, 2.5, 'FD');
+    doc.setTextColor(30, 41, 59);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.8);
+    doc.text('Totais por plano entregue:', 17, 49.6);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.1);
+    const summaryText = deliveredPlanSummary.length > 0
+      ? deliveredPlanSummary.join('  |  ')
+      : 'Nenhum plano entregue no período selecionado.';
+    const summaryLines = doc.splitTextToSize(summaryText, 210);
+    doc.text(summaryLines.slice(0, 2), 75, 49.6);
 
-    doc.setFontSize(14);
-    doc.setTextColor(0);
-    doc.text("Relatório de Entrega Diária", 14, 32);
-    
-    doc.setFontSize(9);
+    doc.setFontSize(8.8);
     doc.setTextColor(100);
     const periodLabel = periodFilter === 'ALL' ? 'Todos' : periodFilter === 'MORNING' ? 'Manhã' : periodFilter === 'AFTERNOON' ? 'Tarde' : 'Noite';
     const plansLabel = selectedPlans.length > 0 ? selectedPlans.map(p => p.replace('_', ' ')).join(', ') : 'Todos';
     const daysLabel = selectedDays.length > 0 ? 'Hoje' : 'Todos';
-    
-    doc.text(`Filtros Aplicados - Turno: ${periodLabel} | Planos: ${plansLabel} | Dias: ${daysLabel}`, 14, 37);
+    doc.text(`Filtros: Turno ${periodLabel} | Planos ${plansLabel} | Dias ${daysLabel}`, 14, 61);
 
     autoTable(doc, {
       head: [tableColumn],
       body: tableRows,
-      startY: 42,
+      startY: 64,
       theme: 'grid',
       styles: { fontSize: 8, cellPadding: 3 },
       headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [245, 247, 250] }
+      alternateRowStyles: { fillColor: [245, 247, 250] },
+      columnStyles: {
+        0: { cellWidth: 25 },
+        1: { cellWidth: 52 },
+        2: { cellWidth: 40 },
+        3: { cellWidth: 78 },
+        4: { cellWidth: 30, halign: 'center' },
+        5: { cellWidth: 25, halign: 'center' },
+      }
     });
 
     const pageCount = (doc as any).internal.getNumberOfPages();

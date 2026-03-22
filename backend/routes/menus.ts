@@ -15,16 +15,20 @@ const createEmptyWeeklyMenu = () =>
 router.get('/', (req: Request, res: Response) => {
   const enterpriseId = String(req.query.enterpriseId || '').trim();
   const type = String(req.query.type || '').trim().toUpperCase();
+  const weekIndex = Math.max(1, Math.min(5, Number(req.query.weekIndex || 1) || 1));
+  const monthKey = String(req.query.monthKey || '').trim();
 
   if (!enterpriseId || !type) {
     return res.status(400).json({ error: 'enterpriseId e type são obrigatórios.' });
   }
 
-  const record = db.getMenuByEnterpriseAndType(enterpriseId, type);
+  const record = db.getMenuByEnterpriseAndType(enterpriseId, type, weekIndex, monthKey);
   if (!record) {
     return res.json({
       enterpriseId,
       type,
+      weekIndex,
+      monthKey,
       days: createEmptyWeeklyMenu(),
     });
   }
@@ -33,6 +37,8 @@ router.get('/', (req: Request, res: Response) => {
   return res.json({
     enterpriseId,
     type,
+    weekIndex: Number(record.weekIndex || weekIndex || 1),
+    monthKey: String(record.monthKey || monthKey || ''),
     days,
     updatedAt: record.updatedAt,
   });
@@ -41,13 +47,15 @@ router.get('/', (req: Request, res: Response) => {
 router.put('/', (req: Request, res: Response) => {
   const enterpriseId = String(req.body?.enterpriseId || '').trim();
   const type = String(req.body?.type || '').trim().toUpperCase();
+  const weekIndex = Math.max(1, Math.min(5, Number(req.body?.weekIndex || 1) || 1));
+  const monthKey = String(req.body?.monthKey || '').trim();
   const days = Array.isArray(req.body?.days) ? req.body.days : [];
 
   if (!enterpriseId || !type) {
     return res.status(400).json({ error: 'enterpriseId e type são obrigatórios.' });
   }
 
-  const saved = db.upsertMenuByEnterpriseAndType({ enterpriseId, type, days });
+  const saved = db.upsertMenuByEnterpriseAndType({ enterpriseId, type, weekIndex, monthKey, days });
   if (!saved) {
     return res.status(400).json({ error: 'Falha ao salvar cardápio.' });
   }
@@ -59,4 +67,3 @@ router.put('/', (req: Request, res: Response) => {
 });
 
 export default router;
-

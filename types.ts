@@ -141,6 +141,9 @@ export type Ingredient = {
   proteins: number;
   carbs: number;
   fats: number;
+  fiber?: number;
+  calciumMg?: number;
+  ironMg?: number;
 };
 
 export type MenuItem = {

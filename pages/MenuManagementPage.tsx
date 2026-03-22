@@ -15,6 +15,7 @@ import notificationService from '../services/notificationService';
 const DAYS_OF_WEEK: ('SEGUNDA' | 'TERCA' | 'QUARTA' | 'QUINTA' | 'SEXTA' | 'SABADO')[] = [
   'SEGUNDA', 'TERCA', 'QUARTA', 'QUINTA', 'SEXTA', 'SABADO'
 ];
+type DayOfWeek = (typeof DAYS_OF_WEEK)[number];
 const SHORT_DAY_LABEL: Record<(typeof DAYS_OF_WEEK)[number], string> = {
   SEGUNDA: 'SEG',
   TERCA: 'TER',
@@ -22,6 +23,109 @@ const SHORT_DAY_LABEL: Record<(typeof DAYS_OF_WEEK)[number], string> = {
   QUINTA: 'QUI',
   SEXTA: 'SEX',
   SABADO: 'SAB',
+};
+const DAY_OF_WEEK_TO_JS: Record<DayOfWeek, number> = {
+  SEGUNDA: 1,
+  TERCA: 2,
+  QUARTA: 3,
+  QUINTA: 4,
+  SEXTA: 5,
+  SABADO: 6,
+};
+const WEEK_OPTIONS = [1, 2, 3, 4, 5] as const;
+const getCurrentMonthKey = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+};
+const getNextMonthKey = () => {
+  const now = new Date();
+  const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+};
+const formatMonthLabel = (monthKey: string) => {
+  const [year, month] = String(monthKey || '').split('-').map((v) => Number(v));
+  if (!year || !month) return 'Mês atual';
+  return new Date(year, month - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+};
+const normalizeSearchText = (value: string) =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+const getDateForWeekAndDay = (monthKey: string, weekIndex: number, dayOfWeek: DayOfWeek): Date | null => {
+  const [yearRaw, monthRaw] = String(monthKey || '').split('-');
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  if (!year || !month || month < 1 || month > 12) return null;
+
+  const firstDay = new Date(year, month - 1, 1);
+  const firstJsDay = firstDay.getDay(); // 0=DOM ... 6=SAB
+  const targetJsDay = DAY_OF_WEEK_TO_JS[dayOfWeek];
+  const offset = (targetJsDay - firstJsDay + 7) % 7;
+  const dayOfMonth = 1 + offset + (Math.max(1, Number(weekIndex || 1)) - 1) * 7;
+
+  const resolved = new Date(year, month - 1, dayOfMonth);
+  if (resolved.getMonth() !== month - 1) return null;
+  return resolved;
+};
+const formatDateFullBr = (value: Date | null) => {
+  if (!value) return '--';
+  return value.toLocaleDateString('pt-BR');
+};
+
+const REFERENCE_INGREDIENTS_FALLBACK: Ingredient[] = [
+  { id: 'ref_ovo', name: 'Ovo', category: 'Proteínas', unit: 'g', calories: 143, proteins: 12.6, carbs: 1.1, fats: 9.5, fiber: 0, calciumMg: 50, ironMg: 1.8 },
+  { id: 'ref_peito_frango', name: 'Peito de Frango', category: 'Proteínas', unit: 'g', calories: 165, proteins: 31, carbs: 0, fats: 3.6, fiber: 0, calciumMg: 15, ironMg: 0.9 },
+  { id: 'ref_tilapia', name: 'Tilápia', category: 'Proteínas', unit: 'g', calories: 128, proteins: 26, carbs: 0, fats: 2.7, fiber: 0, calciumMg: 10, ironMg: 0.6 },
+  { id: 'ref_sardinha', name: 'Sardinha', category: 'Proteínas', unit: 'g', calories: 208, proteins: 24.6, carbs: 0, fats: 11.5, fiber: 0, calciumMg: 382, ironMg: 2.9 },
+  { id: 'ref_carne_magra', name: 'Carne Bovina Magra', category: 'Proteínas', unit: 'g', calories: 170, proteins: 26, carbs: 0, fats: 7, fiber: 0, calciumMg: 12, ironMg: 2.6 },
+  { id: 'ref_iogurte', name: 'Iogurte Natural', category: 'Proteínas', unit: 'g', calories: 61, proteins: 3.5, carbs: 4.7, fats: 3.3, fiber: 0, calciumMg: 121, ironMg: 0.1 },
+  { id: 'ref_lentilha', name: 'Lentilha', category: 'Proteínas', unit: 'g', calories: 116, proteins: 9, carbs: 20.1, fats: 0.4, fiber: 7.9, calciumMg: 19, ironMg: 3.3 },
+  { id: 'ref_arroz_integral', name: 'Arroz Integral', category: 'Carboidratos', unit: 'g', calories: 123, proteins: 2.7, carbs: 25.6, fats: 1, fiber: 1.6, calciumMg: 10, ironMg: 0.4 },
+  { id: 'ref_batata_doce', name: 'Batata-Doce', category: 'Carboidratos', unit: 'g', calories: 86, proteins: 1.6, carbs: 20.1, fats: 0.1, fiber: 3, calciumMg: 30, ironMg: 0.6 },
+  { id: 'ref_aveia', name: 'Aveia em Flocos', category: 'Carboidratos', unit: 'g', calories: 389, proteins: 16.9, carbs: 66.3, fats: 6.9, fiber: 10.6, calciumMg: 54, ironMg: 4.7 },
+  { id: 'ref_milho', name: 'Milho', category: 'Carboidratos', unit: 'g', calories: 96, proteins: 3.4, carbs: 21, fats: 1.5, fiber: 2.4, calciumMg: 2, ironMg: 0.5 },
+  { id: 'ref_banana', name: 'Banana', category: 'Carboidratos', unit: 'g', calories: 89, proteins: 1.1, carbs: 22.8, fats: 0.3, fiber: 2.6, calciumMg: 5, ironMg: 0.3 },
+  { id: 'ref_mandioca', name: 'Mandioca', category: 'Carboidratos', unit: 'g', calories: 125, proteins: 0.6, carbs: 30.1, fats: 0.3, fiber: 1.8, calciumMg: 17, ironMg: 0.3 },
+  { id: 'ref_couve_flor', name: 'Couve-Flor', category: 'Fibras', unit: 'g', calories: 25, proteins: 1.9, carbs: 5, fats: 0.3, fiber: 2, calciumMg: 22, ironMg: 0.4 },
+  { id: 'ref_brocolis', name: 'Brócolis', category: 'Fibras', unit: 'g', calories: 34, proteins: 2.8, carbs: 6.6, fats: 0.4, fiber: 2.6, calciumMg: 47, ironMg: 0.7 },
+  { id: 'ref_feijao_preto', name: 'Feijão Preto', category: 'Fibras', unit: 'g', calories: 132, proteins: 8.9, carbs: 23.7, fats: 0.5, fiber: 8.7, calciumMg: 27, ironMg: 2.1 },
+  { id: 'ref_maca_casca', name: 'Maçã com Casca', category: 'Fibras', unit: 'g', calories: 52, proteins: 0.3, carbs: 13.8, fats: 0.2, fiber: 2.4, calciumMg: 6, ironMg: 0.1 },
+  { id: 'ref_chia', name: 'Chia', category: 'Fibras', unit: 'g', calories: 486, proteins: 16.5, carbs: 42.1, fats: 30.7, fiber: 34.4, calciumMg: 631, ironMg: 7.7 },
+  { id: 'ref_linhaca', name: 'Linhaça', category: 'Fibras', unit: 'g', calories: 534, proteins: 18.3, carbs: 28.9, fats: 42.2, fiber: 27.3, calciumMg: 255, ironMg: 5.7 },
+  { id: 'ref_farelo_trigo', name: 'Farelo de Trigo', category: 'Fibras', unit: 'g', calories: 216, proteins: 15.6, carbs: 64.5, fats: 4.3, fiber: 42.8, calciumMg: 73, ironMg: 10.6 },
+  { id: 'ref_leite', name: 'Leite de Vaca', category: 'Cálcio', unit: 'g', calories: 61, proteins: 3.2, carbs: 4.8, fats: 3.3, fiber: 0, calciumMg: 113, ironMg: 0 },
+  { id: 'ref_queijo_minas', name: 'Queijo Branco (Minas)', category: 'Cálcio', unit: 'g', calories: 264, proteins: 17.4, carbs: 3.2, fats: 20.2, fiber: 0, calciumMg: 579, ironMg: 0.2 },
+  { id: 'ref_gergelim', name: 'Gergelim', category: 'Cálcio', unit: 'g', calories: 573, proteins: 17.7, carbs: 23.5, fats: 49.7, fiber: 11.8, calciumMg: 975, ironMg: 14.6 },
+  { id: 'ref_espinafre', name: 'Espinafre', category: 'Cálcio', unit: 'g', calories: 23, proteins: 2.9, carbs: 3.6, fats: 0.4, fiber: 2.2, calciumMg: 99, ironMg: 2.7 },
+  { id: 'ref_tofu', name: 'Tofu', category: 'Cálcio', unit: 'g', calories: 76, proteins: 8, carbs: 1.9, fats: 4.8, fiber: 0.3, calciumMg: 350, ironMg: 5.4 },
+  { id: 'ref_sardinha_cozida', name: 'Sardinha Cozida', category: 'Cálcio', unit: 'g', calories: 208, proteins: 24.6, carbs: 0, fats: 11.5, fiber: 0, calciumMg: 382, ironMg: 2.9 },
+  { id: 'ref_figado_boi', name: 'Fígado de Boi', category: 'Ferro', unit: 'g', calories: 135, proteins: 20.4, carbs: 3.9, fats: 3.6, fiber: 0, calciumMg: 5, ironMg: 6.5 },
+  { id: 'ref_feijao_carioca', name: 'Feijão Carioca', category: 'Ferro', unit: 'g', calories: 127, proteins: 8.7, carbs: 22.8, fats: 0.5, fiber: 8.5, calciumMg: 28, ironMg: 1.9 },
+  { id: 'ref_gema_ovo', name: 'Gema de Ovo', category: 'Ferro', unit: 'g', calories: 322, proteins: 15.9, carbs: 3.6, fats: 26.5, fiber: 0, calciumMg: 129, ironMg: 2.7 },
+  { id: 'ref_beterraba', name: 'Beterraba', category: 'Ferro', unit: 'g', calories: 43, proteins: 1.6, carbs: 9.6, fats: 0.2, fiber: 2.8, calciumMg: 16, ironMg: 0.8 },
+  { id: 'ref_couve_manteiga', name: 'Couve-Manteiga', category: 'Ferro', unit: 'g', calories: 32, proteins: 2.9, carbs: 5.4, fats: 0.6, fiber: 4.1, calciumMg: 177, ironMg: 0.5 },
+  { id: 'ref_grao_bico', name: 'Grão-de-Bico', category: 'Ferro', unit: 'g', calories: 164, proteins: 8.9, carbs: 27.4, fats: 2.6, fiber: 7.6, calciumMg: 49, ironMg: 2.9 },
+  { id: 'ref_laranja', name: 'Laranja', category: 'Vitaminas', unit: 'g', calories: 47, proteins: 0.9, carbs: 11.8, fats: 0.1, fiber: 2.4, calciumMg: 40, ironMg: 0.1 },
+  { id: 'ref_cenoura', name: 'Cenoura', category: 'Vitaminas', unit: 'g', calories: 41, proteins: 0.9, carbs: 9.6, fats: 0.2, fiber: 2.8, calciumMg: 33, ironMg: 0.3 },
+  { id: 'ref_acerola', name: 'Acerola', category: 'Vitaminas', unit: 'g', calories: 32, proteins: 0.4, carbs: 7.7, fats: 0.3, fiber: 1.1, calciumMg: 12, ironMg: 0.2 },
+  { id: 'ref_abobora', name: 'Abóbora', category: 'Vitaminas', unit: 'g', calories: 26, proteins: 1, carbs: 6.5, fats: 0.1, fiber: 0.5, calciumMg: 21, ironMg: 0.8 },
+  { id: 'ref_mamao', name: 'Mamão', category: 'Vitaminas', unit: 'g', calories: 43, proteins: 0.5, carbs: 10.8, fats: 0.3, fiber: 1.7, calciumMg: 20, ironMg: 0.3 },
+  { id: 'ref_pimentao_amarelo', name: 'Pimentão Amarelo', category: 'Vitaminas', unit: 'g', calories: 27, proteins: 1, carbs: 6.3, fats: 0.2, fiber: 0.9, calciumMg: 11, ironMg: 0.5 },
+];
+
+const mergeWithFallbackIngredients = (ingredients: Ingredient[]): Ingredient[] => {
+  const merged = [...(Array.isArray(ingredients) ? ingredients : [])];
+  const known = new Set(merged.map((item) => normalizeSearchText(item.name)));
+  REFERENCE_INGREDIENTS_FALLBACK.forEach((item) => {
+    const key = normalizeSearchText(item.name);
+    if (!known.has(key)) {
+      merged.push(item);
+      known.add(key);
+    }
+  });
+  return merged;
 };
 
 interface MenuManagementPageProps {
@@ -62,10 +166,11 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     const loadIngredients = async () => {
       try {
         const data = await ApiService.getIngredients();
-        setIngredientsCatalog(Array.isArray(data) ? data : []);
+        const list = mergeWithFallbackIngredients(Array.isArray(data) ? data : []);
+        setIngredientsCatalog(list);
       } catch (err) {
         console.error('Erro ao carregar insumos:', err);
-        setIngredientsCatalog([]);
+        setIngredientsCatalog(mergeWithFallbackIngredients([]));
       }
     };
     loadIngredients();
@@ -80,37 +185,55 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     }));
   };
 
+  const normalizeMenuDays = (rawDays: any[]): MenuDay[] => {
+    const list = Array.isArray(rawDays) ? rawDays : [];
+    const mapByDay = new Map(
+      list
+        .filter((d) => d && DAYS_OF_WEEK.includes(d.dayOfWeek))
+        .map((d) => [d.dayOfWeek, d])
+    );
+
+    return DAYS_OF_WEEK.map((day) => {
+      const source = mapByDay.get(day);
+      if (!source) {
+        return {
+          id: Math.random().toString(36).substr(2, 9),
+          dayOfWeek: day,
+          items: [],
+        };
+      }
+      return {
+        id: source.id || Math.random().toString(36).substr(2, 9),
+        dayOfWeek: day,
+        items: Array.isArray(source.items) ? source.items : [],
+      };
+    });
+  };
+
+  const cloneMenuItems = (items: MenuItem[]): MenuItem[] =>
+    (Array.isArray(items) ? items : []).map((item) => ({
+      ...item,
+      id: Math.random().toString(36).substr(2, 9),
+      ingredients: Array.isArray(item.ingredients)
+        ? item.ingredients.map((ing) => ({ ...ing, id: Math.random().toString(36).substr(2, 9) }))
+        : [],
+    }));
+
   const [weeklyMenu, setWeeklyMenu] = useState<MenuDay[]>(generateInitialMenu());
   const [menuLoaded, setMenuLoaded] = useState(false);
+  const [selectedWeek, setSelectedWeek] = useState<number>(1);
+  const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentMonthKey());
+  const [duplicateMonthTarget, setDuplicateMonthTarget] = useState<string>(getNextMonthKey());
+  const [dayDuplicateTarget, setDayDuplicateTarget] = useState<{
+    sourceDayId: string;
+    sourceDayOfWeek: DayOfWeek;
+    targetWeek: number;
+    targetDayOfWeek: DayOfWeek;
+  } | null>(null);
 
   const isOwner = currentUser.role === Role.OWNER;
 
   useEffect(() => {
-    const normalizeMenuDays = (rawDays: any[]): MenuDay[] => {
-      const list = Array.isArray(rawDays) ? rawDays : [];
-      const mapByDay = new Map(
-        list
-          .filter((d) => d && DAYS_OF_WEEK.includes(d.dayOfWeek))
-          .map((d) => [d.dayOfWeek, d])
-      );
-
-      return DAYS_OF_WEEK.map((day) => {
-        const source = mapByDay.get(day);
-        if (!source) {
-          return {
-            id: Math.random().toString(36).substr(2, 9),
-            dayOfWeek: day,
-            items: [],
-          };
-        }
-        return {
-          id: source.id || Math.random().toString(36).substr(2, 9),
-          dayOfWeek: day,
-          items: Array.isArray(source.items) ? source.items : [],
-        };
-      });
-    };
-
     const loadWeeklyMenu = async () => {
       if (!selectedUnitId) {
         setWeeklyMenu(generateInitialMenu());
@@ -121,7 +244,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       setMenuLoaded(false);
       setIsLoading(true);
       try {
-        const payload = await ApiService.getWeeklyMenu(selectedUnitId, type);
+        const payload = await ApiService.getWeeklyMenu(selectedUnitId, type, selectedWeek, selectedMonth);
         const nextDays = normalizeMenuDays(payload?.days || []);
         setWeeklyMenu(nextDays);
       } catch (error) {
@@ -134,19 +257,19 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     };
 
     loadWeeklyMenu();
-  }, [selectedUnitId, type]);
+  }, [selectedUnitId, type, selectedWeek, selectedMonth]);
 
   useEffect(() => {
     if (!menuLoaded || !selectedUnitId) return;
     const timer = setTimeout(async () => {
       try {
-        await ApiService.saveWeeklyMenu(selectedUnitId, type, weeklyMenu);
+        await ApiService.saveWeeklyMenu(selectedUnitId, type, weeklyMenu, selectedWeek, selectedMonth);
       } catch (error) {
         console.error('Erro ao salvar cardápio semanal:', error);
       }
     }, 400);
     return () => clearTimeout(timer);
-  }, [weeklyMenu, selectedUnitId, type, menuLoaded]);
+  }, [weeklyMenu, selectedUnitId, type, selectedWeek, selectedMonth, menuLoaded]);
 
   const [editingItem, setEditingItem] = useState<{ dayId: string, item: MenuItem } | null>(null);
   const [quickIngredientQuery, setQuickIngredientQuery] = useState('');
@@ -156,8 +279,6 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
   const [isLoadingQuickIngredientSuggestions, setIsLoadingQuickIngredientSuggestions] = useState(false);
   const [openPlanPickerDayId, setOpenPlanPickerDayId] = useState<string | null>(null);
   const [newItemPlanByDay, setNewItemPlanByDay] = useState<Record<string, string>>({});
-  const [itemReplicateTarget, setItemReplicateTarget] = useState<{ dayId: string; itemId: string } | null>(null);
-  const [itemReplicateDays, setItemReplicateDays] = useState<(typeof DAYS_OF_WEEK)[number][]>([]);
   const [ingredientReplicateTargetId, setIngredientReplicateTargetId] = useState<string | null>(null);
   const [ingredientReplicateDays, setIngredientReplicateDays] = useState<(typeof DAYS_OF_WEEK)[number][]>([]);
 
@@ -203,68 +324,6 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     if (window.confirm("Deseja remover este cardápio permanentemente?")) {
       setWeeklyMenu(prev => prev.map(d => d.id === dayId ? { ...d, items: d.items.filter(i => i.id !== itemId) } : d));
     }
-  };
-
-  const toggleItemReplicatePicker = (
-    dayId: string,
-    itemId: string,
-    currentDayOfWeek: (typeof DAYS_OF_WEEK)[number]
-  ) => {
-    const isSameTarget = itemReplicateTarget?.dayId === dayId && itemReplicateTarget?.itemId === itemId;
-    if (isSameTarget) {
-      setItemReplicateTarget(null);
-      setItemReplicateDays([]);
-      return;
-    }
-    setItemReplicateTarget({ dayId, itemId });
-    setItemReplicateDays([currentDayOfWeek]);
-  };
-
-  const applyItemReplication = () => {
-    if (!itemReplicateTarget) return;
-    const { dayId, itemId } = itemReplicateTarget;
-    if (itemReplicateDays.length === 0) return;
-
-    const dayNamesApplied: string[] = [];
-
-    setWeeklyMenu((prev) => {
-      const sourceDay = prev.find((day) => day.id === dayId);
-      const sourceItem = sourceDay?.items.find((item) => item.id === itemId);
-      if (!sourceDay || !sourceItem) return prev;
-
-      return prev.map((day) => {
-        if (!itemReplicateDays.includes(day.dayOfWeek)) {
-          return day;
-        }
-        if (day.id === sourceDay.id) {
-          dayNamesApplied.push(day.dayOfWeek);
-          return day;
-        }
-        const alreadyExists = day.items.some((item) => {
-          const sameName = String(item.name || '').trim().toLowerCase() === String(sourceItem.name || '').trim().toLowerCase();
-          const samePlan = String(item.planId || '') === String(sourceItem.planId || '');
-          return sameName && samePlan;
-        });
-        if (alreadyExists) return day;
-
-        const replicatedItem: MenuItem = {
-          ...sourceItem,
-          id: Math.random().toString(36).substr(2, 9),
-          ingredients: sourceItem.ingredients.map((ing) => ({ ...ing, id: Math.random().toString(36).substr(2, 9) })),
-        };
-        dayNamesApplied.push(day.dayOfWeek);
-        return { ...day, items: [...day.items, replicatedItem] };
-      });
-    });
-
-    if (dayNamesApplied.length > 0) {
-      notificationService.informativo(
-        'Item replicado',
-        `Item adicionado com sucesso em: ${dayNamesApplied.map((day) => SHORT_DAY_LABEL[day as keyof typeof SHORT_DAY_LABEL] || day).join(', ')}.`
-      );
-    }
-    setItemReplicateTarget(null);
-    setItemReplicateDays([]);
   };
 
   const toggleIngredientReplicatePicker = (ingredientId: string) => {
@@ -351,21 +410,31 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
 
     let isCancelled = false;
     setIsLoadingQuickIngredientSuggestions(true);
+    const normalizedTerm = normalizeSearchText(term);
+    const localResults = ingredientsCatalog.filter((item) => {
+      const name = normalizeSearchText(String(item.name || ''));
+      const category = normalizeSearchText(String(item.category || ''));
+      return name.includes(normalizedTerm) || category.includes(normalizedTerm);
+    });
+    setQuickIngredientSuggestions(localResults);
 
     const timer = setTimeout(async () => {
       try {
-        const results = await ApiService.searchIngredients(term, 10);
+        const results = await ApiService.searchIngredients(term, 300);
         if (!isCancelled) {
-          setQuickIngredientSuggestions(Array.isArray(results) ? results : []);
+          const remoteResults = Array.isArray(results) ? results : [];
+          const merged = [...localResults];
+          const seen = new Set(merged.map((item) => String(item.id || '')));
+          remoteResults.forEach((item) => {
+            const id = String(item?.id || '');
+            if (!id || seen.has(id)) return;
+            seen.add(id);
+            merged.push(item);
+          });
+          setQuickIngredientSuggestions(merged);
         }
       } catch (error) {
-        if (!isCancelled) {
-          // Fallback local para manter o fluxo mesmo sem backend de busca
-          const localResults = ingredientsCatalog
-            .filter((item) => String(item.name || '').toLowerCase().includes(term.toLowerCase()))
-            .slice(0, 10);
-          setQuickIngredientSuggestions(localResults);
-        }
+        // Mantém resultados locais já exibidos
       } finally {
         if (!isCancelled) {
           setIsLoadingQuickIngredientSuggestions(false);
@@ -379,14 +448,27 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     };
   }, [editingItem, quickIngredientQuery, ingredientsCatalog]);
 
+  useEffect(() => {
+    if (!editingItem) return;
+    const term = String(quickIngredientQuery || '').trim().toLowerCase();
+    if (term) return;
+    setQuickIngredientSuggestions(
+      ingredientsCatalog
+        .slice()
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+    );
+  }, [editingItem, quickIngredientQuery, ingredientsCatalog]);
+
   const addIngredientFromQuickForm = (catalogIngredient?: Ingredient) => {
     if (!editingItem) return;
     const query = String(quickIngredientQuery || '').trim();
     if (!query) return;
 
+    const normalizedQuery = normalizeSearchText(query);
     const resolvedIngredient = catalogIngredient
-      || ingredientsCatalog.find((item) => String(item.name || '').trim().toLowerCase() === query.toLowerCase())
-      || ingredientsCatalog.find((item) => String(item.name || '').trim().toLowerCase().includes(query.toLowerCase()));
+      || ingredientsCatalog.find((item) => normalizeSearchText(String(item.name || '')) === normalizedQuery)
+      || ingredientsCatalog.find((item) => normalizeSearchText(String(item.name || '')).includes(normalizedQuery))
+      || ingredientsCatalog.find((item) => normalizeSearchText(String(item.category || '')).includes(normalizedQuery));
 
     const weight = Math.max(1, Number(quickIngredientWeight || 0) || 100);
     const base = resolvedIngredient || {
@@ -472,13 +554,115 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     if (!editingItem?.item?.planId) return '';
     return plansCatalog.find((plan) => plan.id === editingItem.item.planId)?.name || '';
   }, [editingItem, plansCatalog]);
+  const dayDateMap = useMemo(() => {
+    return DAYS_OF_WEEK.reduce<Record<DayOfWeek, Date | null>>((acc, dayOfWeek) => {
+      acc[dayOfWeek] = getDateForWeekAndDay(selectedMonth, selectedWeek, dayOfWeek);
+      return acc;
+    }, {} as Record<DayOfWeek, Date | null>);
+  }, [selectedMonth, selectedWeek]);
 
   const selectedEnterpriseName = enterprises.find(ent => ent.id === selectedUnitId)?.name || activeEnterprise?.name || 'Unidade';
+
+  const toggleDayDuplicatePicker = (day: MenuDay) => {
+    const isSameTarget = dayDuplicateTarget?.sourceDayId === day.id;
+    if (isSameTarget) {
+      setDayDuplicateTarget(null);
+      return;
+    }
+    const dayIndex = DAYS_OF_WEEK.findIndex((key) => key === day.dayOfWeek);
+    const suggestedDay = DAYS_OF_WEEK[(dayIndex + 1 + DAYS_OF_WEEK.length) % DAYS_OF_WEEK.length];
+    setDayDuplicateTarget({
+      sourceDayId: day.id,
+      sourceDayOfWeek: day.dayOfWeek as DayOfWeek,
+      targetWeek: selectedWeek,
+      targetDayOfWeek: suggestedDay,
+    });
+  };
+
+  const applyDayDuplication = async () => {
+    if (!dayDuplicateTarget || !selectedUnitId) return;
+
+    const { sourceDayId, sourceDayOfWeek, targetWeek, targetDayOfWeek } = dayDuplicateTarget;
+    if (targetWeek === selectedWeek && targetDayOfWeek === sourceDayOfWeek) {
+      notificationService.alerta('Destino inválido', 'Selecione uma semana/dia diferente da origem.');
+      return;
+    }
+
+    const sourceDay = weeklyMenu.find((day) => day.id === sourceDayId);
+    if (!sourceDay) {
+      notificationService.alerta('Origem não encontrada', 'Não foi possível localizar o dia de origem.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      if (targetWeek === selectedWeek) {
+        setWeeklyMenu((prev) =>
+          prev.map((day) =>
+            day.dayOfWeek === targetDayOfWeek
+              ? { ...day, items: cloneMenuItems(sourceDay.items) }
+              : day
+          )
+        );
+      } else {
+        const payload = await ApiService.getWeeklyMenu(selectedUnitId, type, targetWeek, selectedMonth);
+        const targetWeekDays = normalizeMenuDays(payload?.days || []);
+        const nextDays = targetWeekDays.map((day) =>
+          day.dayOfWeek === targetDayOfWeek
+            ? { ...day, items: cloneMenuItems(sourceDay.items) }
+            : day
+        );
+        await ApiService.saveWeeklyMenu(selectedUnitId, type, nextDays, targetWeek, selectedMonth);
+      }
+
+      notificationService.informativo(
+        'Dia duplicado',
+        `Cardápio de ${SHORT_DAY_LABEL[sourceDayOfWeek]} copiado para ${targetWeek}ª semana • ${SHORT_DAY_LABEL[targetDayOfWeek]}.`
+      );
+      setDayDuplicateTarget(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Falha ao duplicar dia do cardápio.';
+      notificationService.alerta('Erro ao duplicar dia', message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const duplicateToMonth = async () => {
+    if (!selectedUnitId) return;
+    const targetMonth = String(duplicateMonthTarget || '').trim();
+    if (!targetMonth || !/^\d{4}-\d{2}$/.test(targetMonth)) {
+      notificationService.alerta('Mês inválido', 'Use o formato AAAA-MM.');
+      return;
+    }
+    if (targetMonth === selectedMonth) {
+      notificationService.alerta('Mês igual', 'Selecione um mês diferente para duplicar.');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      for (const week of WEEK_OPTIONS) {
+        const source = await ApiService.getWeeklyMenu(selectedUnitId, type, week, selectedMonth);
+        const days = Array.isArray(source?.days) ? source.days : generateInitialMenu();
+        await ApiService.saveWeeklyMenu(selectedUnitId, type, days, week, targetMonth);
+      }
+      notificationService.informativo('Duplicação concluída', `Dados duplicados para ${formatMonthLabel(targetMonth)}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Falha ao duplicar dados do cardápio.';
+      notificationService.alerta('Erro ao duplicar', message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const exportWeeklyCalendarPdf = () => {
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const generatedAt = new Date();
-    const days = weeklyMenu.map((day) => day.dayOfWeek);
+    const dayHeaders = weeklyMenu.map((day) => {
+      const dayKey = day.dayOfWeek as DayOfWeek;
+      const date = dayDateMap[dayKey] || null;
+      return `${day.dayOfWeek}\n${formatDateFullBr(date)}`;
+    });
     const dayHeaderColors: [number, number, number][] = [
       [30, 58, 138],   // SEG
       [37, 99, 235],   // TER
@@ -560,7 +744,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     doc.setTextColor(31, 41, 55);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10.2);
-    doc.text(`Cardapio Semanal | Unidade: ${selectedEnterpriseName} | Refeicao: ${type === 'ALMOCO' ? 'Almoco' : 'Lanche'}`, 14, 35);
+    doc.text(`Cardapio ${selectedWeek}ª Semana (${formatMonthLabel(selectedMonth)}) | Unidade: ${selectedEnterpriseName} | Refeicao: ${type === 'ALMOCO' ? 'Almoco' : 'Lanche'}`, 14, 35);
     doc.text(
       `Gerado em: ${generatedAt.toLocaleDateString('pt-BR')} ${generatedAt.toLocaleTimeString('pt-BR')}`,
       205,
@@ -571,7 +755,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
 
     autoTable(doc, {
       startY: 42,
-      head: [days],
+      head: [dayHeaders],
       body: tableRows,
       styles: {
         fontSize: 8.2,
@@ -589,7 +773,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
         fontStyle: 'bold',
         halign: 'center',
         valign: 'middle',
-        minCellHeight: 12.8,
+        minCellHeight: 16.5,
       },
       theme: 'plain',
       margin: { left: 10, right: 10, top: 42, bottom: 20 },
@@ -725,7 +909,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       footerY
     );
 
-    const fileName = `cardapio_local_${selectedEnterpriseName
+    const fileName = `cardapio_local_${selectedMonth}_semana_${selectedWeek}_${selectedEnterpriseName
       .toLowerCase()
       .replace(/\s+/g, '_')}_${type.toLowerCase()}_${generatedAt.toISOString().slice(0, 10)}.pdf`;
     doc.save(fileName);
@@ -746,10 +930,10 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
         <div className="space-y-1">
           <h1 className="text-xl sm:text-2xl font-black text-gray-800 tracking-tight flex items-center gap-2 leading-none">
             <UtensilsCrossed className="text-indigo-600" size={18} />
-            Grade Semanal: Cardápio da Semana
+            Grade: {selectedWeek}ª Semana
           </h1>
           <p className="text-gray-500 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.12em]">
-            Defina o cardápio com base nos planos contratados
+            Defina o cardápio com base nos planos contratados • {formatMonthLabel(selectedMonth)}
           </p>
         </div>
 
@@ -786,10 +970,50 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
         </div>
       </header>
 
+      <section className="bg-white p-3 rounded-[18px] border shadow-sm">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[9px] font-black text-gray-500 uppercase tracking-[0.12em] mr-1">Mês:</span>
+          <input
+            type="month"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value || getCurrentMonthKey())}
+            className="h-8 px-2 rounded-lg border border-gray-200 text-[10px] font-black text-gray-700 uppercase tracking-[0.08em] outline-none focus:border-indigo-400"
+          />
+          <span className="text-[9px] font-black text-gray-500 uppercase tracking-[0.12em] ml-2">Duplicar para:</span>
+          <input
+            type="month"
+            value={duplicateMonthTarget}
+            onChange={(e) => setDuplicateMonthTarget(e.target.value || getNextMonthKey())}
+            className="h-8 px-2 rounded-lg border border-emerald-200 text-[10px] font-black text-emerald-700 uppercase tracking-[0.08em] outline-none focus:border-emerald-400"
+          />
+          <button
+            onClick={duplicateToMonth}
+            className="h-8 px-3 bg-white border border-emerald-200 text-emerald-700 rounded-lg font-black text-[9px] uppercase tracking-[0.12em] shadow-sm hover:bg-emerald-50 transition-all flex items-center justify-center gap-1.5"
+          >
+            <CalendarDays size={12} /> Duplicar Dados
+          </button>
+          <span className="text-[9px] font-black text-gray-500 uppercase tracking-[0.12em] mr-1">Semanas:</span>
+          {WEEK_OPTIONS.map((week) => (
+            <button
+              key={week}
+              type="button"
+              onClick={() => setSelectedWeek(week)}
+              className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] border transition-all ${
+                selectedWeek === week
+                  ? 'bg-indigo-600 border-indigo-600 text-white shadow-md'
+                  : 'bg-white border-gray-200 text-gray-500 hover:border-indigo-300 hover:text-indigo-600'
+              }`}
+            >
+              {week}ª Semana
+            </button>
+          ))}
+        </div>
+      </section>
+
       {isLoading ? (
         <div className="flex flex-col items-center justify-center py-32 space-y-4 animate-pulse">
            <RefreshCw size={48} className="text-indigo-400 animate-spin" />
-           <p className="text-[10px] font-black text-gray-400 uppercase tracking-[4px]">Sincronizando cardápio semanal...</p>
+           <p className="text-[10px] font-black text-gray-400 uppercase tracking-[4px]">Sincronizando {selectedWeek}ª semana...</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2.5 animate-in fade-in duration-500">
@@ -798,26 +1022,87 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
               <div className="bg-white p-3 rounded-xl border-b-2 border-indigo-500 shadow-sm flex items-center justify-between gap-2">
                 <div>
                    <h3 className="text-[10px] font-black text-gray-800 uppercase tracking-[0.12em]">{day.dayOfWeek}</h3>
+                   <p className="text-[8px] font-black text-indigo-500 uppercase tracking-[0.08em]">{formatDateFullBr(dayDateMap[day.dayOfWeek as DayOfWeek] || null)}</p>
                    <p className="text-[8px] font-bold text-gray-400 uppercase">{day.items.length} Opções</p>
                 </div>
-                <button 
-                  onClick={() => {
-                    if (plansCatalog.length === 0) {
-                      addItemToDay(day.id);
-                      return;
-                    }
-                    setOpenPlanPickerDayId((prev) => prev === day.id ? null : day.id);
-                    setNewItemPlanByDay((prev) => ({
-                      ...prev,
-                      [day.id]: prev[day.id] || plansCatalog[0]?.id || '',
-                    }));
-                  }}
-                  className="w-7 h-7 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center hover:bg-indigo-600 hover:text-white transition-all shadow-inner"
-                  title="Adicionar opção"
-                >
-                  <Plus size={14} />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => toggleDayDuplicatePicker(day)}
+                    className="w-7 h-7 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center hover:bg-emerald-600 hover:text-white transition-all shadow-inner"
+                    title="Duplicar dia"
+                  >
+                    <CalendarDays size={13} />
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (plansCatalog.length === 0) {
+                        addItemToDay(day.id);
+                        return;
+                      }
+                      setOpenPlanPickerDayId((prev) => prev === day.id ? null : day.id);
+                      setNewItemPlanByDay((prev) => ({
+                        ...prev,
+                        [day.id]: prev[day.id] || plansCatalog[0]?.id || '',
+                      }));
+                    }}
+                    className="w-7 h-7 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center hover:bg-indigo-600 hover:text-white transition-all shadow-inner"
+                    title="Adicionar opção"
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
               </div>
+              {dayDuplicateTarget?.sourceDayId === day.id && (
+                <div className="bg-white rounded-xl border border-emerald-100 shadow-sm p-2.5 space-y-2">
+                  <p className="text-[9px] font-black text-gray-500 uppercase tracking-[0.12em]">
+                    Duplicar {SHORT_DAY_LABEL[day.dayOfWeek as DayOfWeek]} para:
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <select
+                      value={dayDuplicateTarget.targetWeek}
+                      onChange={(e) => {
+                        const nextWeek = Math.max(1, Math.min(5, Number(e.target.value || selectedWeek) || selectedWeek));
+                        setDayDuplicateTarget((prev) => prev ? { ...prev, targetWeek: nextWeek } : prev);
+                      }}
+                      className="h-8 rounded-lg border border-gray-200 px-2 text-[10px] font-black uppercase tracking-[0.08em] text-gray-700 focus:outline-none focus:border-emerald-400"
+                    >
+                      {WEEK_OPTIONS.map((week) => (
+                        <option key={`dup-week-${week}`} value={week}>
+                          {week}ª Semana
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={dayDuplicateTarget.targetDayOfWeek}
+                      onChange={(e) => {
+                        const nextDay = (e.target.value || day.dayOfWeek) as DayOfWeek;
+                        setDayDuplicateTarget((prev) => prev ? { ...prev, targetDayOfWeek: nextDay } : prev);
+                      }}
+                      className="h-8 rounded-lg border border-gray-200 px-2 text-[10px] font-black uppercase tracking-[0.08em] text-gray-700 focus:outline-none focus:border-emerald-400"
+                    >
+                      {DAYS_OF_WEEK.map((dayKey) => (
+                        <option key={`dup-day-${dayKey}`} value={dayKey}>
+                          {SHORT_DAY_LABEL[dayKey]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => setDayDuplicateTarget(null)}
+                      className="px-3 h-8 rounded-lg text-[10px] font-black uppercase tracking-widest text-gray-500 hover:text-gray-700"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={applyDayDuplication}
+                      className="px-3 h-8 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700"
+                    >
+                      Duplicar dia
+                    </button>
+                  </div>
+                </div>
+              )}
               {openPlanPickerDayId === day.id && (
                 <div className="bg-white rounded-xl border border-indigo-100 shadow-sm p-2.5 space-y-1.5">
                   <p className="text-[9px] font-black text-gray-500 uppercase tracking-[0.12em]">Escolha o plano para criar o cardápio</p>
@@ -917,64 +1202,6 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                             </div>
                           </div>
                         </div>
-                        <div className="mt-2 pt-2 border-t border-indigo-100">
-                          <button
-                            onClick={() => toggleItemReplicatePicker(day.id, item.id, day.dayOfWeek)}
-                            className="w-full h-8 bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-100 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5"
-                            title="Repetir em outros dias"
-                          >
-                            <CalendarDays size={13} /> Repetir item em outros dias
-                          </button>
-                        </div>
-                        {itemReplicateTarget?.dayId === day.id && itemReplicateTarget?.itemId === item.id && (
-                          <div className="mt-2 p-3 rounded-xl border border-indigo-100 bg-indigo-50/50">
-                            <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">
-                              Repetir este item em:
-                            </p>
-                            <div className="grid grid-cols-3 gap-2">
-                              {DAYS_OF_WEEK.map((dayKey) => {
-                                const isCurrentDay = dayKey === day.dayOfWeek;
-                                const checked = itemReplicateDays.includes(dayKey);
-                                return (
-                                  <label
-                                    key={dayKey}
-                                    className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2 py-1.5 rounded-lg ${isCurrentDay ? 'bg-indigo-100 text-indigo-600' : 'bg-white text-gray-600 border border-gray-200 cursor-pointer'}`}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={checked}
-                                      disabled={isCurrentDay}
-                                      onChange={() => {
-                                        setItemReplicateDays((prev) => {
-                                          if (checked) return prev.filter((v) => v !== dayKey);
-                                          return [...prev, dayKey];
-                                        });
-                                      }}
-                                    />
-                                    {SHORT_DAY_LABEL[dayKey]}
-                                  </label>
-                                );
-                              })}
-                            </div>
-                            <div className="mt-3 flex justify-end gap-2">
-                              <button
-                                onClick={() => {
-                                  setItemReplicateTarget(null);
-                                  setItemReplicateDays([]);
-                                }}
-                                className="px-3 h-8 rounded-lg text-[10px] font-black uppercase tracking-widest text-gray-500 hover:text-gray-700"
-                              >
-                                Cancelar
-                              </button>
-                              <button
-                                onClick={applyItemReplication}
-                                className="px-3 h-8 rounded-lg bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700"
-                              >
-                                Aplicar
-                              </button>
-                            </div>
-                          </div>
-                        )}
                       </div>
                     ))}
                   </div>
@@ -1167,7 +1394,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                                    <button
                                      onClick={() => toggleIngredientReplicatePicker(ing.id)}
                                      className="h-8 px-3 bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-100 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5"
-                                     title="Repetir item em outros dias"
+                                     title="Repetir ingrediente em outros dias"
                                    >
                                      <CalendarDays size={13} /> Repetir
                                    </button>

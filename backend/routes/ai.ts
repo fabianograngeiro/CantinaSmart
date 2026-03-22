@@ -27,24 +27,47 @@ const normalizeResult = (payload: any) => ({
   carboidratos_g: Number(payload?.carboidratos_g ?? payload?.carboidratos ?? payload?.carbs ?? 0) || 0,
   proteinas_g: Number(payload?.proteinas_g ?? payload?.proteinas ?? payload?.proteins ?? 0) || 0,
   gorduras_g: Number(payload?.gorduras_g ?? payload?.gorduras ?? payload?.fats ?? 0) || 0,
+  fibra_g: Number(payload?.fibra_g ?? payload?.fibras_g ?? payload?.fibra ?? payload?.fiber_g ?? payload?.fiber ?? 0) || 0,
+  calcio_mg: Number(payload?.calcio_mg ?? payload?.calcium_mg ?? payload?.calcio ?? payload?.calcium ?? 0) || 0,
+  ferro_mg: Number(payload?.ferro_mg ?? payload?.iron_mg ?? payload?.ferro ?? payload?.iron ?? 0) || 0,
+  categoria_sugerida: String(payload?.categoria_sugerida || payload?.categoria || '').trim(),
   fonte_referencia: String(payload?.fonte_referencia || payload?.fonte || payload?.source || 'TACO/USDA').trim() || 'TACO/USDA',
 });
 
+const inferCategoryFromFood = (foodName: string) => {
+  const normalized = String(foodName || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  if (/(frango|peixe|sardinha|carne|ovo|iogurte|lentilha|tofu|figado)/.test(normalized)) return 'Proteínas';
+  if (/(arroz|batata|aveia|milho|banana|mandioca|aipim|macaxeira)/.test(normalized)) return 'Carboidratos';
+  if (/(couve flor|brocolis|feijao preto|maca|chia|linhaca|farelo)/.test(normalized)) return 'Fibras';
+  if (/(leite|queijo|gergelim|espinafre|sardinha cozida)/.test(normalized)) return 'Cálcio';
+  if (/(figado|feijao carioca|gema|beterraba|couve manteiga|grao de bico)/.test(normalized)) return 'Ferro';
+  if (/(laranja|cenoura|acerola|abobora|mamao|pimentao)/.test(normalized)) return 'Vitaminas';
+  return '';
+};
+
 const buildNutritionPrompt = (foodName: string) => ({
   system: [
-    'Você é um Nutricionista Técnico.',
+    'Você é um Nutricionista Técnico especializado em composição de alimentos.',
     `Receberá um alimento base: "${foodName}".`,
-    'Regra principal: Se o nome do alimento for vago (ex: "macarrão", "carne", "arroz"), NÃO gere valores ainda. Faça uma pergunta curta pedindo estado/preparo (ex: "É cozido ou cru?", "É frito ou grelhado?").',
-    'Se o nome já for específico, gere os dados para 100g.',
+    'Objetivo: retornar valores por 100g com máxima consistência para cadastro nutricional.',
+    'Regra principal: gere SEMPRE os dados para 100g.',
+    'Quando faltar contexto de preparo, assuma automaticamente o preparo mais comum no Brasil para consumo escolar e siga com mode=data.',
+    'Pergunta de esclarecimento só em último caso extremo (alimento impossível de inferir).',
     'Regra de preparo: se for frito, considere absorção média de óleo por imersão ao estimar gorduras e calorias.',
     'Use referência TACO e USDA; se houver incerteza, use média da variedade comum no Brasil.',
+    'Se houver referência enviada no histórico pelo sistema, priorize essa referência.',
     "Calcule energia_kcal com base nos macros (4 kcal/g carb + 4 kcal/g proteína + 9 kcal/g gordura).",
-    'Retorne ESTRITAMENTE JSON puro em um dos formatos abaixo:',
-    '{"mode":"question","question":"..."}',
-    '{"mode":"data","energia_kcal":0,"carboidratos_g":0,"proteinas_g":0,"gorduras_g":0,"fonte_referencia":"TACO/USDA"}',
+    'Campos técnicos adicionais (fibra, cálcio e ferro) podem ser usados para raciocínio interno, porém resposta final deve conter os campos do JSON solicitado.',
+    'Retorne ESTRITAMENTE JSON puro:',
+    'Campo categoria_sugerida obrigatório com uma das opções: Proteínas, Carboidratos, Fibras, Cálcio, Ferro, Vitaminas.',
+    '{"mode":"data","energia_kcal":0,"carboidratos_g":0,"proteinas_g":0,"gorduras_g":0,"fibra_g":0,"calcio_mg":0,"ferro_mg":0,"categoria_sugerida":"Proteínas","fonte_referencia":"TACO/USDA"}',
     'Sem markdown, sem explicações fora do JSON.',
   ].join('\n'),
-  user: `Alimento base: ${foodName}. Considere o histórico da conversa do usuário para decidir se pergunta ou se já responde com dados.`,
+  user: `Alimento base: ${foodName}. Considere o histórico da conversa do usuário e responda em mode=data.`,
 });
 
 const enforceNutritionRules = (foodName: string, rawResult: ReturnType<typeof normalizeResult>) => {
@@ -72,6 +95,10 @@ const enforceNutritionRules = (foodName: string, rawResult: ReturnType<typeof no
     carboidratos_g: Number(carbs.toFixed(2)),
     proteinas_g: Number(proteins.toFixed(2)),
     gorduras_g: Number(fats.toFixed(2)),
+    fibra_g: Number((Number(rawResult.fibra_g || 0) || 0).toFixed(2)),
+    calcio_mg: Number((Number(rawResult.calcio_mg || 0) || 0).toFixed(2)),
+    ferro_mg: Number((Number(rawResult.ferro_mg || 0) || 0).toFixed(2)),
+    categoria_sugerida: rawResult.categoria_sugerida || inferCategoryFromFood(foodName) || '',
     fonte_referencia: rawResult.fonte_referencia || 'TACO/USDA',
   };
 };
@@ -113,6 +140,9 @@ const callOpenAi = async (
 
   const data = await response.json();
   if (!response.ok) {
+    if (response.status === 429) {
+      throw new Error('Limite temporário da IA atingido no provedor atual. Aguarde alguns segundos e tente novamente.');
+    }
     throw new Error(data?.error?.message || 'Falha na consulta com OpenAI.');
   }
   const content = data?.choices?.[0]?.message?.content || '';
@@ -153,6 +183,9 @@ const callGemini = async (token: string, model: string, foodName: string, histor
   );
   const data = await response.json();
   if (!response.ok) {
+    if (response.status === 429) {
+      throw new Error('Limite temporário da IA atingido no provedor atual. Aguarde alguns segundos e tente novamente.');
+    }
     throw new Error(data?.error?.message || 'Falha na consulta com Gemini.');
   }
   const content = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
@@ -200,6 +233,9 @@ const callGroq = async (token: string, model: string, foodName: string, history:
 
   const data = await response.json();
   if (!response.ok) {
+    if (response.status === 429) {
+      throw new Error('Limite temporário da IA atingido no provedor atual. Aguarde alguns segundos e tente novamente.');
+    }
     throw new Error(data?.error?.message || 'Falha na consulta com Groq.');
   }
   const content = data?.choices?.[0]?.message?.content || '';
@@ -265,11 +301,40 @@ router.post('/nutritional-data', async (req: Request, res: Response) => {
     }
 
     if (result.mode === 'question') {
+      const forcedConversation = [
+        ...conversation,
+        {
+          role: 'user' as const,
+          text: 'Sem contexto adicional. Assuma preparo mais comum no Brasil para esse alimento e responda em mode=data.',
+        },
+      ];
+
+      if (provider === 'gemini' && tokenGemini) {
+        result = await callGemini(tokenGemini, String(aiConfig?.model || 'gemini-2.0-flash'), foodName, forcedConversation);
+      } else if (provider === 'groq' && tokenGroq) {
+        result = await callGroq(tokenGroq, String(aiConfig?.model || 'llama-3.1-8b-instant'), foodName, forcedConversation);
+      } else {
+        result = await callOpenAi(tokenOpenAi, String(aiConfig?.model || 'gpt-4.1-mini'), foodName, forcedConversation);
+      }
+    }
+
+    if (result.mode === 'question') {
+      // Fallback final para nunca bloquear fluxo de cadastro
       return res.json({
         success: true,
         foodName,
-        mode: 'question',
-        question: result.question,
+        mode: 'data',
+        data: {
+          energia_kcal: 0,
+          carboidratos_g: 0,
+          proteinas_g: 0,
+          gorduras_g: 0,
+          fibra_g: 0,
+          calcio_mg: 0,
+          ferro_mg: 0,
+          categoria_sugerida: inferCategoryFromFood(foodName) || 'Carboidratos',
+          fonte_referencia: 'Estimativa padrão (sem contexto)',
+        },
       });
     }
 
@@ -282,13 +347,19 @@ router.post('/nutritional-data', async (req: Request, res: Response) => {
         carboidratos_g: result.carboidratos_g,
         proteinas_g: result.proteinas_g,
         gorduras_g: result.gorduras_g,
+        fibra_g: result.fibra_g,
+        calcio_mg: result.calcio_mg,
+        ferro_mg: result.ferro_mg,
+        categoria_sugerida: result.categoria_sugerida,
         fonte_referencia: result.fonte_referencia,
       },
     });
   } catch (err) {
-    return res.status(500).json({
+    const message = err instanceof Error ? err.message : 'Falha ao gerar dados nutricionais com IA.';
+    const status = /limite temporario|limite temporário|rate limit|too many requests/i.test(message) ? 429 : 500;
+    return res.status(status).json({
       success: false,
-      message: err instanceof Error ? err.message : 'Falha ao gerar dados nutricionais com IA.',
+      message,
     });
   }
 });

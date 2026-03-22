@@ -1356,25 +1356,135 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   }, [normalizedTransactions]);
 
   const exportToCSV = () => {
-    const headers = ["ID", "Data", "Hora", "Referência", "Cliente", "Plano", "Itens Detalhados", "Tipo", "Metodo", "Valor", "Status"];
-    const rows = filteredTransactions.map(t => [
-      t.id,
-      t.date,
-      t.time,
-      formatDateBr(t.referenceDate) || '-',
-      t.client,
-      t.plan,
-      formatTransactionItemsForExport(t),
-      t.type,
-      t.method,
-      readTxAmount(t).toFixed(2),
-      t.status
-    ]);
+    const reportClientIds = new Set(
+      filteredTransactions
+        .map((tx) => String(tx.clientId || '').trim())
+        .filter(Boolean)
+    );
+    const reportClients = clients.filter((client) => reportClientIds.has(String(client.id)));
+    const clientsById = new Map(
+      (Array.isArray(clients) ? clients : []).map((client) => [String(client.id || '').trim(), client] as const)
+    );
+    const studentsInReport = reportClients.filter((client) => String(client.type || '').toUpperCase() === 'ALUNO');
+    const reportHasOnlyStudents = reportClients.length > 0 && reportClients.every((client) => String(client.type || '').toUpperCase() === 'ALUNO');
+    const normalizePhoneDigits = (value?: string) => String(value || '').replace(/\D/g, '');
+    const normalizeRefText = (value?: string) => normalizeSearchText(String(value || '').trim());
+    const resolveStudentResponsibleRef = (student: Client) => {
+      const linkedResponsibleId = String((student as any)?.responsibleCollaboratorId || '').trim();
+      if (linkedResponsibleId) {
+        const linked = clientsById.get(linkedResponsibleId) as Client | undefined;
+        const linkedType = String(linked?.type || '').toUpperCase();
+        if (linked && (linkedType === 'RESPONSAVEL' || linkedType === 'COLABORADOR')) {
+          return {
+            key: `CLIENT:${linkedResponsibleId}`,
+            name: String(linked.name || '').trim() || String(student.parentName || '').trim(),
+            phone: String(linked.phone || linked.parentWhatsapp || student.parentWhatsapp || student.guardianPhone || '').trim(),
+          };
+        }
+      }
 
-    const csvContent = [
-      headers.join(","),
-      ...rows.map(e => e.join(","))
-    ].join("\n");
+      const manualName = String(student.parentName || '').trim();
+      const manualPhone = String(student.parentWhatsapp || student.guardianPhone || '').trim();
+      if (!manualName && !manualPhone) return null;
+      return {
+        key: `MANUAL:${normalizeRefText(manualName)}|${normalizePhoneDigits(manualPhone)}`,
+        name: manualName,
+        phone: manualPhone,
+      };
+    };
+    const responsibleRefs = studentsInReport
+      .map((student) => resolveStudentResponsibleRef(student))
+      .filter((entry): entry is { key: string; name: string; phone: string } => Boolean(entry?.key));
+    const uniqueResponsibleKeys = new Set(responsibleRefs.map((entry) => entry.key));
+    const shouldShowResponsibleData = reportHasOnlyStudents && studentsInReport.length > 0 && uniqueResponsibleKeys.size === 1;
+
+    const studentResponsibleDetails = shouldShowResponsibleData
+      ? studentsInReport
+        .map((student) => {
+          const resolved = resolveStudentResponsibleRef(student);
+          return {
+            studentName: String(student.name || '').trim(),
+            responsibleName: String(resolved?.name || student.parentName || '').trim(),
+            responsiblePhone: formatPhoneWithCountryTag(String(resolved?.phone || student.parentWhatsapp || student.guardianPhone || '').trim(), '-'),
+          };
+        })
+        .filter((entry) => entry.studentName || entry.responsibleName || entry.responsiblePhone)
+      : [];
+
+    const headers = [
+      "ID",
+      "Data",
+      "Hora",
+      "Referência",
+      "Cliente",
+      "Plano",
+      "Itens Detalhados",
+      "Tipo",
+      "Metodo",
+      "Valor",
+      "Status",
+      "Aluno Relacionado",
+      "Responsável",
+      "Contato Responsável"
+    ];
+    const rows = filteredTransactions.map((t) => {
+      const clientRef = clientsById.get(String(t.clientId || '').trim()) as Client | undefined;
+      const isStudent = String(clientRef?.type || '').toUpperCase() === 'ALUNO';
+      const resolved = isStudent ? resolveStudentResponsibleRef(clientRef as Client) : null;
+      const studentName = isStudent ? String(clientRef?.name || t.client || '').trim() : '';
+      const responsibleName = isStudent ? String(resolved?.name || clientRef?.parentName || '').trim() : '';
+      const responsiblePhone = isStudent
+        ? formatPhoneWithCountryTag(String(resolved?.phone || clientRef?.parentWhatsapp || clientRef?.guardianPhone || '').trim(), '-')
+        : '';
+
+      return [
+        t.id,
+        t.date,
+        t.time,
+        formatDateBr(t.referenceDate) || '-',
+        t.client,
+        t.plan,
+        formatTransactionItemsForExport(t),
+        t.type,
+        t.method,
+        readTxAmount(t).toFixed(2),
+        t.status,
+        studentName,
+        responsibleName,
+        responsiblePhone
+      ];
+    });
+
+    const toCsvCell = (value: unknown) => {
+      const text = String(value ?? '');
+      if (text.includes('"') || text.includes(',') || text.includes('\n')) {
+        return `"${text.replace(/"/g, '""')}"`;
+      }
+      return text;
+    };
+
+    const csvLines = [
+      headers.map(toCsvCell).join(","),
+      ...rows.map((row) => row.map(toCsvCell).join(","))
+    ];
+
+    if (studentResponsibleDetails.length > 1) {
+      csvLines.unshift(
+        "",
+        ["DETALHE RELAÇÃO", "ALUNO", "RESPONSÁVEL", "CONTATO"].map(toCsvCell).join(","),
+        ...studentResponsibleDetails.map((entry, index) =>
+          [
+            `ALUNO ${index + 1}`,
+            entry.studentName,
+            entry.responsibleName,
+            entry.responsiblePhone
+          ].map(toCsvCell).join(",")
+        ),
+        ""
+      );
+    }
+
+    const csvContent = csvLines.join("\n");
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
@@ -1385,6 +1495,191 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const printScreenReport = () => {
+    const reportClientIds = new Set(
+      filteredTransactions
+        .map((tx) => String(tx.clientId || '').trim())
+        .filter(Boolean)
+    );
+    const reportClients = clients.filter((client) => reportClientIds.has(String(client.id)));
+    const clientsById = new Map(
+      (Array.isArray(clients) ? clients : []).map((client) => [String(client.id || '').trim(), client] as const)
+    );
+    const studentsInReport = reportClients.filter((client) => String(client.type || '').toUpperCase() === 'ALUNO');
+    const reportHasOnlyStudents = reportClients.length > 0 && reportClients.every((client) => String(client.type || '').toUpperCase() === 'ALUNO');
+    const normalizePhoneDigits = (value?: string) => String(value || '').replace(/\D/g, '');
+    const normalizeRefText = (value?: string) => normalizeSearchText(String(value || '').trim());
+    const resolveStudentResponsibleRef = (student: Client) => {
+      const linkedResponsibleId = String((student as any)?.responsibleCollaboratorId || '').trim();
+      if (linkedResponsibleId) {
+        const linked = clientsById.get(linkedResponsibleId) as Client | undefined;
+        const linkedType = String(linked?.type || '').toUpperCase();
+        if (linked && (linkedType === 'RESPONSAVEL' || linkedType === 'COLABORADOR')) {
+          return {
+            key: `CLIENT:${linkedResponsibleId}`,
+            name: String(linked.name || '').trim() || String(student.parentName || '').trim(),
+            phone: String(linked.phone || linked.parentWhatsapp || student.parentWhatsapp || student.guardianPhone || '').trim(),
+          };
+        }
+      }
+
+      const manualName = String(student.parentName || '').trim();
+      const manualPhone = String(student.parentWhatsapp || student.guardianPhone || '').trim();
+      if (!manualName && !manualPhone) return null;
+      return {
+        key: `MANUAL:${normalizeRefText(manualName)}|${normalizePhoneDigits(manualPhone)}`,
+        name: manualName,
+        phone: manualPhone,
+      };
+    };
+    const responsibleRefs = studentsInReport
+      .map((student) => resolveStudentResponsibleRef(student))
+      .filter((entry): entry is { key: string; name: string; phone: string } => Boolean(entry?.key));
+    const uniqueResponsibleKeys = new Set(responsibleRefs.map((entry) => entry.key));
+    const shouldShowResponsibleData = reportHasOnlyStudents && studentsInReport.length > 0 && uniqueResponsibleKeys.size === 1;
+
+    const studentResponsibleDetails = shouldShowResponsibleData
+      ? studentsInReport
+        .map((student) => {
+          const resolved = resolveStudentResponsibleRef(student);
+          return {
+            studentName: String(student.name || '').trim(),
+            responsibleName: String(resolved?.name || student.parentName || '').trim(),
+            responsiblePhone: formatPhoneWithCountryTag(String(resolved?.phone || student.parentWhatsapp || student.guardianPhone || '').trim(), '-'),
+          };
+        })
+        .filter((entry) => entry.studentName || entry.responsibleName || entry.responsiblePhone)
+      : [];
+
+    const totalCredits = filteredTransactions
+      .filter((tx) => tx.type === 'CREDITO')
+      .reduce((acc, tx) => acc + Math.abs(readTxAmount(tx)), 0);
+    const totalConsumption = filteredTransactions
+      .filter((tx) => tx.type === 'CONSUMO' || tx.type === 'VENDA_BALCAO')
+      .reduce((acc, tx) => acc + Math.abs(readTxAmount(tx)), 0);
+    const finalBalance = totalCredits - totalConsumption;
+
+    const escapeHtml = (value: unknown) =>
+      String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const relationHtml = shouldShowResponsibleData
+      ? (studentResponsibleDetails.length > 1
+        ? `
+          <h3>Dados separados por aluno</h3>
+          <div class="relations">
+            ${studentResponsibleDetails.map((entry, index) => `
+              <div class="relation-line">
+                <strong>${index + 1}.</strong>
+                <span>Aluno: ${escapeHtml(entry.studentName || '-')}</span>
+                <span>Responsável: ${escapeHtml(entry.responsibleName || '-')}</span>
+                <span>Contato: ${escapeHtml(entry.responsiblePhone || '-')}</span>
+              </div>
+            `).join('')}
+          </div>
+        `
+        : `
+          <h3>Responsável e aluno</h3>
+          <div class="relations">
+            ${studentResponsibleDetails.map((entry) => `
+              <div class="relation-line">
+                <span>Aluno: ${escapeHtml(entry.studentName || '-')}</span>
+                <span>Responsável: ${escapeHtml(entry.responsibleName || '-')}</span>
+                <span>Contato: ${escapeHtml(entry.responsiblePhone || '-')}</span>
+              </div>
+            `).join('')}
+          </div>
+        `)
+      : `<p class="inventory-mode">Relatório em modo inventário: dados de responsável/aluno ocultados.</p>`;
+
+    const rowsHtml = filteredTransactions
+      .map((tx) => `
+        <tr>
+          <td>${escapeHtml(`${formatDateBr(tx.date)} ${tx.time}`)}</td>
+          <td>${escapeHtml(formatTransactionItemsForExport(tx))}</td>
+          <td>${escapeHtml(tx.type.replace('_', ' '))}</td>
+          <td class="right">R$ ${escapeHtml(readTxAmount(tx).toFixed(2))}</td>
+          <td>${escapeHtml(tx.status)}</td>
+        </tr>
+      `)
+      .join('');
+
+    const printWindow = window.open('', '_blank', 'width=1200,height=820');
+    if (!printWindow) {
+      alert('Não foi possível abrir a janela de impressão.');
+      return;
+    }
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Relatório de Transações</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #0f172a; margin: 20px; }
+            h1 { font-size: 20px; margin: 0 0 4px; }
+            h2 { font-size: 12px; margin: 0 0 12px; color: #475569; }
+            h3 { font-size: 13px; margin: 0 0 8px; }
+            .box { border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+            .relations { display: flex; flex-direction: column; gap: 6px; }
+            .relation-line { font-size: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
+            .inventory-mode { font-size: 12px; margin: 0; color: #475569; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+            th, td { border: 1px solid #e2e8f0; padding: 7px; text-align: left; }
+            th { background: #f8fafc; color: #334155; text-transform: uppercase; font-size: 10px; letter-spacing: .04em; }
+            .right { text-align: right; }
+            .totals { margin-top: 6px; display: flex; gap: 8px; }
+            .total-card { border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; min-width: 180px; }
+            .total-title { font-size: 10px; color: #64748b; text-transform: uppercase; }
+            .total-value { font-size: 14px; font-weight: 700; margin-top: 2px; }
+            @media print { body { margin: 12mm; } }
+          </style>
+        </head>
+        <body>
+          <h1>${escapeHtml(activeEnterprise.name)}</h1>
+          <h2>Relatório de transações • Gerado em ${escapeHtml(new Date().toLocaleString('pt-BR'))}</h2>
+          <div class="box">
+            ${relationHtml}
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Data/Hora</th>
+                <th>Descrição</th>
+                <th>Tipo</th>
+                <th class="right">Valor</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml || '<tr><td colspan="5">Sem transações no período.</td></tr>'}
+            </tbody>
+          </table>
+          <div class="totals">
+            <div class="total-card">
+              <div class="total-title">Total Créditos</div>
+              <div class="total-value">R$ ${escapeHtml(totalCredits.toFixed(2))}</div>
+            </div>
+            <div class="total-card">
+              <div class="total-title">Total Consumo</div>
+              <div class="total-value">R$ ${escapeHtml(totalConsumption.toFixed(2))}</div>
+            </div>
+            <div class="total-card">
+              <div class="total-title">Saldo Final</div>
+              <div class="total-value">R$ ${escapeHtml(finalBalance.toFixed(2))}</div>
+            </div>
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
   };
 
   const exportToPDF = () => {
@@ -1432,13 +1727,50 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     );
     const reportClients = clients.filter((client) => reportClientIds.has(String(client.id)));
 
+    const clientsById = new Map(
+      (Array.isArray(clients) ? clients : []).map((client) => [String(client.id || '').trim(), client] as const)
+    );
     const studentsInReport = reportClients.filter((client) => String(client.type).toUpperCase() === 'ALUNO');
-    const responsibleNames = Array.from(new Set(
-      studentsInReport
-        .map((client) => String(client.parentName || '').trim())
-        .filter(Boolean)
-    ));
-    const studentNames = Array.from(new Set(studentsInReport.map((client) => String(client.name || '').trim()).filter(Boolean)));
+    const reportHasOnlyStudents = reportClients.length > 0 && reportClients.every((client) => String(client.type || '').toUpperCase() === 'ALUNO');
+    const normalizePhoneDigits = (value?: string) => String(value || '').replace(/\D/g, '');
+    const normalizeRefText = (value?: string) => normalizeSearchText(String(value || '').trim());
+    const resolveStudentResponsibleRef = (student: Client) => {
+      const linkedResponsibleId = String((student as any)?.responsibleCollaboratorId || '').trim();
+      if (linkedResponsibleId) {
+        const linked = clientsById.get(linkedResponsibleId) as Client | undefined;
+        const linkedType = String(linked?.type || '').toUpperCase();
+        if (linked && (linkedType === 'RESPONSAVEL' || linkedType === 'COLABORADOR')) {
+          const name = String(linked.name || '').trim() || String(student.parentName || '').trim();
+          const phone = String(linked.phone || linked.parentWhatsapp || student.parentWhatsapp || student.guardianPhone || '').trim();
+          return {
+            key: `CLIENT:${linkedResponsibleId}`,
+            name,
+            phone,
+          };
+        }
+      }
+
+      const manualName = String(student.parentName || '').trim();
+      const manualPhone = String(student.parentWhatsapp || student.guardianPhone || '').trim();
+      if (!manualName && !manualPhone) return null;
+      return {
+        key: `MANUAL:${normalizeRefText(manualName)}|${normalizePhoneDigits(manualPhone)}`,
+        name: manualName,
+        phone: manualPhone,
+      };
+    };
+    const responsibleRefs = studentsInReport
+      .map((student) => resolveStudentResponsibleRef(student))
+      .filter((entry): entry is { key: string; name: string; phone: string } => Boolean(entry?.key));
+    const uniqueResponsibleKeys = new Set(responsibleRefs.map((entry) => entry.key));
+    const shouldShowResponsibleData = reportHasOnlyStudents && studentsInReport.length > 0 && uniqueResponsibleKeys.size === 1;
+
+    const responsibleNames = shouldShowResponsibleData
+      ? Array.from(new Set(responsibleRefs.map((entry) => String(entry.name || '').trim()).filter(Boolean)))
+      : [];
+    const studentNames = shouldShowResponsibleData
+      ? Array.from(new Set(studentsInReport.map((client) => String(client.name || '').trim()).filter(Boolean)))
+      : [];
     const planUnitPriceByName = new Map<string, number>();
     (Array.isArray(editPlans) ? editPlans : []).forEach((plan: any) => {
       const key = normalizeSearchText(String(plan?.name || ''));
@@ -1448,18 +1780,32 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
         planUnitPriceByName.set(key, price);
       }
     });
-    const responsibleContacts = Array.from(
-      new Map(
-        studentsInReport
-          .map((student) => {
-            const name = String(student.parentName || '').trim();
-            const phone = String(student.parentWhatsapp || student.guardianPhone || '').trim();
-            if (!name && !phone) return null;
-            return [`${name}|${phone}`, { name, phone }];
-          })
-          .filter(Boolean) as Array<[string, { name: string; phone: string }]>
-      ).values()
-    );
+    const responsibleContacts = shouldShowResponsibleData
+      ? Array.from(
+        new Map(
+          responsibleRefs
+            .map((entry) => {
+              const name = String(entry.name || '').trim();
+              const phone = String(entry.phone || '').trim();
+              if (!name && !phone) return null;
+              return [`${name}|${phone}`, { name, phone }];
+            })
+            .filter(Boolean) as Array<[string, { name: string; phone: string }]>
+        ).values()
+      )
+      : [];
+    const studentResponsibleDetails = shouldShowResponsibleData
+      ? studentsInReport
+        .map((student) => {
+          const resolved = resolveStudentResponsibleRef(student);
+          return {
+            studentName: String(student.name || '').trim(),
+            responsibleName: String(resolved?.name || student.parentName || '').trim(),
+            responsiblePhone: String(resolved?.phone || student.parentWhatsapp || student.guardianPhone || '').trim(),
+          };
+        })
+        .filter((entry) => entry.studentName || entry.responsibleName || entry.responsiblePhone)
+      : [];
 
     const creditByPlanMap = new Map<string, number>();
     const consumedQtyByPlanMap = new Map<string, number>();
@@ -1638,29 +1984,61 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     const enterpriseBottomY = 32.5 + ((enterpriseInfoLines.length - 1) * 3.9);
 
     const infoBoxY = enterpriseBottomY + 4;
-    const infoBoxHeight = 23;
+    const hasSeparatedStudentLines = shouldShowResponsibleData && studentResponsibleDetails.length > 1;
+    const infoBoxHeight = hasSeparatedStudentLines
+      ? Math.max(23, 11 + (studentResponsibleDetails.length * 4.4))
+      : 23;
     doc.setFillColor(248, 250, 252);
     doc.setDrawColor(226, 232, 240);
     doc.roundedRect(14, infoBoxY, 269, infoBoxHeight, 2.5, 2.5, 'FD');
 
     doc.setTextColor(15, 23, 42);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.7);
-    doc.text(`Responsável(is): ${responsibleNames.join(', ') || '-'}`, 17, infoBoxY + 6.3);
+    if (shouldShowResponsibleData) {
+      if (studentResponsibleDetails.length > 1) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.7);
+        doc.text('Dados separados por aluno', 17, infoBoxY + 6.3);
 
-    const responsibleLine = responsibleContacts.length > 0
-      ? responsibleContacts.map((resp) => `${resp.name || 'Responsável'} (${formatPhoneWithCountryTag(resp.phone, '-')})`).join(' | ')
-      : '-';
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.2);
-    const respLines = doc.splitTextToSize(`Contato responsável: ${responsibleLine}`, 175);
-    doc.text(respLines.slice(0, 2), 17, infoBoxY + 11.3);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.1);
+        const detailLines = studentResponsibleDetails.map((entry, index) => {
+          const phoneText = formatPhoneWithCountryTag(entry.responsiblePhone, '-');
+          return `${index + 1}. Aluno: ${entry.studentName || '-'} | Responsável: ${entry.responsibleName || '-'} | Contato: ${phoneText}`;
+        });
+        detailLines.forEach((line, idx) => {
+          doc.text(doc.splitTextToSize(line, 260).slice(0, 1), 17, infoBoxY + 11.2 + (idx * 4.4));
+        });
+      } else {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.7);
+        doc.text(`Responsável(is): ${responsibleNames.join(', ') || '-'}`, 17, infoBoxY + 6.3);
 
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.1);
-    const studentLabel = `Aluno(s): ${studentNames.join(', ') || '-'}`;
-    const studentLabelLines = doc.splitTextToSize(studentLabel, 82);
-    doc.text(studentLabelLines.slice(0, 2), 196, infoBoxY + 7.2);
+        const responsibleLine = responsibleContacts.length > 0
+          ? responsibleContacts.map((resp) => `${resp.name || 'Responsável'} (${formatPhoneWithCountryTag(resp.phone, '-')})`).join(' | ')
+          : '-';
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.2);
+        const respLines = doc.splitTextToSize(`Contato responsável: ${responsibleLine}`, 175);
+        doc.text(respLines.slice(0, 2), 17, infoBoxY + 11.3);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.1);
+        const studentLabel = `Aluno(s): ${studentNames.join(', ') || '-'}`;
+        const studentLabelLines = doc.splitTextToSize(studentLabel, 82);
+        doc.text(studentLabelLines.slice(0, 2), 196, infoBoxY + 7.2);
+      }
+    } else {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.7);
+      doc.text('Relatório em modo inventário', 17, infoBoxY + 6.3);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.2);
+      const inventoryLines = doc.splitTextToSize(
+        'Dados de responsável/alunos ocultados: exibição disponível somente quando o filtro resultar em alunos vinculados a um único responsável ou colaborador.',
+        260
+      );
+      doc.text(inventoryLines.slice(0, 2), 17, infoBoxY + 11.3);
+    }
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.1);
@@ -1828,13 +2206,14 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     });
 
     const tableFinalY = (doc as any).lastAutoTable?.finalY || tableStartY + 8;
-    const cardYBase = tableFinalY + 6;
+    const cardYBase = tableFinalY + 2;
     const cardHeight = 14;
     const cardWidth = 86;
     const pageBottom = doc.internal.pageSize.getHeight() - 14;
-    const totalsY = (cardYBase + cardHeight > pageBottom) ? 194 : cardYBase;
-    if (totalsY === 194) {
+    let totalsY = cardYBase;
+    if (totalsY + cardHeight > pageBottom) {
       doc.addPage();
+      totalsY = 14;
     }
     const drawTotalCard = (x: number, y: number, title: string, value: string, tone: 'green' | 'red' | 'blue') => {
       if (tone === 'green') {
@@ -1920,10 +2299,16 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
              <FileSpreadsheet size={12} className="text-emerald-500" /> Exportar CSV
            </button>
            <button 
+             onClick={printScreenReport}
+             className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg font-black text-[9px] uppercase tracking-[0.12em] hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100"
+           >
+             <Printer size={12} /> Imprimir
+           </button>
+           <button 
              onClick={exportToPDF}
              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg font-black text-[9px] uppercase tracking-[0.12em] hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100"
            >
-             <Printer size={12} /> Imprimir Relatório
+             <Printer size={12} /> Exportar PDF
            </button>
         </div>
       </header>
