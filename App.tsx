@@ -491,7 +491,7 @@ const AppContent: React.FC<any> = (props) => {
                     title={isDark ? 'Ativar modo claro' : 'Ativar modo escuro'}
                     aria-label={isDark ? 'Ativar modo claro' : 'Ativar modo escuro'}
                   >
-                    {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+                    {isDark ? <Moon size={18} /> : <Sun size={18} />}
                   </button>
                   <div className="text-right">
                     <p className="text-xs font-black text-gray-900 dark:text-slate-100 leading-none uppercase">{currentUser?.name || 'Usuário'}</p>
