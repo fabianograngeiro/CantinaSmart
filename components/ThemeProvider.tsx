@@ -22,13 +22,23 @@ const getInitialTheme = (): Theme => {
 
 const applyThemeClass = (theme: Theme) => {
   if (typeof document === 'undefined') return;
-  document.documentElement.classList.toggle('dark', theme === 'dark');
+  const isDarkTheme = theme === 'dark';
+  document.documentElement.classList.toggle('dark', isDarkTheme);
+  if (document.body) {
+    document.body.classList.toggle('dark', isDarkTheme);
+  }
+  const rootElement = document.getElementById('root');
+  if (rootElement) {
+    rootElement.classList.toggle('dark', isDarkTheme);
+  }
   document.documentElement.style.colorScheme = theme;
 };
 
 const readThemeFromDom = (): Theme => {
   if (typeof document === 'undefined') return 'light';
-  return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+  const htmlDark = document.documentElement.classList.contains('dark');
+  const bodyDark = Boolean(document.body?.classList.contains('dark'));
+  return htmlDark || bodyDark ? 'dark' : 'light';
 };
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -61,6 +71,9 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setThemeState((prev) => (prev === domTheme ? prev : domTheme));
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    if (document.body) {
+      observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    }
 
     return () => {
       window.removeEventListener('focus', enforceTheme);
