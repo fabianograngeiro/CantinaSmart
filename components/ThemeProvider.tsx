@@ -26,6 +26,11 @@ const applyThemeClass = (theme: Theme) => {
   document.documentElement.style.colorScheme = theme;
 };
 
+const readThemeFromDom = (): Theme => {
+  if (typeof document === 'undefined') return 'light';
+  return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+};
+
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setThemeState] = useState<Theme>(getInitialTheme);
 
@@ -43,10 +48,25 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     window.addEventListener('focus', enforceTheme);
     document.addEventListener('visibilitychange', enforceTheme);
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== THEME_STORAGE_KEY) return;
+      const incoming = event.newValue === 'dark' ? 'dark' : 'light';
+      applyThemeClass(incoming);
+      setThemeState(incoming);
+    };
+    window.addEventListener('storage', handleStorage);
+
+    const observer = new MutationObserver(() => {
+      const domTheme = readThemeFromDom();
+      setThemeState((prev) => (prev === domTheme ? prev : domTheme));
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
     return () => {
       window.removeEventListener('focus', enforceTheme);
       document.removeEventListener('visibilitychange', enforceTheme);
+      window.removeEventListener('storage', handleStorage);
+      observer.disconnect();
     };
   }, [theme]);
 
@@ -59,14 +79,13 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const toggleTheme = () => {
-    setThemeState((prev) => {
-      const nextTheme: Theme = prev === 'dark' ? 'light' : 'dark';
-      applyThemeClass(nextTheme);
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
-      }
-      return nextTheme;
-    });
+    const currentTheme = readThemeFromDom();
+    const nextTheme: Theme = currentTheme === 'dark' ? 'light' : 'dark';
+    applyThemeClass(nextTheme);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+    }
+    setThemeState(nextTheme);
   };
 
   const value = useMemo(
