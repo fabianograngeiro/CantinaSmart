@@ -93,6 +93,13 @@ const toDateKey = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
+const formatDateKeyBr = (dateKey?: string) => {
+  const value = String(dateKey || '').trim();
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return value;
+  return `${match[3]}/${match[2]}/${match[1]}`;
+};
+
 const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace(/\/api\/?$/, '');
 
 const COUNTRY_OPTIONS = [
@@ -259,6 +266,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const [selectedPlanDates, setSelectedPlanDates] = useState<Record<string, string[]>>({});
   const [selectedPlanShifts, setSelectedPlanShifts] = useState<Record<string, string[]>>({});
   const [planRequiredUnitsById, setPlanRequiredUnitsById] = useState<Record<string, number>>({});
+  const [planEditBaseDatesById, setPlanEditBaseDatesById] = useState<Record<string, string[]>>({});
+  const [planOriginalDatesById, setPlanOriginalDatesById] = useState<Record<string, string[]>>({});
   const [openPlanCalendarId, setOpenPlanCalendarId] = useState<string | null>(null);
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [rechargeSelectedPlanId, setRechargeSelectedPlanId] = useState<string | null>(null);
@@ -903,6 +912,18 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     setSelectedPlanDays(normalizedPlanDays);
     setSelectedPlanDates(normalizedPlanDates);
     setSelectedPlanShifts(normalizedPlanShifts);
+    setPlanEditBaseDatesById(
+      Object.entries(normalizedPlanDates).reduce((acc, [planId, dates]) => {
+        acc[planId] = Array.from(new Set(dates || [])).sort();
+        return acc;
+      }, {} as Record<string, string[]>)
+    );
+    setPlanOriginalDatesById(
+      Object.entries(normalizedPlanDates).reduce((acc, [planId, dates]) => {
+        acc[planId] = Array.from(new Set(dates || [])).sort();
+        return acc;
+      }, {} as Record<string, string[]>)
+    );
     setOpenPlanCalendarId(null);
     setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
     setIsDetailModalOpen(true);
@@ -997,8 +1018,12 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       const exists = current.includes(dateKey);
       const requiredCountRaw = Number(planRequiredUnitsById[planId] || 0);
       const requiredCount = Number.isFinite(requiredCountRaw) ? requiredCountRaw : 0;
+      const baseDates = planEditBaseDatesById[planId] || [];
+      const removedCount = baseDates.filter((baseDateKey) => !current.includes(baseDateKey)).length;
+      const addedCount = current.filter((currentDateKey) => !baseDates.includes(currentDateKey)).length;
+      const temporaryCreditUnits = Math.max(0, removedCount - addedCount);
 
-      if (!exists && isDetailModalOpen && current.length >= requiredCount) return prev;
+      if (!exists && isDetailModalOpen && current.length >= requiredCount && temporaryCreditUnits <= 0) return prev;
 
       const nextDates = exists ? current.filter(d => d !== dateKey) : [...current, dateKey].sort();
 
@@ -1007,6 +1032,139 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         [planId]: nextDates,
       };
     });
+  };
+
+  const getPlanTemporaryCreditUnits = (planId: string) => {
+    const baseDates = planEditBaseDatesById[planId] || [];
+    const currentDates = selectedPlanDates[planId] || [];
+    const removedCount = baseDates.filter((dateKey) => !currentDates.includes(dateKey)).length;
+    const addedCount = currentDates.filter((dateKey) => !baseDates.includes(dateKey)).length;
+    return Math.max(0, removedCount - addedCount);
+  };
+
+  const hasPendingPlanDateChanges = (planId: string) => {
+    const baseDates = (planEditBaseDatesById[planId] || []).slice().sort();
+    const currentDates = (selectedPlanDates[planId] || []).slice().sort();
+    if (baseDates.length !== currentDates.length) return true;
+    for (let index = 0; index < baseDates.length; index += 1) {
+      if (baseDates[index] !== currentDates[index]) return true;
+    }
+    return false;
+  };
+
+  const handleConfirmPlanDateChanges = async (planId: string) => {
+    if (!hasPendingPlanDateChanges(planId)) {
+      showPlanNotice('Nenhuma alteração pendente para confirmar neste plano.', 'warning');
+      return;
+    }
+    if (isSavingPlanView) return;
+    if (!viewingClient) return;
+
+    const targetPlan = activePlansInView.find((plan) => String(plan.planId) === String(planId));
+    if (!targetPlan) {
+      showPlanNotice('Plano não encontrado para confirmação.', 'error');
+      return;
+    }
+
+    const currentConfigsRaw = (viewingClient as any).selectedPlansConfig;
+    const currentConfigs = (Array.isArray(currentConfigsRaw) ? currentConfigsRaw : []) as Array<any>;
+    const nextTargetConfig = {
+      planId: targetPlan.planId,
+      planName: targetPlan.planName,
+      planPrice: targetPlan.planPrice,
+      daysOfWeek: Array.isArray(targetPlan.daysOfWeek) ? targetPlan.daysOfWeek : [],
+      selectedDates: Array.from(new Set(targetPlan.selectedDates || [])).sort(),
+      deliveryShifts: Array.isArray(targetPlan.deliveryShifts) ? targetPlan.deliveryShifts : [],
+      subtotal: targetPlan.subtotal,
+    };
+
+    let replaced = false;
+    const nextSelectedPlans = currentConfigs.map((cfg: any) => {
+      const samePlan = String(cfg?.planId || '') === String(planId)
+        || normalizeSearchText(cfg?.planName) === normalizeSearchText(targetPlan.planName);
+      if (!samePlan) return cfg;
+      replaced = true;
+      return {
+        ...cfg,
+        ...nextTargetConfig,
+      };
+    });
+    if (!replaced) nextSelectedPlans.push(nextTargetConfig);
+
+    const baseServicePlans = (Array.isArray(viewingClient.servicePlans) ? viewingClient.servicePlans : [])
+      .filter((plan) => String(plan || '').toUpperCase() === 'PREPAGO');
+    const nextServicePlans = [...baseServicePlans, ...nextSelectedPlans.map((cfg) => cfg.planName as ClientPlanType)];
+
+    const originalDates = Array.from(new Set(planOriginalDatesById[planId] || [])).sort();
+    const updatedDates = Array.from(new Set(nextTargetConfig.selectedDates || [])).sort();
+    const removedDates = originalDates.filter((dateKey) => !updatedDates.includes(dateKey));
+    const addedDates = updatedDates.filter((dateKey) => !originalDates.includes(dateKey));
+
+    setIsSavingPlanView(true);
+    try {
+      const updated = await ApiService.updateClient(viewingClient.id, {
+        selectedPlansConfig: nextSelectedPlans,
+        servicePlans: nextServicePlans,
+      });
+
+      if (removedDates.length > 0 || addedDates.length > 0) {
+        const now = new Date();
+        const removedLabel = removedDates.length > 0
+          ? `Removidos: ${removedDates.map((dateKey) => formatDateKeyBr(dateKey)).join(', ')}`
+          : '';
+        const addedLabel = addedDates.length > 0
+          ? `Remarcados: ${addedDates.map((dateKey) => formatDateKeyBr(dateKey)).join(', ')}`
+          : '';
+        const details = [removedLabel, addedLabel].filter(Boolean).join(' | ');
+
+        const createdTx = await ApiService.createTransaction({
+          clientId: viewingClient.id,
+          clientName: viewingClient.name,
+          enterpriseId: activeEnterprise.id,
+          type: 'CREDIT',
+          amount: 0,
+          total: 0,
+          plan: targetPlan.planName,
+          planId: targetPlan.planId,
+          paymentMethod: 'SISTEMA',
+          method: 'SISTEMA',
+          executionSource: 'SISTEMA',
+          status: 'SISTEMA',
+          date: toDateKey(now),
+          time: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+          timestamp: now.toISOString(),
+          description: `Ajuste de calendário do plano ${targetPlan.planName}`,
+          item: details || `Ajuste de datas do plano ${targetPlan.planName}`,
+        });
+        setTransactions((prev) => [createdTx, ...prev]);
+      }
+
+      setClients((prev) => prev.map((client) => (client.id === viewingClient.id ? updated : client)));
+      setViewingClient(updated);
+      setPlanEditBaseDatesById((prev) => ({
+        ...prev,
+        [planId]: updatedDates,
+      }));
+      setPlanOriginalDatesById((prev) => ({
+        ...prev,
+        [planId]: updatedDates,
+      }));
+      showPlanNotice(`Plano ${targetPlan.planName} confirmado e salvo.`, 'success');
+    } catch (error) {
+      console.error('Erro ao confirmar datas do plano:', error);
+      showPlanNotice('Não foi possível confirmar as datas deste plano.', 'error');
+    } finally {
+      setIsSavingPlanView(false);
+    }
+  };
+
+  const handleCancelPlanDateChanges = (planId: string) => {
+    const baseDates = Array.from(new Set(planEditBaseDatesById[planId] || [])).sort();
+    setSelectedPlanDates((prev) => ({
+      ...prev,
+      [planId]: baseDates,
+    }));
+    showPlanNotice('Alterações temporárias das datas foram canceladas.', 'warning');
   };
 
   const resetRechargePlanSelection = () => {
@@ -1770,8 +1928,73 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         selectedPlansConfig: activeConfigs,
         servicePlans: nextServicePlans,
       });
+
+      const changedPlans = activeConfigs
+        .map((config) => {
+          const originalDates = Array.from(new Set(planOriginalDatesById[config.planId] || [])).sort();
+          const nextDates = Array.from(new Set(config.selectedDates || [])).sort();
+          const removedDates = originalDates.filter((dateKey) => !nextDates.includes(dateKey));
+          const addedDates = nextDates.filter((dateKey) => !originalDates.includes(dateKey));
+          return {
+            ...config,
+            removedDates,
+            addedDates,
+            changed: removedDates.length > 0 || addedDates.length > 0,
+          };
+        })
+        .filter((entry) => entry.changed);
+
+      if (changedPlans.length > 0) {
+        const now = new Date();
+        const timeLabel = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const transactionPromises = changedPlans.map((entry, index) => {
+          const removedLabel = entry.removedDates.length > 0
+            ? `Removidos: ${entry.removedDates.map((dateKey) => formatDateKeyBr(dateKey)).join(', ')}`
+            : '';
+          const addedLabel = entry.addedDates.length > 0
+            ? `Remarcados: ${entry.addedDates.map((dateKey) => formatDateKeyBr(dateKey)).join(', ')}`
+            : '';
+          const details = [removedLabel, addedLabel].filter(Boolean).join(' | ');
+          const txTimestamp = new Date(now.getTime() + index * 1000);
+
+          return ApiService.createTransaction({
+            clientId: viewingClient.id,
+            clientName: viewingClient.name,
+            enterpriseId: activeEnterprise.id,
+            type: 'CREDIT',
+            amount: 0,
+            total: 0,
+            plan: entry.planName,
+            planId: entry.planId,
+            paymentMethod: 'SISTEMA',
+            method: 'SISTEMA',
+            executionSource: 'SISTEMA',
+            status: 'SISTEMA',
+            date: toDateKey(now),
+            time: timeLabel,
+            timestamp: txTimestamp.toISOString(),
+            description: `Ajuste de calendário do plano ${entry.planName}`,
+            item: details || `Ajuste de datas do plano ${entry.planName}`,
+          });
+        });
+        const createdTransactions = await Promise.all(transactionPromises);
+        setTransactions((prev) => [...(Array.isArray(createdTransactions) ? createdTransactions : []), ...prev]);
+      }
+
       setClients(prev => prev.map(c => (c.id === viewingClient.id ? updated : c)));
       setViewingClient(updated);
+      setPlanEditBaseDatesById(
+        activeConfigs.reduce((acc, config) => {
+          acc[config.planId] = Array.from(new Set(config.selectedDates || [])).sort();
+          return acc;
+        }, {} as Record<string, string[]>)
+      );
+      setPlanOriginalDatesById(
+        activeConfigs.reduce((acc, config) => {
+          acc[config.planId] = Array.from(new Set(config.selectedDates || [])).sort();
+          return acc;
+        }, {} as Record<string, string[]>)
+      );
       showPlanNotice('Planos e dias de refeição atualizados com sucesso.', 'success');
     } catch (error) {
       console.error('Erro ao salvar alterações dos planos:', error);
@@ -2807,6 +3030,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                           const isCalendarOpen = openPlanCalendarId === plan.planId;
                           const requiredCount = requiredUnitsByPlanId.get(plan.planId) ?? activeDates.length;
                           const isPlanValid = activeDates.length === requiredCount;
+                          const temporaryCreditUnits = getPlanTemporaryCreditUnits(plan.planId);
+                          const hasPendingChanges = hasPendingPlanDateChanges(plan.planId);
 
                           return (
                             <div key={plan.planId} className="bg-white border border-gray-100 rounded-[28px] p-5 space-y-4">
@@ -2818,7 +3043,15 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                   </p>
                                 </div>
                                 <button
-                                  onClick={() => setOpenPlanCalendarId(isCalendarOpen ? null : plan.planId)}
+                                  onClick={() => {
+                                    if (!isCalendarOpen) {
+                                      setPlanEditBaseDatesById((prev) => ({
+                                        ...prev,
+                                        [plan.planId]: Array.from(new Set(prev[plan.planId] || activeDates || [])).sort(),
+                                      }));
+                                    }
+                                    setOpenPlanCalendarId(isCalendarOpen ? null : plan.planId);
+                                  }}
                                   className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
                                     isCalendarOpen
                                       ? 'bg-indigo-600 border-indigo-600 text-white'
@@ -2886,7 +3119,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                       const isPast = isPastDate(dateCell);
                                       const isSelected = activeDates.includes(dateKey);
                                       const isDelivered = deliveredDateSet.has(dateKey);
-                                      const isAtLimit = activeDates.length >= requiredCount;
+                                      const isAtLimit = activeDates.length >= requiredCount && temporaryCreditUnits <= 0;
                                       const looksDisabledByLimit = !isSelected && isAtLimit;
                                       const isLocked = !isAllowed || isPast;
 
@@ -2929,6 +3162,34 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                         </button>
                                       );
                                     })}
+                                  </div>
+                                  <div className="mt-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-t border-gray-200 pt-3">
+                                    <div className="space-y-1">
+                                      <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">
+                                        Saldo temporário: {temporaryCreditUnits} un
+                                      </p>
+                                      <p className={`text-[9px] font-black uppercase tracking-widest ${hasPendingChanges ? 'text-amber-600' : 'text-emerald-600'}`}>
+                                        {hasPendingChanges ? 'Alterações pendentes' : 'Alterações confirmadas'}
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCancelPlanDateChanges(plan.planId)}
+                                        disabled={!hasPendingChanges || isSavingPlanView}
+                                        className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-[10px] font-black uppercase tracking-widest text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      >
+                                        Cancelar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleConfirmPlanDateChanges(plan.planId)}
+                                        disabled={!hasPendingChanges || isSavingPlanView}
+                                        className="px-3 py-1.5 rounded-lg border border-indigo-600 bg-indigo-600 text-[10px] font-black uppercase tracking-widest text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      >
+                                        {isSavingPlanView ? 'Salvando...' : 'Confirmar'}
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
                               )}
