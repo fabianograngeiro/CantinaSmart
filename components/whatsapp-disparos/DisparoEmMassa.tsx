@@ -285,18 +285,18 @@ const WhatsAppMassPreview: React.FC<{
 }> = ({ nome, mensagem }) => {
   const horario = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   return (
-    <div className="rounded-2xl border border-slate-200 shadow-lg overflow-hidden bg-white">
+    <div className="rounded-2xl border border-slate-200 dark:border-zinc-700 shadow-lg overflow-hidden bg-white dark:bg-zinc-900">
       <div className="px-4 py-3 bg-emerald-700 text-white">
         <p className="text-sm font-black">{nome || 'Cliente'}</p>
         <p className="text-[11px] font-semibold text-emerald-100">online</p>
       </div>
-      <div className="p-4 min-h-[320px] bg-[#e5ddd5]">
-        <div className="ml-auto max-w-[92%] rounded-2xl bg-[#dcf8c6] px-4 py-3 shadow-md border border-emerald-200">
-          <p className="text-sm font-medium text-slate-800 whitespace-pre-wrap">
+      <div className="p-4 min-h-[320px] bg-[#e5ddd5] dark:bg-zinc-800">
+        <div className="ml-auto max-w-[92%] rounded-2xl bg-[#dcf8c6] dark:bg-emerald-900/40 px-4 py-3 shadow-md border border-emerald-200 dark:border-emerald-700/40">
+          <p className="text-sm font-medium text-slate-800 dark:text-zinc-100 whitespace-pre-wrap">
             {mensagem || 'Sem mensagem para pré-visualização.'}
           </p>
           <div className="mt-1.5 flex items-center justify-end gap-1">
-            <span className="text-[11px] text-slate-500">{horario}</span>
+            <span className="text-[11px] text-slate-500 dark:text-zinc-400">{horario}</span>
             <CheckCheck size={14} className="text-sky-500" />
           </div>
         </div>
@@ -1449,11 +1449,11 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
 
   return (
     <div className="space-y-4">
-      <section className="rounded-2xl border border-cyan-100 bg-white p-5 space-y-4">
+      <section className="rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h4 className="text-lg font-black text-slate-900">Disparo em Massa</h4>
-            <p className="text-sm font-semibold text-slate-500">
+            <h4 className="text-lg font-black text-slate-900 dark:text-zinc-100">Disparo em Massa</h4>
+            <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400">
               Automação por perfil dinâmico (Responsável/Parentesco ou Colaborador) com logs persistidos.
             </p>
           </div>
@@ -1492,32 +1492,32 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
           <div className="space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label className="space-y-1 block">
-                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Nome da automação</span>
+                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Nome da automação</span>
                 <input
                   value={automationName}
                   onChange={(e) => setAutomationName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                  className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                   placeholder="Ex.: Aviso de Saldo e Consumo Pais"
                 />
               </label>
               <label className="space-y-1 block">
-                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Hora padrão de envio</span>
+                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Hora padrão de envio</span>
                 <input
                   type="time"
                   value={dispatchTime}
                   onChange={(e) => setDispatchTime(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                  className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                 />
               </label>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label className="space-y-1 block">
-                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Tipo de perfil do relatório</span>
+                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Tipo de perfil do relatório</span>
                 <select
                   value={reportProfileType}
                   onChange={(e) => setReportProfileType(e.target.value as ReportProfileType)}
-                  className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                  className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                 >
                   <option value="RESPONSAVEL_PARENTESCO">Responsável / Parentesco</option>
                   <option value="COLABORADOR">Colaborador</option>
@@ -1525,11 +1525,11 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
               </label>
 
               <label className="space-y-1 block">
-                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Filtro de audiência</span>
+                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Filtro de audiência</span>
                 <select
                   value={audienceFilter}
                   onChange={(e) => setAudienceFilter(e.target.value as AudienceFilter)}
-                  className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                  className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                 >
                   <option value="TODOS">Todos</option>
                   <option value="RESPONSAVEIS">Apenas Responsáveis</option>
@@ -1543,11 +1543,11 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label className="space-y-1 block">
-                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Frequência / período</span>
+                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Frequência / período</span>
                 <select
                   value={periodMode}
                   onChange={(e) => setPeriodMode(e.target.value as DispatchPeriodMode)}
-                  className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                  className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                 >
                   <option value="SEMANAL">Semanal</option>
                   <option value="QUINZENAL">Quinzenal</option>
@@ -1574,7 +1574,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
             </div>
 
             <label className="space-y-1 block">
-              <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Mensagem</span>
+              <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Mensagem</span>
               <div className="mb-2 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -1598,58 +1598,58 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
                 rows={8}
                 value={template}
                 onChange={(e) => setTemplate(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium"
+                className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-medium bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
               />
-              <p className="text-xs font-semibold text-slate-500">
+              <p className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
                 Variáveis: <span className="font-black">{'{{nome}}'}</span>, <span className="font-black">{'{{nome_pai}}'}</span>, <span className="font-black">{'{{nome_colaborador}}'}</span>, <span className="font-black">{'{{parentesco}}'}</span>, <span className="font-black">{'{{alunos}}'}</span>, <span className="font-black">{'{{saldo}}'}</span>, <span className="font-black">{'{{plano}}'}</span>, <span className="font-black">{'{{consumo_hoje}}'}</span>, <span className="font-black">{'{{status_entrega}}'}</span>, <span className="font-black">{'{{periodo_referencia}}'}</span>, <span className="font-black">{'{{periodo_nome}}'}</span>, <span className="font-black">{'{{saldo_por_aluno}}'}</span>, <span className="font-black">{'{{consumo_total_periodo}}'}</span>, <span className="font-black">{'{{consumo_total_por_aluno}}'}</span>
               </p>
             </label>
 
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1 block">
-                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Delay Min (s)</span>
+                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Delay Min (s)</span>
                 <input
                   type="number"
                   min={0}
                   value={delayMin}
                   onChange={(e) => setDelayMin(Math.max(0, Number(e.target.value) || 0))}
-                  className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                  className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                 />
               </label>
               <label className="space-y-1 block">
-                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Delay Max (s)</span>
+                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Delay Max (s)</span>
                 <input
                   type="number"
                   min={0}
                   value={delayMax}
                   onChange={(e) => setDelayMax(Math.max(0, Number(e.target.value) || 0))}
-                  className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                  className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                 />
               </label>
             </div>
 
             <label className="space-y-1 block">
-              <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Limite por lote (máx. 50)</span>
+              <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Limite por lote (máx. 50)</span>
               <input
                 type="number"
                 min={1}
                 max={50}
                 value={batchLimit}
                 onChange={(e) => setBatchLimit(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
-                className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
               />
             </label>
 
             <label className="space-y-1 block">
-              <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Anexo (opcional)</span>
+              <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Anexo (opcional)</span>
               <input
                 type="file"
                 onChange={(e) => setAttachment(e.target.files?.[0] || null)}
-                className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
               />
             </label>
 
-            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-cyan-100 bg-cyan-50 text-sm font-bold text-cyan-700">
+            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-cyan-100 dark:border-cyan-900/40 bg-cyan-50 dark:bg-cyan-950/30 text-sm font-bold text-cyan-700 dark:text-cyan-300">
               <input
                 type="checkbox"
                 checked={isSimulation}
@@ -1661,20 +1661,20 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
 
           <div className="space-y-3">
             <div className="space-y-2">
-              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Prévia da mensagem</p>
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Prévia da mensagem</p>
               <label className="space-y-1 block">
-                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Contato de prévia</span>
+                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Contato de prévia</span>
                 <input
                   type="text"
                   value={previewContactSearch}
                   onChange={(e) => setPreviewContactSearch(e.target.value)}
                   placeholder="Buscar cliente por nome, telefone ou aluno..."
-                  className="mb-2 w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                  className="mb-2 w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                 />
                 <select
                   value={usuarioSelecionadoId}
                   onChange={(e) => setUsuarioSelecionadoId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                  className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                 >
                   {previewRecipients.length === 0 && <option value="">Sem destinatários</option>}
                   {previewRecipients.map((item) => (
@@ -1687,21 +1687,21 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
               <WhatsAppMassPreview nome={previewName} mensagem={previewText} />
             </div>
 
-            <div className="rounded-2xl border border-cyan-100 bg-white p-4">
-              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Resumo da audiência</p>
-              <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+            <div className="rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Resumo da audiência</p>
+              <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-zinc-200">
                 <Users size={14} />
                 {isLoadingRecipients ? 'Carregando destinatários...' : `${recipients.length} destinatário(s) elegível(eis)`}
               </div>
               {!isLoadingRecipients && (
                 <div className="mt-2 grid grid-cols-2 gap-2">
-                  <div className="rounded-lg border border-cyan-100 bg-cyan-50 px-2.5 py-2">
-                    <p className="text-[11px] font-black uppercase tracking-widest text-cyan-700">Responsáveis</p>
-                    <p className="text-sm font-black text-cyan-900">{audienceCounters.responsaveis}</p>
+                  <div className="rounded-lg border border-cyan-100 dark:border-cyan-900/40 bg-cyan-50 dark:bg-cyan-950/30 px-2.5 py-2">
+                    <p className="text-[11px] font-black uppercase tracking-widest text-cyan-700 dark:text-cyan-300">Responsáveis</p>
+                    <p className="text-sm font-black text-cyan-900 dark:text-cyan-200">{audienceCounters.responsaveis}</p>
                   </div>
-                  <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-2.5 py-2">
-                    <p className="text-[11px] font-black uppercase tracking-widest text-emerald-700">Colaboradores</p>
-                    <p className="text-sm font-black text-emerald-900">{audienceCounters.colaboradores}</p>
+                  <div className="rounded-lg border border-emerald-100 dark:border-emerald-900/40 bg-emerald-50 dark:bg-emerald-950/30 px-2.5 py-2">
+                    <p className="text-[11px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">Colaboradores</p>
+                    <p className="text-sm font-black text-emerald-900 dark:text-emerald-200">{audienceCounters.colaboradores}</p>
                   </div>
                 </div>
               )}
@@ -1713,24 +1713,24 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
             </div>
 
             {usuarioSelecionado?.report && (
-              <div className="rounded-2xl border border-cyan-100 bg-white p-4">
-                <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Prévia do relatório</p>
-                <p className="mt-1 text-sm font-black text-slate-900">{usuarioSelecionado.report.title}</p>
-                <p className="text-xs font-semibold text-slate-600">{usuarioSelecionado.report.periodLabel}</p>
+              <div className="rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+                <p className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Prévia do relatório</p>
+                <p className="mt-1 text-sm font-black text-slate-900 dark:text-zinc-100">{usuarioSelecionado.report.title}</p>
+                <p className="text-xs font-semibold text-slate-600 dark:text-zinc-300">{usuarioSelecionado.report.periodLabel}</p>
                 <button
                   type="button"
                   onClick={visualizarModeloPdf}
-                  className="mt-2 inline-flex items-center px-3 py-2 rounded-lg border border-cyan-200 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 text-[11px] font-black uppercase tracking-widest"
+                  className="mt-2 inline-flex items-center px-3 py-2 rounded-lg border border-cyan-200 dark:border-cyan-900/40 bg-cyan-50 dark:bg-cyan-950/30 hover:bg-cyan-100 dark:hover:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 text-[11px] font-black uppercase tracking-widest"
                 >
                   Visualizar modelo em PDF
                 </button>
-                <p className="mt-2 text-xs font-semibold text-slate-500">
+                <p className="mt-2 text-xs font-semibold text-slate-500 dark:text-zinc-400">
                   {usuarioSelecionado.report.rows.length} linha(s) para o relatório deste contato.
                 </p>
                 {usuarioSelecionado.report.rows.length > 0 && (
                   <ul className="mt-2 space-y-1">
                     {usuarioSelecionado.report.rows.slice(0, 3).map((row, idx) => (
-                      <li key={`${row.alunoNome}_${row.data}_${idx}`} className="text-xs font-semibold text-slate-700">
+                      <li key={`${row.alunoNome}_${row.data}_${idx}`} className="text-xs font-semibold text-slate-700 dark:text-zinc-200">
                         {row.data} • {row.alunoNome} • {row.item} • {row.valor}
                       </li>
                     ))}
@@ -1740,35 +1740,35 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
             )}
 
             {progress.total > 0 && (
-              <div className="rounded-2xl border border-cyan-100 bg-white p-4">
-                <div className="flex items-center justify-between text-xs font-black uppercase tracking-widest text-slate-500">
+              <div className="rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+                <div className="flex items-center justify-between text-xs font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
                   <span>Progresso</span>
                   <span>{progress.processados}/{progress.total} ({progressPct}%)</span>
                 </div>
-                <div className="mt-2 h-2 rounded-full bg-slate-100 overflow-hidden">
+                <div className="mt-2 h-2 rounded-full bg-slate-100 dark:bg-zinc-800 overflow-hidden">
                   <div
                     className={`h-full bg-emerald-500 transition-all duration-300 ${isSending ? 'animate-pulse' : ''}`}
                     style={{ width: `${progressPct}%` }}
                   />
                 </div>
-                <div className="mt-2 flex items-center justify-between text-[11px] font-bold text-slate-600">
+                <div className="mt-2 flex items-center justify-between text-[11px] font-bold text-slate-600 dark:text-zinc-300">
                   <span>Enviados: {progress.enviados}</span>
                   <span>Erros: {progress.erros}</span>
                 </div>
-                <p className="mt-2 text-xs font-semibold text-cyan-700">{mensagemStatus}</p>
+                <p className="mt-2 text-xs font-semibold text-cyan-700 dark:text-cyan-300">{mensagemStatus}</p>
               </div>
             )}
           </div>
         </div>
 
-        <p className={`text-sm font-semibold ${feedback ? 'text-cyan-700' : 'text-slate-500'}`}>
+        <p className={`text-sm font-semibold ${feedback ? 'text-cyan-700 dark:text-cyan-300' : 'text-slate-500 dark:text-zinc-400'}`}>
           {feedback || 'Configure o filtro e inicie o disparo em massa.'}
         </p>
       </section>
 
-      <section className="rounded-2xl border border-cyan-100 bg-white p-5">
+      <section className="rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5">
         <div className="flex items-center justify-between gap-2">
-          <h4 className="text-lg font-black text-slate-900">Painel de Logs de Disparo</h4>
+          <h4 className="text-lg font-black text-slate-900 dark:text-zinc-100">Painel de Logs de Disparo</h4>
           <button
             type="button"
             onClick={clearLogs}
@@ -1779,28 +1779,28 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
           </button>
         </div>
         {isLoadingLogs ? (
-          <p className="mt-2 text-sm font-semibold text-slate-500">Carregando logs...</p>
+          <p className="mt-2 text-sm font-semibold text-slate-500 dark:text-zinc-400">Carregando logs...</p>
         ) : logs.length === 0 ? (
-          <p className="mt-2 text-sm font-semibold text-slate-500">Sem logs ainda.</p>
+          <p className="mt-2 text-sm font-semibold text-slate-500 dark:text-zinc-400">Sem logs ainda.</p>
         ) : (
           <div className="mt-3 overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-100 text-left">
-                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500">Nome</th>
-                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500">Perfil</th>
-                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500">Telefone</th>
-                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500">Status</th>
-                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500">Horário</th>
-                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500">Detalhe</th>
+                <tr className="border-b border-slate-100 dark:border-zinc-800 text-left">
+                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Nome</th>
+                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Perfil</th>
+                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Telefone</th>
+                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Status</th>
+                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Horário</th>
+                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Detalhe</th>
                 </tr>
               </thead>
               <tbody>
                 {logs.slice(0, 300).map((log) => (
-                  <tr key={log.id} className="border-b border-slate-100">
-                    <td className="py-2 pr-4 font-semibold text-slate-800">{log.nome}</td>
-                    <td className="py-2 pr-4 font-semibold text-slate-700">{log.perfil}</td>
-                    <td className="py-2 pr-4 font-semibold text-slate-700">{log.telefone}</td>
+                  <tr key={log.id} className="border-b border-slate-100 dark:border-zinc-800">
+                    <td className="py-2 pr-4 font-semibold text-slate-800 dark:text-zinc-100">{log.nome}</td>
+                    <td className="py-2 pr-4 font-semibold text-slate-700 dark:text-zinc-200">{log.perfil}</td>
+                    <td className="py-2 pr-4 font-semibold text-slate-700 dark:text-zinc-200">{log.telefone}</td>
                     <td className="py-2 pr-4">
                       <span className={`px-2 py-1 rounded-full text-[11px] font-black ${
                         log.status === 'Sucesso'
@@ -1814,8 +1814,8 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
                         {log.status}
                       </span>
                     </td>
-                    <td className="py-2 pr-4 font-semibold text-slate-600">{log.horario.toLocaleString('pt-BR')}</td>
-                    <td className="py-2 pr-4 font-semibold text-slate-500">{log.detalhe || '-'}</td>
+                    <td className="py-2 pr-4 font-semibold text-slate-600 dark:text-zinc-300">{log.horario.toLocaleString('pt-BR')}</td>
+                    <td className="py-2 pr-4 font-semibold text-slate-500 dark:text-zinc-400">{log.detalhe || '-'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1826,12 +1826,12 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
 
       {showResumoModal && (
         <div className="fixed inset-0 z-[80] bg-slate-900/35 backdrop-blur-[1px] flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-2xl border border-cyan-100 bg-white shadow-2xl p-5">
-            <h5 className="text-lg font-black text-slate-900">Resumo do Disparo</h5>
-            <p className="mt-2 text-sm font-semibold text-slate-700">
+          <div className="w-full max-w-md rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-2xl p-5">
+            <h5 className="text-lg font-black text-slate-900 dark:text-zinc-100">Resumo do Disparo</h5>
+            <p className="mt-2 text-sm font-semibold text-slate-700 dark:text-zinc-200">
               {progress.enviados} mensagens enviadas com sucesso e {progress.erros} falhas.
             </p>
-            <p className="mt-1 text-xs font-semibold text-slate-500">
+            <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-zinc-400">
               Processados: {progress.processados} de {progress.total}
             </p>
             <div className="mt-4 flex items-center justify-end gap-2">

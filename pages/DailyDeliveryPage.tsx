@@ -10,7 +10,7 @@ import {
   Printer, Sun, Sunset, Moon, ListFilter,
   HeartPulse, Info, Beef, Check,
   Timer, Utensils, ClipboardCheck, Loader2,
-  FileText
+  FileText, Undo2
 } from 'lucide-react';
 import ApiService from '../services/api';
 import { formatPhoneWithFlag } from '../utils/phone';
@@ -18,6 +18,7 @@ import { formatPhoneWithFlag } from '../utils/phone';
 type PeriodFilter = 'ALL' | 'MORNING' | 'AFTERNOON' | 'NIGHT';
 type DeliveryStatus = 'PENDENTE' | 'PREPARANDO' | 'PRONTO' | 'SERVIDO';
 type SearchFieldFilter = 'NAME' | 'RESPONSIBLE' | 'PLAN' | 'CLASS' | 'STATUS';
+type DeliveryScheduleOrigin = 'SELECTED_DATES' | 'DAYS_OF_WEEK';
 
 const JS_DAY_TO_KEY: Record<number, string> = {
   0: 'DOMINGO',
@@ -99,6 +100,13 @@ const getServiceContext = (openingHours?: Record<string, any>, now: Date = new D
   };
 };
 
+const toLocalDateKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 interface DeliveryItem {
   id: string;
   type: 'ALMOCO' | 'LANCHE';
@@ -121,10 +129,14 @@ interface DeliveryProfile {
   scheduledPeriod: PeriodFilter;
   scheduledDay: 'TODAY' | 'TOMORROW';
   scheduledDate?: string; // Adicionado Data Específica
+  scheduleOrigin: DeliveryScheduleOrigin;
   restrictions: string[];
   dietaryNotes: string;
   description: string;
   planName: string;
+  planUnitValue?: number;
+  planProgressConsumed: number;
+  planProgressTotal: number;
   items: DeliveryItem[];
 }
 
@@ -156,6 +168,11 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
 
   // Estado local para gerenciar a preparação dos alunos
   const [students, setStudents] = useState<DeliveryProfile[]>([]);
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [reverseTarget, setReverseTarget] = useState<DeliveryProfile | null>(null);
+  const [reverseMode, setReverseMode] = useState<'OPEN' | 'RESCHEDULE'>('OPEN');
+  const [reverseDate, setReverseDate] = useState('');
+  const [isReversingDelivery, setIsReversingDelivery] = useState(false);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setNowTick(Date.now()), 30000);
@@ -198,6 +215,10 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
         const planByName = new Map(activePlans.map(plan => [String(plan.name).trim().toUpperCase(), plan]));
         const blockedPlanNames = new Set(['PREPAGO', 'PRÉ-PAGO', 'PRE-PAGO', 'PF_FIXO', 'LANCHE_FIXO']);
         const normalizePlanName = (value?: string) => String(value || '').trim().toUpperCase();
+        const normalizeDateIso = (value?: string) => {
+          const dateKey = String(value || '').slice(0, 10);
+          return /^\d{4}-\d{2}-\d{2}$/.test(dateKey) ? dateKey : '';
+        };
 
         const deliveryBalanceByKey = new Map<string, number>();
         const autoFinalizeQueue = new Map<string, {
@@ -222,7 +243,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
 
           const clientId = String(tx?.clientId || '').trim();
           const planName = normalizePlanName(tx?.plan || tx?.planName || tx?.item || '');
-          const deliveryDate = String(tx?.deliveryDate || tx?.scheduledDate || tx?.mealDate || tx?.date || '').slice(0, 10);
+          const deliveryDate = normalizeDateIso(tx?.deliveryDate || tx?.scheduledDate || tx?.mealDate || tx?.date);
           if (!clientId || !planName || !deliveryDate) return;
 
           const key = `${clientId}|${planName}|${deliveryDate}`;
@@ -253,7 +274,13 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
               const planId = String(config?.planId || '');
               const planName = String(config?.planName || '');
               const plan = planById.get(planId) || planByName.get(planName.toUpperCase());
-              const selectedDates = (Array.isArray(config?.selectedDates) ? config.selectedDates : []) as string[];
+              const selectedDates = Array.from(
+                new Set(
+                  ((Array.isArray(config?.selectedDates) ? config.selectedDates : []) as string[])
+                    .map((date) => normalizeDateIso(date))
+                    .filter(Boolean)
+                )
+              ) as string[];
               const daysOfWeekRaw = (Array.isArray(config?.daysOfWeek) ? config.daysOfWeek : []) as string[];
               const daysOfWeek = daysOfWeekRaw
                 .map((day) => normalizeDayKey(day))
@@ -273,17 +300,20 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                 return Boolean(dayKey) && daysOfWeekSet.has(dayKey);
               });
 
-              const scheduleDates = Array.from(new Set([
-                ...selectedDates,
-                ...datesByWeekDay
-              ]));
+              const scheduleDates = selectedDates.length > 0
+                ? selectedDates
+                : Array.from(new Set(datesByWeekDay));
+              const scheduleOrigin: DeliveryScheduleOrigin = selectedDates.length > 0 ? 'SELECTED_DATES' : 'DAYS_OF_WEEK';
 
               if (scheduleDates.length === 0) return [];
 
-              return scheduleDates.flatMap((dateKey, dateIndex) => {
+              const planNameUpper = normalizePlanName(plan?.name || planName || 'PLANO');
+              const progressReferenceDates = selectedDates.length > 0 ? selectedDates : scheduleDates;
+              const configuredTotalUnits = selectedDates.length > 0 ? selectedDates.length : daysOfWeek.length;
+
+              const rows = scheduleDates.flatMap((dateKey, dateIndex) => {
                 const scheduledDate = dateKey;
                 const scheduledDay: 'TODAY' | 'TOMORROW' = scheduledDate === currentContext.todayIso ? 'TODAY' : 'TOMORROW';
-                const planNameUpper = normalizePlanName(plan?.name || planName || 'PLANO');
                 const deliveredKey = `${client.id}|${planNameUpper}|${scheduledDate}`;
                 const deliveredForDate = Number(deliveryBalanceByKey.get(deliveredKey) || 0) > 0;
                 const shouldAutoFinalizeByCutoff = !deliveredForDate && isPastDeliveryCutoff(scheduledDate);
@@ -318,10 +348,12 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                   scheduledPeriod: period,
                   scheduledDay,
                   scheduledDate,
+                  scheduleOrigin,
                   restrictions: client.restrictions || [],
                   dietaryNotes: client.dietaryNotes || '',
                   description: plan?.description || planName || 'Plano sem descrição',
                   planName: plan?.name || planName || 'PLANO',
+                  planUnitValue: Number(plan?.price || config?.planPrice || 0),
                   items: [{
                     id: `item-${client.id}-${plan?.id || planName || idx}-${dateIndex}-${periodIndex}`,
                     type: 'ALMOCO',
@@ -331,6 +363,20 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                   }],
                 }));
               });
+
+              const consumedUnits = progressReferenceDates.reduce((sum, dateIso) => {
+                const deliveredKey = `${client.id}|${planNameUpper}|${dateIso}`;
+                return sum + (Number(deliveryBalanceByKey.get(deliveredKey) || 0) > 0 ? 1 : 0);
+              }, 0);
+              const safeTotal = Math.max(0, Number(configuredTotalUnits || 0));
+              const safeConsumed = Math.max(0, safeTotal > 0 ? Math.min(consumedUnits, safeTotal) : consumedUnits);
+              const resolvedTotal = Math.max(safeTotal, safeConsumed);
+
+              return rows.map((row) => ({
+                ...row,
+                planProgressConsumed: safeConsumed,
+                planProgressTotal: resolvedTotal,
+              }));
             });
 
             return fromSelectedConfig;
@@ -373,7 +419,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
     };
 
     loadDeliveryProfiles();
-  }, [activeEnterprise?.id, activeEnterprise?.openingHours, customDate]);
+  }, [activeEnterprise?.id, activeEnterprise?.openingHours, customDate, refreshTick]);
 
   const filteredData = useMemo(() => {
     const getStudentStatus = (student: DeliveryProfile): DeliveryStatus => {
@@ -460,13 +506,42 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
     const itemsToServe = student.items.filter(item => item.status !== 'SERVIDO');
     if (itemsToServe.length === 0) return;
 
-    setStudents(prev => prev.map(s => {
-      if (s.id !== studentId) return s;
-      return {
-        ...s,
-        items: s.items.map(item => ({ ...item, status: 'SERVIDO' }))
-      };
-    }));
+    setStudents(prev => {
+      let wasPromotedToServed = false;
+      const normalizedTargetPlan = String(student.planName || '').trim().toUpperCase();
+      const targetPlanId = String(student.planId || '').trim();
+
+      const nextRows = prev.map(s => {
+        if (s.id !== studentId) return s;
+        const alreadyServed = s.items.every(item => item.status === 'SERVIDO');
+        if (!alreadyServed) wasPromotedToServed = true;
+        return {
+          ...s,
+          items: s.items.map(item => ({ ...item, status: 'SERVIDO' }))
+        };
+      });
+
+      if (!wasPromotedToServed) return nextRows;
+
+      return nextRows.map((row) => {
+        const sameClient = String(row.clientId || '') === String(student.clientId || '');
+        const rowPlanId = String(row.planId || '').trim();
+        const rowPlanName = String(row.planName || '').trim().toUpperCase();
+        const samePlan = (targetPlanId && rowPlanId && rowPlanId === targetPlanId)
+          || rowPlanName === normalizedTargetPlan;
+        if (!sameClient || !samePlan) return row;
+
+        const currentConsumed = Math.max(0, Number(row.planProgressConsumed || 0));
+        const currentTotal = Math.max(0, Number(row.planProgressTotal || 0));
+        const nextConsumed = currentTotal > 0 ? Math.min(currentTotal, currentConsumed + 1) : currentConsumed + 1;
+
+        return {
+          ...row,
+          planProgressConsumed: nextConsumed,
+          planProgressTotal: Math.max(currentTotal, nextConsumed),
+        };
+      });
+    });
 
     const now = new Date();
     const method = 'PLANO';
@@ -493,6 +568,9 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
           status,
           executionSource: 'USUARIO',
           plan: student.planName,
+          planId: student.planId,
+          planUnitValue: Number(student.planUnitValue || 0) > 0 ? Number(student.planUnitValue || 0) : undefined,
+          planUnits: 1,
         })
       ));
     } catch (error) {
@@ -517,32 +595,76 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
     }
   };
 
-  const reverseServeStudent = async (studentId: string) => {
+  const openReverseModal = (student: DeliveryProfile) => {
+    const todayKey = toLocalDateKey(new Date());
+    const fallbackDate = student.scheduledDate && student.scheduledDate >= todayKey
+      ? student.scheduledDate
+      : todayKey;
+    setReverseTarget(student);
+    setReverseMode('OPEN');
+    setReverseDate(fallbackDate);
+  };
+
+  const closeReverseModal = () => {
+    if (isReversingDelivery) return;
+    setReverseTarget(null);
+    setReverseMode('OPEN');
+    setReverseDate('');
+  };
+
+  const reverseServeStudent = async (studentId: string, options?: { rescheduleDate?: string }) => {
     const student = students.find(s => s.id === studentId);
     if (!student) return;
     const servedItems = student.items.filter(item => item.status === 'SERVIDO');
     if (servedItems.length === 0) return;
 
-    const confirmed = window.confirm(`Estornar 1 unidade do plano ${student.planName} para ${student.name} na data ${student.scheduledDate ? new Date(`${student.scheduledDate}T00:00:00`).toLocaleDateString('pt-BR') : '-'}?`);
-    if (!confirmed) return;
+    const requestedRescheduleDate = String(options?.rescheduleDate || '').slice(0, 10);
+    const willReschedule = /^\d{4}-\d{2}-\d{2}$/.test(requestedRescheduleDate);
 
-    setStudents(prev => prev.map(s => {
-      if (s.id !== studentId) return s;
-      return {
-        ...s,
-        items: s.items.map(item => ({
-          ...item,
-          status: 'PENDENTE',
-          components: item.components.map(c => ({ ...c, checked: false })),
-        }))
-      };
-    }));
-
-    const now = new Date();
-    const transactionDate = student.scheduledDate || now.toISOString().split('T')[0];
-    const transactionTime = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    setIsReversingDelivery(true);
 
     try {
+      setStudents(prev => {
+        let wasReversed = false;
+        const normalizedTargetPlan = String(student.planName || '').trim().toUpperCase();
+        const targetPlanId = String(student.planId || '').trim();
+
+        const nextRows = prev.map(s => {
+          if (s.id !== studentId) return s;
+          const hadServedItems = s.items.some(item => item.status === 'SERVIDO');
+          if (hadServedItems) wasReversed = true;
+          return {
+            ...s,
+            items: s.items.map(item => ({
+              ...item,
+              status: 'PENDENTE',
+              components: item.components.map(c => ({ ...c, checked: false })),
+            }))
+          };
+        });
+
+        if (!wasReversed) return nextRows;
+
+        return nextRows.map((row) => {
+          const sameClient = String(row.clientId || '') === String(student.clientId || '');
+          const rowPlanId = String(row.planId || '').trim();
+          const rowPlanName = String(row.planName || '').trim().toUpperCase();
+          const samePlan = (targetPlanId && rowPlanId && rowPlanId === targetPlanId)
+            || rowPlanName === normalizedTargetPlan;
+          if (!sameClient || !samePlan) return row;
+
+          const currentConsumed = Math.max(0, Number(row.planProgressConsumed || 0));
+          return {
+            ...row,
+            planProgressConsumed: Math.max(0, currentConsumed - 1),
+          };
+        });
+      });
+
+      const now = new Date();
+      const transactionDate = student.scheduledDate || toLocalDateKey(now);
+      const transactionTime = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
       await Promise.all(servedItems.map((item) =>
         ApiService.createTransaction({
           clientId: student.clientId,
@@ -550,7 +672,9 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
           enterpriseId: activeEnterprise.id,
           type: 'CREDITO',
           amount: 0,
-          description: `Estorno entrega do dia - ${student.planName} - ${item.name} - ${student.scheduledDate || transactionDate}`,
+          description: willReschedule
+            ? `Estorno entrega do dia - ${student.planName} - ${item.name} - ${student.scheduledDate || transactionDate} (crédito aberto • reagendar para ${requestedRescheduleDate})`
+            : `Estorno entrega do dia - ${student.planName} - ${item.name} - ${student.scheduledDate || transactionDate} (crédito aberto)`,
           item: item.name,
           paymentMethod: 'PLANO',
           method: 'PLANO',
@@ -561,28 +685,105 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
           status: 'CONCLUIDA',
           executionSource: 'USUARIO',
           plan: student.planName,
+          planId: student.planId,
+          planUnitValue: Number(student.planUnitValue || 0) > 0 ? Number(student.planUnitValue || 0) : undefined,
+          planUnits: 1,
+          selectedDates: willReschedule ? [requestedRescheduleDate] : [],
         })
       ));
+
+      if (willReschedule) {
+        const latestClient = await ApiService.getClient(student.clientId);
+        const selectedPlansRaw = (latestClient as any)?.selectedPlansConfig;
+        const selectedPlans = Array.isArray(selectedPlansRaw) ? [...selectedPlansRaw] : [];
+        const normalizedTargetPlanName = String(student.planName || '').trim().toUpperCase();
+        const targetPlanId = String(student.planId || '').trim();
+        let matched = false;
+
+        const updatedSelectedPlans = selectedPlans.map((config: any) => {
+          const configPlanId = String(config?.planId || '').trim();
+          const configPlanName = String(config?.planName || '').trim().toUpperCase();
+          const isSamePlan = (
+            Boolean(targetPlanId) && Boolean(configPlanId) && targetPlanId === configPlanId
+          ) || (
+            Boolean(configPlanName) && configPlanName === normalizedTargetPlanName
+          );
+          if (!isSamePlan) return config;
+          matched = true;
+
+          const currentDates = Array.isArray(config?.selectedDates) ? config.selectedDates : [];
+          const normalizedCurrentDates = Array.from(
+            new Set(
+              currentDates
+                .map((date: string) => String(date || '').slice(0, 10))
+                .filter((date: string) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+            )
+          );
+          const withoutOldDate = student.scheduledDate
+            ? normalizedCurrentDates.filter((date: string) => date !== student.scheduledDate)
+            : normalizedCurrentDates;
+          const nextDates = Array.from(new Set([...withoutOldDate, requestedRescheduleDate])).sort();
+
+          return {
+            ...config,
+            selectedDates: nextDates,
+          };
+        });
+
+        const nextSelectedPlans = matched
+          ? updatedSelectedPlans
+          : [
+              ...updatedSelectedPlans,
+              {
+                planId: targetPlanId || `plan_${String(student.planName || 'PLANO').toLowerCase().replace(/\s+/g, '_')}`,
+                planName: student.planName,
+                selectedDates: [requestedRescheduleDate],
+                daysOfWeek: [],
+                deliveryShifts: [],
+              }
+            ];
+
+        await ApiService.updateClient(student.clientId, {
+          selectedPlansConfig: nextSelectedPlans,
+        });
+      }
+
+      if (onRegisterTransaction) {
+        servedItems.forEach(item => {
+          onRegisterTransaction({
+            id: `EST-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
+            time: transactionTime,
+            date: transactionDate,
+            client: student.name,
+            plan: student.planName,
+            item: item.name,
+            type: 'CREDITO',
+            method: 'PLANO',
+            value: 0,
+            status: 'CONCLUIDA'
+          });
+        });
+      }
+
     } catch (error) {
       console.error('Erro ao registrar estorno de entrega do dia:', error);
+      alert('Não foi possível concluir o estorno. Tente novamente.');
+    } finally {
+      setRefreshTick((prev) => prev + 1);
+      setIsReversingDelivery(false);
     }
+  };
 
-    if (onRegisterTransaction) {
-      servedItems.forEach(item => {
-        onRegisterTransaction({
-          id: `EST-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
-          time: transactionTime,
-          date: transactionDate,
-          client: student.name,
-          plan: student.planName,
-          item: item.name,
-          type: 'CREDITO',
-          method: 'PLANO',
-          value: 0,
-          status: 'CONCLUIDA'
-        });
-      });
+  const handleConfirmReverse = async () => {
+    if (!reverseTarget || isReversingDelivery) return;
+    if (reverseMode === 'RESCHEDULE' && !/^\d{4}-\d{2}-\d{2}$/.test(reverseDate)) {
+      alert('Selecione uma nova data válida para reagendamento.');
+      return;
     }
+    await reverseServeStudent(reverseTarget.id, {
+      rescheduleDate: reverseMode === 'RESCHEDULE' ? reverseDate : '',
+    });
+    closeReverseModal();
   };
 
   const resetPreparation = (studentId: string) => {
@@ -641,7 +842,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
         student.name,
         student.registrationId,
         `${student.year} - ${student.class}`,
-        student.planName.replace('_', ' '),
+        `${student.planName.replace('_', ' ')} • ${Math.max(0, Number(student.planProgressConsumed || 0))}/${Math.max(Number(student.planProgressTotal || 0), Number(student.planProgressConsumed || 0), 0)}`,
         student.scheduledDate ? new Date(`${student.scheduledDate}T00:00:00`).toLocaleDateString('pt-BR') : '-',
         student.items.every(i => i.status === 'SERVIDO') ? 'Servido' : 'Pendente'
       ];
@@ -954,13 +1155,18 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                               </div>
                            </td>
                            <td className="pl-0.5 pr-2 py-2 w-[96px] min-w-[96px]">
-                              <span className={`text-[10px] font-black px-3 py-1 rounded-full border uppercase ${
-                                student.planName === 'PF_FIXO' ? 'bg-orange-50 dark:bg-orange-500/10 text-orange-600 border-orange-100 dark:border-orange-400/30' :
-                                student.planName === 'LANCHE_FIXO' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 border-amber-100 dark:border-amber-400/30' :
-                                'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 border-indigo-100 dark:border-indigo-400/30'
-                              }`}>
-                                {student.planName.replace('_', ' ')}
-                              </span>
+                              <div className="inline-flex flex-col items-start gap-0.5">
+                                <span className={`text-[10px] font-black px-3 py-1 rounded-full border uppercase ${
+                                  student.planName === 'PF_FIXO' ? 'bg-orange-50 dark:bg-orange-500/10 text-orange-600 border-orange-100 dark:border-orange-400/30' :
+                                  student.planName === 'LANCHE_FIXO' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 border-amber-100 dark:border-amber-400/30' :
+                                  'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 border-indigo-100 dark:border-indigo-400/30'
+                                }`}>
+                                  {student.planName.replace('_', ' ')}
+                                </span>
+                                <span className="text-[9px] font-black text-indigo-600 dark:text-indigo-300 uppercase tracking-tight">
+                                  {Math.max(0, Number(student.planProgressConsumed || 0))}/{Math.max(Number(student.planProgressTotal || 0), Number(student.planProgressConsumed || 0), 0)}
+                                </span>
+                              </div>
                            </td>
                            <td className="px-2 py-2 w-[108px]">
                               <div className="inline-flex flex-col items-center gap-0.5">
@@ -975,6 +1181,18 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                                       .replace(/[\u0300-\u036f]/g, '')
                                       .toUpperCase()
                                     : '-'}
+                                </span>
+                                <span
+                                  className={`text-[8px] font-black uppercase tracking-wider ${
+                                    student.scheduleOrigin === 'SELECTED_DATES'
+                                      ? 'text-indigo-600 dark:text-indigo-300'
+                                      : 'text-amber-600 dark:text-amber-300'
+                                  }`}
+                                  title={student.scheduleOrigin === 'SELECTED_DATES'
+                                    ? 'Origem: Datas selecionadas no plano'
+                                    : 'Origem: Dia da semana configurado no plano'}
+                                >
+                                  {student.scheduleOrigin === 'SELECTED_DATES' ? 'Origem: Datas' : 'Origem: Semana'}
                                 </span>
                               </div>
                            </td>
@@ -1019,11 +1237,13 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                                        <CheckCircle2 size={18} />
                                        <span className="text-[10px] font-black uppercase tracking-widest">Concluído</span>
                                     </div>
-                                    <button
-                                      onClick={() => reverseServeStudent(student.id)}
-                                      className="bg-rose-600 text-white px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-rose-100 dark:shadow-rose-900/40 hover:bg-rose-700 active:scale-95 transition-all"
+                                   <button
+                                      onClick={() => openReverseModal(student)}
+                                      className="inline-flex items-center justify-center bg-rose-600 text-white w-8 h-8 rounded-lg shadow-lg shadow-rose-100 dark:shadow-rose-900/40 hover:bg-rose-700 active:scale-95 transition-all"
+                                      title="Estornar entrega"
+                                      aria-label="Estornar entrega"
                                     >
-                                      Estornar
+                                      <Undo2 size={14} />
                                     </button>
                                  </div>
                               )}
@@ -1035,6 +1255,102 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
             </table>
          </div>
       </div>
+
+      {reverseTarget && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-indigo-950/50 backdrop-blur-sm"
+            onClick={closeReverseModal}
+            aria-label="Fechar modal de estorno"
+          />
+          <div className="relative w-full max-w-lg rounded-2xl border border-indigo-100 dark:border-indigo-400/30 bg-white dark:bg-zinc-900 shadow-2xl p-5 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-widest text-indigo-700 dark:text-indigo-300">Estornar Unidade</h3>
+                <p className="text-[11px] font-bold text-slate-500 dark:text-zinc-400 mt-1">
+                  {reverseTarget.name} • {reverseTarget.planName.replace(/_/g, ' ')}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="w-8 h-8 rounded-lg border border-slate-200 dark:border-zinc-700 text-slate-500 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800"
+                onClick={closeReverseModal}
+                disabled={isReversingDelivery}
+                aria-label="Fechar"
+              >
+                <X size={14} className="mx-auto" />
+              </button>
+            </div>
+
+            <div className="rounded-xl border border-amber-100 dark:border-amber-400/30 bg-amber-50/70 dark:bg-amber-500/10 p-3">
+              <p className="text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                O estorno devolve 1 unidade ao plano como crédito aberto.
+              </p>
+              <p className="text-[10px] font-bold text-amber-600/90 dark:text-amber-200/90 mt-1">
+                Esse crédito pode ser usado depois em novo consumo de plano/cantina.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-600 dark:text-zinc-300">
+                <input
+                  type="radio"
+                  name="reverse-mode"
+                  checked={reverseMode === 'OPEN'}
+                  onChange={() => setReverseMode('OPEN')}
+                  disabled={isReversingDelivery}
+                />
+                Deixar crédito aberto (sem data)
+              </label>
+              <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-600 dark:text-zinc-300">
+                <input
+                  type="radio"
+                  name="reverse-mode"
+                  checked={reverseMode === 'RESCHEDULE'}
+                  onChange={() => setReverseMode('RESCHEDULE')}
+                  disabled={isReversingDelivery}
+                />
+                Reagendar para nova data
+              </label>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
+                Nova Data de Consumo
+              </label>
+              <input
+                type="date"
+                value={reverseDate}
+                onChange={(e) => setReverseDate(e.target.value)}
+                disabled={reverseMode !== 'RESCHEDULE' || isReversingDelivery}
+                min={toLocalDateKey(new Date())}
+                className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm font-bold text-slate-700 dark:text-zinc-200 disabled:opacity-50"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={closeReverseModal}
+                disabled={isReversingDelivery}
+                className="px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-zinc-300"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmReverse}
+                disabled={isReversingDelivery}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-60"
+              >
+                {isReversingDelivery ? <Loader2 size={12} className="animate-spin" /> : <Undo2 size={12} />}
+                Confirmar Estorno
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

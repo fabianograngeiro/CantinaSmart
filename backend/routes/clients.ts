@@ -130,6 +130,11 @@ router.post('/', (req: Request, res: Response) => {
 // Update client
 router.put('/:id', (req: Request, res: Response) => {
   console.log('✏️ [CLIENTS] PUT /clients/:id -', req.params.id);
+  const current = db.getClient(req.params.id);
+  if (!current) {
+    console.log('❌ [CLIENTS] Client not found for update:', req.params.id);
+    return res.status(404).json({ error: 'Cliente não encontrado' });
+  }
   
   // Validate input
   const validation = validateClientUpdate(req.body);
@@ -137,13 +142,15 @@ router.put('/:id', (req: Request, res: Response) => {
     console.log('❌ [CLIENTS] Validation errors:', validation.errors);
     return res.status(400).json({ error: 'Validação falhou', details: validation.errors });
   }
+  const mergedValidation = validateClient({ ...current, ...req.body });
+  if (!mergedValidation.valid) {
+    console.log('❌ [CLIENTS] Validation errors (merged):', mergedValidation.errors);
+    return res.status(400).json({ error: 'Validação falhou', details: mergedValidation.errors });
+  }
 
   try {
     const updated = db.updateClient(req.params.id, req.body);
-    if (!updated) {
-      console.log('❌ [CLIENTS] Client not found for update:', req.params.id);
-      return res.status(404).json({ error: 'Cliente não encontrado' });
-    }
+    if (!updated) return res.status(404).json({ error: 'Cliente não encontrado' });
     
     console.log('✅ [CLIENTS] Client updated:', req.params.id);
     res.json(updated);

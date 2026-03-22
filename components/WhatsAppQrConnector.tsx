@@ -13,6 +13,22 @@ type WhatsAppQrSnapshot = {
   startDate?: string | null;
   endDate?: string | null;
   syncFullHistory?: boolean;
+  safeSyncMode?: boolean;
+  syncProgress?: {
+    active: boolean;
+    mode: 'SAFE' | 'NORMAL';
+    phase: 'IDLE' | 'BOOTSTRAP' | 'AWAITING_QR_SCAN' | 'CONNECTING' | 'SYNCING_HISTORY' | 'RESYNC_LABELS' | 'FINALIZING' | 'DONE' | 'ERROR';
+    progressPct: number;
+    message: string;
+    startedAt: number | null;
+    finishedAt: number | null;
+    elapsedSec: number;
+    etaSec: number | null;
+    estimatedTotalSec: number | null;
+    processedChats: number;
+    processedMessages: number;
+    throttledFeatures: string[];
+  };
 };
 
 const DEFAULT_STATUS: WhatsAppQrSnapshot = {
@@ -39,6 +55,7 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
   const [startDateInput, setStartDateInput] = useState('');
   const [endDateInput, setEndDateInput] = useState('');
   const [syncFullHistory, setSyncFullHistory] = useState(true);
+  const [safeSyncMode, setSafeSyncMode] = useState(true);
   const hasInitializedRef = useRef(false);
   const isLoadingStatusRef = useRef(false);
   const hasLoggedOfflineRef = useRef(false);
@@ -50,6 +67,7 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
     startDate: 'whatsapp_session_start_date',
     endDate: 'whatsapp_session_end_date',
     syncFullHistory: 'whatsapp_session_sync_full_history',
+    safeSyncMode: 'whatsapp_session_safe_sync_mode',
   } as const;
 
   const isBackendUnreachableError = (err: unknown) => {
@@ -81,6 +99,8 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
         startDate: snapshot?.startDate || null,
         endDate: snapshot?.endDate || null,
         syncFullHistory: Boolean(snapshot?.syncFullHistory),
+        safeSyncMode: snapshot?.safeSyncMode !== false,
+        syncProgress: snapshot?.syncProgress || undefined,
       });
     } catch (err) {
       const unreachable = isBackendUnreachableError(err);
@@ -118,6 +138,7 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
         const savedStartDate = localStorage.getItem(STORAGE_KEYS.startDate) || today;
         const savedEndDate = localStorage.getItem(STORAGE_KEYS.endDate) || '';
         const savedSync = localStorage.getItem(STORAGE_KEYS.syncFullHistory);
+        const savedSafeMode = localStorage.getItem(STORAGE_KEYS.safeSyncMode);
 
         setSessionName(savedSessionName);
         setPeriodMode(savedPeriodMode);
@@ -125,6 +146,7 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
         setStartDateInput(savedStartDate);
         setEndDateInput(savedEndDate);
         setSyncFullHistory(savedSync !== 'false');
+        setSafeSyncMode(savedSafeMode !== 'false');
 
         const snapshot = await ApiService.getWhatsAppQr();
         setStatus({
@@ -138,6 +160,8 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
           startDate: snapshot?.startDate || null,
           endDate: snapshot?.endDate || null,
           syncFullHistory: Boolean(snapshot?.syncFullHistory),
+          safeSyncMode: snapshot?.safeSyncMode !== false,
+          syncProgress: snapshot?.syncProgress || undefined,
         });
       } catch (err) {
         if (!isBackendUnreachableError(err)) {
@@ -159,7 +183,8 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
     localStorage.setItem(STORAGE_KEYS.startDate, startDateInput);
     localStorage.setItem(STORAGE_KEYS.endDate, endDateInput);
     localStorage.setItem(STORAGE_KEYS.syncFullHistory, String(syncFullHistory));
-  }, [sessionName, periodMode, durationDays, startDateInput, endDateInput, syncFullHistory]);
+    localStorage.setItem(STORAGE_KEYS.safeSyncMode, String(safeSyncMode));
+  }, [sessionName, periodMode, durationDays, startDateInput, endDateInput, syncFullHistory, safeSyncMode]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -219,7 +244,8 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
         sessionName: normalizedSessionName,
         startDate: computedStart,
         endDate: computedEnd,
-        syncFullHistory
+        syncFullHistory,
+        safeSyncMode
       });
       await loadStatus();
       window.setTimeout(() => {
@@ -264,6 +290,31 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
           ? 'Erro na sessão'
           : 'Desconectado';
   const formLocked = status.connected;
+  const syncProgress = status.syncProgress;
+  const showSyncProgress = Boolean(syncProgress && (syncProgress.active || syncProgress.phase === 'DONE' || syncProgress.phase === 'ERROR'));
+
+  const formatDuration = (totalSec: number | null | undefined) => {
+    const safe = Number(totalSec || 0);
+    if (!Number.isFinite(safe) || safe <= 0) return '--';
+    const h = Math.floor(safe / 3600);
+    const m = Math.floor((safe % 3600) / 60);
+    const s = safe % 60;
+    if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`;
+    if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`;
+    return `${s}s`;
+  };
+
+  const syncPhaseLabelMap: Record<string, string> = {
+    IDLE: 'Parado',
+    BOOTSTRAP: 'Preparação',
+    AWAITING_QR_SCAN: 'Aguardando QR',
+    CONNECTING: 'Conectando',
+    SYNCING_HISTORY: 'Sincronizando histórico',
+    RESYNC_LABELS: 'Sincronizando etiquetas',
+    FINALIZING: 'Finalizando',
+    DONE: 'Concluído',
+    ERROR: 'Com erro',
+  };
 
   const canGenerateQr = Boolean(
     String(sessionName || '').trim()
@@ -350,6 +401,21 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
             </button>
           </label>
 
+          <label className="flex items-center justify-between rounded-xl border-2 border-slate-200 bg-white px-3 py-2 dark:bg-zinc-900 dark:border-white/10">
+            <div>
+              <p className="text-sm font-black text-slate-800 dark:text-zinc-100">Modo protegido de sincronização</p>
+              <p className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Reduz tarefas paralelas para priorizar CPU/RAM na sincronização.</p>
+            </div>
+            <button
+              type="button"
+              disabled={formLocked}
+              onClick={() => setSafeSyncMode((prev) => !prev)}
+              className={`relative inline-flex h-8 w-16 items-center rounded-full transition-colors ${safeSyncMode ? 'bg-indigo-600' : 'bg-slate-300'} disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${safeSyncMode ? 'translate-x-9' : 'translate-x-1'}`} />
+            </button>
+          </label>
+
           <div className="space-y-1.5">
             <label className="text-sm font-black text-slate-800 dark:text-zinc-100">Período de sincronização</label>
             <div className="relative">
@@ -419,7 +485,40 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
               <p className="text-xs font-medium text-gray-500 dark:text-zinc-400">Clique em "Gerar QR Code" para iniciar o pareamento.</p>
             </div>
           )}
-        </div>
+          </div>
+
+          {showSyncProgress && syncProgress && (
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-3 space-y-2 dark:border-indigo-500/30 dark:bg-zinc-900/80">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-black uppercase tracking-widest text-indigo-700 dark:text-indigo-300">
+                  Progresso da sincronização
+                </p>
+                <span className="text-[11px] font-black text-indigo-700 dark:text-indigo-300">
+                  {Math.max(0, Math.min(100, Math.round(Number(syncProgress.progressPct || 0))))}%
+                </span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-indigo-100 dark:bg-zinc-800 overflow-hidden">
+                <div
+                  className="h-full bg-indigo-600 transition-all duration-500"
+                  style={{ width: `${Math.max(0, Math.min(100, Number(syncProgress.progressPct || 0)))}%` }}
+                />
+              </div>
+              <p className="text-xs font-semibold text-slate-700 dark:text-zinc-200">
+                {syncProgress.message || 'Sincronização em andamento...'}
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] font-semibold text-slate-600 dark:text-zinc-300">
+                <span>Fase: <strong>{syncPhaseLabelMap[syncProgress.phase] || syncProgress.phase}</strong></span>
+                <span>Decorrido: <strong>{formatDuration(syncProgress.elapsedSec)}</strong></span>
+                <span>Estimado: <strong>{formatDuration(syncProgress.estimatedTotalSec)}</strong></span>
+                <span>ETA: <strong>{syncProgress.etaSec == null ? '--' : formatDuration(syncProgress.etaSec)}</strong></span>
+              </div>
+              {syncProgress.mode === 'SAFE' && Array.isArray(syncProgress.throttledFeatures) && syncProgress.throttledFeatures.length > 0 && (
+                <p className="text-[11px] font-semibold text-indigo-700/90 dark:text-indigo-300">
+                  Modo protegido ativo: {syncProgress.throttledFeatures.join(', ')}.
+                </p>
+              )}
+            </div>
+          )}
 
           {status.lastError && (
             <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 flex items-center gap-2">
@@ -549,6 +648,20 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
             className="w-4 h-4 accent-cyan-600 disabled:cursor-not-allowed"
           />
         </label>
+
+        <label className="flex items-center justify-between rounded-xl border border-cyan-100 bg-white px-3 py-2.5 cursor-pointer dark:bg-zinc-900 dark:border-white/10">
+          <div className="min-w-0">
+            <p className="text-xs font-black text-gray-800 dark:text-zinc-100 uppercase tracking-wide">Modo protegido de sincronização</p>
+            <p className="text-[11px] text-gray-500 dark:text-zinc-400 font-semibold">Reduz processos paralelos para priorizar CPU/RAM no sync.</p>
+          </div>
+          <input
+            type="checkbox"
+            checked={safeSyncMode}
+            onChange={(e) => setSafeSyncMode(e.target.checked)}
+            disabled={formLocked}
+            className="w-4 h-4 accent-indigo-600 disabled:cursor-not-allowed"
+          />
+        </label>
       </div>
 
       <div className="flex items-center justify-between gap-3">
@@ -620,12 +733,42 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
         )}
       </div>
 
+      {showSyncProgress && syncProgress && (
+        <div className="rounded-2xl border border-indigo-200 bg-indigo-50/70 p-4 space-y-2 dark:border-indigo-500/30 dark:bg-zinc-900 dark:text-zinc-200">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-700 dark:text-indigo-300">Progresso da sincronização</p>
+            <span className="text-xs font-black text-indigo-700 dark:text-indigo-300">
+              {Math.max(0, Math.min(100, Math.round(Number(syncProgress.progressPct || 0))))}%
+            </span>
+          </div>
+          <div className="w-full h-2 rounded-full bg-indigo-100 dark:bg-zinc-800 overflow-hidden">
+            <div
+              className="h-full bg-indigo-600 transition-all duration-500"
+              style={{ width: `${Math.max(0, Math.min(100, Number(syncProgress.progressPct || 0)))}%` }}
+            />
+          </div>
+          <p className="text-xs font-semibold text-slate-700 dark:text-zinc-200">{syncProgress.message || 'Sincronização em andamento...'}</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] font-semibold text-slate-600 dark:text-zinc-300">
+            <span>Fase: <strong>{syncPhaseLabelMap[syncProgress.phase] || syncProgress.phase}</strong></span>
+            <span>Decorrido: <strong>{formatDuration(syncProgress.elapsedSec)}</strong></span>
+            <span>Estimado: <strong>{formatDuration(syncProgress.estimatedTotalSec)}</strong></span>
+            <span>ETA: <strong>{syncProgress.etaSec == null ? '--' : formatDuration(syncProgress.etaSec)}</strong></span>
+          </div>
+          {syncProgress.mode === 'SAFE' && Array.isArray(syncProgress.throttledFeatures) && syncProgress.throttledFeatures.length > 0 && (
+            <p className="text-[11px] font-semibold text-indigo-700/90 dark:text-indigo-300">
+              Modo protegido ativo: {syncProgress.throttledFeatures.join(', ')}.
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="rounded-2xl border border-gray-100 bg-white p-4 text-sm space-y-2 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-300">
         <p><span className="font-black text-gray-700 dark:text-zinc-100">Estado:</span> {status.state}</p>
         <p><span className="font-black text-gray-700 dark:text-zinc-100">Telefone:</span> {status.phoneNumber || '-'}</p>
         <p><span className="font-black text-gray-700 dark:text-zinc-100">Sessão:</span> {status.sessionName || '-'}</p>
         <p><span className="font-black text-gray-700 dark:text-zinc-100">Período:</span> {status.startDate && status.endDate ? `${status.startDate} até ${status.endDate}` : '-'}</p>
         <p><span className="font-black text-gray-700 dark:text-zinc-100">Sync completo:</span> {status.syncFullHistory ? 'Sim' : 'Não'}</p>
+        <p><span className="font-black text-gray-700 dark:text-zinc-100">Modo protegido:</span> {status.safeSyncMode !== false ? 'Ativo' : 'Desativado'}</p>
         {status.lastError && (
           <p className="text-red-600 font-bold flex items-center gap-2">
             <AlertTriangle size={14} />

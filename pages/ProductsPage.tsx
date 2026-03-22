@@ -1,14 +1,13 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
-  Search, Plus, Filter, Package, Trash2, Edit, Save, X, 
-  Building, DollarSign, LayoutGrid, ChevronRight, Tags,
-  Layers, AlertCircle, MoreVertical, PlusCircle, CheckCircle2,
-  TrendingUp, Scale, Archive, Barcode, Calendar, Upload
+  Search, Plus, Package, Trash2, Edit, X,
+  DollarSign, CheckCircle2, TrendingUp,
+  AlertCircle, Archive, Barcode, Calendar, Upload
 } from 'lucide-react';
 import { ApiService } from '../services/api';
 import notificationService from '../services/notificationService';
-import { Product, User, Enterprise, Role, Category, SubCategory, ProductUnit } from '../types';
+import { Product, User, Enterprise, Role, Category, ProductUnit } from '../types';
 
 interface ProductsPageProps {
   currentUser: User;
@@ -112,10 +111,6 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
   
   // Modais
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
-  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
-  const [isSubCategoryModalOpen, setIsSubCategoryModalOpen] = useState(false);
-  
-  const [activeCategoryForSub, setActiveCategoryForSub] = useState<Category | null>(null);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [productImageFile, setProductImageFile] = useState<File | null>(null);
   const [productImagePreview, setProductImagePreview] = useState('');
@@ -287,139 +282,25 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
     }
   };
 
-  const handleCreateCategory = async (name: string) => {
-    const normalizedName = name.trim();
-    if (!normalizedName) return;
-
-    const exists = categories.some(c => c.name.toLowerCase() === normalizedName.toLowerCase());
-    if (exists) {
-      notificationService.alerta('Categoria duplicada', 'Esta categoria já existe.');
-      return;
-    }
-
-    try {
-      const createdCategory = await ApiService.createCategory({
-        name: normalizedName,
-        enterpriseId: activeEnterprise.id,
-        subCategories: []
-      });
-      setCategories(prev => [...prev, createdCategory]);
-      setIsCategoryModalOpen(false);
-    } catch (err) {
-      console.error('Erro ao criar categoria:', err);
-      notificationService.critico('Erro ao salvar categoria', 'Tente novamente em instantes.');
-    }
-  };
-
-  const handleCreateSubCategory = async (categoryId: string, name: string) => {
-    const normalizedName = name.trim();
-    if (!normalizedName) return;
-
-    const targetCategory = categories.find(cat => cat.id === categoryId);
-    if (!targetCategory) return;
-
-    if (targetCategory.subCategories.length >= 3) {
-      notificationService.alerta('Limite atingido', 'Esta categoria já possui 3 subcategorias.');
-      return;
-    }
-
-    if (targetCategory.subCategories.some(sub => sub.name.toLowerCase() === normalizedName.toLowerCase())) {
-      notificationService.alerta('Subcategoria duplicada', 'Esta subcategoria já existe.');
-      return;
-    }
-
-    const updatedSubCategories = [
-      ...targetCategory.subCategories,
-      { id: `sub_${Math.random().toString(36).substr(2, 5)}`, name: normalizedName }
-    ];
-
-    try {
-      const updatedCategory = await ApiService.updateCategory(categoryId, {
-        subCategories: updatedSubCategories
-      });
-
-      setCategories(prev => prev.map(cat => cat.id === categoryId ? updatedCategory : cat));
-      setIsSubCategoryModalOpen(false);
-    } catch (err) {
-      console.error('Erro ao criar subcategoria:', err);
-      notificationService.critico('Erro ao salvar subcategoria', 'Tente novamente em instantes.');
-    }
-  };
+  const activeCategories = useMemo(() => (
+    categories
+      .filter((c: any) => (isOwner || c.enterpriseId === activeEnterprise.id) && c?.isActive !== false)
+  ), [categories, isOwner, activeEnterprise.id]);
 
   const availableSubCategories = useMemo(() => {
     if (!productForm.categoryId) return [];
-    return categories.find(c => c.id === productForm.categoryId)?.subCategories || [];
+    const selectedCategory = categories.find(c => c.id === productForm.categoryId);
+    if (!selectedCategory) return [];
+    return (selectedCategory.subCategories || []).filter((sub: any) => sub?.isActive !== false);
   }, [productForm.categoryId, categories]);
 
   return (
-    <div className="products-shell flex flex-col lg:flex-row h-full gap-4 p-4 animate-in fade-in duration-500 overflow-hidden">
-      
-      {/* SIDEBAR INTERNA: CATEGORIA DE PRODUTOS */}
-      <aside className="w-full lg:w-72 bg-white rounded-2xl border shadow-sm flex flex-col overflow-hidden shrink-0">
-        <div className="p-4 border-b bg-gray-50/50 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Tags className="text-indigo-600" size={20} />
-            <h2 className="text-sm font-black text-gray-800 uppercase tracking-widest">Categorias</h2>
-          </div>
-          <button 
-            onClick={() => setIsCategoryModalOpen(true)}
-            className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
-            title="Nova Categoria"
-          >
-            <Plus size={15} />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-3 space-y-1.5 scrollbar-hide">
-          <button 
-            onClick={() => setSelectedCategoryId('ALL')}
-            className={`w-full flex items-center justify-between p-3 rounded-xl transition-all border ${selectedCategoryId === 'ALL' ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-transparent text-gray-500 hover:bg-indigo-50'}`}
-          >
-            <span className="text-[11px] font-black uppercase tracking-tight">Todos os Produtos</span>
-            <LayoutGrid size={16} />
-          </button>
-
-          {categories.filter(c => isOwner || c.enterpriseId === activeEnterprise.id).map(cat => (
-            <div key={cat.id} className="space-y-1">
-              <button 
-                onClick={() => setSelectedCategoryId(cat.id)}
-                className={`w-full flex items-center justify-between p-3 rounded-xl transition-all border ${selectedCategoryId === cat.id ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-transparent text-gray-600 hover:bg-gray-50'}`}
-              >
-                <span className="text-[11px] font-black uppercase tracking-tight">{cat.name}</span>
-                <ChevronRight size={14} className={selectedCategoryId === cat.id ? 'rotate-90 transition-transform' : ''} />
-              </button>
-              
-              <div className="ml-3 space-y-1 border-l border-indigo-100 pl-3 py-1">
-                {cat.subCategories.map(sub => (
-                  <div key={sub.id} className="flex items-center justify-between py-1.5 group">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">{sub.name}</span>
-                    <button className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:text-red-600 transition-all">
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                ))}
-                
-                {cat.subCategories.length < 3 ? (
-                  <button 
-                    onClick={() => { setActiveCategoryForSub(cat); setIsSubCategoryModalOpen(true); }}
-                    className="flex items-center gap-2 text-[9px] font-black text-indigo-400 uppercase tracking-widest mt-2 hover:text-indigo-600 transition-colors"
-                  >
-                    <PlusCircle size={12} /> Adicionar Sub
-                  </button>
-                ) : (
-                  <span className="text-[8px] font-bold text-gray-300 uppercase block mt-2">Limite atingido</span>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </aside>
-
-      {/* ÁREA PRINCIPAL: LISTAGEM DE PRODUTOS */}
+    <div className="products-shell flex flex-col h-full gap-4 p-4 animate-in fade-in duration-500 overflow-hidden">
       <div className="flex-1 flex flex-col space-y-4 overflow-hidden">
         
-        <header className="bg-white p-4 rounded-2xl border shadow-sm flex flex-col md:flex-row items-center justify-between gap-3 shrink-0">
-          <div className="relative flex-1 w-full">
+        <header className="bg-white p-4 rounded-2xl border shadow-sm flex flex-col lg:flex-row items-center justify-between gap-3 shrink-0">
+          <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-3 flex-1">
+            <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
             <input 
               type="text" 
@@ -428,13 +309,35 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-bold text-xs transition-all"
             />
+            </div>
+            <select
+              value={selectedCategoryId}
+              onChange={(e) => setSelectedCategoryId(e.target.value)}
+              className="w-full px-3 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-bold text-xs transition-all"
+            >
+              <option value="ALL">Todas as categorias</option>
+              {categories
+                .filter((c) => isOwner || c.enterpriseId === activeEnterprise.id)
+                .map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.name}
+                  </option>
+                ))}
+            </select>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 w-full lg:w-auto justify-end">
              <div className="hidden xl:flex items-center gap-2 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">
                 <Package size={14} className="text-indigo-600" />
                 <span className="text-[10px] font-black text-indigo-900 uppercase">{filteredProducts.length} Itens</span>
              </div>
+             <button
+               type="button"
+               onClick={() => { window.location.hash = '#/product-categories'; }}
+               className="bg-white text-indigo-700 px-3 py-2.5 rounded-xl font-black uppercase tracking-widest text-[10px] border border-indigo-200 hover:bg-indigo-50 transition-all"
+             >
+               Categoria Produto
+             </button>
              <button 
                onClick={handleOpenNewProduct}
                className="bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-black uppercase tracking-widest text-[11px] shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2 active:scale-95"
@@ -506,9 +409,21 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
                       )}
                     </td>
                     <td className="px-4 py-3.5 text-right">
-                       <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                          <button onClick={() => handleOpenEditProduct(product)} className="p-1.5 text-indigo-600 bg-white border rounded-lg shadow-sm hover:bg-indigo-50 transition-colors"><Edit size={14}/></button>
-                          <button onClick={() => handleDeleteProduct(product.id)} className="p-1.5 text-red-500 bg-white border rounded-lg shadow-sm hover:bg-red-50 transition-colors"><Trash2 size={14}/></button>
+                       <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleOpenEditProduct(product)}
+                            className="p-1.5 text-indigo-600 dark:text-indigo-300 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-lg shadow-sm hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors"
+                            title="Editar produto"
+                          >
+                            <Edit size={14}/>
+                          </button>
+                          <button
+                            onClick={() => handleDeleteProduct(product.id)}
+                            className="p-1.5 text-red-500 dark:text-red-300 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-lg shadow-sm hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+                            title="Apagar produto"
+                          >
+                            <Trash2 size={14}/>
+                          </button>
                        </div>
                     </td>
                   </tr>
@@ -605,10 +520,15 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Categoria *</label>
                        <select required value={productForm.categoryId} onChange={e => setProductForm({...productForm, categoryId: e.target.value, subCategoryId: ''})} className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-bold text-gray-800 appearance-none">
                           <option value="">Selecione...</option>
-                          {categories.filter(c => isOwner || c.enterpriseId === activeEnterprise.id).map(c => (
+                          {activeCategories.map(c => (
                             <option key={c.id} value={c.id}>{c.name}</option>
                           ))}
                        </select>
+                       {activeCategories.length === 0 && (
+                         <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest mt-1">
+                           Cadastre categorias em "Categoria Produto".
+                         </p>
+                       )}
                     </div>
                     <div className="space-y-1.5">
                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Subcategoria</label>
@@ -695,75 +615,6 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
                  </button>
               </div>
            </form>
-        </div>
-      )}
-
-      {/* MODAL: CATEGORIA */}
-      {isCategoryModalOpen && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
-           <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-sm animate-in fade-in" onClick={() => setIsCategoryModalOpen(false)}></div>
-           <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95">
-              <div className="bg-indigo-600 p-5 text-white flex items-center justify-between">
-                 <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center"><Tags size={20} /></div>
-                    <h2 className="text-lg font-black uppercase tracking-tight">Nova Categoria</h2>
-                 </div>
-                 <button onClick={() => setIsCategoryModalOpen(false)}><X size={22} /></button>
-              </div>
-              <div className="p-5 space-y-5">
-                 <div className="space-y-2">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nome da Categoria</label>
-                    <input autoFocus id="catName" className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-bold text-gray-800" placeholder="Ex: Bebidas Importadas" />
-                 </div>
-                 <button 
-                  onClick={() => {
-                    const input = document.getElementById('catName') as HTMLInputElement;
-                    if(input.value) handleCreateCategory(input.value);
-                  }}
-                  className="w-full py-3 bg-indigo-600 text-white rounded-xl font-black uppercase text-xs tracking-widest shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
-                 >
-                    Salvar Categoria
-                 </button>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* MODAL: SUBCATEGORIA */}
-      {isSubCategoryModalOpen && activeCategoryForSub && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
-           <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-sm animate-in fade-in" onClick={() => setIsSubCategoryModalOpen(false)}></div>
-           <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95">
-              <div className="bg-amber-500 p-5 text-white flex items-center justify-between">
-                 <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center"><Layers size={20} /></div>
-                    <div>
-                       <h2 className="text-lg font-black uppercase tracking-tight">Nova Subcategoria</h2>
-                       <p className="text-[10px] font-bold text-amber-100 uppercase tracking-widest mt-1">Vinculada a: {activeCategoryForSub.name}</p>
-                    </div>
-                 </div>
-                 <button onClick={() => setIsSubCategoryModalOpen(false)}><X size={22} /></button>
-              </div>
-              <div className="p-5 space-y-5">
-                 <div className="space-y-2">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nome da Subcategoria</label>
-                    <input autoFocus id="subCatName" className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-amber-500 rounded-2xl outline-none font-bold text-gray-800" placeholder="Ex: Cervejas Artesanais" />
-                 </div>
-                 <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 flex gap-3 items-center">
-                    <AlertCircle size={18} className="text-amber-600 shrink-0" />
-                    <p className="text-[10px] font-bold text-amber-800 uppercase leading-tight">Você pode criar até 3 subcategorias por categoria principal.</p>
-                 </div>
-                 <button 
-                  onClick={() => {
-                    const input = document.getElementById('subCatName') as HTMLInputElement;
-                    if(input.value) handleCreateSubCategory(activeCategoryForSub.id, input.value);
-                  }}
-                  className="w-full py-3 bg-amber-600 text-white rounded-xl font-black uppercase text-xs tracking-widest shadow-lg shadow-amber-100 hover:bg-amber-700 transition-all"
-                 >
-                    Confirmar Criação
-                 </button>
-              </div>
-           </div>
         </div>
       )}
 

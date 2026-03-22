@@ -24,15 +24,15 @@ const WhatsAppPreview: React.FC<WhatsAppPreviewProps> = ({ template, selectedRes
   const text = fillTemplate(template, selectedResponsible) || 'Digite uma mensagem para visualizar aqui...';
 
   return (
-    <div className="rounded-2xl border border-emerald-200 overflow-hidden bg-white">
+    <div className="rounded-2xl border border-emerald-200 dark:border-zinc-700 overflow-hidden bg-white dark:bg-zinc-900">
       <div className="bg-emerald-700 px-4 py-3 text-white">
         <p className="text-sm font-black">{selectedResponsible?.name || 'Contato (preview)'}</p>
         <p className="text-[11px] font-semibold text-emerald-100">online</p>
       </div>
-      <div className="p-4 min-h-[320px] bg-[#efe4dc]">
-        <div className="ml-auto max-w-[92%] rounded-2xl bg-[#dcf8c6] px-4 py-3 shadow-sm border border-emerald-200">
-          <p className="text-sm font-medium text-slate-800 whitespace-pre-wrap">{text}</p>
-          <p className="mt-1 text-[10px] text-right text-slate-500">
+      <div className="p-4 min-h-[320px] bg-[#efe4dc] dark:bg-zinc-800">
+        <div className="ml-auto max-w-[92%] rounded-2xl bg-[#dcf8c6] dark:bg-emerald-900/40 px-4 py-3 shadow-sm border border-emerald-200 dark:border-emerald-700/40">
+          <p className="text-sm font-medium text-slate-800 dark:text-zinc-100 whitespace-pre-wrap">{text}</p>
+          <p className="mt-1 text-[10px] text-right text-slate-500 dark:text-zinc-400">
             {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
           </p>
         </div>
@@ -42,4 +42,3 @@ const WhatsAppPreview: React.FC<WhatsAppPreviewProps> = ({ template, selectedRes
 };
 
 export default WhatsAppPreview;
-

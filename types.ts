@@ -231,7 +231,7 @@ export type Client = {
   id: string;
   registrationId: string;
   name: string;
-  type: 'ALUNO' | 'COLABORADOR' | 'AVULSO' | 'EMPRESA';
+  type: 'ALUNO' | 'RESPONSAVEL' | 'COLABORADOR' | 'AVULSO' | 'EMPRESA';
   cpf?: string; 
   phone?: string; 
   email?: string; 
@@ -254,14 +254,35 @@ export type Client = {
   guardianPhone?: string;
   guardianEmail?: string;
   parentName?: string;
+  parentRelationship?: string;
+  responsibleCollaboratorId?: string;
+  responsibleOriginType?: 'MANUAL' | 'COLABORADOR' | string;
   parentWhatsappCountryCode?: string;
   parentWhatsapp?: string;
   parentCpf?: string;
   parentEmail?: string;
+  relatedStudentIds?: string[];
+  relatedStudent?: {
+    studentId?: string;
+    name?: string;
+    registrationId?: string;
+    class?: string;
+    classType?: string;
+    classGrade?: string;
+    dailyLimit?: number;
+    restrictions?: string[];
+    responsibleType?: string;
+  };
   planCreditBalances?: Record<string, {
     planId: string;
     planName: string;
     balance: number;
+    unitValue?: number;
+    planPrice?: number;
+    balanceUnits?: number;
+    totalUnits?: number;
+    consumedUnits?: number;
+    unitsProgress?: string;
     updatedAt?: string;
   }>;
   enterpriseId: string;

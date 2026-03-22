@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 const DATA_DIR = path.join(__dirname, 'data');
 const DATABASE_FILE = path.join(DATA_DIR, 'database.json');
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
 
 interface DatabaseShape {
   schemaVersion: number;
@@ -75,10 +75,116 @@ export class Database {
 
   private normalizeBrazilPhone(value: any) {
     const digits = String(value ?? '').replace(/\D/g, '');
-    if (!digits) return '';
-    if (digits.startsWith('55')) return digits;
-    if (digits.length >= 10) return `55${digits}`;
     return digits;
+  }
+
+  private generateEntityId(prefix: string) {
+    return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  }
+
+  private normalizeParentRelationship(value: any) {
+    const normalized = String(value || '').trim().toUpperCase();
+    if (['PAIS', 'AVOS', 'TIOS', 'TUTOR_LEGAL'].includes(normalized)) return normalized;
+    return 'PAIS';
+  }
+
+  private toStringArray(value: any) {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((item) => String(item || '').trim())
+      .filter(Boolean);
+  }
+
+  private normalizeRelatedStudentPayload(value: any) {
+    if (!value || typeof value !== 'object') return null;
+
+    const classType = String(value?.classType || '').trim().toUpperCase();
+    const normalizedClassType = ['INFANTIL', 'FUNDAMENTAL', 'MEDIO', 'INTEGRAL'].includes(classType) ? classType : '';
+    const classGrade = String(value?.classGrade || '').trim();
+    const classValueRaw = String(value?.class || '').trim();
+    const classValue = classValueRaw || [normalizedClassType, classGrade].filter(Boolean).join(' - ');
+    const restrictions = this.toStringArray(value?.restrictions);
+
+    return {
+      name: String(value?.name || '').trim(),
+      registrationId: String(value?.registrationId || '').trim(),
+      class: classValue,
+      classType: normalizedClassType,
+      classGrade,
+      dailyLimit: this.toFiniteNumber(value?.dailyLimit, 0),
+      restrictions,
+      responsibleType: this.normalizeParentRelationship(value?.responsibleType),
+    };
+  }
+
+  private syncCollaboratorStudentRelationships() {
+    const collaboratorMap = new Map<string, any>();
+    this.clients.forEach((client: any) => {
+      if (String(client?.type || '').trim().toUpperCase() !== 'COLABORADOR') return;
+      const collaboratorId = String(client?.id || '').trim();
+      if (!collaboratorId) return;
+      client.relatedStudentIds = this.toStringArray(client.relatedStudentIds);
+      collaboratorMap.set(collaboratorId, client);
+    });
+
+    this.clients.forEach((client: any) => {
+      if (String(client?.type || '').trim().toUpperCase() !== 'ALUNO') return;
+      let collaboratorId = String(client?.responsibleCollaboratorId || '').trim();
+      if (!collaboratorId) {
+        const studentEnterpriseId = String(client?.enterpriseId || '').trim();
+        const studentResponsiblePhone = this.normalizeBrazilPhone(client?.parentWhatsapp || client?.phone || '');
+        const studentResponsibleName = this.normalizeToken(client?.parentName);
+        const inferred = this.clients.find((candidate: any) => {
+          if (String(candidate?.type || '').trim().toUpperCase() !== 'COLABORADOR') return false;
+          if (String(candidate?.enterpriseId || '').trim() !== studentEnterpriseId) return false;
+          const candidatePhone = this.normalizeBrazilPhone(candidate?.phone || candidate?.parentWhatsapp || '');
+          const candidateName = this.normalizeToken(candidate?.name);
+          if (studentResponsiblePhone && candidatePhone && studentResponsiblePhone === candidatePhone) return true;
+          if (studentResponsibleName && candidateName && studentResponsibleName === candidateName) return true;
+          return false;
+        });
+        if (inferred?.id) {
+          collaboratorId = String(inferred.id).trim();
+          client.responsibleCollaboratorId = collaboratorId;
+        }
+      }
+      if (!collaboratorId) return;
+
+      const collaborator = collaboratorMap.get(collaboratorId);
+      if (!collaborator) {
+        client.responsibleCollaboratorId = '';
+        if (String(client?.responsibleOriginType || '').trim().toUpperCase() === 'COLABORADOR') {
+          client.responsibleOriginType = 'MANUAL';
+        }
+        return;
+      }
+
+      client.responsibleOriginType = 'COLABORADOR';
+      client.parentName = String(collaborator?.name || client?.parentName || '').trim();
+      if (String(collaborator?.phone || '').trim()) {
+        const normalizedPhone = this.normalizeBrazilPhone(collaborator.phone);
+        client.parentWhatsapp = normalizedPhone;
+        client.phone = normalizedPhone;
+      }
+      if (String(collaborator?.parentWhatsappCountryCode || '').trim()) {
+        client.parentWhatsappCountryCode = String(collaborator.parentWhatsappCountryCode).replace(/\D/g, '') || '55';
+      }
+      if (String(collaborator?.email || '').trim()) {
+        client.parentEmail = String(collaborator.email).trim();
+        client.email = String(collaborator.email).trim();
+      }
+      if (String(collaborator?.cpf || '').trim()) {
+        const normalizedCpf = String(collaborator.cpf).replace(/\D/g, '');
+        client.parentCpf = normalizedCpf;
+        client.cpf = normalizedCpf;
+      }
+
+      const existing = this.toStringArray(collaborator.relatedStudentIds);
+      if (!existing.includes(String(client.id))) {
+        existing.push(String(client.id));
+      }
+      collaborator.relatedStudentIds = existing;
+    });
   }
 
   private normalizeContactFields(record: any) {
@@ -92,12 +198,42 @@ export class Database {
     }
 
     const isStudent = String(next?.type || '').trim().toUpperCase() === 'ALUNO';
+    const isCollaborator = String(next?.type || '').trim().toUpperCase() === 'COLABORADOR';
     const studentName = String(next?.name || '').trim();
     const parentName = String(next?.parentName || '').trim();
     if (isStudent && !parentName) {
       next.parentName = studentName
         ? `Responsável pelo(a) ${studentName}`
         : 'Responsável não informado';
+    }
+    next.parentRelationship = this.normalizeParentRelationship(next?.parentRelationship);
+    next.restrictions = this.toStringArray(next?.restrictions);
+    if ('relatedStudentIds' in next) {
+      next.relatedStudentIds = this.toStringArray(next.relatedStudentIds);
+    }
+    if ('relatedStudent' in next) {
+      next.relatedStudent = this.normalizeRelatedStudentPayload(next.relatedStudent);
+    }
+    next.parentCpf = String(next?.parentCpf || '').replace(/\D/g, '');
+    next.cpf = String(next?.cpf || '').replace(/\D/g, '');
+    next.parentEmail = String(next?.parentEmail || '').trim();
+    next.email = String(next?.email || '').trim();
+    next.responsibleCollaboratorId = String(next?.responsibleCollaboratorId || '').trim();
+    next.responsibleOriginType = String(next?.responsibleOriginType || '').trim().toUpperCase();
+    if (isStudent && next.responsibleCollaboratorId) {
+      next.responsibleOriginType = 'COLABORADOR';
+    }
+    if (!isStudent && 'responsibleCollaboratorId' in next) {
+      if (!isCollaborator) {
+        next.responsibleCollaboratorId = '';
+        if (next.responsibleOriginType === 'COLABORADOR') next.responsibleOriginType = 'MANUAL';
+      }
+    }
+    if (isCollaborator && !Array.isArray(next.relatedStudentIds)) {
+      next.relatedStudentIds = [];
+    }
+    if (!isCollaborator && 'relatedStudentIds' in next) {
+      next.relatedStudentIds = this.toStringArray(next.relatedStudentIds);
     }
 
     return next;
@@ -195,11 +331,30 @@ export class Database {
   }
 
   private resolveTransactionPlanUnits(tx: any, unitValue: number) {
-    const directUnits = [tx?.planUnits, tx?.balanceUnits, tx?.units, tx?.quantity]
+    const directPlanUnits = [tx?.planUnits, tx?.units]
       .map((candidate) => this.toFiniteNumber(candidate, NaN))
       .find((candidate) => Number.isFinite(candidate) && Math.abs(candidate) > 0);
-    if (Number.isFinite(directUnits)) {
-      return Math.abs(this.roundValue(Number(directUnits), 4));
+    if (Number.isFinite(directPlanUnits)) {
+      return Math.abs(this.roundValue(Number(directPlanUnits), 4));
+    }
+
+    const txType = this.normalizeToken(tx?.type);
+    const quantityCandidate = this.toFiniteNumber(tx?.quantity, NaN);
+    if (
+      Number.isFinite(quantityCandidate)
+      && Math.abs(quantityCandidate) > 0
+      && (txType === 'CONSUMO' || txType === 'DEBIT')
+    ) {
+      return Math.abs(this.roundValue(Number(quantityCandidate), 4));
+    }
+
+    const descriptionRaw = `${String(tx?.description || '')} ${String(tx?.item || '')}`;
+    const unitsMatch = descriptionRaw.match(/(\d+(?:[.,]\d+)?)\s*(unidade(?:s)?|dia(?:s)?)/i);
+    if (unitsMatch?.[1]) {
+      const parsed = Number(String(unitsMatch[1]).replace(',', '.'));
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return Math.abs(this.roundValue(parsed, 4));
+      }
     }
 
     const amount = Math.abs(this.resolveTransactionAmount(tx));
@@ -653,7 +808,7 @@ export class Database {
       });
     });
 
-    type State = { purchasedUnits: number; consumedUnits: number };
+    type State = { totalUnits: number; balanceUnits: number };
     const stateByCanonical = new Map<string, State>();
     const canonicalById = new Map<string, string>();
     const canonicalByName = new Map<string, string>();
@@ -674,25 +829,7 @@ export class Database {
       return fresh;
     };
 
-    const resolveEffectiveDateKey = (tx: any) => {
-      const direct = String(tx?.deliveryDate || tx?.scheduledDate || tx?.mealDate || tx?.date || '').slice(0, 10);
-      if (/^\d{4}-\d{2}-\d{2}$/.test(direct)) return direct;
-      const description = String(tx?.description || tx?.item || '');
-      const isoMatch = description.match(/\b(\d{4}-\d{2}-\d{2})\b/);
-      if (isoMatch?.[1]) return isoMatch[1];
-      const brMatch = description.match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/);
-      if (brMatch) {
-        const [, dd, mm, yyyy] = brMatch;
-        return `${yyyy}-${mm}-${dd}`;
-      }
-      return '0000-00-00';
-    };
-
     const sorted = [...(Array.isArray(transactions) ? transactions : [])].sort((a: any, b: any) => {
-      const aDateKey = resolveEffectiveDateKey(a);
-      const bDateKey = resolveEffectiveDateKey(b);
-      if (aDateKey !== bDateKey) return aDateKey.localeCompare(bDateKey);
-
       const aTs = new Date(a?.timestamp || `${a?.date || ''}T${a?.time || '00:00'}`).getTime();
       const bTs = new Date(b?.timestamp || `${b?.date || ''}T${b?.time || '00:00'}`).getTime();
       const safeATs = Number.isFinite(aTs) ? aTs : 0;
@@ -726,7 +863,7 @@ export class Database {
       if (!isPlanCredit && !isPlanConsumption) return;
 
       const canonicalKey = resolveCanonicalKey(clientId, planId, planName);
-      const state = stateByCanonical.get(canonicalKey) || { purchasedUnits: 0, consumedUnits: 0 };
+      const state = stateByCanonical.get(canonicalKey) || { totalUnits: 0, balanceUnits: 0 };
       const unitValue = this.resolvePlanUnitValue(
         planId,
         planName,
@@ -744,22 +881,44 @@ export class Database {
 
       if (isPlanCredit) {
         const isReversal = txDesc.includes('ESTORNO');
-        if (!isReversal) {
-          state.purchasedUnits = this.roundValue(state.purchasedUnits + units, 4);
+        if (isReversal) {
+          state.balanceUnits = this.roundValue(Math.max(0, state.balanceUnits + units), 4);
+          if (state.totalUnits < state.balanceUnits) state.totalUnits = state.balanceUnits;
+        } else {
+          if (state.balanceUnits <= 0.000001) {
+            state.totalUnits = this.roundValue(units, 4);
+            state.balanceUnits = this.roundValue(units, 4);
+          } else {
+            state.totalUnits = this.roundValue(state.totalUnits + units, 4);
+            state.balanceUnits = this.roundValue(state.balanceUnits + units, 4);
+          }
         }
+        const safeTotal = Math.max(0, state.totalUnits, state.balanceUnits);
+        const consumedUnits = this.roundValue(Math.max(0, safeTotal - state.balanceUnits), 4);
+        progressByTxId.set(
+          txId,
+          this.buildPlanUnitsProgressLabel(
+            consumedUnits,
+            safeTotal
+          )
+        );
         stateByCanonical.set(canonicalKey, state);
         return;
       }
 
-      state.consumedUnits = this.roundValue(Math.max(0, state.consumedUnits + units), 4);
-      if (state.purchasedUnits < state.consumedUnits) {
-        state.purchasedUnits = state.consumedUnits;
+      if (state.totalUnits <= 0.000001 && state.balanceUnits <= 0.000001) {
+        state.totalUnits = this.roundValue(units, 4);
+        state.balanceUnits = 0;
+      } else {
+        state.balanceUnits = this.roundValue(Math.max(0, state.balanceUnits - units), 4);
       }
+      const safeTotal = Math.max(0, state.totalUnits, state.balanceUnits);
+      const consumedUnits = this.roundValue(Math.max(0, safeTotal - state.balanceUnits), 4);
       progressByTxId.set(
         txId,
         this.buildPlanUnitsProgressLabel(
-          state.consumedUnits,
-          Math.max(state.purchasedUnits, state.consumedUnits)
+          consumedUnits,
+          safeTotal
         )
       );
       stateByCanonical.set(canonicalKey, state);
@@ -777,6 +936,7 @@ export class Database {
       const schemaNormalized = this.normalizeClientPlanBalances(contactNormalized);
       return this.rebuildClientPlanBalancesFromTransactions(schemaNormalized);
     });
+    this.syncCollaboratorStudentRelationships();
   }
 
   constructor() {
@@ -847,9 +1007,8 @@ export class Database {
     } as DatabaseShape;
 
     let version = detectedVersion;
-    if (version < 1) {
-      version = 1;
-    }
+    if (version < 1) version = 1;
+    if (version < 2) version = 2;
 
     merged.schemaVersion = Math.max(version, CURRENT_SCHEMA_VERSION);
     return merged;
@@ -1263,9 +1422,59 @@ export class Database {
 
   createClient(data: any) {
     const newClient = this.normalizeClientPlanBalances(
-      this.normalizeContactFields({ ...data, id: 'c_' + Date.now() })
+      this.normalizeContactFields({ ...data, id: this.generateEntityId('c') })
     );
     this.clients.push(newClient);
+
+    const isCollaborator = String(newClient?.type || '').trim().toUpperCase() === 'COLABORADOR';
+    const relatedStudent = this.normalizeRelatedStudentPayload(data?.relatedStudent);
+    if (isCollaborator && relatedStudent?.name) {
+      const relatedStudentId = this.generateEntityId('c');
+      const collaboratorPhone = this.normalizeBrazilPhone(newClient?.phone || newClient?.parentWhatsapp || '');
+      const collaboratorCountryCode = String(newClient?.parentWhatsappCountryCode || '55').replace(/\D/g, '') || '55';
+      const classValue = String(relatedStudent.class || '').trim()
+        || [String(relatedStudent.classType || '').trim(), String(relatedStudent.classGrade || '').trim()].filter(Boolean).join(' - ');
+
+      const relatedStudentPayload = this.normalizeClientPlanBalances(
+        this.normalizeContactFields({
+          id: relatedStudentId,
+          enterpriseId: String(newClient?.enterpriseId || '').trim(),
+          type: 'ALUNO',
+          registrationId: relatedStudent.registrationId || `${String(newClient?.registrationId || 'COL')}-ALUNO`,
+          name: relatedStudent.name,
+          class: classValue,
+          dailyLimit: this.toFiniteNumber(relatedStudent.dailyLimit, 0),
+          restrictions: this.toStringArray(relatedStudent.restrictions),
+          servicePlans: ['PREPAGO'],
+          selectedPlansConfig: [],
+          planCreditBalances: {},
+          balance: 0,
+          spentToday: 0,
+          isBlocked: false,
+          parentName: String(newClient?.name || '').trim(),
+          parentRelationship: relatedStudent.responsibleType || 'PAIS',
+          parentWhatsappCountryCode: collaboratorCountryCode,
+          parentWhatsapp: collaboratorPhone,
+          phone: collaboratorPhone,
+          parentEmail: String(newClient?.email || newClient?.parentEmail || '').trim(),
+          email: String(newClient?.email || '').trim(),
+          parentCpf: String(newClient?.cpf || newClient?.parentCpf || '').replace(/\D/g, ''),
+          cpf: String(newClient?.cpf || '').replace(/\D/g, ''),
+          responsibleCollaboratorId: String(newClient?.id || ''),
+          responsibleOriginType: 'COLABORADOR',
+        })
+      );
+      this.clients.push(relatedStudentPayload);
+
+      const existingIds = this.toStringArray(newClient.relatedStudentIds);
+      if (!existingIds.includes(relatedStudentId)) {
+        existingIds.push(relatedStudentId);
+      }
+      newClient.relatedStudentIds = existingIds;
+      newClient.relatedStudent = { ...relatedStudent, studentId: relatedStudentId };
+    }
+
+    this.syncCollaboratorStudentRelationships();
     this.saveData();
     return newClient;
   }
@@ -1276,6 +1485,64 @@ export class Database {
       this.clients[index] = this.normalizeClientPlanBalances(
         this.normalizeContactFields({ ...this.clients[index], ...data })
       );
+      const updatedClient = this.clients[index];
+      const isCollaborator = String(updatedClient?.type || '').trim().toUpperCase() === 'COLABORADOR';
+      const relatedStudent = this.normalizeRelatedStudentPayload(data?.relatedStudent);
+      if (isCollaborator && relatedStudent?.name) {
+        const existingLinkedStudent = this.clients.find((client: any) => {
+          if (String(client?.type || '').trim().toUpperCase() !== 'ALUNO') return false;
+          if (String(client?.responsibleCollaboratorId || '').trim() !== String(updatedClient?.id || '').trim()) return false;
+          const sameName = this.normalizeToken(client?.name) === this.normalizeToken(relatedStudent.name);
+          const sameRegistration = relatedStudent.registrationId
+            && this.normalizeToken(client?.registrationId) === this.normalizeToken(relatedStudent.registrationId);
+          return sameName || Boolean(sameRegistration);
+        });
+        if (!existingLinkedStudent) {
+          const relatedStudentId = this.generateEntityId('c');
+          const collaboratorPhone = this.normalizeBrazilPhone(updatedClient?.phone || updatedClient?.parentWhatsapp || '');
+          const collaboratorCountryCode = String(updatedClient?.parentWhatsappCountryCode || '55').replace(/\D/g, '') || '55';
+          const classValue = String(relatedStudent.class || '').trim()
+            || [String(relatedStudent.classType || '').trim(), String(relatedStudent.classGrade || '').trim()].filter(Boolean).join(' - ');
+          const relatedStudentPayload = this.normalizeClientPlanBalances(
+            this.normalizeContactFields({
+              id: relatedStudentId,
+              enterpriseId: String(updatedClient?.enterpriseId || '').trim(),
+              type: 'ALUNO',
+              registrationId: relatedStudent.registrationId || `${String(updatedClient?.registrationId || 'COL')}-ALUNO`,
+              name: relatedStudent.name,
+              class: classValue,
+              dailyLimit: this.toFiniteNumber(relatedStudent.dailyLimit, 0),
+              restrictions: this.toStringArray(relatedStudent.restrictions),
+              servicePlans: ['PREPAGO'],
+              selectedPlansConfig: [],
+              planCreditBalances: {},
+              balance: 0,
+              spentToday: 0,
+              isBlocked: false,
+              parentName: String(updatedClient?.name || '').trim(),
+              parentRelationship: relatedStudent.responsibleType || 'PAIS',
+              parentWhatsappCountryCode: collaboratorCountryCode,
+              parentWhatsapp: collaboratorPhone,
+              phone: collaboratorPhone,
+              parentEmail: String(updatedClient?.email || updatedClient?.parentEmail || '').trim(),
+              email: String(updatedClient?.email || '').trim(),
+              parentCpf: String(updatedClient?.cpf || updatedClient?.parentCpf || '').replace(/\D/g, ''),
+              cpf: String(updatedClient?.cpf || '').replace(/\D/g, ''),
+              responsibleCollaboratorId: String(updatedClient?.id || ''),
+              responsibleOriginType: 'COLABORADOR',
+            })
+          );
+          this.clients.push(relatedStudentPayload);
+
+          const existingIds = this.toStringArray(updatedClient.relatedStudentIds);
+          if (!existingIds.includes(relatedStudentId)) {
+            existingIds.push(relatedStudentId);
+          }
+          updatedClient.relatedStudentIds = existingIds;
+          updatedClient.relatedStudent = { ...relatedStudent, studentId: relatedStudentId };
+        }
+      }
+      this.syncCollaboratorStudentRelationships();
       this.saveData();
       return this.clients[index];
     }
@@ -1285,7 +1552,29 @@ export class Database {
   deleteClient(id: string) {
     const index = this.clients.findIndex(c => c.id === id);
     if (index > -1) {
+      const deletingClient = this.clients[index];
+      const deletingType = String(deletingClient?.type || '').trim().toUpperCase();
+      if (deletingType === 'COLABORADOR') {
+        this.clients = this.clients.map((client: any) => {
+          if (String(client?.type || '').trim().toUpperCase() !== 'ALUNO') return client;
+          if (String(client?.responsibleCollaboratorId || '').trim() !== String(id).trim()) return client;
+          return {
+            ...client,
+            responsibleCollaboratorId: '',
+            responsibleOriginType: 'MANUAL',
+          };
+        });
+      } else if (deletingType === 'ALUNO') {
+        this.clients = this.clients.map((client: any) => {
+          if (String(client?.type || '').trim().toUpperCase() !== 'COLABORADOR') return client;
+          return {
+            ...client,
+            relatedStudentIds: this.toStringArray(client?.relatedStudentIds).filter((studentId) => String(studentId) !== String(id)),
+          };
+        });
+      }
       this.clients.splice(index, 1);
+      this.syncCollaboratorStudentRelationships();
       this.saveData();
       return true;
     }

@@ -761,6 +761,7 @@ export class ApiService {
     startDate?: string;
     endDate?: string;
     syncFullHistory?: boolean;
+    safeSyncMode?: boolean;
   } = {}) {
     const response = await fetch(`${API_URL}/whatsapp/start`, {
       method: 'POST',
@@ -771,6 +772,7 @@ export class ApiService {
         startDate: String(options.startDate || '').trim(),
         endDate: String(options.endDate || '').trim(),
         syncFullHistory: Boolean(options.syncFullHistory),
+        safeSyncMode: options.safeSyncMode !== false,
       }),
     });
     if (!response.ok) throw new Error('Falha ao iniciar sessão do WhatsApp');
