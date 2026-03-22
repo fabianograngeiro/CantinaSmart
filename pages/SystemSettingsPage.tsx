@@ -1,17 +1,119 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Settings, Trash2, AlertTriangle, RefreshCw, Shield, Database, Info, Download } from 'lucide-react';
 import ApiService from '../services/api';
-import { User } from '../types';
+import { Role, User } from '../types';
 
 interface SystemSettingsPageProps {
   currentUser: User;
 }
 
+type AiProvider = 'openai' | 'gemini' | 'groq';
+
+const maskApiKeyPreview = (value?: string) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (raw.length <= 8) return `${raw.slice(0, 2)}••••${raw.slice(-1)}`;
+  return `${raw.slice(0, 4)}••••••••${raw.slice(-4)}`;
+};
+
 const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({ currentUser }) => {
+  const isSuperAdmin = String(currentUser.role || '').toUpperCase() === Role.SUPERADMIN;
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [isResetting, setIsResetting] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isSavingAiSettings, setIsSavingAiSettings] = useState(false);
+  const [systemOpenAiToken, setSystemOpenAiToken] = useState('');
+  const [systemGeminiToken, setSystemGeminiToken] = useState('');
+  const [systemGroqToken, setSystemGroqToken] = useState('');
+  const [systemProvider, setSystemProvider] = useState<AiProvider>('groq');
+  const [rawAiConfig, setRawAiConfig] = useState<Record<string, any>>({});
+
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let cancelled = false;
+    const loadAiSettings = async () => {
+      try {
+        const payload = await ApiService.getWhatsAppAiConfig();
+        if (cancelled) return;
+        const cfg = (payload?.config && typeof payload.config === 'object') ? payload.config : {};
+        setRawAiConfig(cfg);
+        setSystemOpenAiToken(String(cfg?.systemOpenAiToken || ''));
+        setSystemGeminiToken(String(cfg?.systemGeminiToken || ''));
+        setSystemGroqToken(String(cfg?.systemGroqToken || ''));
+        const preferredRaw = String(cfg?.systemPreferredProvider || '').toLowerCase();
+        setSystemProvider(preferredRaw === 'openai' ? 'openai' : preferredRaw === 'gemini' ? 'gemini' : 'groq');
+      } catch (error) {
+        console.warn('Falha ao carregar configuração de IA do sistema:', error);
+      }
+    };
+    loadAiSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin]);
+
+  const handleSaveSystemAiSettings = async () => {
+    if (!isSuperAdmin) return;
+    setIsSavingAiSettings(true);
+    try {
+      const nextConfig: Record<string, any> = {
+        ...(rawAiConfig || {}),
+        systemAiEnabled: true,
+        systemPreferredProvider: systemProvider,
+        systemOpenAiToken: String(systemOpenAiToken || '').trim(),
+        systemGeminiToken: String(systemGeminiToken || '').trim(),
+        systemGroqToken: String(systemGroqToken || '').trim(),
+      };
+
+      nextConfig.provider = systemProvider;
+      if (systemProvider === 'groq') {
+        nextConfig.model = String(nextConfig.model || 'llama-3.1-8b-instant');
+        if (nextConfig.model && !String(nextConfig.model).toLowerCase().includes('llama') && !String(nextConfig.model).toLowerCase().includes('mixtral')) {
+          nextConfig.model = 'llama-3.1-8b-instant';
+        }
+      } else if (systemProvider === 'gemini') {
+        nextConfig.model = String(nextConfig.model || 'gemini-2.0-flash');
+        if (!String(nextConfig.model).toLowerCase().includes('gemini')) {
+          nextConfig.model = 'gemini-2.0-flash';
+        }
+      } else {
+        nextConfig.model = String(nextConfig.model || 'gpt-4.1-mini');
+        if (!String(nextConfig.model).toLowerCase().includes('gpt')) {
+          nextConfig.model = 'gpt-4.1-mini';
+        }
+      }
+      if (String(nextConfig.systemOpenAiToken || '').trim()) nextConfig.openAiToken = String(nextConfig.systemOpenAiToken).trim();
+      if (String(nextConfig.systemGeminiToken || '').trim()) nextConfig.geminiToken = String(nextConfig.systemGeminiToken).trim();
+      if (String(nextConfig.systemGroqToken || '').trim()) nextConfig.groqToken = String(nextConfig.systemGroqToken).trim();
+
+      const saved = await ApiService.updateWhatsAppAiConfig(nextConfig);
+      const returnedConfig = (saved?.config && typeof saved.config === 'object') ? saved.config : {};
+      const savedConfig: Record<string, any> = {
+        ...nextConfig,
+        ...returnedConfig,
+        // Mantém os tokens enviados para garantir feedback visual no front
+        // mesmo quando o backend oculta/mascara esses campos na resposta.
+        systemOpenAiToken: String(nextConfig.systemOpenAiToken || ''),
+        systemGeminiToken: String(nextConfig.systemGeminiToken || ''),
+        systemGroqToken: String(nextConfig.systemGroqToken || ''),
+      };
+      setRawAiConfig(savedConfig);
+      setSystemOpenAiToken(String(savedConfig.systemOpenAiToken || ''));
+      setSystemGeminiToken(String(savedConfig.systemGeminiToken || ''));
+      setSystemGroqToken(String(savedConfig.systemGroqToken || ''));
+      {
+        const preferredRaw = String(savedConfig?.systemPreferredProvider || '').toLowerCase();
+        setSystemProvider(preferredRaw === 'openai' ? 'openai' : preferredRaw === 'gemini' ? 'gemini' : 'groq');
+      }
+      alert('✅ Configuração de IA do sistema salva com sucesso.');
+    } catch (err) {
+      console.error('Erro ao salvar configuração de IA do sistema:', err);
+      alert('❌ Falha ao salvar configuração de IA do sistema.');
+    } finally {
+      setIsSavingAiSettings(false);
+    }
+  };
 
   const handleResetDatabase = async () => {
     if (resetConfirmText !== 'RESETAR TUDO') {
@@ -80,6 +182,112 @@ const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({ currentUser }) 
           </div>
         </div>
       </div>
+
+      {isSuperAdmin && (
+        <div className="bg-white rounded-2xl border shadow-sm overflow-hidden dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
+          <div className="p-4 border-b bg-gray-50 dark:bg-zinc-900 dark:border-white/10">
+            <h2 className="text-base font-black text-gray-800 dark:text-zinc-100">IA do Sistema (Global)</h2>
+            <p className="text-xs text-gray-500 dark:text-zinc-400 font-medium mt-1">
+              Defina as chaves globais e escolha qual IA ficará ativa globalmente.
+            </p>
+          </div>
+          <div className="p-4 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <span className="text-[11px] font-black uppercase tracking-widest text-gray-500">OpenAI API Key</span>
+                <input
+                  type="password"
+                  value={systemOpenAiToken}
+                  onChange={(e) => setSystemOpenAiToken(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border-2 border-indigo-100 focus:border-indigo-400 outline-none text-sm font-semibold dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
+                  placeholder="sk-..."
+                />
+                {String(systemOpenAiToken || '').trim() && (
+                  <p className="text-[10px] font-bold text-emerald-700">
+                    Chave salva: {maskApiKeyPreview(systemOpenAiToken)}
+                  </p>
+                )}
+                <label className="inline-flex items-center gap-2 cursor-pointer mt-2">
+                  <input
+                    type="checkbox"
+                    checked={systemProvider === 'openai'}
+                    onChange={(e) => {
+                      if (e.target.checked) setSystemProvider('openai');
+                    }}
+                    className="sr-only peer"
+                  />
+                  <span className="h-5 w-9 rounded-full bg-slate-300 transition-colors peer-checked:bg-indigo-500 relative after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4" />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">IA ativa</span>
+                </label>
+              </div>
+              <div className="space-y-1">
+                <span className="text-[11px] font-black uppercase tracking-widest text-gray-500">Gemini API Key</span>
+                <input
+                  type="password"
+                  value={systemGeminiToken}
+                  onChange={(e) => setSystemGeminiToken(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border-2 border-indigo-100 focus:border-indigo-400 outline-none text-sm font-semibold dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
+                  placeholder="AIza..."
+                />
+                {String(systemGeminiToken || '').trim() && (
+                  <p className="text-[10px] font-bold text-emerald-700">
+                    Chave salva: {maskApiKeyPreview(systemGeminiToken)}
+                  </p>
+                )}
+                <label className="inline-flex items-center gap-2 cursor-pointer mt-2">
+                  <input
+                    type="checkbox"
+                    checked={systemProvider === 'gemini'}
+                    onChange={(e) => {
+                      if (e.target.checked) setSystemProvider('gemini');
+                    }}
+                    className="sr-only peer"
+                  />
+                  <span className="h-5 w-9 rounded-full bg-slate-300 transition-colors peer-checked:bg-indigo-500 relative after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4" />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">IA ativa</span>
+                </label>
+              </div>
+              <div className="space-y-1">
+                <span className="text-[11px] font-black uppercase tracking-widest text-gray-500">Groq API Key</span>
+                <input
+                  type="password"
+                  value={systemGroqToken}
+                  onChange={(e) => setSystemGroqToken(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border-2 border-indigo-100 focus:border-indigo-400 outline-none text-sm font-semibold dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
+                  placeholder="gsk_..."
+                />
+                {String(systemGroqToken || '').trim() && (
+                  <p className="text-[10px] font-bold text-emerald-700">
+                    Chave salva: {maskApiKeyPreview(systemGroqToken)}
+                  </p>
+                )}
+                <label className="inline-flex items-center gap-2 cursor-pointer mt-2">
+                  <input
+                    type="checkbox"
+                    checked={systemProvider === 'groq'}
+                    onChange={(e) => {
+                      if (e.target.checked) setSystemProvider('groq');
+                    }}
+                    className="sr-only peer"
+                  />
+                  <span className="h-5 w-9 rounded-full bg-slate-300 transition-colors peer-checked:bg-indigo-500 relative after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4" />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">IA ativa</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                onClick={handleSaveSystemAiSettings}
+                disabled={isSavingAiSettings}
+                className="px-4 py-2.5 bg-indigo-600 text-white rounded-lg font-bold text-xs uppercase tracking-wider hover:bg-indigo-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isSavingAiSettings ? 'Salvando...' : 'Salvar IA do Sistema'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Database Management */}
       <div className="bg-white rounded-2xl border shadow-sm overflow-hidden dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">

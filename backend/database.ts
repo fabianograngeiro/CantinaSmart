@@ -1167,28 +1167,54 @@ export class Database {
   }
 
   // ===== MENUS =====
-  getMenus(enterpriseId?: string, type?: string) {
+  getMenus(enterpriseId?: string, type?: string, weekIndex?: number, monthKey?: string) {
     let result = this.menus;
     if (enterpriseId) result = result.filter((m) => String(m.enterpriseId) === String(enterpriseId));
     if (type) result = result.filter((m) => String(m.type || '').toUpperCase() === String(type || '').toUpperCase());
+    if (Number.isFinite(Number(weekIndex))) {
+      result = result.filter((m) => Number(m.weekIndex || 1) === Number(weekIndex));
+    }
+    if (monthKey) {
+      result = result.filter((m) => String(m.monthKey || '') === String(monthKey));
+    }
     return result;
   }
 
-  getMenuByEnterpriseAndType(enterpriseId: string, type: string) {
-    return this.menus.find(
+  getMenuByEnterpriseAndType(enterpriseId: string, type: string, weekIndex: number = 1, monthKey?: string) {
+    const normalizedWeek = Math.max(1, Math.min(5, Number(weekIndex || 1) || 1));
+    const normalizedMonth = String(monthKey || '').trim();
+    const exact = this.menus.find(
       (m) =>
         String(m.enterpriseId) === String(enterpriseId)
         && String(m.type || '').toUpperCase() === String(type || '').toUpperCase()
+        && Number(m.weekIndex || 1) === normalizedWeek
+        && (normalizedMonth ? String(m.monthKey || '') === normalizedMonth : true)
     );
+    if (exact) return exact;
+
+    // Compatibilidade retroativa: registros antigos sem weekIndex viram semana 1
+    if (normalizedWeek === 1 && !normalizedMonth) {
+      return this.menus.find(
+        (m) =>
+          String(m.enterpriseId) === String(enterpriseId)
+          && String(m.type || '').toUpperCase() === String(type || '').toUpperCase()
+          && !Object.prototype.hasOwnProperty.call(m, 'weekIndex')
+      );
+    }
+    return null;
   }
 
   upsertMenuByEnterpriseAndType(payload: {
     enterpriseId: string;
     type: 'ALMOCO' | 'LANCHE' | string;
     days: any[];
+    weekIndex?: number;
+    monthKey?: string;
   }) {
     const enterpriseId = String(payload.enterpriseId || '').trim();
     const type = String(payload.type || '').trim().toUpperCase();
+    const weekIndex = Math.max(1, Math.min(5, Number(payload.weekIndex || 1) || 1));
+    const monthKey = String(payload.monthKey || '').trim();
     if (!enterpriseId || !type) return null;
 
     const normalizedDays = Array.isArray(payload.days) ? payload.days : [];
@@ -1196,18 +1222,32 @@ export class Database {
       (m) =>
         String(m.enterpriseId) === enterpriseId
         && String(m.type || '').toUpperCase() === type
+        && Number(m.weekIndex || 1) === weekIndex
+        && String(m.monthKey || '') === monthKey
     );
 
+    const legacyIndex = index === -1 && weekIndex === 1 && !monthKey
+      ? this.menus.findIndex(
+          (m) =>
+            String(m.enterpriseId) === enterpriseId
+            && String(m.type || '').toUpperCase() === type
+            && !Object.prototype.hasOwnProperty.call(m, 'weekIndex')
+        )
+      : -1;
+    const resolvedIndex = index > -1 ? index : legacyIndex;
+
     const nextRecord = {
-      id: index > -1 ? this.menus[index].id : `menu_${Date.now()}`,
+      id: resolvedIndex > -1 ? this.menus[resolvedIndex].id : `menu_${Date.now()}`,
       enterpriseId,
       type,
+      weekIndex,
+      monthKey,
       days: normalizedDays,
       updatedAt: new Date().toISOString(),
     };
 
-    if (index > -1) {
-      this.menus[index] = nextRecord;
+    if (resolvedIndex > -1) {
+      this.menus[resolvedIndex] = nextRecord;
     } else {
       this.menus.push(nextRecord);
     }
