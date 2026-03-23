@@ -950,6 +950,14 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       return;
     }
 
+    // Helper function to format date to YYYY-MM-DD
+    const formatDateKey = (date: Date): string => {
+      const yyyy = date.getFullYear();
+      const mm = String(date.getMonth() + 1).padStart(2, '0');
+      const dd = String(date.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    };
+
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const generatedAt = new Date();
     const planNameById = new Map(plansCatalog.map((plan) => [plan.id, plan.name]));
@@ -1125,7 +1133,8 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       y: number,
       w: number,
       h: number,
-      state: { planIndex: number; itemOffset: number }
+      state: { planIndex: number; itemOffset: number },
+      eventsByDate: Record<string, string>
     ) => {
       doc.setFillColor(255, 255, 255);
       doc.rect(x, y, w, h, 'F');
@@ -1137,6 +1146,8 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       }
 
       const accent = weekdayColor[entry.dayOfWeek] || [79, 70, 229];
+      const dateKey = formatDateKey(entry.date);
+      const eventTitle = eventsByDate[dateKey];
 
       if (isFirstCell) {
         doc.setTextColor(100, 116, 139);
@@ -1152,12 +1163,48 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       doc.setFontSize(6.6);
       doc.text(String(entry.date.getDate()).padStart(2, '0'), x + w - 6, y + 5.9, { align: 'center' });
 
+      // Display event/holiday title if exists
+      if (eventTitle) {
+        doc.setTextColor(219, 39, 119);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(4.2);
+        const eventLabel = eventTitle.length > 12 ? `${eventTitle.substring(0, 11)}...` : eventTitle;
+        doc.text(eventLabel, x + w - 10.5, y + 8.6, { align: 'center', maxWidth: 8 });
+      }
+
       doc.setDrawColor(accent[0], accent[1], accent[2]);
       doc.setLineWidth(0.4);
       doc.line(x, y + cellPaddingTop, x + w, y + cellPaddingTop);
 
       const contentBottom = y + h - 1;
-      if (entry.items.length === 0) return state;
+      
+      // If no items, show event/holiday centered in empty cell
+      if (entry.items.length === 0) {
+        if (eventTitle) {
+          // Draw centered box with event title
+          const eventBoxHeight = 12;
+          const eventBoxY = y + cellPaddingTop + (contentBottom - (y + cellPaddingTop) - eventBoxHeight) / 2;
+          
+          doc.setFillColor(254, 243, 245);
+          doc.roundedRect(x + 1, eventBoxY, w - 2, eventBoxHeight, 1, 1, 'F');
+          
+          doc.setDrawColor(219, 39, 119);
+          doc.setLineWidth(0.5);
+          doc.roundedRect(x + 1, eventBoxY, w - 2, eventBoxHeight, 1, 1, 'D');
+          
+          doc.setTextColor(219, 39, 119);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(6);
+          
+          const wrappedEvent = doc.splitTextToSize(eventTitle, w - 4).slice(0, 2);
+          let eventY = eventBoxY + 2;
+          wrappedEvent.forEach((line: string) => {
+            doc.text(line, x + w / 2, eventY, { align: 'center' });
+            eventY += 4;
+          });
+        }
+        return state;
+      }
 
       const itemColumnWidth = (w - 5 - itemColumnGap) / 2;
       let lineY = y + cellPaddingTop + 1.2;
@@ -1252,6 +1299,12 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
         14,
         footerY
       );
+      
+      // Add legend for events/holidays
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(219, 39, 119);
+      doc.text('✦ Feriados/Eventos do Calendário Escolar • Cores por dia: Seg(Azul) Ter(Índigo) Qua(Verde) Qui(Âmbar) Sex(Rosa) Sáb(Ciano)', 14, footerY + 3);
     };
 
     const rowStates = calendarRows.map((row) => row.map(() => ({ planIndex: 0, itemOffset: 0 })));
@@ -1309,7 +1362,8 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
               rowCursorY,
               colW,
               cellH,
-              rowStates[rowIndex][colIndex]
+              rowStates[rowIndex][colIndex],
+              schoolCalendarEventByDate
             );
           });
           rowCursorY += cellH;
