@@ -175,7 +175,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
       const todayKey = toDateKey(today);
       const yesterdayKey = toDateKey(yesterday);
 
-      const productById = new Map(products.map((product: Product) => [product.id, product]));
+      const productById = new Map<string, Product>(products.map((product: Product) => [product.id, product]));
       const todayHourlyMap = new Map<string, number>();
       const categoryMap = new Map<string, number>();
 

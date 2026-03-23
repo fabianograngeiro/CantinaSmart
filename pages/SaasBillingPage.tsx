@@ -289,7 +289,7 @@ const SaasBillingPage: React.FC<SaasBillingPageProps> = ({ currentUser }) => {
   };
 
   const monthOptions = useMemo(() => {
-    const unique = Array.from(new Set(invoices.map((inv) => inv.referenceMonth)));
+    const unique = Array.from(new Set(invoices.map((inv) => String(inv.referenceMonth || '')))) as string[];
     return unique.sort((a, b) => b.localeCompare(a));
   }, [invoices]);
 

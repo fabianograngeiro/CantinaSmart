@@ -5,10 +5,10 @@ import {
   LayoutDashboard, ShoppingCart, Users, Package, ArrowRightLeft, 
   ReceiptText, Building2, Building, ShieldCheck, 
   UserCircle, Globe, ClipboardList, 
-  Sparkles, Beef, Store, Calendar,
+  Sparkles, Beef, Store, Calendar, CalendarDays,
   LogOut, Menu, DollarSign, MessageCircle,
   Truck, Settings, AlertTriangle, X, Plus, Check, Sun, Moon,
-  ChevronLeft, ChevronRight, FolderTree // Ícones adicionais
+  ChevronLeft, ChevronRight, FolderTree, FileText // Ícones adicionais
 } from 'lucide-react';
 
 // Pages
@@ -32,6 +32,7 @@ import ClientPortalPage from './pages/ClientPortalPage';
 import ClientPortalPageDesktop from './pages/ClientPortalPage_Desktop';
 import CollaboratorPortalPage from './pages/CollaboratorPortalPage';
 import MenuManagementPage from './pages/MenuManagementPage';
+import SchoolCalendarPage from './pages/SchoolCalendarPage';
 import OrdersPage from './pages/OrdersPage';
 import RegistrationPage from './pages/RegistrationPage';
 import NutritionalInfoPage from './pages/NutritionalInfoPage';
@@ -44,6 +45,7 @@ import SettingsPage from './pages/SettingsPage';
 import FinancialPage from './pages/FinancialPage';
 import WhatsAppPage from './pages/WhatsAppPage';
 import ProductCategoriesPage from './pages/ProductCategoriesPage';
+import PdfModelsPage from './pages/PdfModelsPage';
 import NotificationCenter from './components/NotificationCenter';
 import { useTheme } from './components/ThemeProvider';
 
@@ -412,12 +414,14 @@ const AppContent: React.FC<any> = (props) => {
                     )}
 
                     {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Calendar size={20} />} label="Cardápio Local" to="/menu-lunch" isOpen={isSidebarOpen} />}
+                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<CalendarDays size={20} />} label="CALENDÁRIO ESCOLAR" to="/school-calendar" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Beef size={20} />} label="Base Nutricional" to="/nutritional-info" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Sparkles size={20} />} label="Planos Ativos" to={`/plans/${activeEnterprise?.id}`} isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessReports && <SidebarItem icon={<ReceiptText size={20} />} label="Transações" to="/unit-sales" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessReports && <SidebarItem icon={<DollarSign size={20} />} label="Financeiro" to="/financial" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessReports && <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp" to="/whatsapp" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessInventory && <SidebarItem icon={<ArrowRightLeft size={20} />} label="Estoque Unidade" to="/inventory" isOpen={isSidebarOpen} />}
+                    {resolvedPermissions.canAccessReports && <SidebarItem icon={<FileText size={20} />} label="Modelos PDF" to="/pdf-models" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canManageStaff && <SidebarItem icon={<Settings size={20} />} label="Ajustes" to="/settings" isOpen={isSidebarOpen} />}
                     {isOwner && <SidebarItem icon={<ShieldCheck size={20} />} label="Config. Sistema" to="/system-settings" isOpen={isSidebarOpen} />}
                   </div>
@@ -533,12 +537,14 @@ const AppContent: React.FC<any> = (props) => {
                     <Navigate to="/" />
                   } />
                   <Route path="/menu-lunch" element={resolvedPermissions.canAccessInventory ? <MenuManagementPage type="ALMOCO" currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/school-calendar" element={resolvedPermissions.canAccessInventory ? <SchoolCalendarPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/nutritional-info" element={resolvedPermissions.canAccessInventory ? <NutritionalInfoPage /> : <Navigate to="/" />} />
                   <Route path="/orders" element={<OrdersPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
                   <Route path="/register" element={<RegistrationPage />} />
                   <Route path="/plans/:enterpriseId" element={resolvedPermissions.canAccessInventory ? <PlansPage activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/daily-delivery" element={resolvedPermissions.canAccessReports ? <DailyDeliveryPage activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <Navigate to="/" />} />
                   <Route path="/settings" element={resolvedPermissions.canManageStaff ? <SettingsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/pdf-models" element={resolvedPermissions.canAccessReports ? <PdfModelsPage activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="*" element={<Navigate to="/" />} />
                 </Routes>
               </div>

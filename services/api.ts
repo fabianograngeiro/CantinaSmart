@@ -662,6 +662,43 @@ export class ApiService {
     return response.json();
   }
 
+  // ===== SCHOOL CALENDAR =====
+  static async getSchoolCalendar(enterpriseId: string, schoolYear: number) {
+    const url = new URL(`${API_URL}/school-calendar`);
+    url.searchParams.set('enterpriseId', enterpriseId);
+    url.searchParams.set('schoolYear', String(schoolYear));
+
+    const response = await fetch(url.toString(), {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao buscar calendário escolar');
+    return response.json();
+  }
+
+  static async saveSchoolCalendar(
+    enterpriseId: string,
+    schoolYear: number,
+    payload: {
+      meta: any;
+      legends: any[];
+      events: any[];
+    }
+  ) {
+    const response = await fetch(`${API_URL}/school-calendar`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify({
+        enterpriseId,
+        schoolYear,
+        meta: payload?.meta,
+        legends: Array.isArray(payload?.legends) ? payload.legends : [],
+        events: Array.isArray(payload?.events) ? payload.events : [],
+      }),
+    });
+    if (!response.ok) throw new Error('Falha ao salvar calendário escolar');
+    return response.json();
+  }
+
   static async getAiNutritionalData(
     foodName: string,
     conversation: Array<{ role: 'user' | 'assistant'; text: string }> = []

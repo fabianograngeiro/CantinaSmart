@@ -334,15 +334,16 @@ const SaasPlansPage: React.FC<SaasPlansPageProps> = ({ currentUser }) => {
                 const currentPlan = normalizePlanType(ent.planType);
                 const selectedPlan = selectedPlanByEnterprise[ent.id] || currentPlan;
                 return (
-                  <PlanRow
-                    key={ent.id}
-                    enterprise={ent}
-                    currentPlan={currentPlan}
-                    selectedPlan={selectedPlan}
-                    setSelectedPlan={(next) => setSelectedPlanByEnterprise((prev) => ({ ...prev, [ent.id]: next }))}
-                    catalog={catalog}
-                    onApply={(nextPlan) => handleApplyPlan(ent, nextPlan)}
-                  />
+                  <React.Fragment key={ent.id}>
+                    <PlanRow
+                      enterprise={ent}
+                      currentPlan={currentPlan}
+                      selectedPlan={selectedPlan}
+                      setSelectedPlan={(next) => setSelectedPlanByEnterprise((prev) => ({ ...prev, [ent.id]: next }))}
+                      catalog={catalog}
+                      onApply={(nextPlan) => handleApplyPlan(ent, nextPlan)}
+                    />
+                  </React.Fragment>
                 );
               })}
             </tbody>

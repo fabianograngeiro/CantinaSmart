@@ -555,7 +555,7 @@ class WhatsAppSessionManager {
       this.aiAgentAutoResumeAtByChat = new Map(
         aiAgentAutoResumeEntries
           .map(([jid, ts]: [string, number]) => [String(jid || ''), Number(ts || 0)] as [string, number])
-          .filter(([jid, ts]) => Boolean(jid) && Number.isFinite(ts) && ts > 0)
+          .filter(([jid, ts]: [string, number]) => Boolean(jid) && Number.isFinite(ts) && ts > 0)
       );
       this.labelCatalog = new Map(labelEntries);
       this.chatLabelMap = new Map(chatLabelEntries.map(([jid, labels]: [string, string[]]) => [jid, new Set(labels || [])]));
@@ -1346,7 +1346,7 @@ class WhatsAppSessionManager {
     const contexts = Array.isArray(raw?.contexts)
       ? raw.contexts.map((context: any, index: number) => this.sanitizeAiContext(context, index))
       : [];
-    const migratedContexts = contexts.map((ctx) => {
+    const migratedContexts = contexts.map((ctx: any) => {
       if (legacyPrimary === 'ESCALATE_HUMAN') {
         return { ...ctx, actionType: 'ATENDIMENTO_HUMANO' as AiContextActionType };
       }
@@ -1552,7 +1552,12 @@ class WhatsAppSessionManager {
     for (const item of due) {
       try {
         if (item.attachment?.base64Data) {
-          await this.sendMediaToChat(item.chatId, item.attachment, item.message || '');
+          await this.sendMediaToChat(item.chatId, {
+            mediaType: item.attachment.mediaType,
+            base64Data: item.attachment.base64Data,
+            mimeType: item.attachment.mimeType || undefined,
+            fileName: item.attachment.fileName || undefined,
+          }, item.message || '');
         } else {
           await this.sendMessageToChat(item.chatId, item.message || '');
         }
@@ -4368,7 +4373,7 @@ class WhatsAppSessionManager {
       doc.text('Responsável: -', 390, 100);
     }
 
-    const planBalances = client?.planCreditBalances || {};
+    const planBalances = (client?.planCreditBalances || {}) as Record<string, any>;
     const prepaidBalance = Number(client?.balance || 0);
     const plansTotalBalance = Object.values(planBalances).reduce((acc: number, entry: any) => {
       const balance = Number(entry?.balance || 0);
@@ -4987,7 +4992,7 @@ class WhatsAppSessionManager {
       throw new Error(`OpenAI error: ${response.status} ${errText}`);
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     const text = String(
       data?.output_text
       || data?.output?.[0]?.content?.[0]?.text
@@ -5026,7 +5031,7 @@ class WhatsAppSessionManager {
       throw new Error(`Gemini error: ${response.status} ${errText}`);
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     const text = String(
       data?.candidates?.[0]?.content?.parts?.[0]?.text
       || ''
@@ -5057,7 +5062,7 @@ class WhatsAppSessionManager {
       throw new Error(`Groq error: ${response.status} ${errText}`);
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     const text = String(
       data?.choices?.[0]?.message?.content
       || ''
@@ -5156,7 +5161,7 @@ class WhatsAppSessionManager {
       throw new Error(`OpenAI STT error: ${response.status} ${errText}`);
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     return String(data?.text || '').trim();
   }
 
@@ -5190,7 +5195,7 @@ class WhatsAppSessionManager {
       throw new Error(`Groq STT error: ${response.status} ${errText}`);
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     return String(data?.text || '').trim();
   }
 

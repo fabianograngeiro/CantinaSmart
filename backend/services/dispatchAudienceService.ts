@@ -245,7 +245,7 @@ const getClientPlanoAtivo = (client: any) => {
 };
 
 const resolvePlanProgressForTransaction = (client: any, tx: any) => {
-  const balances = client?.planCreditBalances && typeof client.planCreditBalances === 'object'
+  const balances: any[] = client?.planCreditBalances && typeof client.planCreditBalances === 'object'
     ? Object.values(client.planCreditBalances)
     : [];
   if (balances.length === 0) return '';
@@ -561,17 +561,18 @@ export const buildDispatchAudience = (params: {
 
     const planos = getClientPlanoAtivo(client);
     const selectedConfig = Array.isArray(client?.selectedPlansConfig) ? client.selectedPlansConfig : [];
-    let maxPlanDate: Date | null = null;
+    let maxPlanTimestamp: number | null = null;
     selectedConfig.forEach((cfg: any) => {
       const dates = Array.isArray(cfg?.selectedDates) ? cfg.selectedDates : [];
       dates.forEach((dateStr: any) => {
         const parsed = parseAnyDate(dateStr);
         if (!parsed) return;
-        if (!maxPlanDate || parsed.getTime() > maxPlanDate.getTime()) maxPlanDate = parsed;
+        const ts = parsed.getTime();
+        if (maxPlanTimestamp === null || ts > maxPlanTimestamp) maxPlanTimestamp = ts;
       });
     });
-    const daysToExpire = maxPlanDate
-      ? Math.ceil((maxPlanDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+    const daysToExpire = maxPlanTimestamp !== null
+      ? Math.ceil((maxPlanTimestamp - new Date().getTime()) / (1000 * 60 * 60 * 24))
       : null;
 
     const studentRows = (transactionsByClient.get(clientId) || []).map((tx: any) => {
@@ -606,7 +607,7 @@ export const buildDispatchAudience = (params: {
       consumoHoje: buildConsumptionSummary(clientId),
       statusEntrega: buildDeliveryStatus(clientId),
       periodConsumption: studentPeriodConsumption,
-      maxPlanDate: maxPlanDate ? toDateKey(maxPlanDate) : null,
+      maxPlanDate: maxPlanTimestamp !== null ? toDateKey(new Date(maxPlanTimestamp)) : null,
       planExpiringSoon: daysToExpire !== null && daysToExpire >= 0 && daysToExpire <= 5,
     });
     existing.reportRows.push(...studentRows);

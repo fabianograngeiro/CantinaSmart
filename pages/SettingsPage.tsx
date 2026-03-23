@@ -286,7 +286,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
     }
   };
 
-  const activeServiceDaysCount = Object.values(openingHours).filter(day => !day.closed).length;
+  const activeServiceDaysCount = (Object.values(openingHours) as OpeningHours[]).filter(day => !day.closed).length;
 
   return (
     <div className="settings-shell space-y-4 p-4 animate-in fade-in duration-500">

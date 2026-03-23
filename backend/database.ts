@@ -23,6 +23,7 @@ interface DatabaseShape {
   orders: any[];
   ingredients: any[];
   menus?: any[];
+  schoolCalendars?: any[];
   whatsappStore?: {
     history?: any;
     schedules?: any;
@@ -47,6 +48,7 @@ const createEmptyDatabase = (): DatabaseShape => ({
   orders: [],
   ingredients: [],
   menus: [],
+  schoolCalendars: [],
   whatsappStore: {},
 });
 
@@ -64,6 +66,7 @@ export class Database {
   private orders: any[] = [];
   private ingredients: any[] = [];
   private menus: any[] = [];
+  private schoolCalendars: any[] = [];
   private whatsappStore: {
     history?: any;
     schedules?: any;
@@ -976,6 +979,7 @@ export class Database {
       orders: readArrayFile('orders.json'),
       ingredients: readArrayFile('ingredients.json'),
       menus: readArrayFile('menus.json'),
+      schoolCalendars: readArrayFile('school-calendars.json'),
     };
   }
 
@@ -1000,6 +1004,7 @@ export class Database {
       orders: ensureArray(safeRaw.orders),
       ingredients: ensureArray(safeRaw.ingredients),
       menus: ensureArray(safeRaw.menus),
+      schoolCalendars: ensureArray(safeRaw.schoolCalendars),
       whatsappStore: safeRaw.whatsappStore && typeof safeRaw.whatsappStore === 'object'
         ? safeRaw.whatsappStore
         : {},
@@ -1037,6 +1042,7 @@ export class Database {
     this.orders = data.orders;
     this.ingredients = data.ingredients;
     this.menus = Array.isArray((data as any).menus) ? (data as any).menus : [];
+    this.schoolCalendars = Array.isArray((data as any).schoolCalendars) ? (data as any).schoolCalendars : [];
     this.whatsappStore = (data as any).whatsappStore && typeof (data as any).whatsappStore === 'object'
       ? (data as any).whatsappStore
       : {};
@@ -1057,6 +1063,7 @@ export class Database {
       orders: this.orders,
       ingredients: this.ingredients,
       menus: this.menus,
+      schoolCalendars: this.schoolCalendars,
       whatsappStore: this.whatsappStore,
     };
   }
@@ -1113,6 +1120,7 @@ export class Database {
       console.log(`   - Plans: ${this.plans.length}`);
       console.log(`   - Suppliers: ${this.suppliers.length}`);
       console.log(`   - Menus: ${this.menus.length}`);
+      console.log(`   - School calendars: ${this.schoolCalendars.length}`);
     } catch (err) {
       console.error('❌ [DB] Error loading data:', err);
     }
@@ -1161,6 +1169,7 @@ export class Database {
       suppliers: this.suppliers.length,
       ingredients: this.ingredients.length,
       menus: this.menus.length,
+      schoolCalendars: this.schoolCalendars.length,
       orders: this.orders.length,
       transactions: this.transactions.length,
     };
@@ -1253,6 +1262,58 @@ export class Database {
     }
     this.saveData();
     return nextRecord;
+  }
+
+  // ===== SCHOOL CALENDAR =====
+  getSchoolCalendarByEnterpriseAndYear(enterpriseId: string, schoolYear: number) {
+    const normalizedEnterpriseId = String(enterpriseId || '').trim();
+    const normalizedYear = Number(schoolYear);
+    if (!normalizedEnterpriseId || !Number.isFinite(normalizedYear)) return null;
+
+    return this.schoolCalendars.find(
+      (record) =>
+        String(record.enterpriseId || '').trim() === normalizedEnterpriseId
+        && Number(record.schoolYear) === normalizedYear
+    ) || null;
+  }
+
+  upsertSchoolCalendar(payload: {
+    enterpriseId: string;
+    schoolYear: number;
+    meta?: any;
+    legends?: any[];
+    events?: any[];
+  }) {
+    const enterpriseId = String(payload.enterpriseId || '').trim();
+    const schoolYear = Number(payload.schoolYear);
+    if (!enterpriseId || !Number.isFinite(schoolYear)) return null;
+
+    const normalized = {
+      id: '',
+      enterpriseId,
+      schoolYear,
+      meta: payload.meta && typeof payload.meta === 'object' ? payload.meta : {},
+      legends: Array.isArray(payload.legends) ? payload.legends : [],
+      events: Array.isArray(payload.events) ? payload.events : [],
+      updatedAt: new Date().toISOString(),
+    };
+
+    const existingIndex = this.schoolCalendars.findIndex(
+      (record) =>
+        String(record.enterpriseId || '').trim() === enterpriseId
+        && Number(record.schoolYear) === schoolYear
+    );
+
+    if (existingIndex > -1) {
+      normalized.id = String(this.schoolCalendars[existingIndex]?.id || `school_calendar_${Date.now()}`);
+      this.schoolCalendars[existingIndex] = normalized;
+    } else {
+      normalized.id = `school_calendar_${Date.now()}`;
+      this.schoolCalendars.push(normalized);
+    }
+
+    this.saveData();
+    return normalized;
   }
 
   // ===== WHATSAPP STORE (persistido no database.json) =====

@@ -72,7 +72,7 @@ const SaasFinancialPage: React.FC<SaasFinancialPageProps> = ({ currentUser }) =>
   }, []);
 
   const months = useMemo(() => {
-    const unique = Array.from(new Set(invoices.map((inv) => inv.referenceMonth)));
+    const unique = Array.from(new Set(invoices.map((inv) => String(inv.referenceMonth || '')))) as string[];
     return unique.sort((a, b) => parseReferenceMonthToSort(b) - parseReferenceMonthToSort(a));
   }, [invoices]);
 

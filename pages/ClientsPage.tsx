@@ -14,6 +14,7 @@ import {
 import { Client, ClientPlanType, User, Enterprise, Role, Plan, TransactionRecord } from '../types';
 import ApiService from '../services/api';
 import { formatPhoneWithFlag } from '../utils/phone';
+import { extractSchoolCalendarOperationalData } from '../utils/schoolCalendar';
 
 interface ClientsPageProps {
   currentUser: User;
@@ -275,6 +276,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const [rechargePlanDates, setRechargePlanDates] = useState<Record<string, string[]>>({});
   const [rechargeOpenCalendarId, setRechargeOpenCalendarId] = useState<string | null>(null);
   const [rechargeCalendarMonth, setRechargeCalendarMonth] = useState<Date>(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [schoolCalendarBlockedDatesByYear, setSchoolCalendarBlockedDatesByYear] = useState<Record<number, string[]>>({});
+  const [schoolCalendarEventTitlesByDate, setSchoolCalendarEventTitlesByDate] = useState<Record<string, string>>({});
   const [clientPhotoFile, setClientPhotoFile] = useState<File | null>(null);
   const [clientPhotoPreview, setClientPhotoPreview] = useState('');
   const [isSavingPlanView, setIsSavingPlanView] = useState(false);
@@ -320,6 +323,86 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     };
     loadData();
   }, [activeEnterprise?.id]);
+
+  const schoolCalendarYearsToLoad = useMemo(() => {
+    return Array.from(new Set([
+      calendarMonth.getFullYear(),
+      rechargeCalendarMonth.getFullYear(),
+      new Date().getFullYear(),
+    ]));
+  }, [calendarMonth, rechargeCalendarMonth]);
+
+  const schoolCalendarEnterpriseId = useMemo(() => {
+    const fromViewing = String(viewingClient?.enterpriseId || '').trim();
+    if (fromViewing) return fromViewing;
+
+    const fromRecharge = String(rechargingClient?.enterpriseId || '').trim();
+    if (fromRecharge) return fromRecharge;
+
+    if (isUnitAdmin) return String(activeEnterprise?.id || '').trim();
+
+    const fromSelection = String(selectedUnitId || '').trim();
+    if (fromSelection && fromSelection !== 'ALL') return fromSelection;
+
+    return String(activeEnterprise?.id || '').trim();
+  }, [viewingClient?.enterpriseId, rechargingClient?.enterpriseId, isUnitAdmin, selectedUnitId, activeEnterprise?.id]);
+
+  useEffect(() => {
+    setSchoolCalendarBlockedDatesByYear({});
+    setSchoolCalendarEventTitlesByDate({});
+  }, [schoolCalendarEnterpriseId]);
+
+  useEffect(() => {
+    const enterpriseId = schoolCalendarEnterpriseId;
+    if (!enterpriseId) return;
+
+    const missingYears = schoolCalendarYearsToLoad.filter((year) => schoolCalendarBlockedDatesByYear[year] === undefined);
+    if (missingYears.length === 0) return;
+
+    let cancelled = false;
+
+    const loadSchoolCalendarYears = async () => {
+      const results = await Promise.all(
+        missingYears.map(async (year) => {
+          try {
+            const payload = await ApiService.getSchoolCalendar(enterpriseId, year);
+            const extracted = extractSchoolCalendarOperationalData(payload, year);
+            const blockedDates = extracted.blockedDates;
+            const eventTitles = extracted.eventTitlesByDate;
+
+            return [year, blockedDates, eventTitles] as const;
+          } catch (error) {
+            console.error(`Erro ao carregar calendário escolar (${year}):`, error);
+            return [year, [], {}] as const;
+          }
+        })
+      );
+
+      if (cancelled) return;
+
+      setSchoolCalendarBlockedDatesByYear((prev) => {
+        const next = { ...prev };
+        results.forEach(([year, dates]) => {
+          next[year] = dates;
+        });
+        return next;
+      });
+
+      setSchoolCalendarEventTitlesByDate((prev) => {
+        const merged = { ...prev };
+        results.forEach(([, , titles]) => {
+          Object.assign(merged, titles);
+        });
+        return merged;
+      });
+    };
+
+    void loadSchoolCalendarYears();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [schoolCalendarEnterpriseId, schoolCalendarYearsToLoad, schoolCalendarBlockedDatesByYear]);
 
   useEffect(() => {
     if (consumptionPeriod !== 'DATE') return;
@@ -562,9 +645,31 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   }, [currentEnterpriseConfig?.openingHours]);
 
   const allowedServiceDayKeySet = useMemo(() => new Set(allowedServiceDayKeys), [allowedServiceDayKeys]);
+  const schoolCalendarBlockedDateSetByYear = useMemo(() => {
+    return Object.entries(schoolCalendarBlockedDatesByYear).reduce((acc, [yearKey, dates]) => {
+      acc[Number(yearKey)] = new Set(Array.isArray(dates) ? dates : []);
+      return acc;
+    }, {} as Record<number, Set<string>>);
+  }, [schoolCalendarBlockedDatesByYear]);
+
   const isServiceDateAllowed = (date: Date) => {
     const dayKey = jsDayToWeekDay[date.getDay()];
-    return allowedServiceDayKeySet.has(dayKey);
+    if (!allowedServiceDayKeySet.has(dayKey)) return false;
+
+    const dateKey = toDateKey(date);
+    const blockedSet = schoolCalendarBlockedDateSetByYear[date.getFullYear()];
+    if (blockedSet?.has(dateKey)) return false;
+
+    return true;
+  };
+  const isSchoolCalendarBlockedDate = (date: Date) => {
+    const blockedSet = schoolCalendarBlockedDateSetByYear[date.getFullYear()];
+    return Boolean(blockedSet?.has(toDateKey(date)));
+  };
+  const isSchoolCalendarYearLoaded = (year: number) => schoolCalendarBlockedDatesByYear[year] !== undefined;
+  const isSchoolCalendarReadyForDate = (date: Date) => isSchoolCalendarYearLoaded(date.getFullYear());
+  const getSchoolEventTitle = (date: Date): string | null => {
+    return schoolCalendarEventTitlesByDate[toDateKey(date)] || null;
   };
   const isPastDate = (date: Date) => toDateKey(date) < toDateKey(new Date());
 
@@ -578,7 +683,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     };
 
     setSelectedPlanDays((prev) => {
-      const next = Object.entries(prev).reduce((acc, [planId, days]) => {
+      const next = Object.entries(prev as Record<string, string[]>).reduce((acc, [planId, days]) => {
         acc[planId] = (days || []).filter(day => allowedServiceDayKeySet.has(day));
         return acc;
       }, {} as Record<string, string[]>);
@@ -586,7 +691,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     });
 
     setRechargePlanDays((prev) => {
-      const next = Object.entries(prev).reduce((acc, [planId, days]) => {
+      const next = Object.entries(prev as Record<string, string[]>).reduce((acc, [planId, days]) => {
         acc[planId] = (days || []).filter(day => allowedServiceDayKeySet.has(day));
         return acc;
       }, {} as Record<string, string[]>);
@@ -594,7 +699,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     });
 
     setSelectedPlanDates((prev) => {
-      const next = Object.entries(prev).reduce((acc, [planId, dates]) => {
+      const next = Object.entries(prev as Record<string, string[]>).reduce((acc, [planId, dates]) => {
         acc[planId] = filterDateKeysByAllowedWeekdays(dates || []);
         return acc;
       }, {} as Record<string, string[]>);
@@ -602,13 +707,45 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     });
 
     setRechargePlanDates((prev) => {
-      const next = Object.entries(prev).reduce((acc, [planId, dates]) => {
+      const next = Object.entries(prev as Record<string, string[]>).reduce((acc, [planId, dates]) => {
         acc[planId] = filterDateKeysByAllowedWeekdays(dates || []);
         return acc;
       }, {} as Record<string, string[]>);
       return JSON.stringify(next) === JSON.stringify(prev) ? prev : next;
     });
   }, [allowedServiceDayKeySet]);
+
+  // When school calendar data loads, remove any already-selected dates that fall on holidays/recess (race condition fix)
+  useEffect(() => {
+    if (Object.keys(schoolCalendarBlockedDateSetByYear).length === 0) return;
+
+    const filterBlockedDates = (dateKeys: string[]) =>
+      dateKeys.filter((dateKey) => {
+        const year = Number(dateKey.slice(0, 4));
+        const blockedSet = schoolCalendarBlockedDateSetByYear[year];
+        return !blockedSet?.has(dateKey);
+      });
+
+    setSelectedPlanDates((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const planId of Object.keys(next)) {
+        const filtered = filterBlockedDates(next[planId] || []);
+        if (filtered.length !== (next[planId] || []).length) { next[planId] = filtered; changed = true; }
+      }
+      return changed ? next : prev;
+    });
+
+    setRechargePlanDates((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const planId of Object.keys(next)) {
+        const filtered = filterBlockedDates(next[planId] || []);
+        if (filtered.length !== (next[planId] || []).length) { next[planId] = filtered; changed = true; }
+      }
+      return changed ? next : prev;
+    });
+  }, [schoolCalendarBlockedDateSetByYear]);
 
   const calendarMonthLabel = useMemo(() => {
     return calendarMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
@@ -657,7 +794,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
     for (let day = 1; day <= totalDays; day += 1) {
       const date = new Date(year, month, day);
-      if (date.getDay() === targetJsDay) result.push(toDateKey(date));
+      if (date.getDay() === targetJsDay && isServiceDateAllowed(date)) result.push(toDateKey(date));
     }
 
     return result;
@@ -674,10 +811,24 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
     for (let day = 1; day <= totalDays; day += 1) {
       const date = new Date(year, month, day);
-      if (date.getDay() === targetJsDay) result.push(toDateKey(date));
+      if (date.getDay() === targetJsDay && isServiceDateAllowed(date)) result.push(toDateKey(date));
     }
 
     return result;
+  };
+
+  const sanitizeDateMapBySchoolCalendar = (datesByPlan: Record<string, string[]>) => {
+    const next = Object.entries(datesByPlan || {}).reduce((acc, [planId, dates]) => {
+      acc[planId] = (Array.isArray(dates) ? dates : []).filter((dateKey) => {
+        const year = Number(String(dateKey || '').slice(0, 4));
+        if (!Number.isFinite(year)) return false;
+        const blockedSet = schoolCalendarBlockedDateSetByYear[year];
+        return !blockedSet?.has(String(dateKey));
+      });
+      return acc;
+    }, {} as Record<string, string[]>);
+
+    return next;
   };
 
   const handleOpenCreateModal = () => {
@@ -907,19 +1058,26 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       requiredByPlan[planId] = Math.max(0, Number(resolvedRaw || 0));
     });
 
+    const sanitizedPlanDates = sanitizeDateMapBySchoolCalendar(normalizedPlanDates);
+    const removedBlockedDatesCount = Object.keys(normalizedPlanDates).reduce((acc, planId) => {
+      const original = (normalizedPlanDates[planId] || []).length;
+      const sanitized = (sanitizedPlanDates[planId] || []).length;
+      return acc + Math.max(0, original - sanitized);
+    }, 0);
+
     setPlanRequiredUnitsById(requiredByPlan);
 
     setSelectedPlanDays(normalizedPlanDays);
-    setSelectedPlanDates(normalizedPlanDates);
+    setSelectedPlanDates(sanitizedPlanDates);
     setSelectedPlanShifts(normalizedPlanShifts);
     setPlanEditBaseDatesById(
-      Object.entries(normalizedPlanDates).reduce((acc, [planId, dates]) => {
+      Object.entries(sanitizedPlanDates).reduce((acc, [planId, dates]) => {
         acc[planId] = Array.from(new Set(dates || [])).sort();
         return acc;
       }, {} as Record<string, string[]>)
     );
     setPlanOriginalDatesById(
-      Object.entries(normalizedPlanDates).reduce((acc, [planId, dates]) => {
+      Object.entries(sanitizedPlanDates).reduce((acc, [planId, dates]) => {
         acc[planId] = Array.from(new Set(dates || [])).sort();
         return acc;
       }, {} as Record<string, string[]>)
@@ -927,6 +1085,13 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     setOpenPlanCalendarId(null);
     setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
     setIsDetailModalOpen(true);
+
+    if (removedBlockedDatesCount > 0) {
+      showPlanNotice(
+        `${removedBlockedDatesCount} data(s) em feriado/recesso foram removidas automaticamente do plano.`,
+        'warning'
+      );
+    }
   };
 
   const togglePlan = (plan: ClientPlanType) => {
@@ -1009,7 +1174,9 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   };
 
   const togglePlanDate = (planId: string, date: Date) => {
+    if (!isSchoolCalendarReadyForDate(date)) return;
     if (!isServiceDateAllowed(date)) return;
+    if (isSchoolCalendarBlockedDate(date)) return;
     if (isDetailModalOpen && isPastDate(date)) return;
 
     const dateKey = toDateKey(date);
@@ -1095,10 +1262,10 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       .filter((plan) => String(plan || '').toUpperCase() === 'PREPAGO');
     const nextServicePlans = [...baseServicePlans, ...nextSelectedPlans.map((cfg) => cfg.planName as ClientPlanType)];
 
-    const originalDates = Array.from(new Set(planOriginalDatesById[planId] || [])).sort();
-    const updatedDates = Array.from(new Set(nextTargetConfig.selectedDates || [])).sort();
-    const removedDates = originalDates.filter((dateKey) => !updatedDates.includes(dateKey));
-    const addedDates = updatedDates.filter((dateKey) => !originalDates.includes(dateKey));
+    const originalDates = Array.from(new Set(planOriginalDatesById[planId] || [])).sort() as string[];
+    const updatedDates = Array.from(new Set(nextTargetConfig.selectedDates || [])).sort() as string[];
+    const removedDates = originalDates.filter((dateKey) => !updatedDates.includes(dateKey)) as string[];
+    const addedDates = updatedDates.filter((dateKey) => !originalDates.includes(dateKey)) as string[];
 
     setIsSavingPlanView(true);
     try {
@@ -1183,7 +1350,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
     setRechargeSelectedPlanId(planId);
     setRechargePlanDays({ [planId]: rechargePlanDays[planId] || [] });
-    setRechargePlanDates({ [planId]: rechargePlanDates[planId] || [] });
+    setRechargePlanDates(sanitizeDateMapBySchoolCalendar({ [planId]: rechargePlanDates[planId] || [] }));
     setRechargeOpenCalendarId(planId);
   };
 
@@ -1219,7 +1386,9 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   };
 
   const toggleRechargePlanDate = (planId: string, date: Date) => {
+    if (!isSchoolCalendarReadyForDate(date)) return;
     if (!isServiceDateAllowed(date)) return;
+    if (isSchoolCalendarBlockedDate(date)) return;
 
     const dateKey = toDateKey(date);
     setRechargePlanDates(prev => {
@@ -1237,13 +1406,14 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       .map(([planId, daysOfWeek]) => {
         const plan = availablePlans.find(p => p.id === planId);
         if (!plan) return null;
-        const selectedDates = selectedPlanDates[planId] || [];
-        const selectedCount = selectedDates.length > 0 ? selectedDates.length : (daysOfWeek?.length || 0);
+        const selectedDates = (selectedPlanDates[planId] || []) as string[];
+        const selectedDayList = (daysOfWeek || []) as string[];
+        const selectedCount = selectedDates.length > 0 ? selectedDates.length : selectedDayList.length;
         return {
           planId,
           planName: plan.name,
           planPrice: plan.price,
-          daysOfWeek,
+          daysOfWeek: selectedDayList,
           selectedDates,
           deliveryShifts: selectedPlanShifts[planId] || [],
           subtotal: plan.price * selectedCount,
@@ -1710,8 +1880,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   }
 
   const clientPlanBalances = useMemo(() => {
-    const planById = new Map(plans.map((plan) => [plan.id, plan]));
-    const planByName = new Map(plans.map((plan) => [String(plan.name || '').trim().toUpperCase(), plan]));
+    const planById = new Map<string, Plan>(plans.map((plan) => [plan.id, plan]));
+    const planByName = new Map<string, Plan>(plans.map((plan) => [String(plan.name || '').trim().toUpperCase(), plan]));
     const result = new Map<string, Array<{
       planId?: string;
       planName: string;
@@ -3102,10 +3272,20 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                     </button>
                                   </div>
                                   <div className="flex items-center justify-end mb-2">
-                                    <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-100 text-[9px] font-black text-emerald-700 uppercase tracking-widest">
-                                      <Check size={10} strokeWidth={4} /> Dia já entregue
-                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-rose-50 border border-rose-100 text-[9px] font-black text-rose-700 uppercase tracking-widest">
+                                        <AlertTriangle size={10} /> Dia sem aula
+                                      </span>
+                                      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-100 text-[9px] font-black text-emerald-700 uppercase tracking-widest">
+                                        <Check size={10} strokeWidth={4} /> Dia já entregue
+                                      </span>
+                                    </div>
                                   </div>
+                                  {!isSchoolCalendarYearLoaded(calendarMonth.getFullYear()) && (
+                                    <div className="mb-2 px-2 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-[9px] font-black text-amber-700 uppercase tracking-widest">
+                                      Carregando calendário escolar do ano selecionado...
+                                    </div>
+                                  )}
                                   <div className="grid grid-cols-7 gap-1.5">
                                     {['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB'].map((label) => (
                                       <div key={`${plan.planId}-header-${label}`} className="text-center text-[9px] font-black text-gray-400 uppercase py-1">
@@ -3115,50 +3295,65 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                     {calendarGrid.map((dateCell, index) => {
                                       if (!dateCell) return <div key={`${plan.planId}-empty-${index}`} className="h-9" />;
                                       const dateKey = toDateKey(dateCell);
+                                      const isCalendarReady = isSchoolCalendarReadyForDate(dateCell);
                                       const isAllowed = isServiceDateAllowed(dateCell);
+                                      const isSchoolBlockedDate = isSchoolCalendarBlockedDate(dateCell);
+                                      const eventTitle = isSchoolBlockedDate ? (getSchoolEventTitle(dateCell) || 'Sem aula') : null;
                                       const isPast = isPastDate(dateCell);
                                       const isSelected = activeDates.includes(dateKey);
                                       const isDelivered = deliveredDateSet.has(dateKey);
                                       const isAtLimit = activeDates.length >= requiredCount && temporaryCreditUnits <= 0;
                                       const looksDisabledByLimit = !isSelected && isAtLimit;
-                                      const isLocked = !isAllowed || isPast;
+                                      const isLocked = !isCalendarReady || !isAllowed || isSchoolBlockedDate || isPast;
 
                                       return (
                                         <button
                                           key={`${plan.planId}-date-${dateKey}`}
                                           type="button"
                                           disabled={isLocked}
+                                          title={isSchoolBlockedDate ? (eventTitle || 'Dia sem aula') : undefined}
                                           onClick={() => togglePlanDate(plan.planId, dateCell)}
-                                          className={`h-9 rounded-lg text-[10px] font-black transition-all ${
-                                            !isAllowed
-                                              ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                                          className={`rounded-lg text-[10px] font-black transition-all ${
+                                            !isCalendarReady
+                                              ? 'h-9 bg-gray-100 text-gray-300 border border-gray-200 cursor-not-allowed'
+                                              : isSchoolBlockedDate
+                                              ? 'h-auto min-h-[36px] py-1 bg-rose-50 text-rose-400 border border-rose-100 cursor-not-allowed'
+                                              : !isAllowed
+                                              ? 'h-9 bg-gray-100 text-gray-300 cursor-not-allowed'
                                               : isPast
                                                 ? isSelected
-                                                  ? 'bg-slate-200 text-slate-600 border border-slate-300 cursor-not-allowed'
-                                                  : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                                                  ? 'h-9 bg-slate-200 text-slate-600 border border-slate-300 cursor-not-allowed'
+                                                  : 'h-9 bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
                                               : isSelected
-                                                ? 'bg-indigo-600 text-white'
+                                                ? 'h-9 bg-indigo-600 text-white'
                                                 : looksDisabledByLimit
-                                                  ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
-                                                  : 'bg-white text-gray-600 border border-gray-200 hover:border-indigo-300'
+                                                  ? 'h-9 bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+                                                  : 'h-9 bg-white text-gray-600 border border-gray-200 hover:border-indigo-300'
                                           }`}
                                         >
-                                          <span className="inline-flex items-center justify-center relative w-full h-full">
-                                            {dateCell.getDate()}
-                                            {isSelected && !isPast && (
-                                              <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-white text-indigo-700 text-[10px] leading-none flex items-center justify-center font-black border border-indigo-200">
-                                                ×
-                                              </span>
-                                            )}
-                                            {isDelivered && (
-                                              <span
-                                                className="absolute -bottom-0.5 -left-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 text-white text-[10px] leading-none flex items-center justify-center font-black border border-emerald-200"
-                                                title="Dia entregue"
-                                              >
-                                                <Check size={10} strokeWidth={4} />
-                                              </span>
-                                            )}
-                                          </span>
+                                          {isSchoolBlockedDate ? (
+                                            <span className="flex flex-col items-center justify-center gap-0.5 w-full px-0.5">
+                                              <span className="font-black text-rose-500 text-[10px] leading-none">{dateCell.getDate()}</span>
+                                              <span className="text-[7px] font-black text-rose-400 leading-tight text-center line-clamp-2 w-full">{eventTitle}</span>
+                                            </span>
+                                          ) : (
+                                            <span className="inline-flex items-center justify-center relative w-full h-full">
+                                              {dateCell.getDate()}
+                                              {isSelected && !isPast && (
+                                                <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-white text-indigo-700 text-[10px] leading-none flex items-center justify-center font-black border border-indigo-200">
+                                                  ×
+                                                </span>
+                                              )}
+                                              {isDelivered && (
+                                                <span
+                                                  className="absolute -bottom-0.5 -left-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 text-white text-[10px] leading-none flex items-center justify-center font-black border border-emerald-200"
+                                                  title="Dia entregue"
+                                                >
+                                                  <Check size={10} strokeWidth={4} />
+                                                </span>
+                                              )}
+                                            </span>
+                                          )}
                                         </button>
                                       );
                                     })}
@@ -3913,12 +4108,19 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                      ))}
                                    </div>
 
+                                   {!isSchoolCalendarYearLoaded(rechargeCalendarMonth.getFullYear()) && (
+                                     <div className="mb-2 px-2 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-[9px] font-black text-amber-700 uppercase tracking-widest">
+                                       Carregando calendário escolar do ano selecionado...
+                                     </div>
+                                   )}
                                    <div className="grid grid-cols-7 gap-2">
                                      {rechargeCalendarGrid.map((dateCell, index) => {
                                        if (!dateCell) {
                                          return <div key={`${plan.id}-recharge-empty-${index}`} className="w-full h-9 rounded-lg bg-transparent" />;
                                        }
+                                       const isCalendarReady = isSchoolCalendarReadyForDate(dateCell);
                                        const isAllowedDate = isServiceDateAllowed(dateCell);
+                                       const isSchoolBlockedDate = isSchoolCalendarBlockedDate(dateCell);
                                        const dateKey = toDateKey(dateCell);
                                        const isSelectedDate = (rechargePlanDates[plan.id] || []).includes(dateKey);
                                        return (
@@ -3926,16 +4128,30 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                            type="button"
                                            key={`${plan.id}-recharge-${dateKey}`}
                                            onClick={() => toggleRechargePlanDate(plan.id, dateCell)}
-                                           disabled={!isAllowedDate}
-                                           className={`w-full h-9 rounded-lg border text-[10px] font-black transition-all flex items-center justify-center text-center ${
-                                             !isAllowedDate
-                                               ? 'bg-gray-100 border-gray-200 text-gray-300 cursor-not-allowed'
+                                           disabled={!isCalendarReady || !isAllowedDate || isSchoolBlockedDate}
+                                             title={isSchoolBlockedDate ? (getSchoolEventTitle(dateCell) || 'Dia sem aula') : undefined}
+                                           className={`w-full rounded-lg border text-[10px] font-black transition-all flex items-center justify-center text-center ${
+                                             !isCalendarReady
+                                               ? 'h-9 bg-gray-100 border-gray-200 text-gray-300 cursor-not-allowed'
+                                               : isSchoolBlockedDate
+                                               ? 'h-auto min-h-[36px] py-1 bg-rose-50 border-rose-100 text-rose-400 cursor-not-allowed'
+                                               : !isAllowedDate
+                                               ? 'h-9 bg-gray-100 border-gray-200 text-gray-300 cursor-not-allowed'
                                                : isSelectedDate
-                                                 ? 'bg-indigo-600 border-indigo-600 text-white'
-                                                 : 'bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300'
+                                                 ? 'h-9 bg-indigo-600 border-indigo-600 text-white'
+                                                 : 'h-9 bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300'
                                            }`}
                                          >
-                                           {dateCell.getDate()}
+                                             {isSchoolBlockedDate ? (
+                                               <span className="flex flex-col items-center justify-center gap-0.5 w-full px-0.5">
+                                                 <span className="font-black text-rose-500 text-[10px] leading-none">{dateCell.getDate()}</span>
+                                                 <span className="text-[7px] font-black text-rose-400 leading-tight text-center line-clamp-2 w-full">{getSchoolEventTitle(dateCell) || 'Sem aula'}</span>
+                                               </span>
+                                             ) : (
+                                               <span className="inline-flex items-center justify-center relative w-full h-full">
+                                                 {dateCell.getDate()}
+                                               </span>
+                                             )}
                                          </button>
                                        );
                                      })}

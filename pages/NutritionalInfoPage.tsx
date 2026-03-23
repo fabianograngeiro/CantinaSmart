@@ -213,7 +213,7 @@ const NutritionalInfoPage: React.FC = () => {
     }, {});
   }, [mergedReferenceRows]);
 
-  const filteredGroupedReferenceRows = useMemo(() => {
+  const filteredGroupedReferenceRows = useMemo<Record<string, NutrientReferenceRow[]>>(() => {
     const search = String(searchTerm || '').trim().toLowerCase();
     const rows = mergedReferenceRows.filter((row) => {
       const matchesSearch =
@@ -605,7 +605,7 @@ const NutritionalInfoPage: React.FC = () => {
               Nenhum item da tabela corresponde ao termo pesquisado.
             </div>
           )}
-          {Object.entries(filteredGroupedReferenceRows).map(([group, rows]) => (
+          {Object.entries(filteredGroupedReferenceRows as Record<string, NutrientReferenceRow[]>).map(([group, rows]) => (
             <div key={group} className="border border-gray-100 rounded-xl overflow-hidden">
               <div className="px-3 py-2 bg-indigo-50 border-b border-indigo-100">
                 <p className="text-[10px] font-black uppercase tracking-widest text-indigo-700">{highlightMatch(group)}</p>
@@ -627,8 +627,11 @@ const NutritionalInfoPage: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row) => (
-                      <tr key={`${group}-${row.food}`} className="border-t border-gray-100">
+                    {rows.map((row, index) => (
+                      <tr
+                        key={`${group}-${row.food}`}
+                        className={`border-t border-gray-100 ${index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}
+                      >
                         <td className="px-2.5 py-2 text-[10px] font-black text-gray-700 uppercase">{highlightMatch(row.food)}</td>
                         <td className="px-2.5 py-2 text-[10px] font-semibold text-gray-700">{row.kcal}</td>
                         <td className="px-2.5 py-2 text-[10px] font-semibold text-gray-700">{row.protein}</td>
