@@ -138,7 +138,7 @@ const callOpenAi = async (
     }),
   });
 
-  const data = await response.json();
+  const data: any = await response.json();
   if (!response.ok) {
     if (response.status === 429) {
       throw new Error('Limite temporário da IA atingido no provedor atual. Aguarde alguns segundos e tente novamente.');
@@ -181,7 +181,7 @@ const callGemini = async (token: string, model: string, foodName: string, histor
       }),
     }
   );
-  const data = await response.json();
+  const data: any = await response.json();
   if (!response.ok) {
     if (response.status === 429) {
       throw new Error('Limite temporário da IA atingido no provedor atual. Aguarde alguns segundos e tente novamente.');
@@ -231,7 +231,7 @@ const callGroq = async (token: string, model: string, foodName: string, history:
     }),
   });
 
-  const data = await response.json();
+  const data: any = await response.json();
   if (!response.ok) {
     if (response.status === 429) {
       throw new Error('Limite temporário da IA atingido no provedor atual. Aguarde alguns segundos e tente novamente.');

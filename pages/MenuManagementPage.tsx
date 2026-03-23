@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { 
   Plus, Trash2, Save,
   Info, Calendar,
   UtensilsCrossed, X, CheckCircle2,
   Building, ChevronDown, RefreshCw, Utensils,
-  Edit3, Clock, AlertCircle, CalendarDays
+  Edit3, Clock, AlertCircle, CalendarDays, AlertTriangle
 } from 'lucide-react';
 import { MenuDay, MenuItem, Ingredient, User, Enterprise, Role, Plan } from '../types';
 import ApiService from '../services/api';
 import notificationService from '../services/notificationService';
+import { extractSchoolCalendarOperationalData } from '../utils/schoolCalendar';
 
 const DAYS_OF_WEEK: ('SEGUNDA' | 'TERCA' | 'QUARTA' | 'QUINTA' | 'SEXTA' | 'SABADO')[] = [
   'SEGUNDA', 'TERCA', 'QUARTA', 'QUINTA', 'SEXTA', 'SABADO'
@@ -31,6 +31,14 @@ const DAY_OF_WEEK_TO_JS: Record<DayOfWeek, number> = {
   QUINTA: 4,
   SEXTA: 5,
   SABADO: 6,
+};
+const DAY_KEY_ALIASES: Record<DayOfWeek, string[]> = {
+  SEGUNDA: ['SEGUNDA', 'segunda', 'MONDAY', 'monday'],
+  TERCA: ['TERCA', 'terça', 'terca', 'TUESDAY', 'tuesday'],
+  QUARTA: ['QUARTA', 'quarta', 'WEDNESDAY', 'wednesday'],
+  QUINTA: ['QUINTA', 'quinta', 'THURSDAY', 'thursday'],
+  SEXTA: ['SEXTA', 'sexta', 'FRIDAY', 'friday'],
+  SABADO: ['SABADO', 'sábado', 'sabado', 'SATURDAY', 'saturday'],
 };
 const WEEK_OPTIONS = [1, 2, 3, 4, 5] as const;
 const getCurrentMonthKey = () => {
@@ -72,6 +80,17 @@ const getDateForWeekAndDay = (monthKey: string, weekIndex: number, dayOfWeek: Da
 const formatDateFullBr = (value: Date | null) => {
   if (!value) return '--';
   return value.toLocaleDateString('pt-BR');
+};
+const getActiveServiceDaysFromOpeningHours = (openingHours?: Enterprise['openingHours']): DayOfWeek[] => {
+  if (!openingHours) return DAYS_OF_WEEK;
+
+  const activeDays = DAYS_OF_WEEK.filter((dayKey) => {
+    const matchedAlias = DAY_KEY_ALIASES[dayKey].find((alias) => openingHours[alias]);
+    if (!matchedAlias) return false;
+    return openingHours[matchedAlias]?.closed !== true;
+  });
+
+  return activeDays;
 };
 
 const REFERENCE_INGREDIENTS_FALLBACK: Ingredient[] = [
@@ -219,12 +238,20 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
         : [],
     }));
 
-  const [weeklyMenu, setWeeklyMenu] = useState<MenuDay[]>(generateInitialMenu());
+  const buildInitialWeeklyMenuByWeek = () =>
+    WEEK_OPTIONS.reduce((acc, week) => {
+      acc[week] = generateInitialMenu();
+      return acc;
+    }, {} as Record<number, MenuDay[]>);
+
+  const [weeklyMenuByWeek, setWeeklyMenuByWeek] = useState<Record<number, MenuDay[]>>(buildInitialWeeklyMenuByWeek());
   const [menuLoaded, setMenuLoaded] = useState(false);
-  const [selectedWeek, setSelectedWeek] = useState<number>(1);
   const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentMonthKey());
+  const [schoolCalendarBlockedDates, setSchoolCalendarBlockedDates] = useState<string[]>([]);
+  const [schoolCalendarEventByDate, setSchoolCalendarEventByDate] = useState<Record<string, string>>({});
   const [duplicateMonthTarget, setDuplicateMonthTarget] = useState<string>(getNextMonthKey());
   const [dayDuplicateTarget, setDayDuplicateTarget] = useState<{
+    sourceWeek: number;
     sourceDayId: string;
     sourceDayOfWeek: DayOfWeek;
     targetWeek: number;
@@ -234,9 +261,9 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
   const isOwner = currentUser.role === Role.OWNER;
 
   useEffect(() => {
-    const loadWeeklyMenu = async () => {
+    const loadAllWeeklyMenus = async () => {
       if (!selectedUnitId) {
-        setWeeklyMenu(generateInitialMenu());
+        setWeeklyMenuByWeek(buildInitialWeeklyMenuByWeek());
         setMenuLoaded(false);
         return;
       }
@@ -244,36 +271,56 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       setMenuLoaded(false);
       setIsLoading(true);
       try {
-        const payload = await ApiService.getWeeklyMenu(selectedUnitId, type, selectedWeek, selectedMonth);
-        const nextDays = normalizeMenuDays(payload?.days || []);
-        setWeeklyMenu(nextDays);
+        const responses = await Promise.all(
+          WEEK_OPTIONS.map(async (week) => {
+            const payload = await ApiService.getWeeklyMenu(selectedUnitId, type, week, selectedMonth);
+            return [week, normalizeMenuDays(payload?.days || [])] as const;
+          })
+        );
+        const nextMap = responses.reduce((acc, [week, days]) => {
+          acc[week] = days;
+          return acc;
+        }, {} as Record<number, MenuDay[]>);
+        setWeeklyMenuByWeek(nextMap);
       } catch (error) {
         console.error('Erro ao carregar cardápio semanal:', error);
-        setWeeklyMenu(generateInitialMenu());
+        setWeeklyMenuByWeek(buildInitialWeeklyMenuByWeek());
       } finally {
         setMenuLoaded(true);
         setIsLoading(false);
       }
     };
 
-    loadWeeklyMenu();
-  }, [selectedUnitId, type, selectedWeek, selectedMonth]);
+    loadAllWeeklyMenus();
+  }, [selectedUnitId, type, selectedMonth]);
 
   useEffect(() => {
     if (!menuLoaded || !selectedUnitId) return;
     const timer = setTimeout(async () => {
       try {
-        await ApiService.saveWeeklyMenu(selectedUnitId, type, weeklyMenu, selectedWeek, selectedMonth);
+        await Promise.all(
+          WEEK_OPTIONS.map((week) =>
+            ApiService.saveWeeklyMenu(
+              selectedUnitId,
+              type,
+              weeklyMenuByWeek[week] || generateInitialMenu(),
+              week,
+              selectedMonth
+            )
+          )
+        );
       } catch (error) {
         console.error('Erro ao salvar cardápio semanal:', error);
       }
     }, 400);
     return () => clearTimeout(timer);
-  }, [weeklyMenu, selectedUnitId, type, selectedWeek, selectedMonth, menuLoaded]);
+  }, [weeklyMenuByWeek, selectedUnitId, type, selectedMonth, menuLoaded]);
 
-  const [editingItem, setEditingItem] = useState<{ dayId: string, item: MenuItem } | null>(null);
+  const [editingItem, setEditingItem] = useState<{ week: number, dayId: string, item: MenuItem } | null>(null);
   const [quickIngredientQuery, setQuickIngredientQuery] = useState('');
   const [quickIngredientWeight, setQuickIngredientWeight] = useState('100');
+  const [quickIngredientGramsEnabled, setQuickIngredientGramsEnabled] = useState(false);
+  const [quickIngredientHighlightedIndex, setQuickIngredientHighlightedIndex] = useState(-1);
   const [isQuickIngredientListOpen, setIsQuickIngredientListOpen] = useState(false);
   const [quickIngredientSuggestions, setQuickIngredientSuggestions] = useState<Ingredient[]>([]);
   const [isLoadingQuickIngredientSuggestions, setIsLoadingQuickIngredientSuggestions] = useState(false);
@@ -281,6 +328,8 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
   const [newItemPlanByDay, setNewItemPlanByDay] = useState<Record<string, string>>({});
   const [ingredientReplicateTargetId, setIngredientReplicateTargetId] = useState<string | null>(null);
   const [ingredientReplicateDays, setIngredientReplicateDays] = useState<(typeof DAYS_OF_WEEK)[number][]>([]);
+  const [draggingMenuItem, setDraggingMenuItem] = useState<{ week: number; dayId: string; itemId: string } | null>(null);
+  const [dragOverDayKey, setDragOverDayKey] = useState<string | null>(null);
 
   useEffect(() => {
     const loadPlans = async () => {
@@ -300,7 +349,24 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     loadPlans();
   }, [selectedUnitId]);
 
-  const addItemToDay = (dayId: string, planId?: string) => {
+  const updateWeekMenu = (week: number, updater: (days: MenuDay[]) => MenuDay[]) => {
+    setWeeklyMenuByWeek((prev) => {
+      const current = prev[week] || generateInitialMenu();
+      return {
+        ...prev,
+        [week]: updater(current),
+      };
+    });
+  };
+
+  const addItemToDay = (week: number, dayId: string, planId?: string) => {
+    const targetDay = (weeklyMenuByWeek[week] || generateInitialMenu()).find((day) => day.id === dayId);
+    const targetDate = targetDay ? getDayDateForWeek(week, targetDay.dayOfWeek as DayOfWeek) : null;
+    if (!targetDate) {
+      notificationService.alerta('Dia indisponível', 'Este dia está bloqueado no calendário escolar (feriado/recesso).');
+      return;
+    }
+
     if (plansCatalog.length > 0 && !planId) {
       notificationService.alerta('Plano obrigatório', 'Selecione um plano antes de criar o cardápio.');
       return;
@@ -315,14 +381,14 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       ingredients: [],
       planId: selectedPlan?.id,
     };
-    setWeeklyMenu(prev => prev.map(d => d.id === dayId ? { ...d, items: [...d.items, newItem] } : d));
-    setEditingItem({ dayId, item: newItem });
+    updateWeekMenu(week, (prev) => prev.map(d => d.id === dayId ? { ...d, items: [...d.items, newItem] } : d));
+    setEditingItem({ week, dayId, item: newItem });
     setOpenPlanPickerDayId(null);
   };
 
-  const removeItemFromDay = (dayId: string, itemId: string) => {
+  const removeItemFromDay = (week: number, dayId: string, itemId: string) => {
     if (window.confirm("Deseja remover este cardápio permanentemente?")) {
-      setWeeklyMenu(prev => prev.map(d => d.id === dayId ? { ...d, items: d.items.filter(i => i.id !== itemId) } : d));
+      updateWeekMenu(week, (prev) => prev.map(d => d.id === dayId ? { ...d, items: d.items.filter(i => i.id !== itemId) } : d));
     }
   };
 
@@ -334,7 +400,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       return;
     }
     setIngredientReplicateTargetId(ingredientId);
-    const currentDay = weeklyMenu.find((day) => day.id === editingItem.dayId)?.dayOfWeek;
+    const currentDay = (weeklyMenuByWeek[editingItem.week] || []).find((day) => day.id === editingItem.dayId)?.dayOfWeek;
     setIngredientReplicateDays(currentDay ? [currentDay] : []);
   };
 
@@ -344,12 +410,12 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     const sourceIngredient = editingItem.item.ingredients.find((ing) => ing.id === ingredientReplicateTargetId);
     if (!sourceIngredient) return;
 
-    const sourceDay = weeklyMenu.find((day) => day.id === editingItem.dayId);
+    const sourceDay = (weeklyMenuByWeek[editingItem.week] || []).find((day) => day.id === editingItem.dayId);
     if (!sourceDay) return;
 
     const appliedDays: string[] = [];
 
-    setWeeklyMenu((prev) => prev.map((day) => {
+    updateWeekMenu(editingItem.week, (prev) => prev.map((day) => {
       if (!ingredientReplicateDays.includes(day.dayOfWeek)) return day;
 
       const isCurrentDay = day.id === editingItem.dayId;
@@ -459,6 +525,18 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     );
   }, [editingItem, quickIngredientQuery, ingredientsCatalog]);
 
+  useEffect(() => {
+    if (!isQuickIngredientListOpen || quickIngredientSuggestions.length === 0) {
+      setQuickIngredientHighlightedIndex(-1);
+      return;
+    }
+    setQuickIngredientHighlightedIndex((prev) => {
+      if (prev < 0) return 0;
+      if (prev >= quickIngredientSuggestions.length) return quickIngredientSuggestions.length - 1;
+      return prev;
+    });
+  }, [isQuickIngredientListOpen, quickIngredientSuggestions]);
+
   const addIngredientFromQuickForm = (catalogIngredient?: Ingredient) => {
     if (!editingItem) return;
     const query = String(quickIngredientQuery || '').trim();
@@ -470,7 +548,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       || ingredientsCatalog.find((item) => normalizeSearchText(String(item.name || '')).includes(normalizedQuery))
       || ingredientsCatalog.find((item) => normalizeSearchText(String(item.category || '')).includes(normalizedQuery));
 
-    const weight = Math.max(1, Number(quickIngredientWeight || 0) || 100);
+    const weight = quickIngredientGramsEnabled ? Math.max(1, Number(quickIngredientWeight || 0) || 100) : 100;
     const base = resolvedIngredient || {
       id: Math.random().toString(36).substr(2, 9),
       name: query,
@@ -486,7 +564,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     const suffix = base.unit === 'un' ? `${weight} un` : `${weight}${base.unit}`;
     const ingredientToAdd: Ingredient = {
       id: Math.random().toString(36).substr(2, 9),
-      name: `${base.name} (${suffix})`,
+      name: quickIngredientGramsEnabled ? `${base.name} (${suffix})` : base.name,
       category: base.category,
       unit: base.unit,
       calories: Number((Number(base.calories || 0) * factor).toFixed(2)),
@@ -507,6 +585,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     });
     setQuickIngredientQuery('');
     setQuickIngredientWeight('100');
+    setQuickIngredientHighlightedIndex(-1);
     setIsQuickIngredientListOpen(false);
     setQuickIngredientSuggestions([]);
   };
@@ -524,7 +603,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
 
   const saveEditingItem = () => {
     if (!editingItem) return;
-    setWeeklyMenu(prev => prev.map(d => 
+    updateWeekMenu(editingItem.week, (prev) => prev.map(d => 
       d.id === editingItem.dayId 
         ? { ...d, items: d.items.map(i => i.id === editingItem.item.id ? editingItem.item : i) } 
         : d
@@ -548,22 +627,197 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
   }, [editingItem]);
   const editingDayLabel = useMemo(() => {
     if (!editingItem) return '';
-    return weeklyMenu.find((day) => day.id === editingItem.dayId)?.dayOfWeek || '';
-  }, [editingItem, weeklyMenu]);
+    return (weeklyMenuByWeek[editingItem.week] || []).find((day) => day.id === editingItem.dayId)?.dayOfWeek || '';
+  }, [editingItem, weeklyMenuByWeek]);
   const selectedPlanName = useMemo(() => {
     if (!editingItem?.item?.planId) return '';
     return plansCatalog.find((plan) => plan.id === editingItem.item.planId)?.name || '';
   }, [editingItem, plansCatalog]);
-  const dayDateMap = useMemo(() => {
-    return DAYS_OF_WEEK.reduce<Record<DayOfWeek, Date | null>>((acc, dayOfWeek) => {
-      acc[dayOfWeek] = getDateForWeekAndDay(selectedMonth, selectedWeek, dayOfWeek);
-      return acc;
-    }, {} as Record<DayOfWeek, Date | null>);
-  }, [selectedMonth, selectedWeek]);
+  const getDayDateForWeek = (week: number, dayOfWeek: DayOfWeek) => {
+    const resolved = getDateForWeekAndDay(selectedMonth, week, dayOfWeek);
+    return isSchoolDateAllowed(resolved) ? resolved : null;
+  };
+  const getExistingDayKeysForWeek = (week: number): DayOfWeek[] => {
+    const weekMenu = weeklyMenuByWeek[week] || [];
+    return weekMenu
+      .map((day) => day.dayOfWeek as DayOfWeek)
+      .filter((dayKey) => Boolean(getDayDateForWeek(week, dayKey)));
+  };
 
-  const selectedEnterpriseName = enterprises.find(ent => ent.id === selectedUnitId)?.name || activeEnterprise?.name || 'Unidade';
+  const PLAN_CARD_COLORS = [
+    {
+      bg: 'bg-blue-100 dark:bg-blue-900/65',
+      border: 'border-blue-400 dark:border-blue-600',
+      badge: 'text-blue-800 dark:text-blue-200',
+      title: 'text-blue-950 dark:text-blue-100',
+      text: 'text-blue-900/80 dark:text-blue-100/90',
+      kcal: 'text-blue-700 dark:text-blue-200',
+    },
+    {
+      bg: 'bg-emerald-100 dark:bg-emerald-900/65',
+      border: 'border-emerald-400 dark:border-emerald-600',
+      badge: 'text-emerald-800 dark:text-emerald-200',
+      title: 'text-emerald-950 dark:text-emerald-100',
+      text: 'text-emerald-900/80 dark:text-emerald-100/90',
+      kcal: 'text-emerald-700 dark:text-emerald-200',
+    },
+    {
+      bg: 'bg-amber-100 dark:bg-amber-900/65',
+      border: 'border-amber-400 dark:border-amber-600',
+      badge: 'text-amber-800 dark:text-amber-200',
+      title: 'text-amber-950 dark:text-amber-100',
+      text: 'text-amber-900/80 dark:text-amber-100/90',
+      kcal: 'text-amber-700 dark:text-amber-200',
+    },
+    {
+      bg: 'bg-rose-100 dark:bg-rose-900/65',
+      border: 'border-rose-400 dark:border-rose-600',
+      badge: 'text-rose-800 dark:text-rose-200',
+      title: 'text-rose-950 dark:text-rose-100',
+      text: 'text-rose-900/80 dark:text-rose-100/90',
+      kcal: 'text-rose-700 dark:text-rose-200',
+    },
+    {
+      bg: 'bg-indigo-100 dark:bg-indigo-900/65',
+      border: 'border-indigo-400 dark:border-indigo-600',
+      badge: 'text-indigo-800 dark:text-indigo-200',
+      title: 'text-indigo-950 dark:text-indigo-100',
+      text: 'text-indigo-900/80 dark:text-indigo-100/90',
+      kcal: 'text-indigo-700 dark:text-indigo-200',
+    },
+    {
+      bg: 'bg-cyan-100 dark:bg-cyan-900/65',
+      border: 'border-cyan-400 dark:border-cyan-600',
+      badge: 'text-cyan-800 dark:text-cyan-200',
+      title: 'text-cyan-950 dark:text-cyan-100',
+      text: 'text-cyan-900/80 dark:text-cyan-100/90',
+      kcal: 'text-cyan-700 dark:text-cyan-200',
+    },
+  ] as const;
 
-  const toggleDayDuplicatePicker = (day: MenuDay) => {
+  const getPlanCardColor = (planId?: string, fallbackName?: string) => {
+    if (!plansCatalog.length) return PLAN_CARD_COLORS[0];
+    let index = -1;
+    if (planId) {
+      index = plansCatalog.findIndex((plan) => plan.id === planId);
+    }
+    if (index < 0) {
+      const key = String(fallbackName || 'PLANO').toUpperCase();
+      const hash = key.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      index = hash % plansCatalog.length;
+    }
+    return PLAN_CARD_COLORS[index % PLAN_CARD_COLORS.length];
+  };
+
+  const handleDropMenuItem = (targetWeek: number, targetDayId: string) => {
+    if (!draggingMenuItem) return;
+    if (draggingMenuItem.week === targetWeek && draggingMenuItem.dayId === targetDayId) {
+      setDraggingMenuItem(null);
+      setDragOverDayKey(null);
+      return;
+    }
+
+    setWeeklyMenuByWeek((prev) => {
+      const sourceWeekDays = (prev[draggingMenuItem.week] || generateInitialMenu()).map((day) => ({
+        ...day,
+        items: [...day.items],
+      }));
+      const targetWeekDays = draggingMenuItem.week === targetWeek
+        ? sourceWeekDays
+        : (prev[targetWeek] || generateInitialMenu()).map((day) => ({
+            ...day,
+            items: [...day.items],
+          }));
+
+      const sourceDayIndex = sourceWeekDays.findIndex((day) => day.id === draggingMenuItem.dayId);
+      const targetDayIndex = targetWeekDays.findIndex((day) => day.id === targetDayId);
+      if (sourceDayIndex < 0 || targetDayIndex < 0) return prev;
+
+      const sourceItems = sourceWeekDays[sourceDayIndex].items;
+      const sourceItemIndex = sourceItems.findIndex((item) => item.id === draggingMenuItem.itemId);
+      if (sourceItemIndex < 0) return prev;
+
+      const [movedItem] = sourceItems.splice(sourceItemIndex, 1);
+      targetWeekDays[targetDayIndex].items.push(movedItem);
+
+      return {
+        ...prev,
+        [draggingMenuItem.week]: sourceWeekDays,
+        [targetWeek]: targetWeekDays,
+      };
+    });
+
+    setDraggingMenuItem(null);
+    setDragOverDayKey(null);
+  };
+
+  const selectedEnterprise = useMemo(() => {
+    return enterprises.find((ent) => ent.id === selectedUnitId)
+      || (activeEnterprise?.id === selectedUnitId ? activeEnterprise : null)
+      || activeEnterprise
+      || null;
+  }, [enterprises, selectedUnitId, activeEnterprise]);
+
+  const activeServiceDays = useMemo(() => {
+    return getActiveServiceDaysFromOpeningHours(selectedEnterprise?.openingHours);
+  }, [selectedEnterprise]);
+
+  useEffect(() => {
+    const enterpriseId = String(selectedUnitId || '').trim();
+    const [yearRaw] = String(selectedMonth || '').split('-');
+    const schoolYear = Number(yearRaw);
+
+    if (!enterpriseId || !Number.isFinite(schoolYear)) {
+      setSchoolCalendarBlockedDates([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadSchoolCalendar = async () => {
+      try {
+        const payload = await ApiService.getSchoolCalendar(enterpriseId, schoolYear);
+        if (cancelled) return;
+
+        const extracted = extractSchoolCalendarOperationalData(payload, schoolYear);
+        const blockedDates = extracted.blockedDates;
+        const eventTitles = extracted.eventTitlesByDate;
+
+        setSchoolCalendarBlockedDates(blockedDates);
+        setSchoolCalendarEventByDate(eventTitles);
+      } catch (error) {
+        console.error('Erro ao carregar calendário escolar (cardápio):', error);
+        if (!cancelled) {
+          setSchoolCalendarBlockedDates([]);
+          setSchoolCalendarEventByDate({});
+        }
+      }
+    };
+
+    void loadSchoolCalendar();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedUnitId, selectedMonth]);
+
+  const activeServiceDaySet = useMemo(() => new Set(activeServiceDays), [activeServiceDays]);
+  const schoolCalendarBlockedDateSet = useMemo(() => new Set(schoolCalendarBlockedDates), [schoolCalendarBlockedDates]);
+  const isSchoolDateAllowed = (date: Date | null) => {
+    if (!date) return false;
+    const key = `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`;
+    return !schoolCalendarBlockedDateSet.has(key);
+  };
+
+  const getSchoolEventTitle = (date: Date | null): string | null => {
+    if (!date) return null;
+    const key = `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`;
+    return schoolCalendarEventByDate[key] || null;
+  };
+
+  const selectedEnterpriseName = selectedEnterprise?.name || 'Unidade';
+
+  const toggleDayDuplicatePicker = (week: number, day: MenuDay) => {
     const isSameTarget = dayDuplicateTarget?.sourceDayId === day.id;
     if (isSameTarget) {
       setDayDuplicateTarget(null);
@@ -572,9 +826,10 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     const dayIndex = DAYS_OF_WEEK.findIndex((key) => key === day.dayOfWeek);
     const suggestedDay = DAYS_OF_WEEK[(dayIndex + 1 + DAYS_OF_WEEK.length) % DAYS_OF_WEEK.length];
     setDayDuplicateTarget({
+      sourceWeek: week,
       sourceDayId: day.id,
       sourceDayOfWeek: day.dayOfWeek as DayOfWeek,
-      targetWeek: selectedWeek,
+      targetWeek: week,
       targetDayOfWeek: suggestedDay,
     });
   };
@@ -582,13 +837,13 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
   const applyDayDuplication = async () => {
     if (!dayDuplicateTarget || !selectedUnitId) return;
 
-    const { sourceDayId, sourceDayOfWeek, targetWeek, targetDayOfWeek } = dayDuplicateTarget;
-    if (targetWeek === selectedWeek && targetDayOfWeek === sourceDayOfWeek) {
+    const { sourceWeek, sourceDayId, sourceDayOfWeek, targetWeek, targetDayOfWeek } = dayDuplicateTarget;
+    if (targetWeek === sourceWeek && targetDayOfWeek === sourceDayOfWeek) {
       notificationService.alerta('Destino inválido', 'Selecione uma semana/dia diferente da origem.');
       return;
     }
 
-    const sourceDay = weeklyMenu.find((day) => day.id === sourceDayId);
+    const sourceDay = (weeklyMenuByWeek[sourceWeek] || []).find((day) => day.id === sourceDayId);
     if (!sourceDay) {
       notificationService.alerta('Origem não encontrada', 'Não foi possível localizar o dia de origem.');
       return;
@@ -596,8 +851,8 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
 
     setIsLoading(true);
     try {
-      if (targetWeek === selectedWeek) {
-        setWeeklyMenu((prev) =>
+      if (targetWeek === sourceWeek) {
+        updateWeekMenu(targetWeek, (prev) =>
           prev.map((day) =>
             day.dayOfWeek === targetDayOfWeek
               ? { ...day, items: cloneMenuItems(sourceDay.items) }
@@ -605,13 +860,13 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
           )
         );
       } else {
-        const payload = await ApiService.getWeeklyMenu(selectedUnitId, type, targetWeek, selectedMonth);
-        const targetWeekDays = normalizeMenuDays(payload?.days || []);
+        const targetWeekDays = (weeklyMenuByWeek[targetWeek] || generateInitialMenu());
         const nextDays = targetWeekDays.map((day) =>
           day.dayOfWeek === targetDayOfWeek
             ? { ...day, items: cloneMenuItems(sourceDay.items) }
             : day
         );
+        setWeeklyMenuByWeek((prev) => ({ ...prev, [targetWeek]: nextDays }));
         await ApiService.saveWeeklyMenu(selectedUnitId, type, nextDays, targetWeek, selectedMonth);
       }
 
@@ -656,260 +911,427 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
   };
 
   const exportWeeklyCalendarPdf = () => {
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-    const generatedAt = new Date();
-    const dayHeaders = weeklyMenu.map((day) => {
-      const dayKey = day.dayOfWeek as DayOfWeek;
-      const date = dayDateMap[dayKey] || null;
-      return `${day.dayOfWeek}\n${formatDateFullBr(date)}`;
-    });
-    const dayHeaderColors: [number, number, number][] = [
-      [30, 58, 138],   // SEG
-      [37, 99, 235],   // TER
-      [79, 70, 229],   // QUA
-      [22, 163, 74],   // QUI
-      [245, 158, 11],  // SEX
-      [124, 58, 237],  // SAB
-    ];
-    const getPlanPalette = (rawName: string) => {
-      const name = String(rawName || '').toUpperCase();
-      if (name.includes('ALMO')) {
-        return {
-          badge: [37, 99, 235] as [number, number, number],
-          cardBg: [239, 246, 255] as [number, number, number],
-          border: [147, 197, 253] as [number, number, number],
-          text: [30, 58, 138] as [number, number, number],
-        };
-      }
-      if (name.includes('LANCHE')) {
-        return {
-          badge: [245, 158, 11] as [number, number, number],
-          cardBg: [255, 251, 235] as [number, number, number],
-          border: [252, 211, 77] as [number, number, number],
-          text: [146, 64, 14] as [number, number, number],
-        };
-      }
-      if (name.includes('KIDS')) {
-        return {
-          badge: [236, 72, 153] as [number, number, number],
-          cardBg: [253, 242, 248] as [number, number, number],
-          border: [244, 114, 182] as [number, number, number],
-          text: [157, 23, 77] as [number, number, number],
-        };
-      }
-      if (name.includes('FIT') || name.includes('SAUD')) {
-        return {
-          badge: [16, 185, 129] as [number, number, number],
-          cardBg: [236, 253, 245] as [number, number, number],
-          border: [110, 231, 183] as [number, number, number],
-          text: [6, 95, 70] as [number, number, number],
-        };
-      }
-      if (name.includes('PREMIUM') || name.includes('ESPECIAL')) {
-        return {
-          badge: [124, 58, 237] as [number, number, number],
-          cardBg: [245, 243, 255] as [number, number, number],
-          border: [167, 139, 250] as [number, number, number],
-          text: [76, 29, 149] as [number, number, number],
-        };
-      }
-      return {
-        badge: [79, 70, 229] as [number, number, number],
-        cardBg: [243, 244, 246] as [number, number, number],
-        border: [209, 213, 219] as [number, number, number],
-        text: [31, 41, 55] as [number, number, number],
-      };
+    const [yearRaw, monthRaw] = String(selectedMonth || '').split('-');
+    const year = Number(yearRaw);
+    const month = Number(monthRaw);
+    if (!year || !month || month < 1 || month > 12) {
+      notificationService.alerta('Mês inválido', 'Selecione um mês válido antes de exportar.');
+      return;
+    }
+
+    type CalendarDayCard = {
+      week: number;
+      dayOfWeek: DayOfWeek;
+      date: Date | null;
+      items: MenuItem[];
     };
 
-    const tableRows = [weeklyMenu.map(() => '')];
+    if (activeServiceDays.length === 0) {
+      notificationService.alerta('Sem dias ativos', 'Nenhum dia de atendimento está ativo em Ajustes > Atendimento.');
+      return;
+    }
 
-    // Header premium
-    doc.setFillColor(15, 23, 42);
-    doc.rect(0, 0, 297, 28, 'F');
-    doc.setFillColor(255, 255, 255);
-    doc.roundedRect(12, 8, 15, 15, 2.5, 2.5, 'F');
-    doc.setTextColor(15, 23, 42);
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
-    doc.text('CA', 16.2, 17.8);
+    const calendarRows: CalendarDayCard[][] = WEEK_OPTIONS.map((week) => {
+      const weekDays = weeklyMenuByWeek[week] || [];
+      return activeServiceDays.map((dayOfWeek) => {
+        const matchedDay = weekDays.find((day) => day.dayOfWeek === dayOfWeek);
+        return {
+          week,
+          dayOfWeek,
+          date: getDayDateForWeek(week, dayOfWeek),
+          items: Array.isArray(matchedDay?.items) ? matchedDay!.items : [],
+        };
+      });
+    }).filter((row) => row.some((cell) => Boolean(cell.date)));
 
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(16);
-    doc.setFont('helvetica', 'bold');
-    doc.text('CALENDARIO DE CARDAPIO LOCAL', 33, 14.5);
-    doc.setFontSize(9.5);
-    doc.setFont('helvetica', 'normal');
-    doc.text(String(selectedEnterpriseName || 'CANTINA ALFA').toUpperCase(), 33, 20.5);
+    const hasAnyPlan = calendarRows.some((row) => row.some((cell) => cell.date && cell.items.length > 0));
+    if (!hasAnyPlan) {
+      notificationService.alerta('Sem planos no mês', 'Não há dias com planos cadastrados para exportar neste mês.');
+      return;
+    }
 
-    doc.setTextColor(31, 41, 55);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10.2);
-    doc.text(`Cardapio ${selectedWeek}ª Semana (${formatMonthLabel(selectedMonth)}) | Unidade: ${selectedEnterpriseName} | Refeicao: ${type === 'ALMOCO' ? 'Almoco' : 'Lanche'}`, 14, 35);
-    doc.text(
-      `Gerado em: ${generatedAt.toLocaleDateString('pt-BR')} ${generatedAt.toLocaleTimeString('pt-BR')}`,
-      205,
-      35
-    );
-    doc.setDrawColor(229, 231, 235);
-    doc.line(10, 38, 287, 38);
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const generatedAt = new Date();
+    const planNameById = new Map(plansCatalog.map((plan) => [plan.id, plan.name]));
 
-    autoTable(doc, {
-      startY: 42,
-      head: [dayHeaders],
-      body: tableRows,
-      styles: {
-        fontSize: 8.2,
-        cellPadding: 3.2,
-        valign: 'top',
-        halign: 'left',
-        overflow: 'linebreak',
-        lineColor: [241, 245, 249],
-        lineWidth: 0,
-        minCellHeight: 110,
-      },
-      headStyles: {
-        fillColor: [30, 58, 138],
-        textColor: [255, 255, 255],
-        fontStyle: 'bold',
-        halign: 'center',
-        valign: 'middle',
-        minCellHeight: 16.5,
-      },
-      theme: 'plain',
-      margin: { left: 10, right: 10, top: 42, bottom: 20 },
-      didParseCell: (data) => {
-        if (data.section === 'head') {
-          const color = dayHeaderColors[data.column.index] || [30, 58, 138];
-          data.cell.styles.fillColor = color;
-          data.cell.styles.textColor = [255, 255, 255];
-          data.cell.styles.fontStyle = 'bold';
-        }
-        if (data.section === 'body') {
-          data.cell.text = [''];
-        }
-      },
-      didDrawCell: (data) => {
-        if (data.section !== 'body') return;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const marginX = 10;
+    const tableStartY = 44;
+    const bottomMargin = 12;
+    const tableWidth = pageWidth - marginX * 2;
+    const contentAreaHeight = pageHeight - tableStartY - bottomMargin;
+    const colHeaderH = 9;
+    const colCount = activeServiceDays.length;
+    const colW = tableWidth / colCount;
+    const maxWeeksPerPage = Math.max(1, Math.min(3, calendarRows.length));
 
-        const day = weeklyMenu[data.column.index];
-        if (!day) return;
+    const weekdayColor: Record<DayOfWeek, [number, number, number]> = {
+      SEGUNDA: [37, 99, 235],
+      TERCA: [79, 70, 229],
+      QUARTA: [16, 185, 129],
+      QUINTA: [245, 158, 11],
+      SEXTA: [236, 72, 153],
+      SABADO: [14, 165, 233],
+    };
 
-        const x = data.cell.x + 1.5;
-        const y = data.cell.y + 2;
-        const w = data.cell.width - 3;
-        const h = data.cell.height - 4;
+    const pdfPlanColors = [
+      { bg: [239, 246, 255] as [number, number, number], border: [147, 197, 253] as [number, number, number], text: [30, 64, 175] as [number, number, number] },
+      { bg: [236, 253, 245] as [number, number, number], border: [110, 231, 183] as [number, number, number], text: [6, 95, 70] as [number, number, number] },
+      { bg: [255, 251, 235] as [number, number, number], border: [252, 211, 77] as [number, number, number], text: [146, 64, 14] as [number, number, number] },
+      { bg: [253, 242, 248] as [number, number, number], border: [244, 114, 182] as [number, number, number], text: [157, 23, 77] as [number, number, number] },
+      { bg: [245, 243, 255] as [number, number, number], border: [167, 139, 250] as [number, number, number], text: [91, 33, 182] as [number, number, number] },
+      { bg: [236, 254, 255] as [number, number, number], border: [103, 232, 249] as [number, number, number], text: [14, 116, 144] as [number, number, number] },
+    ];
 
-        let cursorY = y;
-        const cardGap = 2;
+    const getPdfPlanPalette = (item: MenuItem, index: number) => {
+      if (item.planId) {
+        const planIndex = plansCatalog.findIndex((plan) => plan.id === item.planId);
+        if (planIndex >= 0) return pdfPlanColors[planIndex % pdfPlanColors.length];
+      }
+      return pdfPlanColors[index % pdfPlanColors.length];
+    };
 
-        if (!day.items.length) {
-          // vazio também em formato de card (sem texto solto)
-          doc.setFillColor(249, 250, 251);
-          doc.setDrawColor(209, 213, 219);
-          doc.roundedRect(x, cursorY, w, 18, 1.5, 1.5, 'FD');
-          doc.setFontSize(8.5);
-          doc.setTextColor(156, 163, 175);
-          doc.setFont('helvetica', 'italic');
-          doc.text('Sem cardapio', x + 3, cursorY + 10);
-          doc.setFont('helvetica', 'normal');
-          return;
-        }
+    const drawPageHeader = () => {
+      doc.setFillColor(15, 23, 42);
+      doc.rect(0, 0, pageWidth, 28, 'F');
 
-        for (let i = 0; i < day.items.length; i += 1) {
-          const item = day.items[i];
-          const palette = getPlanPalette(item.name || '');
-          const badgeText = String(item.name || 'CARDAPIO').toUpperCase();
-          const description = String(item.description || '').trim();
-          const ingredients = item.ingredients.length
-            ? item.ingredients.map((ing) => ing.name)
-            : ['Composicao nao definida'];
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(12, 8, 15, 15, 2.5, 2.5, 'F');
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('CA', 16.2, 17.8);
 
-          // Estimate card height
-          const ingredientLines: string[] = [];
-          ingredients.forEach((ingredient) => {
-            const wrapped = doc.splitTextToSize(`${ingredient}`, w - 8);
-            ingredientLines.push(...wrapped.slice(0, 2));
-          });
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(15.5);
+      doc.text('GRADE MENSAL DE CARDAPIO', 33, 14.2);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.2);
+      doc.text(String(selectedEnterpriseName || 'UNIDADE').toUpperCase(), 33, 20.2);
 
-          const maxIngredientLines = 8;
-          const visibleIngredientLines = ingredientLines.slice(0, maxIngredientLines);
-          const hiddenCount = ingredientLines.length - visibleIngredientLines.length;
-          const hasDescription = Boolean(description);
-          const cardHeight = (hasDescription ? 22 : 18) + visibleIngredientLines.length * 3 + (hiddenCount > 0 ? 3 : 0);
+      doc.setTextColor(31, 41, 55);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.text(
+        `${formatMonthLabel(selectedMonth)} | Unidade: ${selectedEnterpriseName} | Refeicao: ${type === 'ALMOCO' ? 'Almoco' : 'Lanche'}`,
+        14,
+        35
+      );
+      doc.text(
+        `Gerado em: ${generatedAt.toLocaleDateString('pt-BR')} ${generatedAt.toLocaleTimeString('pt-BR')}`,
+        pageWidth - 86,
+        35
+      );
+      doc.setDrawColor(229, 231, 235);
+      doc.line(10, 38, pageWidth - 10, 38);
+    };
 
-          if (cursorY + cardHeight > y + h) {
-            // evita texto solto fora do bloco
-            break;
-          }
-
-          // Card container (premium: branco com barra lateral)
-          doc.setFillColor(255, 255, 255);
-          doc.setDrawColor(226, 232, 240);
-          doc.roundedRect(x, cursorY, w, cardHeight, 2, 2, 'FD');
-          doc.setFillColor(palette.badge[0], palette.badge[1], palette.badge[2]);
-          doc.roundedRect(x, cursorY, 1.8, cardHeight, 1, 1, 'F');
-
-          // Badge (etiqueta colorida)
-          doc.setFillColor(palette.cardBg[0], palette.cardBg[1], palette.cardBg[2]);
-          doc.setDrawColor(palette.border[0], palette.border[1], palette.border[2]);
-          const badgeWidth = Math.min(w - 6, 34);
-          doc.roundedRect(x + 3, cursorY + 1.8, badgeWidth, 5.2, 1.2, 1.2, 'FD');
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(7.4);
-          doc.setTextColor(palette.text[0], palette.text[1], palette.text[2]);
-          const badgeWrapped = doc.splitTextToSize(badgeText, badgeWidth - 2).slice(0, 1);
-          doc.text(badgeWrapped[0], x + 4.2, cursorY + 5.6);
-
-          // Description
-          let ingredientsTitleY = cursorY + 10.7;
-          if (hasDescription) {
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(6.6);
-            doc.setTextColor(107, 114, 128);
-            const descLine = doc.splitTextToSize(description, w - 8).slice(0, 1);
-            doc.text(descLine[0], x + 3, cursorY + 10.7);
-            ingredientsTitleY = cursorY + 14.2;
-          }
-
-          // Ingredients title
-          doc.setFont('helvetica', 'bold');
-          doc.setTextColor(palette.text[0], palette.text[1], palette.text[2]);
-          doc.text('Insumos:', x + 3, ingredientsTitleY);
-
-          // Ingredients list with subtle circle marker
-          doc.setFont('helvetica', 'normal');
-          doc.setTextColor(55, 65, 81);
-          let lineY = ingredientsTitleY + 3;
-          visibleIngredientLines.forEach((line) => {
-            doc.setFillColor(148, 163, 184);
-            doc.circle(x + 4.2, lineY - 0.9, 0.45, 'F');
-            doc.text(line, x + 5.4, lineY);
-            lineY += 3;
-          });
-          if (hiddenCount > 0) {
-            doc.setFontSize(7);
-            doc.setTextColor(107, 114, 128);
-            doc.text(`+${hiddenCount} item(ns)`, x + 2.8, lineY);
-          }
-
-          cursorY += cardHeight + cardGap;
-        }
-      },
-    });
-
-    const footerY = doc.internal.pageSize.getHeight() - 10;
-    doc.setDrawColor(209, 213, 219);
-    doc.line(10, footerY - 4, 287, footerY - 4);
-    doc.setTextColor(107, 114, 128);
-    doc.setFontSize(8.2);
-    doc.setFont('helvetica', 'normal');
-    doc.text(
-      `Sujeito a alteracoes conforme disponibilidade de estoque • Emissao: ${generatedAt.toLocaleDateString('pt-BR')} ${generatedAt.toLocaleTimeString('pt-BR')}`,
-      14,
-      footerY
+    const getPlanItems = (item: MenuItem) => (
+      (item.ingredients?.length || 0) > 0
+        ? item.ingredients.map((ing) => String(ing.name || ''))
+        : [String(item.description || 'Sem insumos definidos')]
     );
 
-    const fileName = `cardapio_local_${selectedMonth}_semana_${selectedWeek}_${selectedEnterpriseName
+    const truncatePdfText = (value: string, maxWidth: number) => {
+      const lines = doc.splitTextToSize(String(value || ''), maxWidth);
+      if (lines.length <= 1) return lines[0] || '';
+      let base = String(lines[0] || '').trim();
+      while (base.length > 0 && doc.getTextWidth(`${base}...`) > maxWidth) {
+        base = base.slice(0, -1).trimEnd();
+      }
+      return `${base}...`;
+    };
+
+    const drawTableColumnHeaders = (startY: number) => {
+      activeServiceDays.forEach((day, i) => {
+        const cx = marginX + i * colW;
+        const accent = weekdayColor[day] || [79, 70, 229];
+        doc.setFillColor(accent[0], accent[1], accent[2]);
+        doc.rect(cx, startY, colW, colHeaderH, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.text(day, cx + colW / 2, startY + 6, { align: 'center' });
+      });
+      doc.setDrawColor(150, 150, 150);
+      doc.setLineWidth(0.35);
+      doc.rect(marginX, startY, tableWidth, colHeaderH);
+      for (let i = 1; i < colCount; i += 1) {
+        const lx = marginX + i * colW;
+        doc.line(lx, startY, lx, startY + colHeaderH);
+      }
+    };
+
+    const drawTableGrid = (startY: number, rowHeights: number[]) => {
+      const totalH = rowHeights.reduce((a, b) => a + b, 0);
+      doc.setDrawColor(180, 180, 180);
+      doc.setLineWidth(0.25);
+      doc.rect(marginX, startY, tableWidth, totalH);
+      let rCursorY = startY;
+      for (let r = 0; r < rowHeights.length - 1; r += 1) {
+        rCursorY += rowHeights[r];
+        doc.line(marginX, rCursorY, marginX + tableWidth, rCursorY);
+      }
+      for (let c = 1; c < colCount; c += 1) {
+        const lx = marginX + c * colW;
+        doc.line(lx, startY, lx, startY + totalH);
+      }
+    };
+
+    const cellPaddingTop = 9;
+    const titleFontSize = 5.9;
+    const bodyFontSize = 6.5;
+    const titleLineHeight = 2.8;
+    const itemLineHeight = 3.6;
+    const itemColumnGap = 1.4;
+
+    const calcCellNaturalHeight = (
+      entry: CalendarDayCard,
+      state: { planIndex: number; itemOffset: number }
+    ): number => {
+      if (!entry.date || entry.items.length === 0) return cellPaddingTop + 4;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(titleFontSize);
+      let lineY = cellPaddingTop + 1.6;
+      let currentPlanIndex = state.planIndex;
+      let currentItemOffset = state.itemOffset;
+      while (currentPlanIndex < entry.items.length) {
+        const item = entry.items[currentPlanIndex];
+        const planName = item.planId
+          ? (planNameById.get(item.planId) || item.name || `Plano ${currentPlanIndex + 1}`)
+          : (item.name || `Plano ${currentPlanIndex + 1}`);
+        const titleLabel = `${currentPlanIndex + 1}. ${String(planName)}`;
+        const wrappedPlan = doc.splitTextToSize(titleLabel, colW - 5).slice(0, 2);
+        const planItems = getPlanItems(item);
+        const remainingItems = planItems.slice(currentItemOffset);
+        const titleHeight = wrappedPlan.length * titleLineHeight;
+        const rowsNeeded = Math.ceil(remainingItems.length / 2);
+        const blockHeight = 2.3 + titleHeight + rowsNeeded * itemLineHeight + 0.8;
+        lineY += blockHeight + 0.35;
+        if (currentPlanIndex + 1 < entry.items.length) lineY += 0.45;
+        currentPlanIndex += 1;
+        currentItemOffset = 0;
+      }
+      return lineY + 1.5;
+    };
+
+    const drawCalendarCellTable = (
+      entry: CalendarDayCard,
+      weekNum: number,
+      isFirstCell: boolean,
+      x: number,
+      y: number,
+      w: number,
+      h: number,
+      state: { planIndex: number; itemOffset: number }
+    ) => {
+      doc.setFillColor(255, 255, 255);
+      doc.rect(x, y, w, h, 'F');
+
+      if (!entry.date) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(x, y, w, h, 'F');
+        return state;
+      }
+
+      const accent = weekdayColor[entry.dayOfWeek] || [79, 70, 229];
+
+      if (isFirstCell) {
+        doc.setTextColor(100, 116, 139);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(5.2);
+        doc.text(`${weekNum}ª SEM`, x + 1.5, y + 3.8);
+      }
+
+      doc.setFillColor(accent[0], accent[1], accent[2]);
+      doc.roundedRect(x + w - 10.5, y + 1.6, 9, 5.8, 1, 1, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.6);
+      doc.text(String(entry.date.getDate()).padStart(2, '0'), x + w - 6, y + 5.9, { align: 'center' });
+
+      doc.setDrawColor(accent[0], accent[1], accent[2]);
+      doc.setLineWidth(0.4);
+      doc.line(x, y + cellPaddingTop, x + w, y + cellPaddingTop);
+
+      const contentBottom = y + h - 1;
+      if (entry.items.length === 0) return state;
+
+      const itemColumnWidth = (w - 5 - itemColumnGap) / 2;
+      let lineY = y + cellPaddingTop + 1.2;
+      let currentPlanIndex = state.planIndex;
+      let currentItemOffset = state.itemOffset;
+
+      while (currentPlanIndex < entry.items.length) {
+        const item = entry.items[currentPlanIndex];
+        const palette = getPdfPlanPalette(item, currentPlanIndex);
+        const planName = item.planId
+          ? (planNameById.get(item.planId) || item.name || `Plano ${currentPlanIndex + 1}`)
+          : (item.name || `Plano ${currentPlanIndex + 1}`);
+        const titleLabel = `${currentPlanIndex + 1}. ${String(planName)}${currentItemOffset > 0 ? ' (cont.)' : ''}`;
+        const wrappedPlan = doc.splitTextToSize(titleLabel, w - 5).slice(0, 2);
+        const planItems = getPlanItems(item);
+        const remainingItems = planItems.slice(currentItemOffset);
+        const titleHeight = wrappedPlan.length * titleLineHeight;
+        const availableItemsHeight = contentBottom - lineY - titleHeight - 4.2;
+        const rowsThatFit = Math.floor(availableItemsHeight / itemLineHeight);
+
+        if (rowsThatFit <= 0) {
+          break;
+        }
+
+        const rowsNeeded = Math.ceil(remainingItems.length / 2);
+        const rowsToRender = Math.min(rowsNeeded, rowsThatFit);
+        const itemsToRenderCount = Math.min(remainingItems.length, rowsToRender * 2);
+        const blockHeight = 2.3 + titleHeight + rowsToRender * itemLineHeight + 0.8;
+
+        if ((lineY + blockHeight) > contentBottom) {
+          break;
+        }
+
+        doc.setFillColor(palette.bg[0], palette.bg[1], palette.bg[2]);
+        doc.setDrawColor(palette.border[0], palette.border[1], palette.border[2]);
+        doc.roundedRect(x + 1, lineY - 0.7, w - 2, blockHeight, 0.8, 0.8, 'FD');
+
+        let planLineY = lineY + 1.35;
+
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(palette.text[0], palette.text[1], palette.text[2]);
+        doc.setFontSize(titleFontSize);
+        wrappedPlan.forEach((line: string) => {
+          doc.text(line, x + 1.8, planLineY);
+          planLineY += titleLineHeight;
+        });
+
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(71, 85, 105);
+        doc.setFontSize(bodyFontSize);
+
+        for (let ri = 0; ri < rowsToRender; ri += 1) {
+          const leftItem = remainingItems[ri * 2];
+          const rightItem = remainingItems[ri * 2 + 1];
+          const rowY = planLineY + ri * itemLineHeight + 0.35;
+          if (leftItem) {
+            doc.text(truncatePdfText(`• ${leftItem}`, itemColumnWidth), x + 2, rowY);
+          }
+          if (rightItem) {
+            doc.text(truncatePdfText(`• ${rightItem}`, itemColumnWidth), x + 2 + itemColumnWidth + itemColumnGap, rowY);
+          }
+        }
+
+        lineY += blockHeight + 0.35;
+        currentItemOffset += itemsToRenderCount;
+
+        if (currentItemOffset >= planItems.length) {
+          currentPlanIndex += 1;
+          currentItemOffset = 0;
+        }
+
+        if (currentPlanIndex < entry.items.length && lineY < contentBottom - 0.8) {
+          doc.setDrawColor(203, 213, 225);
+          doc.setLineWidth(0.2);
+          doc.line(x + 1.5, lineY, x + w - 1.5, lineY);
+          lineY += 0.45;
+        }
+      }
+
+      return { planIndex: currentPlanIndex, itemOffset: currentItemOffset };
+    };
+
+    const drawFooter = () => {
+      const footerY = pageHeight - 7;
+      doc.setDrawColor(209, 213, 219);
+      doc.line(10, footerY - 3.2, pageWidth - 10, footerY - 3.2);
+      doc.setTextColor(107, 114, 128);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.text(
+        `Relatorio mensal de cardapio • Emissao: ${generatedAt.toLocaleDateString('pt-BR')} ${generatedAt.toLocaleTimeString('pt-BR')}`,
+        14,
+        footerY
+      );
+    };
+
+    const rowStates = calendarRows.map((row) => row.map(() => ({ planIndex: 0, itemOffset: 0 })));
+    const hasRemainingContentInRange = (startRow: number, endRow: number) => {
+      return calendarRows.slice(startRow, endRow).some((row, localRowIndex) => row.some((cell, colIndex) => {
+        if (!cell.date || cell.items.length === 0) return false;
+        return rowStates[startRow + localRowIndex][colIndex].planIndex < cell.items.length;
+      }));
+    };
+
+    const gridStartY = tableStartY + colHeaderH;
+    const maxCellHeight = 58;
+    const minCellHeight = 16;
+    let pageIndex = 0;
+    for (let startRow = 0; startRow < calendarRows.length; startRow += maxWeeksPerPage) {
+      const endRow = Math.min(startRow + maxWeeksPerPage, calendarRows.length);
+
+      let safetyCounter = 0;
+      while (pageIndex === 0 || hasRemainingContentInRange(startRow, endRow)) {
+        if (pageIndex > 0) {
+          doc.addPage();
+        }
+
+        const previousStates = rowStates.slice(startRow, endRow).map((row) => row.map((cell) => ({ ...cell })));
+
+        const rowHeights: number[] = [];
+        for (let rowIndex = startRow; rowIndex < endRow; rowIndex += 1) {
+          const row = calendarRows[rowIndex];
+          const naturalH = Math.max(
+            minCellHeight,
+            Math.min(
+              maxCellHeight,
+              Math.max(...row.map((cell, ci) => calcCellNaturalHeight(cell, rowStates[rowIndex][ci])))
+            )
+          );
+          rowHeights.push(naturalH);
+        }
+
+        drawPageHeader();
+        drawTableColumnHeaders(tableStartY);
+
+        let rowCursorY = gridStartY;
+        for (let rowIndex = startRow; rowIndex < endRow; rowIndex += 1) {
+          const row = calendarRows[rowIndex];
+          const localRowIndex = rowIndex - startRow;
+          const cellH = rowHeights[localRowIndex];
+
+          row.forEach((cell, colIndex) => {
+            const cellX = marginX + colIndex * colW;
+            rowStates[rowIndex][colIndex] = drawCalendarCellTable(
+              cell,
+              row[0]?.week || rowIndex + 1,
+              colIndex === 0,
+              cellX,
+              rowCursorY,
+              colW,
+              cellH,
+              rowStates[rowIndex][colIndex]
+            );
+          });
+          rowCursorY += cellH;
+        }
+
+        drawTableGrid(gridStartY, rowHeights);
+        drawFooter();
+        pageIndex += 1;
+        safetyCounter += 1;
+
+        const progressed = rowStates.slice(startRow, endRow).some((row, localRowIndex) => row.some((cellState, colIndex) => {
+          const prevState = previousStates[localRowIndex][colIndex];
+          return cellState.planIndex !== prevState.planIndex || cellState.itemOffset !== prevState.itemOffset;
+        }));
+
+        if (!progressed || safetyCounter > 10) {
+          break;
+        }
+      }
+    }
+
+    const fileName = `cardapio_local_${selectedMonth}_${selectedEnterpriseName
       .toLowerCase()
       .replace(/\s+/g, '_')}_${type.toLowerCase()}_${generatedAt.toISOString().slice(0, 10)}.pdf`;
     doc.save(fileName);
@@ -930,7 +1352,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
         <div className="space-y-1">
           <h1 className="text-xl sm:text-2xl font-black text-gray-800 tracking-tight flex items-center gap-2 leading-none">
             <UtensilsCrossed className="text-indigo-600" size={18} />
-            Grade: {selectedWeek}ª Semana
+            Grade Mensal
           </h1>
           <p className="text-gray-500 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.12em]">
             Defina o cardápio com base nos planos contratados • {formatMonthLabel(selectedMonth)}
@@ -992,42 +1414,75 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
           >
             <CalendarDays size={12} /> Duplicar Dados
           </button>
-          <span className="text-[9px] font-black text-gray-500 uppercase tracking-[0.12em] mr-1">Semanas:</span>
-          {WEEK_OPTIONS.map((week) => (
-            <button
-              key={week}
-              type="button"
-              onClick={() => setSelectedWeek(week)}
-              className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] border transition-all ${
-                selectedWeek === week
-                  ? 'bg-indigo-600 border-indigo-600 text-white shadow-md'
-                  : 'bg-white border-gray-200 text-gray-500 hover:border-indigo-300 hover:text-indigo-600'
-              }`}
-            >
-              {week}ª Semana
-            </button>
-          ))}
         </div>
       </section>
 
       {isLoading ? (
         <div className="flex flex-col items-center justify-center py-32 space-y-4 animate-pulse">
            <RefreshCw size={48} className="text-indigo-400 animate-spin" />
-           <p className="text-[10px] font-black text-gray-400 uppercase tracking-[4px]">Sincronizando {selectedWeek}ª semana...</p>
+           <p className="text-[10px] font-black text-gray-400 uppercase tracking-[4px]">Sincronizando grade mensal...</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2.5 animate-in fade-in duration-500">
-          {weeklyMenu.map(day => (
-            <div key={day.id} className="flex flex-col gap-2.5">
-              <div className="bg-white p-3 rounded-xl border-b-2 border-indigo-500 shadow-sm flex items-center justify-between gap-2">
+        <div className="space-y-3 animate-in fade-in duration-500">
+          {activeServiceDays.length === 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-5 text-center">
+              <p className="text-[10px] font-black text-amber-700 uppercase tracking-[0.16em]">
+                Nenhum dia de atendimento ativo em Ajustes &gt; Atendimento.
+              </p>
+            </div>
+          )}
+          {WEEK_OPTIONS.map((week) => {
+            const weekMenuAll = weeklyMenuByWeek[week] || generateInitialMenu();
+            const weekMenu = weekMenuAll.filter((day) => (
+              Boolean(getDateForWeekAndDay(selectedMonth, week, day.dayOfWeek as DayOfWeek))
+              && activeServiceDaySet.has(day.dayOfWeek as DayOfWeek)
+            ));
+            if (weekMenu.length === 0) return null;
+            return (
+              <section key={`week-grid-${week}`} className="space-y-1.5">
+                <div className="px-1">
+                  <h2 className="text-base md:text-lg font-black text-indigo-700 uppercase tracking-[0.16em]">{week}ª Semana</h2>
+                </div>
+                <div className="grid items-start grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2">
+                  {weekMenu.map(day => {
+                    const dayDate = getDateForWeekAndDay(selectedMonth, week, day.dayOfWeek as DayOfWeek);
+                    const dayOfMonth = dayDate ? `${dayDate.getDate()}`.padStart(2, '0') : '--';
+                    const isBlockedDay = dayDate ? !isSchoolDateAllowed(dayDate) : false;
+                    const eventTitle = isBlockedDay ? (getSchoolEventTitle(dayDate) || 'Feriado/Recesso') : null;
+                    const dayDropKey = `${week}-${day.id}`;
+
+                    if (isBlockedDay) {
+                      return (
+                        <div key={`week-${week}-${day.id}`} className="flex flex-col self-start">
+                          <div className="bg-rose-50 p-2.5 rounded-xl border-b-2 border-rose-300 shadow-sm">
+                            <div className="flex items-start justify-between gap-1">
+                              <div>
+                                <h3 className="text-sm font-black text-rose-700 uppercase tracking-[0.12em]">{SHORT_DAY_LABEL[day.dayOfWeek as DayOfWeek]}</h3>
+                                <p className="text-[10px] font-bold text-rose-400 uppercase">{dayOfMonth}</p>
+                              </div>
+                              <AlertTriangle size={14} className="text-rose-400 mt-0.5 shrink-0" />
+                            </div>
+                            <p className="mt-1.5 text-[9px] font-black text-rose-600 uppercase tracking-[0.06em] leading-tight" title={eventTitle!}>
+                              {eventTitle}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return (
+            <div key={`week-${week}-${day.id}`} className="flex flex-col gap-1.5 self-start">
+              <div className="bg-white p-2.5 rounded-xl border-b-2 border-indigo-500 shadow-sm flex items-center justify-between gap-2">
                 <div>
-                   <h3 className="text-[10px] font-black text-gray-800 uppercase tracking-[0.12em]">{day.dayOfWeek}</h3>
-                   <p className="text-[8px] font-black text-indigo-500 uppercase tracking-[0.08em]">{formatDateFullBr(dayDateMap[day.dayOfWeek as DayOfWeek] || null)}</p>
-                   <p className="text-[8px] font-bold text-gray-400 uppercase">{day.items.length} Opções</p>
+                   <h3 className="text-sm md:text-base font-black text-gray-800 uppercase tracking-[0.12em]">{day.dayOfWeek}</h3>
+                   <p className="text-[10px] font-bold text-gray-400 uppercase">{day.items.length} Opções</p>
                 </div>
                 <div className="flex items-center gap-1">
+                  <span className="min-w-[34px] h-8 px-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 text-[16px] leading-none font-black flex items-center justify-center">
+                    {dayOfMonth}
+                  </span>
                   <button
-                    onClick={() => toggleDayDuplicatePicker(day)}
+                    onClick={() => toggleDayDuplicatePicker(week, day)}
                     className="w-7 h-7 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center hover:bg-emerald-600 hover:text-white transition-all shadow-inner"
                     title="Duplicar dia"
                   >
@@ -1036,13 +1491,14 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                   <button 
                     onClick={() => {
                       if (plansCatalog.length === 0) {
-                        addItemToDay(day.id);
+                        addItemToDay(week, day.id);
                         return;
                       }
-                      setOpenPlanPickerDayId((prev) => prev === day.id ? null : day.id);
+                      const dayKey = `${week}-${day.id}`;
+                      setOpenPlanPickerDayId((prev) => prev === dayKey ? null : dayKey);
                       setNewItemPlanByDay((prev) => ({
                         ...prev,
-                        [day.id]: prev[day.id] || plansCatalog[0]?.id || '',
+                        [dayKey]: prev[dayKey] || plansCatalog[0]?.id || '',
                       }));
                     }}
                     className="w-7 h-7 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center hover:bg-indigo-600 hover:text-white transition-all shadow-inner"
@@ -1052,7 +1508,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                   </button>
                 </div>
               </div>
-              {dayDuplicateTarget?.sourceDayId === day.id && (
+              {dayDuplicateTarget?.sourceWeek === week && dayDuplicateTarget?.sourceDayId === day.id && (
                 <div className="bg-white rounded-xl border border-emerald-100 shadow-sm p-2.5 space-y-2">
                   <p className="text-[9px] font-black text-gray-500 uppercase tracking-[0.12em]">
                     Duplicar {SHORT_DAY_LABEL[day.dayOfWeek as DayOfWeek]} para:
@@ -1061,8 +1517,15 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                     <select
                       value={dayDuplicateTarget.targetWeek}
                       onChange={(e) => {
-                        const nextWeek = Math.max(1, Math.min(5, Number(e.target.value || selectedWeek) || selectedWeek));
-                        setDayDuplicateTarget((prev) => prev ? { ...prev, targetWeek: nextWeek } : prev);
+                        const nextWeek = Math.max(1, Math.min(5, Number(e.target.value || week) || week));
+                        const availableDays = getExistingDayKeysForWeek(nextWeek);
+                        setDayDuplicateTarget((prev) => {
+                          if (!prev) return prev;
+                          const nextDay = availableDays.includes(prev.targetDayOfWeek)
+                            ? prev.targetDayOfWeek
+                            : (availableDays[0] || prev.targetDayOfWeek);
+                          return { ...prev, targetWeek: nextWeek, targetDayOfWeek: nextDay };
+                        });
                       }}
                       className="h-8 rounded-lg border border-gray-200 px-2 text-[10px] font-black uppercase tracking-[0.08em] text-gray-700 focus:outline-none focus:border-emerald-400"
                     >
@@ -1080,7 +1543,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                       }}
                       className="h-8 rounded-lg border border-gray-200 px-2 text-[10px] font-black uppercase tracking-[0.08em] text-gray-700 focus:outline-none focus:border-emerald-400"
                     >
-                      {DAYS_OF_WEEK.map((dayKey) => (
+                      {getExistingDayKeysForWeek(dayDuplicateTarget.targetWeek).map((dayKey) => (
                         <option key={`dup-day-${dayKey}`} value={dayKey}>
                           {SHORT_DAY_LABEL[dayKey]}
                         </option>
@@ -1103,15 +1566,15 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                   </div>
                 </div>
               )}
-              {openPlanPickerDayId === day.id && (
+              {openPlanPickerDayId === `${week}-${day.id}` && (
                 <div className="bg-white rounded-xl border border-indigo-100 shadow-sm p-2.5 space-y-1.5">
                   <p className="text-[9px] font-black text-gray-500 uppercase tracking-[0.12em]">Escolha o plano para criar o cardápio</p>
                   <div className="flex items-center gap-2">
                     <select
-                      value={newItemPlanByDay[day.id] || ''}
+                      value={newItemPlanByDay[`${week}-${day.id}`] || ''}
                       onChange={(e) => {
                         const nextPlanId = e.target.value;
-                        setNewItemPlanByDay((prev) => ({ ...prev, [day.id]: nextPlanId }));
+                        setNewItemPlanByDay((prev) => ({ ...prev, [`${week}-${day.id}`]: nextPlanId }));
                       }}
                       className="flex-1 h-8 rounded-lg border border-gray-200 px-2.5 text-[10px] font-black uppercase tracking-[0.1em] text-gray-700 focus:outline-none focus:border-indigo-400"
                     >
@@ -1126,7 +1589,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                       )}
                     </select>
                     <button
-                      onClick={() => addItemToDay(day.id, newItemPlanByDay[day.id])}
+                      onClick={() => addItemToDay(week, day.id, newItemPlanByDay[`${week}-${day.id}`])}
                       className="h-8 px-2.5 rounded-lg bg-indigo-600 text-white text-[9px] font-black uppercase tracking-[0.12em] hover:bg-indigo-700"
                     >
                       Criar
@@ -1135,66 +1598,84 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                 </div>
               )}
 
-              <div className="min-h-[250px]">
-                {day.items.length === 0 ? (
-                  <div className="h-full border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center p-5 text-center opacity-40">
-                     <Clock size={18} className="mb-2" />
-                     <p className="text-[8px] font-black uppercase">Sem Itens</p>
-                  </div>
-                ) : (
-                  <div className="bg-white rounded-xl border border-gray-100 shadow-sm divide-y divide-gray-100 overflow-hidden">
+              <div
+                className={`rounded-2xl transition-all ${dragOverDayKey === dayDropKey ? 'ring-2 ring-indigo-300 ring-offset-1 bg-indigo-50/40' : ''}`}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (draggingMenuItem) {
+                    setDragOverDayKey(dayDropKey);
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  handleDropMenuItem(week, day.id);
+                }}
+              >
+                {day.items.length > 0 && (
+                  <div className="bg-white/95 dark:bg-slate-900/60 rounded-xl border border-gray-100 dark:border-slate-700 shadow-sm divide-y divide-gray-100 dark:divide-slate-700 overflow-hidden">
                     {day.items.map(item => (
+                      (() => {
+                        const planColor = getPlanCardColor(item.planId, item.name);
+                        return (
                       <div
                         key={item.id}
-                        className="px-2.5 py-2 hover:bg-gray-50 transition-colors group"
+                        draggable
+                        onDragStart={() => setDraggingMenuItem({ week, dayId: day.id, itemId: item.id })}
+                        onDragEnd={() => {
+                          setDraggingMenuItem(null);
+                          setDragOverDayKey(null);
+                        }}
+                        className={`px-2.5 py-2 transition-colors group cursor-grab active:cursor-grabbing border-l-4 border-y border-r ${planColor.bg} ${planColor.border}`}
                       >
                         <div className="flex items-start gap-3">
                           <div className="min-w-0 flex-1">
-                            <p className="text-[11px] font-black text-gray-800 uppercase tracking-tight truncate">
+                            <p className={`text-[11px] font-black uppercase tracking-tight truncate ${planColor.title}`}>
                               {item.name}
                             </p>
                             {item.planId && (
-                              <p className="text-[9px] font-black text-indigo-600 uppercase tracking-[0.12em] mt-0.5 truncate">
+                              <p className={`text-[9px] font-black uppercase tracking-[0.12em] mt-0.5 truncate ${planColor.badge}`}>
                                 Plano: {plansCatalog.find((plan) => plan.id === item.planId)?.name || 'Plano vinculado'}
                               </p>
                             )}
                             {item.ingredients.length > 0 ? (
                               <ul className="mt-1 space-y-0.5">
-                                {item.ingredients.slice(0, 5).map((ing) => (
+                                {item.ingredients.map((ing) => (
                                   <li
                                     key={ing.id}
-                                    className="text-[11px] font-semibold text-gray-500 leading-tight list-disc list-inside truncate"
+                                    className={`text-[11px] font-semibold leading-tight list-disc list-inside truncate ${planColor.text}`}
                                   >
                                     {ing.name}
                                   </li>
                                 ))}
-                                {item.ingredients.length > 5 && (
-                                  <li className="text-[10px] font-bold text-gray-400 leading-tight list-none pl-4">
-                                    +{item.ingredients.length - 5} item(ns)
-                                  </li>
-                                )}
                               </ul>
                             ) : (
-                              <p className="text-[11px] font-semibold text-gray-500 leading-tight mt-0.5">
+                              <p className={`text-[11px] font-semibold leading-tight mt-0.5 ${planColor.text}`}>
                                 {item.description?.trim() || 'Sem insumos definidos'}
                               </p>
                             )}
                           </div>
                           <div className="shrink-0 text-right">
-                            <p className="text-[11px] font-black text-amber-600 whitespace-nowrap">
+                            <p className={`text-[11px] font-black whitespace-nowrap ${planColor.kcal}`}>
                               {calculateTotalNutrients(item.ingredients).calories} kcal
                             </p>
                             <div className="mt-1 flex items-center justify-end gap-1">
                               <button
-                                onClick={() => setEditingItem({ dayId: day.id, item })}
-                                className="p-1.5 bg-white border border-gray-200 text-gray-400 hover:text-indigo-600 rounded-lg"
+                                onClick={() => toggleDayDuplicatePicker(week, day)}
+                                className="p-1.5 bg-white/85 dark:bg-slate-900/65 border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-200 hover:text-emerald-600 dark:hover:text-emerald-300 rounded-lg"
+                                title="Duplicar dia"
+                              >
+                                <CalendarDays size={13} />
+                              </button>
+                              <button
+                                onClick={() => setEditingItem({ week, dayId: day.id, item })}
+                                className="p-1.5 bg-white/85 dark:bg-slate-900/65 border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-300 rounded-lg"
                                 title="Editar ficha"
                               >
                                 <Edit3 size={13} />
                               </button>
                               <button
-                                onClick={() => removeItemFromDay(day.id, item.id)}
-                                className="p-1.5 bg-white border border-gray-200 text-gray-400 hover:text-red-500 rounded-lg"
+                                onClick={() => removeItemFromDay(week, day.id, item.id)}
+                                className="p-1.5 bg-white/85 dark:bg-slate-900/65 border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-200 hover:text-red-500 dark:hover:text-rose-300 rounded-lg"
                                 title="Remover opção"
                               >
                                 <Trash2 size={13} />
@@ -1203,12 +1684,19 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                           </div>
                         </div>
                       </div>
+                        );
+                      })()
                     ))}
                   </div>
                 )}
               </div>
             </div>
-          ))}
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
         </div>
       )}
 
@@ -1305,20 +1793,52 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                                value={quickIngredientQuery}
                                onFocus={() => setIsQuickIngredientListOpen(true)}
                                onBlur={() => {
-                                 setTimeout(() => setIsQuickIngredientListOpen(false), 120);
+                                 setTimeout(() => {
+                                   setIsQuickIngredientListOpen(false);
+                                   setQuickIngredientHighlightedIndex(-1);
+                                 }, 120);
                                }}
                                onChange={(e) => {
                                  setQuickIngredientQuery(e.target.value);
                                  setIsQuickIngredientListOpen(true);
+                                 setQuickIngredientHighlightedIndex(0);
                                }}
                                onKeyDown={(e) => {
+                                 if (e.key === 'ArrowDown') {
+                                   e.preventDefault();
+                                   if (quickIngredientSuggestions.length === 0) return;
+                                   setIsQuickIngredientListOpen(true);
+                                   setQuickIngredientHighlightedIndex((prev) => {
+                                     const next = prev + 1;
+                                     return next >= quickIngredientSuggestions.length ? 0 : next;
+                                   });
+                                   return;
+                                 }
+                                 if (e.key === 'ArrowUp') {
+                                   e.preventDefault();
+                                   if (quickIngredientSuggestions.length === 0) return;
+                                   setIsQuickIngredientListOpen(true);
+                                   setQuickIngredientHighlightedIndex((prev) => {
+                                     const next = prev <= 0 ? quickIngredientSuggestions.length - 1 : prev - 1;
+                                     return next;
+                                   });
+                                   return;
+                                 }
                                  if (e.key === 'Enter') {
                                    e.preventDefault();
+                                   const selectedSuggestion = quickIngredientHighlightedIndex >= 0
+                                     ? quickIngredientSuggestions[quickIngredientHighlightedIndex]
+                                     : quickIngredientSuggestions[0];
                                    if (quickIngredientSuggestions.length > 0) {
-                                     addIngredientFromQuickForm(quickIngredientSuggestions[0]);
+                                     addIngredientFromQuickForm(selectedSuggestion);
                                    } else {
                                      addIngredientFromQuickForm();
                                    }
+                                   return;
+                                 }
+                                 if (e.key === 'Escape') {
+                                   setIsQuickIngredientListOpen(false);
+                                   setQuickIngredientHighlightedIndex(-1);
                                  }
                                }}
                                className="mt-1 w-full bg-white border-2 border-transparent focus:border-indigo-400 rounded-xl px-4 py-2.5 text-sm font-bold text-gray-700 outline-none"
@@ -1341,8 +1861,12 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                                      type="button"
                                      key={item.id}
                                      onMouseDown={(e) => e.preventDefault()}
+                                     onMouseEnter={() => {
+                                       const idx = quickIngredientSuggestions.findIndex((candidate) => candidate.id === item.id);
+                                       setQuickIngredientHighlightedIndex(idx);
+                                     }}
                                      onClick={() => addIngredientFromQuickForm(item)}
-                                     className="w-full text-left px-3 py-2 border-b last:border-b-0 hover:bg-indigo-50"
+                                     className={`w-full text-left px-3 py-2 border-b last:border-b-0 ${quickIngredientSuggestions[quickIngredientHighlightedIndex]?.id === item.id ? 'bg-indigo-100' : 'hover:bg-indigo-50'}`}
                                    >
                                      <p className="text-xs font-black text-gray-800 uppercase">{item.name}</p>
                                      <p className="text-[10px] font-semibold text-gray-500">{item.calories} kcal • {item.proteins}P • {item.carbs}C • {item.fats}G (base 100{item.unit})</p>
@@ -1352,13 +1876,32 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                              )}
                            </div>
                            <div className="md:col-span-2">
-                             <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest ml-1">Qtd/gramagem</label>
+                             <div className="flex items-center gap-2 ml-1 mb-1">
+                               <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Qtd/gramagem</label>
+                               <button
+                                 type="button"
+                                 onClick={() => setQuickIngredientGramsEnabled((v) => !v)}
+                                 className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${
+                                   quickIngredientGramsEnabled ? 'bg-indigo-500' : 'bg-gray-300'
+                                 }`}
+                                 title={quickIngredientGramsEnabled ? 'Desativar gramagem' : 'Ativar gramagem'}
+                               >
+                                 <span
+                                   className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${
+                                     quickIngredientGramsEnabled ? 'translate-x-3.5' : 'translate-x-0.5'
+                                   }`}
+                                 />
+                               </button>
+                             </div>
                              <input
                                type="number"
                                min={1}
                                value={quickIngredientWeight}
                                onChange={(e) => setQuickIngredientWeight(e.target.value)}
-                               className="mt-1 w-full bg-white border-2 border-transparent focus:border-indigo-400 rounded-xl px-3 py-2.5 text-sm font-black text-gray-700 outline-none"
+                               disabled={!quickIngredientGramsEnabled}
+                               className={`w-full bg-white border-2 border-transparent focus:border-indigo-400 rounded-xl px-3 py-2.5 text-sm font-black outline-none transition-opacity ${
+                                 quickIngredientGramsEnabled ? 'text-gray-700 opacity-100' : 'text-gray-400 opacity-40 cursor-not-allowed'
+                               }`}
                                placeholder="100"
                              />
                            </div>

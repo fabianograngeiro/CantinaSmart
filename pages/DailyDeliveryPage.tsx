@@ -10,10 +10,11 @@ import {
   Printer, Sun, Sunset, Moon, ListFilter,
   HeartPulse, Info, Beef, Check,
   Timer, Utensils, ClipboardCheck, Loader2,
-  FileText, Undo2
+  FileText, Undo2, X
 } from 'lucide-react';
 import ApiService from '../services/api';
 import { formatPhoneWithFlag } from '../utils/phone';
+import { extractSchoolCalendarOperationalData } from '../utils/schoolCalendar';
 
 type PeriodFilter = 'ALL' | 'MORNING' | 'AFTERNOON' | 'NIGHT';
 type DeliveryStatus = 'PENDENTE' | 'PREPARANDO' | 'PRONTO' | 'SERVIDO';
@@ -173,6 +174,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
   const [reverseMode, setReverseMode] = useState<'OPEN' | 'RESCHEDULE'>('OPEN');
   const [reverseDate, setReverseDate] = useState('');
   const [isReversingDelivery, setIsReversingDelivery] = useState(false);
+  const [schoolCalendarBlockedDatesByYear, setSchoolCalendarBlockedDatesByYear] = useState<Record<number, string[]>>({});
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setNowTick(Date.now()), 30000);
@@ -183,6 +185,78 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
     () => getServiceContext(activeEnterprise?.openingHours, new Date(nowTick)),
     [activeEnterprise?.openingHours, nowTick]
   );
+
+  const schoolCalendarYearsToLoad = useMemo(() => {
+    const years = [
+      new Date().getFullYear(),
+      customDate ? Number(String(customDate).slice(0, 4)) : NaN,
+      reverseDate ? Number(String(reverseDate).slice(0, 4)) : NaN,
+    ].filter((year) => Number.isFinite(year));
+    return Array.from(new Set(years));
+  }, [customDate, reverseDate]);
+
+  useEffect(() => {
+    setSchoolCalendarBlockedDatesByYear({});
+  }, [activeEnterprise?.id]);
+
+  useEffect(() => {
+    const enterpriseId = String(activeEnterprise?.id || '').trim();
+    if (!enterpriseId) return;
+
+    const missingYears = schoolCalendarYearsToLoad.filter((year) => schoolCalendarBlockedDatesByYear[year] === undefined);
+    if (missingYears.length === 0) return;
+
+    let cancelled = false;
+
+    const loadSchoolCalendarYears = async () => {
+      const results = await Promise.all(
+        missingYears.map(async (year) => {
+          try {
+            const payload = await ApiService.getSchoolCalendar(enterpriseId, year);
+            const { blockedDates } = extractSchoolCalendarOperationalData(payload, year);
+
+            return [year, blockedDates] as const;
+          } catch (error) {
+            console.error(`Erro ao carregar calendário escolar (${year}):`, error);
+            return [year, []] as const;
+          }
+        })
+      );
+
+      if (cancelled) return;
+      setSchoolCalendarBlockedDatesByYear((prev) => {
+        const next = { ...prev };
+        results.forEach(([year, dates]) => {
+          next[year] = dates;
+        });
+        return next;
+      });
+    };
+
+    void loadSchoolCalendarYears();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeEnterprise?.id, schoolCalendarYearsToLoad, schoolCalendarBlockedDatesByYear]);
+
+  const schoolCalendarBlockedDateSetByYear = useMemo(() => {
+    return Object.entries(schoolCalendarBlockedDatesByYear).reduce((acc, [yearKey, dates]) => {
+      acc[Number(yearKey)] = new Set(Array.isArray(dates) ? dates : []);
+      return acc;
+    }, {} as Record<number, Set<string>>);
+  }, [schoolCalendarBlockedDatesByYear]);
+
+  const isSchoolDateAllowed = (dateIso?: string) => {
+    const key = String(dateIso || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return false;
+    const year = Number(key.slice(0, 4));
+    const blocked = schoolCalendarBlockedDateSetByYear[year];
+    return !(blocked?.has(key));
+  };
+
+  const isCustomDateBlocked = Boolean(customDate) && !isSchoolDateAllowed(customDate);
+  const isReverseDateBlocked = reverseMode === 'RESCHEDULE' && Boolean(reverseDate) && !isSchoolDateAllowed(reverseDate);
 
   useEffect(() => {
     const enterpriseId = activeEnterprise?.id;
@@ -278,7 +352,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                 new Set(
                   ((Array.isArray(config?.selectedDates) ? config.selectedDates : []) as string[])
                     .map((date) => normalizeDateIso(date))
-                    .filter(Boolean)
+                    .filter((date) => Boolean(date) && isSchoolDateAllowed(date))
                 )
               ) as string[];
               const daysOfWeekRaw = (Array.isArray(config?.daysOfWeek) ? config.daysOfWeek : []) as string[];
@@ -290,10 +364,10 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
               const normalizedPeriods = deliveryShifts
                 .map(mapShiftToPeriod)
                 .filter(Boolean) as PeriodFilter[];
-              const effectivePeriods = normalizedPeriods.length > 0 ? normalizedPeriods : ['ALL'];
+              const effectivePeriods: PeriodFilter[] = normalizedPeriods.length > 0 ? normalizedPeriods : ['ALL'];
 
               const candidateDates = [currentContext.todayIso, currentContext.tomorrowIso, customDate]
-                .filter(Boolean) as string[];
+                .filter((dateIso) => Boolean(dateIso) && isSchoolDateAllowed(dateIso)) as string[];
               const datesByWeekDay = candidateDates.filter((dateIso) => {
                 if (daysOfWeekSet.size === 0) return false;
                 const dayKey = getDayKeyFromDateIso(dateIso);
@@ -356,7 +430,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                   planUnitValue: Number(plan?.price || config?.planPrice || 0),
                   items: [{
                     id: `item-${client.id}-${plan?.id || planName || idx}-${dateIndex}-${periodIndex}`,
-                    type: 'ALMOCO',
+                    type: 'ALMOCO' as const,
                     name: plan?.name || planName || 'Plano',
                     components: (plan?.items || []).map(i => ({ name: i.name, checked: isServed })),
                     status: (isServed ? 'SERVIDO' : 'PENDENTE') as DeliveryStatus,
@@ -419,7 +493,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
     };
 
     loadDeliveryProfiles();
-  }, [activeEnterprise?.id, activeEnterprise?.openingHours, customDate, refreshTick]);
+  }, [activeEnterprise?.id, activeEnterprise?.openingHours, customDate, refreshTick, schoolCalendarBlockedDatesByYear]);
 
   const filteredData = useMemo(() => {
     const getStudentStatus = (student: DeliveryProfile): DeliveryStatus => {
@@ -780,6 +854,10 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
       alert('Selecione uma nova data válida para reagendamento.');
       return;
     }
+    if (reverseMode === 'RESCHEDULE' && !isSchoolDateAllowed(reverseDate)) {
+      alert('A data escolhida não é letiva (feriado/recesso). Selecione um dia com aula.');
+      return;
+    }
     await reverseServeStudent(reverseTarget.id, {
       rescheduleDate: reverseMode === 'RESCHEDULE' ? reverseDate : '',
     });
@@ -829,123 +907,160 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
   }, [filteredData]);
 
   const exportToPDF = () => {
-    const doc = new jsPDF({
-      orientation: 'landscape',
-      unit: 'mm',
-      format: 'a4'
-    });
-    const tableColumn = ["Matrícula", "Aluno", "Ano/Turma", "Plano", "Data Refeição", "Status"];
-    const tableRows: any[] = [];
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const generatedAt = new Date();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const marginX = 12;
 
-    filteredData.forEach(student => {
-      const studentData = [
-        student.registrationId,
-        student.name,
-        `${student.year} - ${student.class}`,
-        `${student.planName.replace('_', ' ')} • ${Math.max(0, Number(student.planProgressConsumed || 0))}/${Math.max(Number(student.planProgressTotal || 0), Number(student.planProgressConsumed || 0), 0)}`,
-        student.scheduledDate ? new Date(`${student.scheduledDate}T00:00:00`).toLocaleDateString('pt-BR') : '-',
-        student.items.every(i => i.status === 'SERVIDO') ? 'Servido' : 'Pendente'
-      ];
-      tableRows.push(studentData);
-    });
+    const sanitizePlanName = (value?: string) => String(value || 'PLANO').replace(/_/g, ' ').toUpperCase();
+    const periodLabel = periodFilter === 'ALL' ? 'Todos' : periodFilter === 'MORNING' ? 'Manhã' : periodFilter === 'AFTERNOON' ? 'Tarde' : 'Noite';
+    const plansLabel = selectedPlans.length > 0 ? selectedPlans.map((p) => p.replace(/_/g, ' ')).join(', ') : 'Todos';
+    const dayLabel = customDate
+      ? new Date(`${customDate}T00:00:00`).toLocaleDateString('pt-BR')
+      : new Date().toLocaleDateString('pt-BR');
 
-    const deliveredByPlan = new Map<string, number>();
+    const totalStudents = filteredData.length;
+    const servedStudents = filteredData.filter((student) => student.items.every((item) => item.status === 'SERVIDO')).length;
+    const pendingStudents = totalStudents - servedStudents;
+    const servedRate = totalStudents > 0 ? ((servedStudents / totalStudents) * 100) : 0;
+
+    const planStats = new Map<string, { scheduled: number; served: number }>();
     filteredData.forEach((student) => {
-      const isServed = student.items.every((item) => item.status === 'SERVIDO');
-      if (!isServed) return;
-      const planName = String(student.planName || 'PLANO').replace(/_/g, ' ').toUpperCase();
-      const units = Array.isArray(student.items) && student.items.length > 0 ? student.items.length : 1;
-      deliveredByPlan.set(planName, (deliveredByPlan.get(planName) || 0) + units);
+      const planName = sanitizePlanName(student.planName);
+      const current = planStats.get(planName) || { scheduled: 0, served: 0 };
+      current.scheduled += 1;
+      if (student.items.every((item) => item.status === 'SERVIDO')) current.served += 1;
+      planStats.set(planName, current);
     });
-    const deliveredPlanSummary = Array.from(deliveredByPlan.entries())
-      .map(([planName, count]) => `${planName}: ${count} entregue(s)`)
-      .sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
-    const generatedAt = new Date().toLocaleString('pt-BR');
-    const totalServed = filteredData.filter((student) => student.items.every((item) => item.status === 'SERVIDO')).length;
-    const totalPending = filteredData.filter((student) => student.items.some((item) => item.status !== 'SERVIDO')).length;
+    const topPlansSummary = Array.from(planStats.entries())
+      .sort((a, b) => b[1].scheduled - a[1].scheduled || a[0].localeCompare(b[0], 'pt-BR'))
+      .slice(0, 4)
+      .map(([planName, stats]) => `${planName}: ${stats.served}/${stats.scheduled}`)
+      .join('  |  ');
 
-    doc.setFillColor(79, 70, 229);
-    doc.rect(0, 0, 297, 17, 'F');
-    doc.setFontSize(12);
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, pageWidth, 24, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
-    doc.text("RELATÓRIO DE ENTREGA DIÁRIA", 14, 10.7);
-    doc.setFontSize(8.8);
+    doc.setFontSize(15);
+    doc.text('RELATÓRIO ESCOLAR • CARDÁPIO DO DIA', marginX, 10.5);
     doc.setFont('helvetica', 'normal');
-    doc.text(activeEnterprise?.name || "CantinaSmart", 283, 10.7, { align: 'right' });
+    doc.setFontSize(9);
+    doc.text(activeEnterprise?.name || 'CantinaSmart', marginX, 16.8);
+    doc.text(`Emitido em ${generatedAt.toLocaleDateString('pt-BR')} ${generatedAt.toLocaleTimeString('pt-BR')}`, pageWidth - marginX, 16.8, { align: 'right' });
 
     doc.setFillColor(248, 250, 252);
-    doc.setDrawColor(226, 232, 240);
-    doc.roundedRect(14, 21, 269, 20, 2.5, 2.5, 'FD');
-    doc.setTextColor(51, 65, 85);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.text(`Escola: ${activeEnterprise?.attachedSchoolName || '-'}`, 17, 27.4);
-    doc.text(`Gerado em: ${generatedAt}`, 283, 27.4, { align: 'right' });
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.2);
-    const enterpriseInfo = [
-      activeEnterprise?.address ? `Endereço: ${activeEnterprise.address}` : null,
-      activeEnterprise?.phone1 ? `WhatsApp: ${formatPhoneWithFlag(activeEnterprise.phone1, '-')}` : null
-    ].filter(Boolean).join('  |  ');
-    doc.text(enterpriseInfo || '-', 17, 32.4);
-    doc.text(`Total registros: ${filteredData.length}  |  Servidos: ${totalServed}  |  Pendentes: ${totalPending}`, 17, 37.1);
-
-    doc.setFillColor(241, 245, 249);
     doc.setDrawColor(203, 213, 225);
-    doc.roundedRect(14, 44, 269, 13, 2.5, 2.5, 'FD');
+    doc.roundedRect(marginX, 28, pageWidth - (marginX * 2), 21, 2, 2, 'FD');
     doc.setTextColor(30, 41, 59);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.8);
-    doc.text('Totais por plano entregue:', 17, 49.6);
+    doc.setFontSize(9);
+    doc.text(`Escola: ${activeEnterprise?.attachedSchoolName || '-'}`, marginX + 3, 33.8);
+    doc.text(`Data da produção: ${dayLabel}`, pageWidth - marginX - 3, 33.8, { align: 'right' });
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.1);
-    const summaryText = deliveredPlanSummary.length > 0
-      ? deliveredPlanSummary.join('  |  ')
-      : 'Nenhum plano entregue no período selecionado.';
-    const summaryLines = doc.splitTextToSize(summaryText, 210);
-    doc.text(summaryLines.slice(0, 2), 75, 49.6);
+    doc.setFontSize(8.4);
+    const enterpriseInfo = [
+      activeEnterprise?.address ? `Endereço: ${activeEnterprise.address}` : null,
+      activeEnterprise?.phone1 ? `WhatsApp: ${formatPhoneWithFlag(activeEnterprise.phone1, '-')}` : null,
+    ].filter(Boolean).join('  |  ');
+    doc.text(enterpriseInfo || '-', marginX + 3, 38.6);
+    doc.text(`Filtros: Turno ${periodLabel} | Planos ${plansLabel}`, marginX + 3, 43.3);
 
-    doc.setFontSize(8.8);
-    doc.setTextColor(100);
-    const periodLabel = periodFilter === 'ALL' ? 'Todos' : periodFilter === 'MORNING' ? 'Manhã' : periodFilter === 'AFTERNOON' ? 'Tarde' : 'Noite';
-    const plansLabel = selectedPlans.length > 0 ? selectedPlans.map(p => p.replace('_', ' ')).join(', ') : 'Todos';
-    const daysLabel = selectedDays.length > 0 ? 'Hoje' : 'Todos';
-    doc.text(`Filtros: Turno ${periodLabel} | Planos ${plansLabel} | Dias ${daysLabel}`, 14, 61);
+    const metricStartY = 53;
+    const metricGap = 3;
+    const metricW = (pageWidth - (marginX * 2) - (metricGap * 3)) / 4;
+    const metricH = 14;
+    const metrics = [
+      { label: 'ALUNOS NO DIA', value: `${totalStudents}` },
+      { label: 'SERVIDOS', value: `${servedStudents}` },
+      { label: 'PENDENTES', value: `${pendingStudents}` },
+      { label: 'TAXA DE ENTREGA', value: `${servedRate.toFixed(1).replace('.', ',')}%` },
+    ];
+    metrics.forEach((metric, index) => {
+      const cardX = marginX + (index * (metricW + metricGap));
+      doc.setFillColor(241, 245, 249);
+      doc.setDrawColor(203, 213, 225);
+      doc.roundedRect(cardX, metricStartY, metricW, metricH, 1.8, 1.8, 'FD');
+      doc.setTextColor(100, 116, 139);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.2);
+      doc.text(metric.label, cardX + 2.3, metricStartY + 4.3);
+      doc.setTextColor(15, 23, 42);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11.2);
+      doc.text(metric.value, cardX + 2.3, metricStartY + 10.6);
+    });
+
+    doc.setFillColor(247, 250, 252);
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(marginX, 70, pageWidth - (marginX * 2), 11, 1.8, 1.8, 'FD');
+    doc.setTextColor(30, 41, 59);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.4);
+    doc.text('Resumo dos planos (servidos/programados):', marginX + 2.5, 76.3);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.2);
+    const topPlansText = topPlansSummary || 'Sem planos para o período selecionado.';
+    doc.text(doc.splitTextToSize(topPlansText, pageWidth - (marginX * 2) - 86).slice(0, 2), marginX + 61, 76.3);
+
+    const tableRows = filteredData.map((student) => {
+      const consumed = Math.max(0, Number(student.planProgressConsumed || 0));
+      const total = Math.max(Number(student.planProgressTotal || 0), consumed, 0);
+      const status = student.items.every((item) => item.status === 'SERVIDO') ? 'SERVIDO' : 'PENDENTE';
+      return [
+        student.registrationId || '-',
+        student.name || '-',
+        `${student.year || '-'} - ${student.class || '-'}`,
+        `${sanitizePlanName(student.planName)} • ${consumed}/${total}`,
+        student.scheduledDate ? new Date(`${student.scheduledDate}T00:00:00`).toLocaleDateString('pt-BR') : '-',
+        status,
+      ];
+    });
 
     autoTable(doc, {
-      head: [tableColumn],
+      head: [['Matrícula', 'Aluno', 'Ano/Turma', 'Plano e Progresso', 'Data', 'Status']],
       body: tableRows,
-      startY: 64,
+      startY: 84,
       theme: 'grid',
-      styles: { fontSize: 8, cellPadding: 3 },
-      headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [245, 247, 250] },
+      styles: { fontSize: 8.1, cellPadding: 2.8, textColor: [30, 41, 59], lineColor: [226, 232, 240], lineWidth: 0.2 },
+      headStyles: { fillColor: [30, 64, 175], textColor: [255, 255, 255], fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
       columnStyles: {
-        0: { cellWidth: 25 },
-        1: { cellWidth: 52 },
+        0: { cellWidth: 24 },
+        1: { cellWidth: 54 },
         2: { cellWidth: 40 },
-        3: { cellWidth: 78 },
-        4: { cellWidth: 30, halign: 'center' },
-        5: { cellWidth: 25, halign: 'center' },
-      }
+        3: { cellWidth: 92 },
+        4: { cellWidth: 26, halign: 'center' },
+        5: { cellWidth: 24, halign: 'center', fontStyle: 'bold' },
+      },
+      didParseCell: (hookData) => {
+        if (hookData.section !== 'body' || hookData.column.index !== 5) return;
+        const status = String(hookData.cell.raw || '').toUpperCase();
+        if (status === 'SERVIDO') {
+          hookData.cell.styles.textColor = [22, 101, 52];
+          hookData.cell.styles.fillColor = [220, 252, 231];
+        } else {
+          hookData.cell.styles.textColor = [154, 52, 18];
+          hookData.cell.styles.fillColor = [255, 237, 213];
+        }
+      },
     });
 
     const pageCount = (doc as any).internal.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
+    for (let i = 1; i <= pageCount; i += 1) {
       doc.setPage(i);
-      doc.setFontSize(8);
-      doc.setTextColor(150);
-      doc.text(
-        `Página ${i} de ${pageCount} - Gerado em ${new Date().toLocaleString('pt-BR')}`,
-        doc.internal.pageSize.getWidth() / 2,
-        doc.internal.pageSize.getHeight() - 10,
-        { align: 'center' }
-      );
+      doc.setDrawColor(226, 232, 240);
+      doc.line(marginX, pageHeight - 12, pageWidth - marginX, pageHeight - 12);
+      doc.setTextColor(120, 120, 120);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.text(`Página ${i} de ${pageCount}`, marginX, pageHeight - 7.8);
+      doc.text(`Relatório interno escolar • ${activeEnterprise?.name || 'Unidade'}`, pageWidth - marginX, pageHeight - 7.8, { align: 'right' });
     }
-    
-    doc.save(`relatorio_entrega_${activeEnterprise?.name || 'unidade'}_${new Date().toISOString().split('T')[0]}.pdf`);
+
+    doc.save(`cardapio_dia_${activeEnterprise?.name || 'unidade'}_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
   return (
@@ -1021,7 +1136,14 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                     <input 
                       type="date"
                       value={customDate}
-                      onChange={(e) => setCustomDate(e.target.value)}
+                      onChange={(e) => {
+                        const nextDate = e.target.value;
+                        if (nextDate && !isSchoolDateAllowed(nextDate)) {
+                          alert('Dia sem aula (feriado/recesso) não está disponível para entrega.');
+                          return;
+                        }
+                        setCustomDate(nextDate);
+                      }}
                       className={`w-full pl-10 pr-3 py-2 rounded-xl font-black text-[9px] uppercase tracking-[0.12em] border transition-all outline-none ${
                         customDate 
                         ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' 
@@ -1031,6 +1153,11 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                     <Calendar size={14} className={`absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none ${customDate ? 'text-white' : 'text-indigo-600'}`} />
                   </div>
                </div>
+               {isCustomDateBlocked && (
+                 <p className="text-[9px] font-black uppercase tracking-[0.12em] text-rose-600 ml-2">
+                   Dia não letivo: feriado/recesso
+                 </p>
+               )}
             </div>
 
             {/* 1.5 SELEÇÃO DE PLANO (MULTI-SELEÇÃO) */}
@@ -1365,11 +1492,23 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
               <input
                 type="date"
                 value={reverseDate}
-                onChange={(e) => setReverseDate(e.target.value)}
+                onChange={(e) => {
+                  const nextDate = e.target.value;
+                  if (nextDate && !isSchoolDateAllowed(nextDate)) {
+                    alert('Dia sem aula (feriado/recesso) não pode ser usado para reagendamento.');
+                    return;
+                  }
+                  setReverseDate(nextDate);
+                }}
                 disabled={reverseMode !== 'RESCHEDULE' || isReversingDelivery}
                 min={toLocalDateKey(new Date())}
                 className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm font-bold text-slate-700 dark:text-zinc-200 disabled:opacity-50"
               />
+              {isReverseDateBlocked && (
+                <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-rose-600">
+                  Dia não letivo: selecione um dia com aula
+                </p>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-1">

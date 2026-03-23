@@ -35,10 +35,10 @@ const SaasAuditPage: React.FC<SaasAuditPageProps> = ({ currentUser }) => {
     setLogs([]);
   };
 
-  const actorOptions = useMemo(
-    () => Array.from(new Set(logs.map((entry) => entry.actorName))).filter(Boolean).sort((a, b) => a.localeCompare(b)),
-    [logs]
-  );
+  const actorOptions = useMemo<string[]>(() => {
+    const options = Array.from(new Set(logs.map((entry) => String(entry.actorName || '')))).filter(Boolean) as string[];
+    return options.sort((a, b) => a.localeCompare(b));
+  }, [logs]);
 
   const filteredLogs = useMemo(() => {
     const term = search.trim().toLowerCase();

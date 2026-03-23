@@ -14,6 +14,7 @@ import {
 import { Client, Enterprise, TransactionRecord } from '../types';
 import { ApiService } from '../services/api';
 import { formatPhoneWithCountryTag } from '../utils/phone';
+import { extractSchoolCalendarOperationalData } from '../utils/schoolCalendar';
 
 interface UnitSalesTransactionsPageProps {
   activeEnterprise: Enterprise;
@@ -223,6 +224,80 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   const [reverseMode, setReverseMode] = useState<'OPEN' | 'RESCHEDULE'>('OPEN');
   const [reverseDate, setReverseDate] = useState('');
   const [isReversingPlanCredit, setIsReversingPlanCredit] = useState(false);
+  const [schoolCalendarBlockedDatesByYear, setSchoolCalendarBlockedDatesByYear] = useState<Record<number, string[]>>({});
+
+  const schoolCalendarYearsToLoad = useMemo(() => {
+    const years = [
+      new Date().getFullYear(),
+      createDate ? Number(String(createDate).slice(0, 4)) : NaN,
+      reverseDate ? Number(String(reverseDate).slice(0, 4)) : NaN,
+    ].filter((year) => Number.isFinite(year));
+    return Array.from(new Set(years));
+  }, [createDate, reverseDate]);
+
+  useEffect(() => {
+    setSchoolCalendarBlockedDatesByYear({});
+  }, [activeEnterprise?.id]);
+
+  useEffect(() => {
+    const enterpriseId = String(activeEnterprise?.id || '').trim();
+    if (!enterpriseId) return;
+
+    const missingYears = schoolCalendarYearsToLoad.filter((year) => schoolCalendarBlockedDatesByYear[year] === undefined);
+    if (missingYears.length === 0) return;
+
+    let cancelled = false;
+
+    const loadSchoolCalendarYears = async () => {
+      const results = await Promise.all(
+        missingYears.map(async (year) => {
+          try {
+            const payload = await ApiService.getSchoolCalendar(enterpriseId, year);
+            const { blockedDates } = extractSchoolCalendarOperationalData(payload, year);
+
+            return [year, blockedDates] as const;
+          } catch (error) {
+            console.error(`Erro ao carregar calendário escolar (transações ${year}):`, error);
+            return [year, []] as const;
+          }
+        })
+      );
+
+      if (cancelled) return;
+
+      setSchoolCalendarBlockedDatesByYear((prev) => {
+        const next = { ...prev };
+        results.forEach(([year, dates]) => {
+          next[year] = dates;
+        });
+        return next;
+      });
+    };
+
+    void loadSchoolCalendarYears();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeEnterprise?.id, schoolCalendarYearsToLoad, schoolCalendarBlockedDatesByYear]);
+
+  const schoolCalendarBlockedDateSetByYear = useMemo(() => {
+    return Object.entries(schoolCalendarBlockedDatesByYear).reduce((acc, [yearKey, dates]) => {
+      acc[Number(yearKey)] = new Set(Array.isArray(dates) ? dates : []);
+      return acc;
+    }, {} as Record<number, Set<string>>);
+  }, [schoolCalendarBlockedDatesByYear]);
+
+  const isSchoolDateAllowed = (dateIso?: string) => {
+    const key = String(dateIso || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return false;
+    const year = Number(key.slice(0, 4));
+    const blocked = schoolCalendarBlockedDateSetByYear[year];
+    return !(blocked?.has(key));
+  };
+
+  const isCreateDateBlocked = Boolean(createDate) && !isSchoolDateAllowed(createDate);
+  const isReverseDateBlocked = reverseMode === 'RESCHEDULE' && Boolean(reverseDate) && !isSchoolDateAllowed(reverseDate);
 
   useEffect(() => {
     const enterpriseId = activeEnterprise?.id;
@@ -949,6 +1024,10 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     const itemDescription = createCart.map((item) => `${item.quantity}x ${item.name}`).join(', ');
     const firstPlanItem = createCart.find((item) => item.type === 'PLAN');
     const isPlanConsumption = Boolean(firstPlanItem);
+    if (!isSchoolDateAllowed(createDate)) {
+      alert('Dia sem aula (feriado/recesso) não está disponível para lançamento.');
+      return;
+    }
     const parsedDate = new Date(`${createDate}T${createTime}:00`);
     const txDate = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
 
@@ -1041,6 +1120,10 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     if (!reversingTransaction || !isPlanConsumptionTransaction(reversingTransaction)) return;
     if (reverseMode === 'RESCHEDULE' && !/^\d{4}-\d{2}-\d{2}$/.test(reverseDate)) {
       alert('Selecione uma nova data válida para reagendamento.');
+      return;
+    }
+    if (reverseMode === 'RESCHEDULE' && !isSchoolDateAllowed(reverseDate)) {
+      alert('Dia sem aula (feriado/recesso) não pode ser usado para reagendamento.');
       return;
     }
 
@@ -2702,11 +2785,23 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                 <input
                   type="date"
                   value={reverseDate}
-                  onChange={(e) => setReverseDate(e.target.value)}
+                  onChange={(e) => {
+                    const nextDate = e.target.value;
+                    if (nextDate && !isSchoolDateAllowed(nextDate)) {
+                      alert('Dia sem aula (feriado/recesso) não está disponível para reagendar.');
+                      return;
+                    }
+                    setReverseDate(nextDate);
+                  }}
                   disabled={reverseMode !== 'RESCHEDULE' || isReversingPlanCredit}
                   min={toLocalDateKey(new Date())}
                   className="w-full mt-1 px-3 py-2.5 bg-gray-50 border-2 border-transparent focus:border-rose-500 rounded-xl outline-none text-xs font-black"
                 />
+                {isReverseDateBlocked && (
+                  <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-rose-600">
+                    Dia não letivo: selecione um dia com aula
+                  </p>
+                )}
               </div>
             </div>
 
@@ -3026,9 +3121,25 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                   <input
                     type="date"
                     value={createDate}
-                    onChange={(e) => setCreateDate(e.target.value)}
+                    onChange={(e) => {
+                      const nextDate = e.target.value;
+                      if (!nextDate) {
+                        setCreateDate('');
+                        return;
+                      }
+                      if (!isSchoolDateAllowed(nextDate)) {
+                        alert('Dia sem aula (feriado/recesso) não está disponível para lançamento.');
+                        return;
+                      }
+                      setCreateDate(nextDate);
+                    }}
                     className="w-full mt-1 px-3 py-2.5 bg-gray-50 border-2 border-transparent focus:border-emerald-500 rounded-xl outline-none text-sm font-bold"
                   />
+                  {isCreateDateBlocked && (
+                    <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-rose-600">
+                      Dia não letivo: feriado/recesso
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Hora</label>

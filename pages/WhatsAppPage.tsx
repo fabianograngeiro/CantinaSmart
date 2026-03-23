@@ -1177,7 +1177,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       setAudioTranscriptions((prev) => {
         const validIds = new Set(nextMessages.map((msg: ChatMessage) => String(msg.id || '')));
         const next: Record<string, AudioTranscriptionState> = {};
-        Object.entries(prev).forEach(([key, value]) => {
+        Object.entries(prev as Record<string, AudioTranscriptionState>).forEach(([key, value]) => {
           if (validIds.has(key)) next[key] = value;
         });
         return next;
@@ -1764,7 +1764,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const selectedStudentPlanSummary = useMemo(() => {
     if (!selectedStudent) return [];
 
-    const planBalances = selectedStudent.planCreditBalances || {};
+    const planBalances = (selectedStudent.planCreditBalances || {}) as Record<string, any>;
     const byName = new Map<string, number>();
     Object.values(planBalances).forEach((entry) => {
       const key = String(entry?.planName || '').trim().toUpperCase();
@@ -2001,7 +2001,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       });
 
       const finalY = (doc as any).lastAutoTable?.finalY || 170;
-      const planBalances = reportClient.planCreditBalances || {};
+      const planBalances = (reportClient.planCreditBalances || {}) as Record<string, any>;
       const prepaidBalance = Number(reportClient.balance || 0);
       const plansTotalBalance = Object.values(planBalances).reduce((acc: number, entry: any) => acc + Number(entry?.balance || 0), 0);
       const collaboratorDue = Number(reportClient.amountDue || 0);
@@ -7928,7 +7928,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                   </div>
                                 </td>
                                 <td className="px-4 py-3 align-top text-sm font-bold text-slate-700">
-                                  {row.phone ? formatPhoneWithCountryTag(row.phone, true) : '-'}
+                                  {row.phone ? formatPhoneWithCountryTag(row.phone) : '-'}
                                 </td>
                                 <td className="px-4 py-3 align-top">
                                   <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-black ${row.statusLabel === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
