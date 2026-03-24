@@ -23,6 +23,12 @@ interface DatabaseShape {
   transactions: any[];
   orders: any[];
   ingredients: any[];
+  errorTickets: any[];
+  devAssistantConfig?: {
+    autoPatchEnabled?: boolean;
+    updatedAt?: string;
+    updatedBy?: string;
+  };
   menus?: any[];
   schoolCalendars?: any[];
   whatsappStore?: {
@@ -48,6 +54,12 @@ const createEmptyDatabase = (): DatabaseShape => ({
   transactions: [],
   orders: [],
   ingredients: [],
+  errorTickets: [],
+  devAssistantConfig: {
+    autoPatchEnabled: true,
+    updatedAt: '',
+    updatedBy: '',
+  },
   menus: [],
   schoolCalendars: [],
   whatsappStore: {},
@@ -66,6 +78,16 @@ export class Database {
   private transactions: any[] = [];
   private orders: any[] = [];
   private ingredients: any[] = [];
+  private errorTickets: any[] = [];
+  private devAssistantConfig: {
+    autoPatchEnabled: boolean;
+    updatedAt?: string;
+    updatedBy?: string;
+  } = {
+    autoPatchEnabled: true,
+    updatedAt: '',
+    updatedBy: '',
+  };
   private menus: any[] = [];
   private schoolCalendars: any[] = [];
   private whatsappStore: {
@@ -981,6 +1003,12 @@ export class Database {
       transactions: readArrayFile('transactions.json'),
       orders: readArrayFile('orders.json'),
       ingredients: readArrayFile('ingredients.json'),
+      errorTickets: [],
+      devAssistantConfig: {
+        autoPatchEnabled: true,
+        updatedAt: '',
+        updatedBy: '',
+      },
       menus: readArrayFile('menus.json'),
       schoolCalendars: readArrayFile('school-calendars.json'),
     };
@@ -1006,6 +1034,14 @@ export class Database {
       transactions: ensureArray(safeRaw.transactions),
       orders: ensureArray(safeRaw.orders),
       ingredients: ensureArray(safeRaw.ingredients),
+      errorTickets: ensureArray((safeRaw as any).errorTickets),
+      devAssistantConfig: (safeRaw as any).devAssistantConfig && typeof (safeRaw as any).devAssistantConfig === 'object'
+        ? (safeRaw as any).devAssistantConfig
+        : {
+            autoPatchEnabled: true,
+            updatedAt: '',
+            updatedBy: '',
+          },
       menus: ensureArray(safeRaw.menus),
       schoolCalendars: ensureArray(safeRaw.schoolCalendars),
       whatsappStore: safeRaw.whatsappStore && typeof safeRaw.whatsappStore === 'object'
@@ -1044,6 +1080,12 @@ export class Database {
     this.transactions = data.transactions;
     this.orders = data.orders;
     this.ingredients = data.ingredients;
+    this.errorTickets = Array.isArray((data as any).errorTickets) ? (data as any).errorTickets : [];
+    this.devAssistantConfig = {
+      autoPatchEnabled: (data as any)?.devAssistantConfig?.autoPatchEnabled !== false,
+      updatedAt: String((data as any)?.devAssistantConfig?.updatedAt || '').trim(),
+      updatedBy: String((data as any)?.devAssistantConfig?.updatedBy || '').trim(),
+    };
     this.menus = Array.isArray((data as any).menus) ? (data as any).menus : [];
     this.schoolCalendars = Array.isArray((data as any).schoolCalendars) ? (data as any).schoolCalendars : [];
     this.whatsappStore = (data as any).whatsappStore && typeof (data as any).whatsappStore === 'object'
@@ -1065,6 +1107,8 @@ export class Database {
       transactions: this.transactions,
       orders: this.orders,
       ingredients: this.ingredients,
+      errorTickets: this.errorTickets,
+      devAssistantConfig: this.devAssistantConfig,
       menus: this.menus,
       schoolCalendars: this.schoolCalendars,
       whatsappStore: this.whatsappStore,
@@ -1175,7 +1219,149 @@ export class Database {
       schoolCalendars: this.schoolCalendars.length,
       orders: this.orders.length,
       transactions: this.transactions.length,
+      errorTickets: this.errorTickets.length,
     };
+  }
+
+  getDevAssistantConfig() {
+    return {
+      autoPatchEnabled: this.devAssistantConfig?.autoPatchEnabled !== false,
+      updatedAt: String(this.devAssistantConfig?.updatedAt || '').trim(),
+      updatedBy: String(this.devAssistantConfig?.updatedBy || '').trim(),
+    };
+  }
+
+  updateDevAssistantConfig(patch: { autoPatchEnabled?: boolean; updatedBy?: string }) {
+    this.devAssistantConfig = {
+      ...this.getDevAssistantConfig(),
+      ...(patch && typeof patch === 'object' ? patch : {}),
+      autoPatchEnabled: patch?.autoPatchEnabled !== undefined
+        ? Boolean(patch.autoPatchEnabled)
+        : this.getDevAssistantConfig().autoPatchEnabled,
+      updatedAt: new Date().toISOString(),
+      updatedBy: String(patch?.updatedBy || '').trim(),
+    };
+    this.saveData();
+    return this.getDevAssistantConfig();
+  }
+
+  // ===== ERROR TICKETS =====
+  getErrorTickets(filters?: { enterpriseId?: string; status?: string }) {
+    const enterpriseId = String(filters?.enterpriseId || '').trim();
+    const status = String(filters?.status || '').trim().toUpperCase();
+    let result = [...this.errorTickets];
+
+    if (enterpriseId) {
+      result = result.filter((ticket: any) => String(ticket?.enterpriseId || '').trim() === enterpriseId);
+    }
+
+    if (status) {
+      result = result.filter((ticket: any) => String(ticket?.status || '').trim().toUpperCase() === status);
+    }
+
+    return result.sort((a: any, b: any) => {
+      const aTs = new Date(String(a?.createdAt || '')).getTime();
+      const bTs = new Date(String(b?.createdAt || '')).getTime();
+      return (Number.isFinite(bTs) ? bTs : 0) - (Number.isFinite(aTs) ? aTs : 0);
+    });
+  }
+
+  getErrorTicket(id: string) {
+    return this.errorTickets.find((ticket: any) => String(ticket?.id || '') === String(id));
+  }
+
+  createErrorTicket(data: any) {
+    const nowIso = new Date().toISOString();
+    const allowedStatus = ['OPEN', 'IN_PROGRESS', 'RESOLVED'];
+    const normalizedStatus = String(data?.status || 'OPEN').trim().toUpperCase();
+    const newTicket = {
+      id: String(data?.id || this.generateEntityId('ticket')),
+      title: String(data?.title || 'Erro no sistema').trim() || 'Erro no sistema',
+      message: String(data?.message || '').trim(),
+      details: String(data?.details || '').trim(),
+      source: String(data?.source || 'PDV').trim(),
+      page: String(data?.page || '').trim(),
+      status: allowedStatus.includes(normalizedStatus) ? normalizedStatus : 'OPEN',
+      enterpriseId: String(data?.enterpriseId || '').trim(),
+      enterpriseName: String(data?.enterpriseName || '').trim(),
+      userId: String(data?.userId || '').trim(),
+      userName: String(data?.userName || '').trim(),
+      userRole: String(data?.userRole || '').trim(),
+      patchAppliedByAi: Boolean(data?.patchAppliedByAi),
+      aiPatch: data?.aiPatch && typeof data.aiPatch === 'object'
+        ? {
+            ...data.aiPatch,
+            active: data.aiPatch?.active !== false,
+            isTemporary: data.aiPatch?.isTemporary !== false,
+          }
+        : null,
+      humanValidationStatus: String(data?.humanValidationStatus || 'PENDING').trim().toUpperCase(),
+      humanValidatedBy: String(data?.humanValidatedBy || '').trim(),
+      humanValidatedAt: String(data?.humanValidatedAt || '').trim(),
+      context: data?.context && typeof data.context === 'object' ? data.context : {},
+      createdAt: String(data?.createdAt || nowIso),
+      updatedAt: nowIso,
+      resolvedAt: String(data?.resolvedAt || '').trim(),
+      resolutionNote: String(data?.resolutionNote || '').trim(),
+    };
+
+    this.errorTickets.push(newTicket);
+    this.saveData();
+    return newTicket;
+  }
+
+  updateErrorTicket(id: string, data: any) {
+    const index = this.errorTickets.findIndex((ticket: any) => String(ticket?.id || '') === String(id));
+    if (index === -1) return null;
+
+    const current = this.errorTickets[index] || {};
+    const allowedStatus = ['OPEN', 'IN_PROGRESS', 'RESOLVED'];
+    const requestedStatus = String(data?.status || current.status || '').trim().toUpperCase();
+    const status = allowedStatus.includes(requestedStatus)
+      ? requestedStatus
+      : String(current.status || 'OPEN').trim().toUpperCase();
+
+    const nextTicket = {
+      ...current,
+      ...data,
+      status,
+      humanValidationStatus: String(data?.humanValidationStatus || current?.humanValidationStatus || 'PENDING').trim().toUpperCase(),
+      humanValidatedBy: data?.humanValidatedBy !== undefined
+        ? String(data?.humanValidatedBy || '').trim()
+        : String(current?.humanValidatedBy || '').trim(),
+      humanValidatedAt: data?.humanValidatedAt !== undefined
+        ? String(data?.humanValidatedAt || '').trim()
+        : String(current?.humanValidatedAt || '').trim(),
+      patchAppliedByAi: data?.patchAppliedByAi !== undefined
+        ? Boolean(data.patchAppliedByAi)
+        : Boolean(current?.patchAppliedByAi),
+      aiPatch: data?.aiPatch !== undefined
+        ? (data?.aiPatch && typeof data.aiPatch === 'object'
+            ? {
+                ...data.aiPatch,
+                active: data.aiPatch?.active !== false,
+                isTemporary: data.aiPatch?.isTemporary !== false,
+              }
+            : null)
+        : (current?.aiPatch && typeof current.aiPatch === 'object'
+            ? {
+                ...current.aiPatch,
+                active: current.aiPatch?.active !== false,
+                isTemporary: current.aiPatch?.isTemporary !== false,
+              }
+            : null),
+      updatedAt: new Date().toISOString(),
+      resolutionNote: data?.resolutionNote !== undefined
+        ? String(data.resolutionNote || '').trim()
+        : String(current?.resolutionNote || '').trim(),
+      resolvedAt: status === 'RESOLVED'
+        ? String(data?.resolvedAt || current?.resolvedAt || new Date().toISOString())
+        : '',
+    };
+
+    this.errorTickets[index] = nextTicket;
+    this.saveData();
+    return nextTicket;
   }
 
   // ===== MENUS =====

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { exec as execCallback } from 'child_process';
 import { promisify } from 'util';
 import { db } from '../database';
+import { authMiddleware, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -253,6 +254,35 @@ router.get('/status', (req: Request, res: Response) => {
     success: true,
     stats,
     totalRecords: Object.values(stats).reduce((sum, count) => sum + count, 0)
+  });
+});
+
+router.get('/dev-assistant-config', authMiddleware, (req: AuthRequest, res: Response) => {
+  const role = String(req.userRole || '').trim().toUpperCase();
+  if (role !== 'SUPERADMIN') {
+    return res.status(403).json({ success: false, message: 'Acesso restrito ao SUPERADMIN.' });
+  }
+
+  return res.json({
+    success: true,
+    config: db.getDevAssistantConfig(),
+  });
+});
+
+router.put('/dev-assistant-config', authMiddleware, (req: AuthRequest, res: Response) => {
+  const role = String(req.userRole || '').trim().toUpperCase();
+  if (role !== 'SUPERADMIN') {
+    return res.status(403).json({ success: false, message: 'Acesso restrito ao SUPERADMIN.' });
+  }
+
+  const next = db.updateDevAssistantConfig({
+    autoPatchEnabled: req.body?.autoPatchEnabled !== undefined ? Boolean(req.body.autoPatchEnabled) : undefined,
+    updatedBy: String(req.userId || '').trim(),
+  });
+
+  return res.json({
+    success: true,
+    config: next,
   });
 });
 

@@ -356,7 +356,27 @@ export class ApiService {
       body: JSON.stringify(data),
     });
     this.handleUnauthorized(response);
-    if (!response.ok) throw new Error('Falha ao atualizar cliente');
+    if (!response.ok) {
+      let message = 'Falha ao atualizar cliente';
+      try {
+        const payload = await response.json();
+        const errorMessage = String(payload?.error || '').trim();
+        const details = Array.isArray(payload?.details)
+          ? payload.details.map((item: any) => String(item || '').trim()).filter(Boolean)
+          : [];
+
+        if (errorMessage) {
+          message = errorMessage;
+        }
+
+        if (details.length > 0) {
+          message = `${message}: ${details.join(', ')}`;
+        }
+      } catch {
+        // mantém mensagem padrão
+      }
+      throw new Error(message);
+    }
     return response.json();
   }
 
@@ -378,6 +398,74 @@ export class ApiService {
     });
     this.handleUnauthorized(response);
     if (!response.ok) throw new Error('Falha ao restaurar backup de clientes');
+    return response.json();
+  }
+
+  // ===== ERROR TICKETS =====
+  static async createErrorTicket(data: {
+    title?: string;
+    message: string;
+    details?: string;
+    forceAutoPatch?: boolean;
+    source?: string;
+    page?: string;
+    enterpriseId?: string;
+    enterpriseName?: string;
+    userId?: string;
+    userName?: string;
+    userRole?: string;
+    context?: Record<string, any>;
+  }) {
+    const response = await fetch(`${API_URL}/error-tickets`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(data || {}),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao enviar ticket de erro'));
+    return response.json();
+  }
+
+  static async getErrorTickets(params?: { enterpriseId?: string; status?: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | string }) {
+    const url = new URL(`${API_URL}/error-tickets`);
+    if (params?.enterpriseId) url.searchParams.append('enterpriseId', params.enterpriseId);
+    if (params?.status) url.searchParams.append('status', params.status);
+    const response = await fetch(url.toString(), {
+      headers: this.getHeaders(),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao buscar tickets de erro'));
+    return response.json();
+  }
+
+  static async updateErrorTicket(id: string, data: { status?: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | string; resolutionNote?: string }) {
+    const response = await fetch(`${API_URL}/error-tickets/${id}`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify(data || {}),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao atualizar ticket'));
+    return response.json();
+  }
+
+  static async removeAiPatchFromTicket(id: string) {
+    const response = await fetch(`${API_URL}/error-tickets/${id}/remove-ai-patch`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao remover patch IA'));
+    return response.json();
+  }
+
+  static async validateErrorTicketHuman(id: string) {
+    const response = await fetch(`${API_URL}/error-tickets/${id}/validate-human`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao validar ticket manualmente'));
     return response.json();
   }
 
@@ -791,6 +879,26 @@ export class ApiService {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao buscar status do sistema');
+    return response.json();
+  }
+
+  static async getDevAssistantConfig() {
+    const response = await fetch(`${API_URL}/system/dev-assistant-config`, {
+      headers: this.getHeaders(),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao buscar configuração do DEV Assistant'));
+    return response.json();
+  }
+
+  static async updateDevAssistantConfig(config: { autoPatchEnabled: boolean }) {
+    const response = await fetch(`${API_URL}/system/dev-assistant-config`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify(config || {}),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao salvar configuração do DEV Assistant'));
     return response.json();
   }
 

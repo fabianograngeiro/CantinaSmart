@@ -28,6 +28,8 @@ const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({ currentUser }) 
   const [systemGroqToken, setSystemGroqToken] = useState('');
   const [systemProvider, setSystemProvider] = useState<AiProvider>('groq');
   const [rawAiConfig, setRawAiConfig] = useState<Record<string, any>>({});
+  const [autoPatchEnabled, setAutoPatchEnabled] = useState(true);
+  const [isSavingDevAssistantConfig, setIsSavingDevAssistantConfig] = useState(false);
 
   useEffect(() => {
     if (!isSuperAdmin) return;
@@ -47,11 +49,40 @@ const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({ currentUser }) 
         console.warn('Falha ao carregar configuração de IA do sistema:', error);
       }
     };
+    const loadDevAssistantConfig = async () => {
+      try {
+        const payload = await ApiService.getDevAssistantConfig();
+        if (cancelled) return;
+        const cfg = payload?.config && typeof payload.config === 'object' ? payload.config : {};
+        setAutoPatchEnabled(cfg?.autoPatchEnabled !== false);
+      } catch (error) {
+        console.warn('Falha ao carregar configuração do DEV Assistant:', error);
+      }
+    };
     loadAiSettings();
+    loadDevAssistantConfig();
     return () => {
       cancelled = true;
     };
   }, [isSuperAdmin]);
+
+  const handleSaveDevAssistantConfig = async () => {
+    if (!isSuperAdmin) return;
+    setIsSavingDevAssistantConfig(true);
+    try {
+      const payload = await ApiService.updateDevAssistantConfig({
+        autoPatchEnabled,
+      });
+      const cfg = payload?.config && typeof payload.config === 'object' ? payload.config : {};
+      setAutoPatchEnabled(cfg?.autoPatchEnabled !== false);
+      alert('✅ Configuração do DEV Assistant salva com sucesso.');
+    } catch (err) {
+      console.error('Erro ao salvar configuração do DEV Assistant:', err);
+      alert('❌ Falha ao salvar configuração do DEV Assistant.');
+    } finally {
+      setIsSavingDevAssistantConfig(false);
+    }
+  };
 
   const handleSaveSystemAiSettings = async () => {
     if (!isSuperAdmin) return;
@@ -283,6 +314,45 @@ const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({ currentUser }) 
                 className="px-4 py-2.5 bg-indigo-600 text-white rounded-lg font-bold text-xs uppercase tracking-wider hover:bg-indigo-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {isSavingAiSettings ? 'Salvando...' : 'Salvar IA do Sistema'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isSuperAdmin && (
+        <div className="bg-white rounded-2xl border shadow-sm overflow-hidden dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
+          <div className="p-4 border-b bg-gray-50 dark:bg-zinc-900 dark:border-white/10">
+            <h2 className="text-base font-black text-gray-800 dark:text-zinc-100">DEV Assistant</h2>
+            <p className="text-xs text-gray-500 dark:text-zinc-400 font-medium mt-1">
+              Controle do patch automático temporário por IA nos tickets de erro.
+            </p>
+          </div>
+
+          <div className="p-4 space-y-4">
+            <div className="flex items-center justify-between rounded-xl border border-indigo-100 bg-indigo-50 p-3 dark:bg-zinc-900 dark:border-white/10">
+              <div>
+                <p className="text-xs font-black uppercase tracking-widest text-indigo-700 dark:text-indigo-300">Auto Patch IA</p>
+                <p className="text-xs font-semibold text-slate-600 dark:text-zinc-300 mt-1">
+                  Quando ativo, o sistema aplica um patch temporário por IA ao receber um ticket.
+                </p>
+              </div>
+              <button
+                onClick={() => setAutoPatchEnabled((prev) => !prev)}
+                className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${autoPatchEnabled ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                aria-label="Alternar auto patch IA"
+              >
+                <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${autoPatchEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                onClick={handleSaveDevAssistantConfig}
+                disabled={isSavingDevAssistantConfig}
+                className="px-4 py-2.5 bg-indigo-600 text-white rounded-lg font-bold text-xs uppercase tracking-wider hover:bg-indigo-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isSavingDevAssistantConfig ? 'Salvando...' : 'Salvar DEV Assistant'}
               </button>
             </div>
           </div>

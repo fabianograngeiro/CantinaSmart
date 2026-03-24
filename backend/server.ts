@@ -25,6 +25,7 @@ import schoolCalendarRoutes from './routes/schoolCalendar.js';
 import aiRoutes from './routes/ai.js';
 import systemRoutes from './routes/system.js';
 import whatsappRoutes from './routes/whatsapp.js';
+import errorTicketsRoutes from './routes/errorTickets.js';
 import { authMiddleware } from './middleware/auth.js';
 import { whatsappSession } from './utils/whatsappSession.js';
 
@@ -68,6 +69,7 @@ app.use('/api/school-calendar', schoolCalendarRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/error-tickets', errorTicketsRoutes);
 app.use('/products_photos', express.static(path.join(__dirname, 'products_photos')));
 app.use('/clients_photos', express.static(path.join(__dirname, 'clients_photos')));
 

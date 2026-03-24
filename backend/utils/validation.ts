@@ -5,6 +5,8 @@ export function validateClient(client: any): { valid: boolean; errors: string[] 
   const normalizedName = String(client?.name || '').trim();
   const normalizedClass = String(client?.class || '').trim();
   const normalizedPhone = String(client?.phone || '').replace(/\D/g, '');
+  const normalizedParentWhatsapp = String(client?.parentWhatsapp || '').replace(/\D/g, '');
+  const normalizedContactPhone = normalizedPhone || normalizedParentWhatsapp;
 
   // Name validation
   if (!client.name || typeof client.name !== 'string' || normalizedName.length === 0) {
@@ -46,7 +48,7 @@ export function validateClient(client: any): { valid: boolean; errors: string[] 
     errors.push('Turma é obrigatória para aluno');
   }
 
-  if ((normalizedType === 'RESPONSAVEL' || normalizedType === 'COLABORADOR') && normalizedPhone.length < 10) {
+  if ((normalizedType === 'RESPONSAVEL' || normalizedType === 'COLABORADOR') && normalizedContactPhone.length < 10) {
     errors.push('Telefone é obrigatório para responsável e colaborador');
   }
 

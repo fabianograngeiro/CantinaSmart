@@ -26,6 +26,7 @@ import SaasBillingPage from './pages/SaasBillingPage';
 import SaasFinancialPage from './pages/SaasFinancialPage';
 import SaasWhatsAppPage from './pages/SaasWhatsAppPage';
 import SaasAuditPage from './pages/SaasAuditPage';
+import ErrorTicketsPage from './pages/ErrorTicketsPage';
 import EnterprisesPage from './pages/EnterprisesPage';
 import SuppliersPage from './pages/SuppliersPage';
 import ClientPortalPage from './pages/ClientPortalPage';
@@ -419,6 +420,7 @@ const AppContent: React.FC<any> = (props) => {
                     <SidebarItem icon={<ReceiptText size={20} />} label="Financeiro SaaS" to="/saas-financial" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp SaaS" to="/saas-whatsapp" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<ClipboardList size={20} />} label="Auditoria SaaS" to="/saas-audit" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<AlertTriangle size={20} />} label="TICKET ERRO" to="/error-tickets" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Settings size={20} />} label="Configurações" to="/system-settings" isOpen={isSidebarOpen} />
                   </div>
                 )}
@@ -541,6 +543,7 @@ const AppContent: React.FC<any> = (props) => {
                   <Route path="/saas-financial" element={isSuperAdmin ? <SaasFinancialPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/saas-whatsapp" element={isSuperAdmin ? <SaasWhatsAppPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/saas-audit" element={isSuperAdmin ? <SaasAuditPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/error-tickets" element={isSuperAdmin ? <ErrorTicketsPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/unit-sales" element={resolvedPermissions.canAccessReports ? <UnitSalesTransactionsPage activeEnterprise={activeEnterprise} transactions={transactions} /> : <Navigate to="/" />} />
                   <Route path="/financial" element={resolvedPermissions.canAccessReports ? <FinancialPage activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/whatsapp" element={resolvedPermissions.canAccessReports ? <WhatsAppPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />

@@ -31,6 +31,22 @@ const extensionFromMime = (mimeType: string) => {
   return null;
 };
 
+const PHONE_REQUIRED_VALIDATION_ERROR = 'Telefone é obrigatório para responsável e colaborador';
+
+const hasActiveAiTemporaryPatchForPhoneValidation = () => {
+  const tickets = db.getErrorTickets({ status: 'OPEN' });
+  return tickets.some((ticket: any) => {
+    const patchActive = Boolean(ticket?.aiPatch?.active);
+    if (!patchActive) return false;
+    const patchLabel = String(ticket?.aiPatch?.label || '').trim().toUpperCase();
+    const looksLikeTemporaryAiPatch = patchLabel.includes('PATCH TEMPORÁRIO IA') || patchLabel.includes('PATCH TEMPORARIO IA');
+    if (!looksLikeTemporaryAiPatch) return false;
+    const message = String(ticket?.message || '').trim();
+    const details = String(ticket?.details || '').trim();
+    return message.includes(PHONE_REQUIRED_VALIDATION_ERROR) || details.includes(PHONE_REQUIRED_VALIDATION_ERROR);
+  });
+};
+
 // Apply auth middleware to all client routes
 router.use(authMiddleware);
 
@@ -173,8 +189,17 @@ router.put('/:id', (req: Request, res: Response) => {
   }
   const mergedValidation = validateClient({ ...current, ...req.body });
   if (!mergedValidation.valid) {
-    console.log('❌ [CLIENTS] Validation errors (merged):', mergedValidation.errors);
-    return res.status(400).json({ error: 'Validação falhou', details: mergedValidation.errors });
+    const patchAllowsBypass = hasActiveAiTemporaryPatchForPhoneValidation();
+    const filteredErrors = patchAllowsBypass
+      ? mergedValidation.errors.filter((error) => error !== PHONE_REQUIRED_VALIDATION_ERROR)
+      : mergedValidation.errors;
+
+    if (filteredErrors.length > 0) {
+      console.log('❌ [CLIENTS] Validation errors (merged):', filteredErrors);
+      return res.status(400).json({ error: 'Validação falhou', details: filteredErrors });
+    }
+
+    console.log('⚠️ [CLIENTS] Validação de telefone ignorada por patch temporário IA ativo.');
   }
 
   try {

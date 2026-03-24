@@ -108,7 +108,7 @@ const POSPage: React.FC<POSPageProps> = ({ currentUser, activeEnterprise, onRegi
     return <OwnerPOSMonitor activeEnterprise={activeEnterprise} />;
   }
 
-  return <StandardPOSInterface activeEnterprise={activeEnterprise} onRegisterTransaction={onRegisterTransaction} />;
+  return <StandardPOSInterface currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={onRegisterTransaction} />;
 };
 
 /* --- MONITOR DE MOVIMENTAÇÃO (VUE OWNER) --- */
@@ -439,7 +439,7 @@ const AlertItem = ({ label, value, color, onClick }: any) => {
 
 
 /* --- INTERFACE PADRÃO (VUE OPERADOR) --- */
-const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterTransaction?: (transaction: TransactionRecord) => void }> = ({ activeEnterprise, onRegisterTransaction }) => {
+const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: Enterprise; onRegisterTransaction?: (transaction: TransactionRecord) => void }> = ({ currentUser, activeEnterprise, onRegisterTransaction }) => {
   const activeEnterpriseId = activeEnterprise.id;
   const formatCurrencyBRL = (value: number) => {
     const safe = Number.isFinite(Number(value)) ? Number(value) : 0;
@@ -485,6 +485,26 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
   const [studentCreditCalendarMonth, setStudentCreditCalendarMonth] = useState<Date>(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [isQuickClientModalOpen, setIsQuickClientModalOpen] = useState(false);
   const [isCreatingQuickClient, setIsCreatingQuickClient] = useState(false);
+  const [saleErrorMessage, setSaleErrorMessage] = useState('');
+  const [saleErrorDetails, setSaleErrorDetails] = useState('');
+  const [isSaleErrorModalOpen, setIsSaleErrorModalOpen] = useState(false);
+  const [isSendingErrorTicket, setIsSendingErrorTicket] = useState(false);
+  const [isResolvingNow, setIsResolvingNow] = useState(false);
+  const [resolveProgress, setResolveProgress] = useState(0);
+  const [resolveProgressMessage, setResolveProgressMessage] = useState('');
+  const [patchResolvedNotice, setPatchResolvedNotice] = useState('');
+
+  const consumeTemporaryCheckoutTestErrorFlag = () => {
+    try {
+      const storageKey = 'canteen_dev_assistant_force_checkout_error_once';
+      const enabled = String(localStorage.getItem(storageKey) || '').trim().toLowerCase() === 'true';
+      if (!enabled) return false;
+      localStorage.removeItem(storageKey);
+      return true;
+    } catch {
+      return false;
+    }
+  };
   const [quickClientForm, setQuickClientForm] = useState<{
     type: 'ALUNO' | 'COLABORADOR';
     name: string;
@@ -570,6 +590,27 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
     };
     loadData();
   }, [activeEnterpriseId]);
+
+  useEffect(() => {
+    const storageKey = 'canteen_pos_temporary_patch_ready_notice';
+    try {
+      const message = String(sessionStorage.getItem(storageKey) || '').trim();
+      if (!message) return;
+      setPatchResolvedNotice(message);
+      sessionStorage.removeItem(storageKey);
+    } catch {
+      // no-op
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!patchResolvedNotice) return;
+    const timer = window.setTimeout(() => {
+      setPatchResolvedNotice('');
+    }, 5000);
+
+    return () => window.clearTimeout(timer);
+  }, [patchResolvedNotice]);
 
   const availablePlans = useMemo(() => {
     return plans.filter(p => p.enterpriseId === activeEnterpriseId && p.isActive !== false);
@@ -1671,6 +1712,10 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
 
   const finalizeSale = async () => {
     try {
+      if (consumeTemporaryCheckoutTestErrorFlag()) {
+        throw new Error('ERRO TEMPORÁRIO DE TESTE (DEV Assistant): falha simulada ao registrar compra.');
+      }
+
       playSuccessBeep();
       const now = new Date();
       let updatedSelectedClient = selectedClient;
@@ -2215,7 +2260,15 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
       setSaleReference(createPOSSaleReference());
     } catch (error) {
       console.error('Erro ao finalizar venda:', error);
-      alert('Não foi possível finalizar a venda. Tente novamente.');
+      const message = error instanceof Error
+        ? error.message
+        : 'Não foi possível finalizar a venda. Tente novamente.';
+      const details = error instanceof Error
+        ? String(error.stack || '').trim()
+        : '';
+      setSaleErrorMessage(message);
+      setSaleErrorDetails(details);
+      setIsSaleErrorModalOpen(true);
     }
   };
 
@@ -2280,6 +2333,102 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
     }, ...prev]);
     setCart([]); setSelectedClient(null); setPayments([]); setIsFinalConsumer(false);
     setSaleReference(createPOSSaleReference());
+  };
+
+  const buildErrorTicketPayload = (forceAutoPatch = false) => ({
+    title: 'Falha ao finalizar venda no PDV',
+    message: saleErrorMessage,
+    details: saleErrorDetails,
+    forceAutoPatch,
+    source: 'PDV',
+    page: '/pos',
+    enterpriseId: activeEnterpriseId,
+    enterpriseName: activeEnterprise?.name,
+    userId: currentUser?.id,
+    userName: currentUser?.name,
+    userRole: currentUser?.role,
+    context: {
+      saleReference,
+      cartTotal,
+      totalPaid,
+      remainingToPay,
+      selectedClient: selectedClient
+        ? {
+            id: selectedClient.id,
+            name: selectedClient.name,
+            type: selectedClient.type,
+          }
+        : null,
+      payments: payments.map((payment) => ({
+        method: payment.method,
+        amount: payment.amount,
+      })),
+      cartItems: cart.map((item) => ({
+        productId: item.productId,
+        name: item.name,
+        quantity: item.quantity,
+        price: item.price,
+      })),
+      browserPath: window.location.hash || window.location.pathname || '/pos',
+      sentAt: new Date().toISOString(),
+    },
+  });
+
+  const handleSendErrorToSupport = async () => {
+    if (!saleErrorMessage) return;
+
+    setIsSendingErrorTicket(true);
+    try {
+      await ApiService.createErrorTicket(buildErrorTicketPayload(false));
+      alert('Ticket enviado ao suporte técnico com sucesso.');
+      setIsSaleErrorModalOpen(false);
+    } catch (ticketError) {
+      const ticketMessage = ticketError instanceof Error ? ticketError.message : 'Erro desconhecido ao enviar ticket';
+      alert(`Não foi possível enviar ao suporte: ${ticketMessage}`);
+    } finally {
+      setIsSendingErrorTicket(false);
+    }
+  };
+
+  const handleResolveNowWithAi = async () => {
+    if (!saleErrorMessage) return;
+
+    setIsResolvingNow(true);
+    setResolveProgress(8);
+    setResolveProgressMessage('Enviando ticket para o DEV Assistant...');
+
+    const intervalId = window.setInterval(() => {
+      setResolveProgress((prev) => (prev >= 92 ? prev : prev + 6));
+    }, 220);
+
+    try {
+      setResolveProgressMessage('Aplicando patch temporário de IA...');
+      await ApiService.createErrorTicket(buildErrorTicketPayload(true));
+
+      setResolveProgress(100);
+      setResolveProgressMessage('Patch temporário pronto. Recarregando página...');
+
+      try {
+        sessionStorage.setItem(
+          'canteen_pos_temporary_patch_ready_notice',
+          'Correção temporária aplicada com sucesso. Você pode tentar finalizar a compra novamente.'
+        );
+      } catch {
+        // no-op
+      }
+
+      window.setTimeout(() => {
+        window.location.reload();
+      }, 900);
+    } catch (ticketError) {
+      const ticketMessage = ticketError instanceof Error ? ticketError.message : 'Erro desconhecido ao resolver temporariamente';
+      alert(`Não foi possível resolver agora: ${ticketMessage}`);
+      setIsResolvingNow(false);
+      setResolveProgress(0);
+      setResolveProgressMessage('');
+    } finally {
+      window.clearInterval(intervalId);
+    }
   };
 
   const handleResume = (id: string) => {
@@ -3959,6 +4108,15 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
         </div>
       )}
 
+      {patchResolvedNotice && (
+        <div className="fixed top-20 right-4 z-[120] max-w-md">
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 shadow-xl">
+            <p className="text-xs font-black uppercase tracking-widest text-emerald-700">Patch temporário aplicado</p>
+            <p className="text-sm font-bold text-emerald-700 mt-1">{patchResolvedNotice}</p>
+          </div>
+        </div>
+      )}
+
       {isNegativeBalanceWarningOpen && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
           <div
@@ -4029,6 +4187,96 @@ const StandardPOSInterface: React.FC<{ activeEnterprise: Enterprise; onRegisterT
                 className="flex-1 py-3 rounded-2xl bg-amber-600 text-white font-black uppercase tracking-widest text-xs hover:bg-amber-700 transition-colors"
               >
                 Continuar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isSaleErrorModalOpen && (
+        <div className="fixed inset-0 z-[115] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => {
+              if (isSendingErrorTicket || isResolvingNow) return;
+              setIsSaleErrorModalOpen(false);
+            }}
+          />
+          <div className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95">
+            <div className="bg-red-600 p-5 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="bg-white/20 p-2 rounded-xl">
+                  <AlertTriangle size={22} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black">Erro ao finalizar venda</h3>
+                  <p className="text-[10px] uppercase tracking-widest font-black text-red-100">
+                    Detalhes disponíveis para envio ao suporte
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  if (isSendingErrorTicket || isResolvingNow) return;
+                  setIsSaleErrorModalOpen(false);
+                }}
+                className="p-1"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-red-50 border border-red-100 rounded-2xl p-4">
+                <p className="text-xs font-black uppercase tracking-widest text-red-700">Mensagem do erro</p>
+                <p className="text-sm font-bold text-red-700 mt-1 break-words">{saleErrorMessage}</p>
+              </div>
+
+              {saleErrorDetails && (
+                <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4">
+                  <p className="text-xs font-black uppercase tracking-widest text-gray-600 mb-2">Detalhes técnicos</p>
+                  <pre className="text-[11px] leading-5 text-gray-700 whitespace-pre-wrap break-words max-h-48 overflow-auto">
+                    {saleErrorDetails}
+                  </pre>
+                </div>
+              )}
+
+              {isResolvingNow && (
+                <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4">
+                  <p className="text-xs font-black uppercase tracking-widest text-indigo-700">Resolução temporária em andamento</p>
+                  <p className="text-xs font-bold text-indigo-700 mt-1">{resolveProgressMessage || 'Aplicando patch temporário...'}</p>
+                  <div className="mt-3 h-2 w-full rounded-full bg-indigo-100 overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-600 transition-all duration-300 ease-out"
+                      style={{ width: `${Math.max(0, Math.min(100, resolveProgress))}%` }}
+                    />
+                  </div>
+                  <p className="mt-1 text-[10px] font-black text-indigo-600">{Math.max(0, Math.min(100, Math.round(resolveProgress)))}%</p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 bg-gray-50 border-t flex flex-col sm:flex-row gap-3">
+              <button
+                onClick={() => setIsSaleErrorModalOpen(false)}
+                disabled={isSendingErrorTicket || isResolvingNow}
+                className="flex-1 py-3 rounded-2xl border-2 border-gray-200 text-gray-600 font-black uppercase tracking-widest text-xs disabled:opacity-60"
+              >
+                Fechar
+              </button>
+              <button
+                onClick={handleResolveNowWithAi}
+                disabled={isSendingErrorTicket || isResolvingNow}
+                className="flex-1 py-3 rounded-2xl bg-emerald-600 text-white font-black uppercase tracking-widest text-xs hover:bg-emerald-700 transition-colors disabled:opacity-60"
+              >
+                {isResolvingNow ? 'Resolvendo...' : 'Resolver agora'}
+              </button>
+              <button
+                onClick={handleSendErrorToSupport}
+                disabled={isSendingErrorTicket || isResolvingNow}
+                className="flex-1 py-3 rounded-2xl bg-indigo-600 text-white font-black uppercase tracking-widest text-xs hover:bg-indigo-700 transition-colors disabled:opacity-60"
+              >
+                {isSendingErrorTicket ? 'Enviando...' : 'Enviar ao suporte técnico'}
               </button>
             </div>
           </div>
