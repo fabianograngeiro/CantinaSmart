@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import jsPDF from 'jspdf';
 import { 
   Plus, Trash2, Save,
@@ -16,6 +16,25 @@ const DAYS_OF_WEEK: ('SEGUNDA' | 'TERCA' | 'QUARTA' | 'QUINTA' | 'SEXTA' | 'SABA
   'SEGUNDA', 'TERCA', 'QUARTA', 'QUINTA', 'SEXTA', 'SABADO'
 ];
 type DayOfWeek = (typeof DAYS_OF_WEEK)[number];
+type CalendarSlot = {
+  week: number;
+  dayOfWeek: DayOfWeek;
+  date: Date;
+  dateKey: string;
+};
+type MonthlyMenuBackupSlot = {
+  sourceDateKey: string;
+  dayOfWeek: DayOfWeek;
+  items: MenuItem[];
+};
+type MonthlyMenuBackupPayload = {
+  version: 1;
+  kind: 'MONTHLY_MENU_BACKUP';
+  type: 'ALMOCO' | 'LANCHE';
+  sourceMonth: string;
+  exportedAt: string;
+  slots: MonthlyMenuBackupSlot[];
+};
 const SHORT_DAY_LABEL: Record<(typeof DAYS_OF_WEEK)[number], string> = {
   SEGUNDA: 'SEG',
   TERCA: 'TER',
@@ -41,6 +60,7 @@ const DAY_KEY_ALIASES: Record<DayOfWeek, string[]> = {
   SABADO: ['SABADO', 'sábado', 'sabado', 'SATURDAY', 'saturday'],
 };
 const WEEK_OPTIONS = [1, 2, 3, 4, 5] as const;
+const WEEKDAY_GRID_ORDER: DayOfWeek[] = ['SEGUNDA', 'TERCA', 'QUARTA', 'QUINTA', 'SEXTA'];
 const getCurrentMonthKey = () => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -250,6 +270,9 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
   const [schoolCalendarBlockedDates, setSchoolCalendarBlockedDates] = useState<string[]>([]);
   const [schoolCalendarEventByDate, setSchoolCalendarEventByDate] = useState<Record<string, string>>({});
   const [duplicateMonthTarget, setDuplicateMonthTarget] = useState<string>(getNextMonthKey());
+  const [pendingMonthlyBackup, setPendingMonthlyBackup] = useState<MonthlyMenuBackupPayload | null>(null);
+  const [restoreStartDateKey, setRestoreStartDateKey] = useState<string>('');
+  const monthlyBackupInputRef = useRef<HTMLInputElement | null>(null);
   const [dayDuplicateTarget, setDayDuplicateTarget] = useState<{
     sourceWeek: number;
     sourceDayId: string;
@@ -817,6 +840,173 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
 
   const selectedEnterpriseName = selectedEnterprise?.name || 'Unidade';
 
+  const getOpenCalendarSlots = (monthKey: string): CalendarSlot[] => {
+    const slots: CalendarSlot[] = [];
+    WEEK_OPTIONS.forEach((week) => {
+      DAYS_OF_WEEK.forEach((dayOfWeek) => {
+        if (!activeServiceDaySet.has(dayOfWeek)) return;
+        const date = getDateForWeekAndDay(monthKey, week, dayOfWeek);
+        if (!date || !isSchoolDateAllowed(date)) return;
+        const dateKey = `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`;
+        slots.push({ week, dayOfWeek, date, dateKey });
+      });
+    });
+
+    slots.sort((a, b) => a.date.getTime() - b.date.getTime());
+    return slots;
+  };
+
+  const restoreOpenSlots = useMemo(() => getOpenCalendarSlots(selectedMonth), [selectedMonth, activeServiceDaySet, schoolCalendarBlockedDateSet, weeklyMenuByWeek]);
+
+  const triggerMonthlyBackupRestorePicker = () => {
+    monthlyBackupInputRef.current?.click();
+  };
+
+  const backupMonthlyMenuLocal = () => {
+    const sourceSlots = getOpenCalendarSlots(selectedMonth);
+    if (sourceSlots.length === 0) {
+      notificationService.alerta('Sem dias válidos', 'Não há dias letivos abertos para gerar backup deste mês.');
+      return;
+    }
+
+    const slots: MonthlyMenuBackupSlot[] = sourceSlots.map((slot) => {
+      const day = (weeklyMenuByWeek[slot.week] || []).find((item) => item.dayOfWeek === slot.dayOfWeek);
+      return {
+        sourceDateKey: slot.dateKey,
+        dayOfWeek: slot.dayOfWeek,
+        items: cloneMenuItems(day?.items || []),
+      };
+    });
+
+    const payload: MonthlyMenuBackupPayload = {
+      version: 1,
+      kind: 'MONTHLY_MENU_BACKUP',
+      type,
+      sourceMonth: selectedMonth,
+      exportedAt: new Date().toISOString(),
+      slots,
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const fileName = `backup-cardapio-${type.toLowerCase()}-${selectedMonth}.json`;
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+
+    notificationService.informativo('Backup gerado', `Arquivo ${fileName} pronto para download.`);
+  };
+
+  const handleMonthlyBackupFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    try {
+      const content = await file.text();
+      const parsed = JSON.parse(content);
+      if (String(parsed?.kind || '') !== 'MONTHLY_MENU_BACKUP' || Number(parsed?.version) !== 1) {
+        notificationService.alerta('Arquivo inválido', 'Este arquivo não é um backup de cardápio válido.');
+        return;
+      }
+
+      const slotsRaw = Array.isArray(parsed?.slots) ? parsed.slots : [];
+      if (slotsRaw.length === 0) {
+        notificationService.alerta('Backup vazio', 'O arquivo não possui itens para restaurar.');
+        return;
+      }
+
+      const normalizedSlots: MonthlyMenuBackupSlot[] = slotsRaw.map((slot: any) => ({
+        sourceDateKey: String(slot?.sourceDateKey || '').trim(),
+        dayOfWeek: String(slot?.dayOfWeek || 'SEGUNDA') as DayOfWeek,
+        items: Array.isArray(slot?.items) ? slot.items : [],
+      }));
+
+      const payload: MonthlyMenuBackupPayload = {
+        version: 1,
+        kind: 'MONTHLY_MENU_BACKUP',
+        type: String(parsed?.type || type).toUpperCase() === 'LANCHE' ? 'LANCHE' : 'ALMOCO',
+        sourceMonth: String(parsed?.sourceMonth || ''),
+        exportedAt: String(parsed?.exportedAt || ''),
+        slots: normalizedSlots,
+      };
+
+      const openSlots = getOpenCalendarSlots(selectedMonth);
+      if (openSlots.length === 0) {
+        notificationService.alerta('Sem dias abertos', 'Não existem dias letivos abertos para restaurar neste mês.');
+        return;
+      }
+
+      setPendingMonthlyBackup(payload);
+      setRestoreStartDateKey(openSlots[0].dateKey);
+      notificationService.informativo('Backup carregado', 'Escolha o primeiro dia para começar a restauração do cardápio.');
+    } catch (error) {
+      notificationService.alerta('Erro ao ler backup', 'Não foi possível processar o arquivo selecionado.');
+    }
+  };
+
+  const cancelMonthlyRestore = () => {
+    setPendingMonthlyBackup(null);
+    setRestoreStartDateKey('');
+  };
+
+  const applyMonthlyRestore = async () => {
+    if (!pendingMonthlyBackup) return;
+
+    const targetSlots = getOpenCalendarSlots(selectedMonth);
+    const startIndex = targetSlots.findIndex((slot) => slot.dateKey === restoreStartDateKey);
+    if (startIndex < 0) {
+      notificationService.alerta('Dia inicial inválido', 'Selecione um dia letivo aberto para iniciar a restauração.');
+      return;
+    }
+
+    const destinationSlots = targetSlots.slice(startIndex);
+    if (destinationSlots.length === 0) {
+      notificationService.alerta('Sem espaço no mês', 'Não há dias disponíveis a partir do dia selecionado.');
+      return;
+    }
+
+    const backupSlots = pendingMonthlyBackup.slots;
+    const applyCount = Math.min(backupSlots.length, destinationSlots.length);
+
+    setWeeklyMenuByWeek((prev) => {
+      const next = { ...prev } as Record<number, MenuDay[]>;
+      WEEK_OPTIONS.forEach((week) => {
+        next[week] = (prev[week] || generateInitialMenu()).map((day) => ({ ...day, items: [...day.items] }));
+      });
+
+      for (let index = 0; index < applyCount; index += 1) {
+        const backupSlot = backupSlots[index];
+        const destination = destinationSlots[index];
+        const weekDays = next[destination.week] || [];
+        const dayIndex = weekDays.findIndex((day) => day.dayOfWeek === destination.dayOfWeek);
+        if (dayIndex < 0) continue;
+        weekDays[dayIndex] = {
+          ...weekDays[dayIndex],
+          items: cloneMenuItems(Array.isArray(backupSlot?.items) ? backupSlot.items : []),
+        };
+      }
+
+      return next;
+    });
+
+    if (applyCount < backupSlots.length) {
+      notificationService.alerta(
+        'Restauração parcial',
+        `Foram restaurados ${applyCount} de ${backupSlots.length} dias. O restante não coube no mês selecionado.`
+      );
+    } else {
+      notificationService.informativo('Restauração concluída', `${applyCount} dias do cardápio foram restaurados com sucesso.`);
+    }
+
+    setPendingMonthlyBackup(null);
+    setRestoreStartDateKey('');
+  };
+
   const toggleDayDuplicatePicker = (week: number, day: MenuDay) => {
     const isSameTarget = dayDuplicateTarget?.sourceDayId === day.id;
     if (isSameTarget) {
@@ -911,13 +1101,15 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
   };
 
   const exportWeeklyCalendarPdf = () => {
-    const [yearRaw, monthRaw] = String(selectedMonth || '').split('-');
-    const year = Number(yearRaw);
-    const month = Number(monthRaw);
-    if (!year || !month || month < 1 || month > 12) {
-      notificationService.alerta('Mês inválido', 'Selecione um mês válido antes de exportar.');
-      return;
-    }
+    try {
+      const isCompactMode = true;
+      const [yearRaw, monthRaw] = String(selectedMonth || '').split('-');
+      const year = Number(yearRaw);
+      const month = Number(monthRaw);
+      if (!year || !month || month < 1 || month > 12) {
+        notificationService.alerta('Mês inválido', 'Selecione um mês válido antes de exportar.');
+        return;
+      }
 
     type CalendarDayCard = {
       week: number;
@@ -926,45 +1118,83 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       items: MenuItem[];
     };
 
-    if (activeServiceDays.length === 0) {
+      if (activeServiceDays.length === 0) {
       notificationService.alerta('Sem dias ativos', 'Nenhum dia de atendimento está ativo em Ajustes > Atendimento.');
       return;
     }
 
-    const calendarRows: CalendarDayCard[][] = WEEK_OPTIONS.map((week) => {
+      const exportServiceDays = activeServiceDays.length > 0 ? activeServiceDays : DAYS_OF_WEEK;
+
+      const buildCalendarRows = (planFilterId?: string): CalendarDayCard[][] => WEEK_OPTIONS.map((week) => {
       const weekDays = weeklyMenuByWeek[week] || [];
-      return activeServiceDays.map((dayOfWeek) => {
+        return exportServiceDays.map((dayOfWeek) => {
         const matchedDay = weekDays.find((day) => day.dayOfWeek === dayOfWeek);
+        const allItems = Array.isArray(matchedDay?.items) ? matchedDay!.items : [];
+        const filteredItems = !planFilterId
+          ? allItems
+          : allItems.filter((item) => String(item?.planId || '') === String(planFilterId));
         return {
           week,
           dayOfWeek,
           date: getDayDateForWeek(week, dayOfWeek),
-          items: Array.isArray(matchedDay?.items) ? matchedDay!.items : [],
+          items: filteredItems,
         };
       });
     }).filter((row) => row.some((cell) => Boolean(cell.date)));
 
-    const hasAnyPlan = calendarRows.some((row) => row.some((cell) => cell.date && cell.items.length > 0));
-    if (!hasAnyPlan) {
-      notificationService.alerta('Sem planos no mês', 'Não há dias com planos cadastrados para exportar neste mês.');
-      return;
-    }
+      const calendarRows = buildCalendarRows();
+
+      const hasAnyPlan = calendarRows.some((row) => row.some((cell) => cell.date && cell.items.length > 0));
+      if (!hasAnyPlan) {
+        notificationService.informativo('Exportação sem itens', 'Este mês ainda não possui planos cadastrados. O PDF será gerado com a grade vazia.');
+      }
+
+    // Helper function to format date to YYYY-MM-DD
+    const formatDateKey = (date: Date): string => {
+      const yyyy = date.getFullYear();
+      const mm = String(date.getMonth() + 1).padStart(2, '0');
+      const dd = String(date.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    };
 
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const generatedAt = new Date();
     const planNameById = new Map(plansCatalog.map((plan) => [plan.id, plan.name]));
+    const planPages = (() => {
+      const pages = new Map<string, { planId: string; planName: string }>();
+      (Object.values(weeklyMenuByWeek) as MenuDay[][]).forEach((days) => {
+        (days || []).forEach((day) => {
+          (day.items || []).forEach((item) => {
+            const planId = String(item?.planId || '').trim();
+            if (!planId) return;
+            if (!pages.has(planId)) {
+              pages.set(planId, {
+                planId,
+                planName: String(planNameById.get(planId) || item.name || 'Cardápio'),
+              });
+            }
+          });
+        });
+      });
+      if (pages.size === 0) {
+        return [{ planId: '', planName: type === 'ALMOCO' ? 'Cardápio de Almoço' : 'Cardápio de Lanche' }];
+      }
+      return Array.from(pages.values());
+    })();
 
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const marginX = 10;
-    const tableStartY = 44;
-    const bottomMargin = 12;
+    const tableStartY = isCompactMode ? 31 : 34;
+    const bottomMargin = isCompactMode ? 6 : 8;
     const tableWidth = pageWidth - marginX * 2;
     const contentAreaHeight = pageHeight - tableStartY - bottomMargin;
-    const colHeaderH = 9;
-    const colCount = activeServiceDays.length;
-    const colW = tableWidth / colCount;
-    const maxWeeksPerPage = Math.max(1, Math.min(3, calendarRows.length));
+    const colHeaderH = isCompactMode ? 9 : 10;
+    const weekSideW = isCompactMode ? 12 : 0;
+    const colCount = exportServiceDays.length;
+    const dayColumnsWidth = tableWidth - weekSideW;
+    const colW = dayColumnsWidth / colCount;
+    const maxWeeksPerPage = Math.max(1, Math.min(isCompactMode ? 4 : 3, calendarRows.length));
 
     const weekdayColor: Record<DayOfWeek, [number, number, number]> = {
       SEGUNDA: [37, 99, 235],
@@ -992,40 +1222,46 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       return pdfPlanColors[index % pdfPlanColors.length];
     };
 
-    const drawPageHeader = () => {
-      doc.setFillColor(15, 23, 42);
-      doc.rect(0, 0, pageWidth, 28, 'F');
+    const drawPageHeader = (planTitle: string) => {
+      doc.setFillColor(30, 41, 59);
+      doc.rect(0, 0, pageWidth, 16, 'F');
 
       doc.setFillColor(255, 255, 255);
-      doc.roundedRect(12, 8, 15, 15, 2.5, 2.5, 'F');
-      doc.setTextColor(15, 23, 42);
-      doc.setFontSize(12);
+      doc.roundedRect(11.5, 4.2, 8.5, 8.5, 1.6, 1.6, 'F');
+      doc.setTextColor(30, 41, 59);
       doc.setFont('helvetica', 'bold');
-      doc.text('CA', 16.2, 17.8);
+      doc.setFontSize(7.8);
+      doc.text('CA', 13.55, 9.95);
 
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(15.5);
-      doc.text('GRADE MENSAL DE CARDAPIO', 33, 14.2);
+      doc.setFontSize(11.2);
+      doc.text('CALENDARIO ESCOLAR - CARDAPIO MENSAL', 23, 8.2);
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9.2);
-      doc.text(String(selectedEnterpriseName || 'UNIDADE').toUpperCase(), 33, 20.2);
+      doc.setFontSize(7.2);
+      doc.text(String(selectedEnterpriseName || 'UNIDADE').toUpperCase(), 23, 12.2);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.4);
+      doc.text(String(planTitle || 'CARDAPIO').toUpperCase(), pageWidth / 2, 11.2, { align: 'center' });
 
-      doc.setTextColor(31, 41, 55);
+      doc.setTextColor(51, 65, 85);
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
+      doc.setFontSize(8.8);
       doc.text(
-        `${formatMonthLabel(selectedMonth)} | Unidade: ${selectedEnterpriseName} | Refeicao: ${type === 'ALMOCO' ? 'Almoco' : 'Lanche'}`,
-        14,
-        35
+        `${formatMonthLabel(selectedMonth)}  •  Unidade: ${selectedEnterpriseName}  •  Refeicao: ${type === 'ALMOCO' ? 'Almoco' : 'Lanche'}`,
+        11,
+        23.2
       );
+      doc.setFontSize(7.8);
       doc.text(
-        `Gerado em: ${generatedAt.toLocaleDateString('pt-BR')} ${generatedAt.toLocaleTimeString('pt-BR')}`,
-        pageWidth - 86,
-        35
+        `Gerado em ${generatedAt.toLocaleDateString('pt-BR')} ${generatedAt.toLocaleTimeString('pt-BR')}`,
+        pageWidth - 67,
+        23.2
       );
-      doc.setDrawColor(229, 231, 235);
-      doc.line(10, 38, pageWidth - 10, 38);
+
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.35);
+      doc.line(10, 27.4, pageWidth - 10, 27.4);
     };
 
     const getPlanItems = (item: MenuItem) => (
@@ -1034,39 +1270,74 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
         : [String(item.description || 'Sem insumos definidos')]
     );
 
-    const truncatePdfText = (value: string, maxWidth: number) => {
-      const lines = doc.splitTextToSize(String(value || ''), maxWidth);
-      if (lines.length <= 1) return lines[0] || '';
-      let base = String(lines[0] || '').trim();
-      while (base.length > 0 && doc.getTextWidth(`${base}...`) > maxWidth) {
-        base = base.slice(0, -1).trimEnd();
+    const wrapPdfBulletText = (value: string, maxWidth: number, maxLines = 2) => {
+      const raw = String(value || '').trim() || '-';
+      const lines = doc.splitTextToSize(`• ${raw}`, maxWidth) as string[];
+      if (lines.length <= maxLines) return lines;
+
+      const clipped = lines.slice(0, maxLines);
+      let last = String(clipped[maxLines - 1] || '').trim();
+      while (last.length > 0 && doc.getTextWidth(`${last}...`) > maxWidth) {
+        last = last.slice(0, -1).trimEnd();
       }
-      return `${base}...`;
+      clipped[maxLines - 1] = `${last}...`;
+      return clipped;
+    };
+
+    const drawVerticalStackedText = (text: string, centerX: number, topY: number, areaHeight: number) => {
+      const chars = String(text || '')
+        .toUpperCase()
+        .split('');
+      const visibleChars = chars.filter((char) => char !== ' ');
+      const availableHeight = Math.max(10, areaHeight - 3);
+      const step = Math.min(2.15, availableHeight / Math.max(1, visibleChars.length + 1));
+      const fontSize = Math.max(4.5, Math.min(5.1, step * 1.1));
+      const totalHeight = visibleChars.length * step;
+      let cursorY = topY + (areaHeight - totalHeight) / 2 + step * 0.2;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(fontSize);
+      chars.forEach((char) => {
+        if (char !== ' ') {
+          doc.text(char, centerX, cursorY, { align: 'center' });
+          cursorY += step;
+        }
+      });
     };
 
     const drawTableColumnHeaders = (startY: number) => {
-      activeServiceDays.forEach((day, i) => {
-        const cx = marginX + i * colW;
+      if (weekSideW > 0) {
+        doc.setFillColor(241, 245, 249);
+        doc.rect(marginX, startY, weekSideW, colHeaderH, 'F');
+      }
+
+      exportServiceDays.forEach((day, i) => {
+        const cx = marginX + weekSideW + i * colW;
         const accent = weekdayColor[day] || [79, 70, 229];
+        doc.setFillColor(248, 250, 252);
+        doc.roundedRect(cx + 0.5, startY + 0.6, colW - 1, colHeaderH - 1.2, 1, 1, 'F');
         doc.setFillColor(accent[0], accent[1], accent[2]);
-        doc.rect(cx, startY, colW, colHeaderH, 'F');
-        doc.setTextColor(255, 255, 255);
+        doc.roundedRect(cx + 0.8, startY + 0.9, colW - 1.6, 1.2, 0.4, 0.4, 'F');
+        doc.setTextColor(30, 41, 59);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8.5);
-        doc.text(day, cx + colW / 2, startY + 6, { align: 'center' });
+        doc.text(day, cx + colW / 2, startY + 6.8, { align: 'center' });
       });
-      doc.setDrawColor(150, 150, 150);
-      doc.setLineWidth(0.35);
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(0.25);
       doc.rect(marginX, startY, tableWidth, colHeaderH);
+      if (weekSideW > 0) {
+        doc.line(marginX + weekSideW, startY, marginX + weekSideW, startY + colHeaderH);
+      }
       for (let i = 1; i < colCount; i += 1) {
-        const lx = marginX + i * colW;
+        const lx = marginX + weekSideW + i * colW;
         doc.line(lx, startY, lx, startY + colHeaderH);
       }
     };
 
     const drawTableGrid = (startY: number, rowHeights: number[]) => {
       const totalH = rowHeights.reduce((a, b) => a + b, 0);
-      doc.setDrawColor(180, 180, 180);
+      doc.setDrawColor(203, 213, 225);
       doc.setLineWidth(0.25);
       doc.rect(marginX, startY, tableWidth, totalH);
       let rCursorY = startY;
@@ -1074,17 +1345,20 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
         rCursorY += rowHeights[r];
         doc.line(marginX, rCursorY, marginX + tableWidth, rCursorY);
       }
+      if (weekSideW > 0) {
+        doc.line(marginX + weekSideW, startY, marginX + weekSideW, startY + totalH);
+      }
       for (let c = 1; c < colCount; c += 1) {
-        const lx = marginX + c * colW;
+        const lx = marginX + weekSideW + c * colW;
         doc.line(lx, startY, lx, startY + totalH);
       }
     };
 
-    const cellPaddingTop = 9;
-    const titleFontSize = 5.9;
-    const bodyFontSize = 6.5;
-    const titleLineHeight = 2.8;
-    const itemLineHeight = 3.6;
+    const cellPaddingTop = isCompactMode ? 7 : 9;
+    const titleFontSize = isCompactMode ? 4.9 : 5.9;
+    const bodyFontSize = isCompactMode ? 5 : 6.2;
+    const titleLineHeight = isCompactMode ? 2.1 : 2.8;
+    const itemLineHeight = isCompactMode ? 1.9 : 2.9;
     const itemColumnGap = 1.4;
 
     const calcCellNaturalHeight = (
@@ -1092,6 +1366,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       state: { planIndex: number; itemOffset: number }
     ): number => {
       if (!entry.date || entry.items.length === 0) return cellPaddingTop + 4;
+      const itemColumnWidth = isCompactMode ? (colW - 4) : (colW - 5 - itemColumnGap) / 2;
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(titleFontSize);
       let lineY = cellPaddingTop + 1.6;
@@ -1107,8 +1382,23 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
         const planItems = getPlanItems(item);
         const remainingItems = planItems.slice(currentItemOffset);
         const titleHeight = wrappedPlan.length * titleLineHeight;
-        const rowsNeeded = Math.ceil(remainingItems.length / 2);
-        const blockHeight = 2.3 + titleHeight + rowsNeeded * itemLineHeight + 0.8;
+        let renderedRowsHeight = 0;
+        if (isCompactMode) {
+          for (let idx = 0; idx < remainingItems.length; idx += 1) {
+            const lineCount = wrapPdfBulletText(String(remainingItems[idx] || ''), itemColumnWidth, 1).length || 1;
+            renderedRowsHeight += lineCount * itemLineHeight;
+          }
+        } else {
+          for (let idx = 0; idx < remainingItems.length; idx += 2) {
+            const leftText = String(remainingItems[idx] || '');
+            const rightText = String(remainingItems[idx + 1] || '');
+            const leftLines = leftText ? wrapPdfBulletText(leftText, itemColumnWidth, 2).length : 0;
+            const rightLines = rightText ? wrapPdfBulletText(rightText, itemColumnWidth, 2).length : 0;
+            const rowLines = Math.max(leftLines, rightLines, 1);
+            renderedRowsHeight += rowLines * itemLineHeight;
+          }
+        }
+        const blockHeight = 2.3 + titleHeight + renderedRowsHeight + 0.8;
         lineY += blockHeight + 0.35;
         if (currentPlanIndex + 1 < entry.items.length) lineY += 0.45;
         currentPlanIndex += 1;
@@ -1125,7 +1415,8 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       y: number,
       w: number,
       h: number,
-      state: { planIndex: number; itemOffset: number }
+      state: { planIndex: number; itemOffset: number },
+      eventsByDate: Record<string, string>
     ) => {
       doc.setFillColor(255, 255, 255);
       doc.rect(x, y, w, h, 'F');
@@ -1137,8 +1428,10 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       }
 
       const accent = weekdayColor[entry.dayOfWeek] || [79, 70, 229];
+      const dateKey = formatDateKey(entry.date);
+      const eventTitle = eventsByDate[dateKey];
 
-      if (isFirstCell) {
+      if (!isCompactMode && isFirstCell) {
         doc.setTextColor(100, 116, 139);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(5.2);
@@ -1146,20 +1439,56 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       }
 
       doc.setFillColor(accent[0], accent[1], accent[2]);
-      doc.roundedRect(x + w - 10.5, y + 1.6, 9, 5.8, 1, 1, 'F');
+      doc.roundedRect(x + w - 10.5, y + 1.6, 9, 5.8, 1.1, 1.1, 'F');
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(6.6);
       doc.text(String(entry.date.getDate()).padStart(2, '0'), x + w - 6, y + 5.9, { align: 'center' });
+
+      // Display event/holiday title if exists
+      if (eventTitle) {
+        doc.setTextColor(219, 39, 119);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(4.2);
+        const eventLabel = eventTitle.length > 12 ? `${eventTitle.substring(0, 11)}...` : eventTitle;
+        doc.text(eventLabel, x + w - 10.5, y + 8.6, { align: 'center', maxWidth: 8 });
+      }
 
       doc.setDrawColor(accent[0], accent[1], accent[2]);
       doc.setLineWidth(0.4);
       doc.line(x, y + cellPaddingTop, x + w, y + cellPaddingTop);
 
       const contentBottom = y + h - 1;
-      if (entry.items.length === 0) return state;
+      
+      // If no items, show event/holiday centered in empty cell
+      if (entry.items.length === 0) {
+        if (eventTitle) {
+          // Draw centered box with event title
+          const eventBoxHeight = 12;
+          const eventBoxY = y + cellPaddingTop + (contentBottom - (y + cellPaddingTop) - eventBoxHeight) / 2;
+          
+          doc.setFillColor(254, 243, 245);
+          doc.roundedRect(x + 1, eventBoxY, w - 2, eventBoxHeight, 1, 1, 'F');
+          
+          doc.setDrawColor(219, 39, 119);
+          doc.setLineWidth(0.5);
+          doc.roundedRect(x + 1, eventBoxY, w - 2, eventBoxHeight, 1, 1, 'D');
+          
+          doc.setTextColor(219, 39, 119);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(6);
+          
+          const wrappedEvent = doc.splitTextToSize(eventTitle, w - 4).slice(0, 2);
+          let eventY = eventBoxY + 2;
+          wrappedEvent.forEach((line: string) => {
+            doc.text(line, x + w / 2, eventY, { align: 'center' });
+            eventY += 4;
+          });
+        }
+        return state;
+      }
 
-      const itemColumnWidth = (w - 5 - itemColumnGap) / 2;
+      const itemColumnWidth = isCompactMode ? (w - 4) : (w - 5 - itemColumnGap) / 2;
       let lineY = y + cellPaddingTop + 1.2;
       let currentPlanIndex = state.planIndex;
       let currentItemOffset = state.itemOffset;
@@ -1182,10 +1511,48 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
           break;
         }
 
-        const rowsNeeded = Math.ceil(remainingItems.length / 2);
-        const rowsToRender = Math.min(rowsNeeded, rowsThatFit);
-        const itemsToRenderCount = Math.min(remainingItems.length, rowsToRender * 2);
-        const blockHeight = 2.3 + titleHeight + rowsToRender * itemLineHeight + 0.8;
+        let rowsHeight = 0;
+        let consumedItems = 0;
+        const renderedRows: Array<{ left: string[]; right: string[]; rowHeight: number }> = [];
+
+        if (isCompactMode) {
+          for (let idx = 0; idx < remainingItems.length; idx += 1) {
+            const text = String(remainingItems[idx] || '');
+            const lines = text ? wrapPdfBulletText(text, itemColumnWidth, 1) : [];
+            const rowHeight = Math.max(1, lines.length) * itemLineHeight;
+            if (rowsHeight + rowHeight > availableItemsHeight) break;
+            renderedRows.push({ left: lines, right: [], rowHeight });
+            rowsHeight += rowHeight;
+            consumedItems += text ? 1 : 0;
+          }
+        } else {
+          for (let idx = 0; idx < remainingItems.length; idx += 2) {
+            const leftText = String(remainingItems[idx] || '');
+            const rightText = String(remainingItems[idx + 1] || '');
+            const leftLines = leftText ? wrapPdfBulletText(leftText, itemColumnWidth, 2) : [];
+            const rightLines = rightText ? wrapPdfBulletText(rightText, itemColumnWidth, 2) : [];
+            const rowLineCount = Math.max(leftLines.length, rightLines.length, 1);
+            const rowHeight = rowLineCount * itemLineHeight;
+
+            if (rowsHeight + rowHeight > availableItemsHeight) {
+              break;
+            }
+
+            renderedRows.push({ left: leftLines, right: rightLines, rowHeight });
+            rowsHeight += rowHeight;
+            consumedItems += leftText ? 1 : 0;
+            consumedItems += rightText ? 1 : 0;
+          }
+        }
+
+        const itemsToRenderCount = consumedItems;
+        const naturalBlockHeight = 2.1 + titleHeight + rowsHeight + 0.6;
+        const isLastVisibleCompactBlock = isCompactMode
+          && currentPlanIndex === entry.items.length - 1
+          && currentItemOffset + itemsToRenderCount >= planItems.length;
+        const blockHeight = isLastVisibleCompactBlock
+          ? Math.max(naturalBlockHeight, contentBottom - lineY - 0.2)
+          : naturalBlockHeight;
 
         if ((lineY + blockHeight) > contentBottom) {
           break;
@@ -1209,19 +1576,20 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
         doc.setTextColor(71, 85, 105);
         doc.setFontSize(bodyFontSize);
 
-        for (let ri = 0; ri < rowsToRender; ri += 1) {
-          const leftItem = remainingItems[ri * 2];
-          const rightItem = remainingItems[ri * 2 + 1];
-          const rowY = planLineY + ri * itemLineHeight + 0.35;
-          if (leftItem) {
-            doc.text(truncatePdfText(`• ${leftItem}`, itemColumnWidth), x + 2, rowY);
+        let rowY = planLineY + (isCompactMode ? 0.18 : 0.35);
+        renderedRows.forEach((row) => {
+          row.left.forEach((line, lineIndex) => {
+            doc.text(line, x + 2, rowY + lineIndex * itemLineHeight);
+          });
+          if (!isCompactMode) {
+            row.right.forEach((line, lineIndex) => {
+              doc.text(line, x + 2 + itemColumnWidth + itemColumnGap, rowY + lineIndex * itemLineHeight);
+            });
           }
-          if (rightItem) {
-            doc.text(truncatePdfText(`• ${rightItem}`, itemColumnWidth), x + 2 + itemColumnWidth + itemColumnGap, rowY);
-          }
-        }
+          rowY += row.rowHeight;
+        });
 
-        lineY += blockHeight + 0.35;
+        lineY += blockHeight + (isCompactMode ? 0.18 : 0.35);
         currentItemOffset += itemsToRenderCount;
 
         if (currentItemOffset >= planItems.length) {
@@ -1240,101 +1608,199 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       return { planIndex: currentPlanIndex, itemOffset: currentItemOffset };
     };
 
-    const drawFooter = () => {
-      const footerY = pageHeight - 7;
-      doc.setDrawColor(209, 213, 219);
-      doc.line(10, footerY - 3.2, pageWidth - 10, footerY - 3.2);
-      doc.setTextColor(107, 114, 128);
-      doc.setFontSize(8);
-      doc.setFont('helvetica', 'normal');
-      doc.text(
-        `Relatorio mensal de cardapio • Emissao: ${generatedAt.toLocaleDateString('pt-BR')} ${generatedAt.toLocaleTimeString('pt-BR')}`,
-        14,
-        footerY
-      );
-    };
-
-    const rowStates = calendarRows.map((row) => row.map(() => ({ planIndex: 0, itemOffset: 0 })));
-    const hasRemainingContentInRange = (startRow: number, endRow: number) => {
-      return calendarRows.slice(startRow, endRow).some((row, localRowIndex) => row.some((cell, colIndex) => {
-        if (!cell.date || cell.items.length === 0) return false;
-        return rowStates[startRow + localRowIndex][colIndex].planIndex < cell.items.length;
-      }));
-    };
-
     const gridStartY = tableStartY + colHeaderH;
-    const maxCellHeight = 58;
-    const minCellHeight = 16;
-    let pageIndex = 0;
-    for (let startRow = 0; startRow < calendarRows.length; startRow += maxWeeksPerPage) {
-      const endRow = Math.min(startRow + maxWeeksPerPage, calendarRows.length);
+    const maxCellHeight = isCompactMode ? (contentAreaHeight - 0.8) : 58;
+    const minCellHeight = isCompactMode ? 19 : 16;
 
-      let safetyCounter = 0;
-      while (pageIndex === 0 || hasRemainingContentInRange(startRow, endRow)) {
-        if (pageIndex > 0) {
+    let hasRenderedPlanPage = false;
+
+    const renderCompactPlanCalendar = (planRows: CalendarDayCard[][], planTitle: string) => {
+      const pageBottom = pageHeight - bottomMargin;
+      let startedPage = false;
+      let rowCursorY = gridStartY;
+      let rowHeightsOnPage: number[] = [];
+
+      const startNewCompactPage = () => {
+        if (startedPage) {
+          drawTableGrid(gridStartY, rowHeightsOnPage);
+          doc.addPage();
+          hasRenderedPlanPage = true;
+        }
+        if (!startedPage && hasRenderedPlanPage) {
           doc.addPage();
         }
-
-        const previousStates = rowStates.slice(startRow, endRow).map((row) => row.map((cell) => ({ ...cell })));
-
-        const rowHeights: number[] = [];
-        for (let rowIndex = startRow; rowIndex < endRow; rowIndex += 1) {
-          const row = calendarRows[rowIndex];
-          const naturalH = Math.max(
-            minCellHeight,
-            Math.min(
-              maxCellHeight,
-              Math.max(...row.map((cell, ci) => calcCellNaturalHeight(cell, rowStates[rowIndex][ci])))
-            )
-          );
-          rowHeights.push(naturalH);
-        }
-
-        drawPageHeader();
+        drawPageHeader(planTitle);
         drawTableColumnHeaders(tableStartY);
+        rowCursorY = gridStartY;
+        rowHeightsOnPage = [];
+        startedPage = true;
+        hasRenderedPlanPage = true;
+      };
 
-        let rowCursorY = gridStartY;
-        for (let rowIndex = startRow; rowIndex < endRow; rowIndex += 1) {
-          const row = calendarRows[rowIndex];
-          const localRowIndex = rowIndex - startRow;
-          const cellH = rowHeights[localRowIndex];
+      startNewCompactPage();
 
-          row.forEach((cell, colIndex) => {
-            const cellX = marginX + colIndex * colW;
-            rowStates[rowIndex][colIndex] = drawCalendarCellTable(
-              cell,
-              row[0]?.week || rowIndex + 1,
-              colIndex === 0,
-              cellX,
-              rowCursorY,
-              colW,
-              cellH,
-              rowStates[rowIndex][colIndex]
-            );
-          });
-          rowCursorY += cellH;
+      for (let rowIndex = 0; rowIndex < planRows.length; rowIndex += 1) {
+        const row = planRows[rowIndex];
+        const week = row[0]?.week || rowIndex + 1;
+        const weekNaturalHeight = Math.max(...row.map((cell) => calcCellNaturalHeight(cell, { planIndex: 0, itemOffset: 0 })));
+        const cellH = Math.max(minCellHeight, Math.min(maxCellHeight, weekNaturalHeight));
+
+        if (rowCursorY + cellH > pageBottom && rowHeightsOnPage.length > 0) {
+          startNewCompactPage();
         }
 
-        drawTableGrid(gridStartY, rowHeights);
-        drawFooter();
-        pageIndex += 1;
-        safetyCounter += 1;
+        if (weekSideW > 0) {
+          doc.setFillColor(248, 250, 252);
+          doc.rect(marginX, rowCursorY, weekSideW, cellH, 'F');
+          doc.setTextColor(71, 85, 105);
+          drawVerticalStackedText(`${week}ª SEMANA`, marginX + weekSideW / 2, rowCursorY, cellH);
+        }
 
-        const progressed = rowStates.slice(startRow, endRow).some((row, localRowIndex) => row.some((cellState, colIndex) => {
-          const prevState = previousStates[localRowIndex][colIndex];
-          return cellState.planIndex !== prevState.planIndex || cellState.itemOffset !== prevState.itemOffset;
+        row.forEach((cell, colIndex) => {
+          const cellX = marginX + weekSideW + colIndex * colW;
+          drawCalendarCellTable(
+            cell,
+            week,
+            colIndex === 0,
+            cellX,
+            rowCursorY,
+            colW,
+            cellH,
+            { planIndex: 0, itemOffset: 0 },
+            schoolCalendarEventByDate
+          );
+        });
+
+        rowHeightsOnPage.push(cellH);
+        rowCursorY += cellH;
+      }
+
+      if (rowHeightsOnPage.length > 0) {
+        drawTableGrid(gridStartY, rowHeightsOnPage);
+      }
+    };
+
+    if (isCompactMode) {
+      planPages.forEach((page) => {
+        const planRows = buildCalendarRows(page.planId || undefined);
+        renderCompactPlanCalendar(planRows, page.planName);
+      });
+    } else {
+      const rowStates = calendarRows.map((row) => row.map(() => ({ planIndex: 0, itemOffset: 0 })));
+      const hasRemainingContentInRange = (startRow: number, endRow: number) => {
+        return calendarRows.slice(startRow, endRow).some((row, localRowIndex) => row.some((cell, colIndex) => {
+          if (!cell.date || cell.items.length === 0) return false;
+          return rowStates[startRow + localRowIndex][colIndex].planIndex < cell.items.length;
         }));
+      };
 
-        if (!progressed || safetyCounter > 10) {
-          break;
+      let pageIndex = 0;
+      for (let startRow = 0; startRow < calendarRows.length; startRow += maxWeeksPerPage) {
+        const endRow = Math.min(startRow + maxWeeksPerPage, calendarRows.length);
+
+        let safetyCounter = 0;
+        while (pageIndex === 0 || hasRemainingContentInRange(startRow, endRow)) {
+          if (pageIndex > 0) {
+            doc.addPage();
+          }
+
+          const previousStates = rowStates.slice(startRow, endRow).map((row) => row.map((cell) => ({ ...cell })));
+          const rowHeights: number[] = [];
+          for (let rowIndex = startRow; rowIndex < endRow; rowIndex += 1) {
+            const row = calendarRows[rowIndex];
+            const naturalH = Math.max(
+              minCellHeight,
+              Math.min(
+                maxCellHeight,
+                Math.max(...row.map((cell, ci) => calcCellNaturalHeight(cell, rowStates[rowIndex][ci])))
+              )
+            );
+            rowHeights.push(naturalH);
+          }
+
+          drawPageHeader(type === 'ALMOCO' ? 'Cardápio de Almoço' : 'Cardápio de Lanche');
+          drawTableColumnHeaders(tableStartY);
+
+          let rowCursorY = gridStartY;
+          for (let rowIndex = startRow; rowIndex < endRow; rowIndex += 1) {
+            const row = calendarRows[rowIndex];
+            const localRowIndex = rowIndex - startRow;
+            const cellH = rowHeights[localRowIndex];
+
+            row.forEach((cell, colIndex) => {
+              const cellX = marginX + weekSideW + colIndex * colW;
+              rowStates[rowIndex][colIndex] = drawCalendarCellTable(
+                cell,
+                row[0]?.week || rowIndex + 1,
+                colIndex === 0,
+                cellX,
+                rowCursorY,
+                colW,
+                cellH,
+                rowStates[rowIndex][colIndex],
+                schoolCalendarEventByDate
+              );
+            });
+            rowCursorY += cellH;
+          }
+
+          drawTableGrid(gridStartY, rowHeights);
+          pageIndex += 1;
+          safetyCounter += 1;
+
+          const progressed = rowStates.slice(startRow, endRow).some((row, localRowIndex) => row.some((cellState, colIndex) => {
+            const prevState = previousStates[localRowIndex][colIndex];
+            return cellState.planIndex !== prevState.planIndex || cellState.itemOffset !== prevState.itemOffset;
+          }));
+
+          if (!progressed || safetyCounter > 10) {
+            break;
+          }
         }
       }
     }
 
-    const fileName = `cardapio_local_${selectedMonth}_${selectedEnterpriseName
-      .toLowerCase()
-      .replace(/\s+/g, '_')}_${type.toLowerCase()}_${generatedAt.toISOString().slice(0, 10)}.pdf`;
-    doc.save(fileName);
+      const sanitizedEnterpriseName = String(selectedEnterpriseName || 'unidade')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '') || 'unidade';
+
+      const fileName = `cardapio_local_${selectedMonth}_${sanitizedEnterpriseName}_${type.toLowerCase()}_${generatedAt.toISOString().slice(0, 10)}.pdf`;
+      doc.save(fileName);
+    } catch (error) {
+      console.error('Erro ao gerar PDF do cardápio:', error);
+      try {
+        const fallbackDoc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+        const fallbackDate = new Date();
+        fallbackDoc.setFont('helvetica', 'bold');
+        fallbackDoc.setFontSize(16);
+        fallbackDoc.text('Calendário Escolar - Cardápio Mensal', 14, 16);
+        fallbackDoc.setFont('helvetica', 'normal');
+        fallbackDoc.setFontSize(11);
+        fallbackDoc.text(`Unidade: ${selectedEnterpriseName || 'Unidade'}`, 14, 24);
+        fallbackDoc.text(`Mês: ${formatMonthLabel(selectedMonth)}`, 14, 31);
+        fallbackDoc.text(`Tipo: ${type === 'ALMOCO' ? 'Almoço' : 'Lanche'}`, 14, 38);
+        fallbackDoc.text(`Emitido em: ${fallbackDate.toLocaleDateString('pt-BR')} ${fallbackDate.toLocaleTimeString('pt-BR')}`, 14, 45);
+        fallbackDoc.setFont('helvetica', 'bold');
+        fallbackDoc.setFontSize(10);
+        fallbackDoc.text('Obs.: O layout avançado falhou e este PDF simplificado foi gerado automaticamente.', 14, 56);
+
+        const fallbackSafeName = String(selectedEnterpriseName || 'unidade')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .replace(/[^a-z0-9_-]+/g, '_')
+          .replace(/_+/g, '_')
+          .replace(/^_+|_+$/g, '') || 'unidade';
+        fallbackDoc.save(`cardapio_local_${selectedMonth}_${fallbackSafeName}_${type.toLowerCase()}_fallback_${fallbackDate.toISOString().slice(0, 10)}.pdf`);
+      } catch (fallbackError) {
+        console.error('Erro ao gerar PDF fallback:', fallbackError);
+        notificationService.alerta('Falha ao gerar PDF', 'Não foi possível gerar o PDF. Tente novamente.');
+      }
+    }
   };
 
   return (
@@ -1343,29 +1809,31 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
         <div className="flex items-center justify-center h-96">
           <div className="text-center space-y-4">
             <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full"></div>
-            <p className="text-gray-600 font-medium">Carregando menu...</p>
+            <p className="text-gray-600 dark:text-zinc-300 font-medium">Carregando menu...</p>
           </div>
         </div>
       ) : (
       <>
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="space-y-1">
-          <h1 className="text-xl sm:text-2xl font-black text-gray-800 tracking-tight flex items-center gap-2 leading-none">
+          <h1 className="text-xl sm:text-2xl font-black text-gray-800 dark:text-zinc-100 tracking-tight flex items-center gap-2 leading-none">
             <UtensilsCrossed className="text-indigo-600" size={18} />
             Grade Mensal
           </h1>
-          <p className="text-gray-500 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.12em]">
+          <p className="text-gray-500 dark:text-zinc-400 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.12em]">
             Defina o cardápio com base nos planos contratados • {formatMonthLabel(selectedMonth)}
           </p>
         </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5 sm:gap-2">
-          <button
-            onClick={exportWeeklyCalendarPdf}
-            className="px-3 py-2 bg-white border border-indigo-200 text-indigo-700 rounded-lg font-black text-[9px] uppercase tracking-[0.12em] shadow-sm hover:bg-indigo-50 transition-all flex items-center justify-center gap-1.5"
-          >
-            <Calendar size={12} /> Baixar Calendario PDF
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={exportWeeklyCalendarPdf}
+              className="px-3 py-2 bg-white dark:bg-zinc-900 border border-indigo-200 dark:border-zinc-700 text-indigo-700 dark:text-indigo-300 rounded-lg font-black text-[9px] uppercase tracking-[0.12em] shadow-sm hover:bg-indigo-50 dark:hover:bg-zinc-800 transition-all flex items-center justify-center gap-1.5"
+            >
+              <Calendar size={12} /> Baixar Calendario PDF
+            </button>
+          </div>
           {isOwner && (
             <div className="relative group min-w-[240px]">
               <div className="absolute left-4 top-1/2 -translate-y-1/2 text-indigo-400 group-hover:text-indigo-600 transition-colors">
@@ -1374,13 +1842,13 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
               <select 
                 value={selectedUnitId}
                 onChange={(e) => setSelectedUnitId(e.target.value)}
-                className="w-full pl-10 pr-9 py-2 bg-white border border-transparent focus:border-indigo-500 rounded-lg shadow-sm outline-none font-black text-[9px] uppercase tracking-[0.12em] appearance-none cursor-pointer transition-all hover:shadow-md"
+                className="w-full pl-10 pr-9 py-2 bg-white dark:bg-zinc-900 border border-transparent dark:border-zinc-700 focus:border-indigo-500 rounded-lg shadow-sm outline-none font-black text-[9px] text-gray-700 dark:text-zinc-100 uppercase tracking-[0.12em] appearance-none cursor-pointer transition-all hover:shadow-md"
               >
                 {enterprises.map(ent => (
                   <option key={ent.id} value={ent.id}>{ent.name}</option>
                 ))}
               </select>
-              <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500 pointer-events-none">
                 <ChevronDown size={16} />
               </div>
             </div>
@@ -1392,41 +1860,93 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
         </div>
       </header>
 
-      <section className="bg-white p-3 rounded-[18px] border shadow-sm">
+      <section className="bg-white dark:bg-zinc-900 p-3 rounded-[18px] border border-gray-200 dark:border-zinc-700 shadow-sm">
+        <input
+          ref={monthlyBackupInputRef}
+          type="file"
+          accept="application/json"
+          className="hidden"
+          onChange={handleMonthlyBackupFileChange}
+        />
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[9px] font-black text-gray-500 uppercase tracking-[0.12em] mr-1">Mês:</span>
+          <span className="text-[9px] font-black text-gray-500 dark:text-zinc-400 uppercase tracking-[0.12em] mr-1">Mês:</span>
           <input
             type="month"
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(e.target.value || getCurrentMonthKey())}
-            className="h-8 px-2 rounded-lg border border-gray-200 text-[10px] font-black text-gray-700 uppercase tracking-[0.08em] outline-none focus:border-indigo-400"
+            className="h-8 px-2 rounded-lg border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-[10px] font-black text-gray-700 dark:text-zinc-100 uppercase tracking-[0.08em] outline-none focus:border-indigo-400"
           />
-          <span className="text-[9px] font-black text-gray-500 uppercase tracking-[0.12em] ml-2">Duplicar para:</span>
+          <span className="text-[9px] font-black text-gray-500 dark:text-zinc-400 uppercase tracking-[0.12em] ml-2">Duplicar para:</span>
           <input
             type="month"
             value={duplicateMonthTarget}
             onChange={(e) => setDuplicateMonthTarget(e.target.value || getNextMonthKey())}
-            className="h-8 px-2 rounded-lg border border-emerald-200 text-[10px] font-black text-emerald-700 uppercase tracking-[0.08em] outline-none focus:border-emerald-400"
+            className="h-8 px-2 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-zinc-950 text-[10px] font-black text-emerald-700 dark:text-emerald-300 uppercase tracking-[0.08em] outline-none focus:border-emerald-400"
           />
           <button
             onClick={duplicateToMonth}
-            className="h-8 px-3 bg-white border border-emerald-200 text-emerald-700 rounded-lg font-black text-[9px] uppercase tracking-[0.12em] shadow-sm hover:bg-emerald-50 transition-all flex items-center justify-center gap-1.5"
+            className="h-8 px-3 bg-white dark:bg-zinc-900 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 rounded-lg font-black text-[9px] uppercase tracking-[0.12em] shadow-sm hover:bg-emerald-50 dark:hover:bg-emerald-950/35 transition-all flex items-center justify-center gap-1.5"
           >
             <CalendarDays size={12} /> Duplicar Dados
           </button>
+          <button
+            onClick={backupMonthlyMenuLocal}
+            className="h-8 px-3 bg-white dark:bg-zinc-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 rounded-lg font-black text-[9px] uppercase tracking-[0.12em] shadow-sm hover:bg-indigo-50 dark:hover:bg-indigo-950/35 transition-all flex items-center justify-center gap-1.5"
+          >
+            <Save size={12} /> Backup Mês
+          </button>
+          <button
+            onClick={triggerMonthlyBackupRestorePicker}
+            className="h-8 px-3 bg-white dark:bg-zinc-900 border border-violet-200 dark:border-violet-800 text-violet-700 dark:text-violet-300 rounded-lg font-black text-[9px] uppercase tracking-[0.12em] shadow-sm hover:bg-violet-50 dark:hover:bg-violet-950/35 transition-all flex items-center justify-center gap-1.5"
+          >
+            <Calendar size={12} /> Restaurar Backup
+          </button>
         </div>
+        {pendingMonthlyBackup && (
+          <div className="mt-2.5 rounded-xl border border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-950/20 p-2.5 flex flex-wrap items-center gap-2">
+            <p className="text-[9px] font-black uppercase tracking-[0.12em] text-violet-700 dark:text-violet-300">
+              Primeiro dia para iniciar restauração:
+            </p>
+            <select
+              value={restoreStartDateKey}
+              onChange={(e) => setRestoreStartDateKey(e.target.value)}
+              className="h-8 min-w-[190px] rounded-lg border border-violet-200 dark:border-violet-700 bg-white dark:bg-zinc-950 px-2 text-[10px] font-black uppercase tracking-[0.08em] text-violet-700 dark:text-violet-200 outline-none focus:border-violet-400"
+            >
+              {restoreOpenSlots.map((slot) => (
+                <option key={`restore-slot-${slot.dateKey}-${slot.week}-${slot.dayOfWeek}`} value={slot.dateKey}>
+                  {SHORT_DAY_LABEL[slot.dayOfWeek]} • {formatDateFullBr(slot.date)}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={applyMonthlyRestore}
+              className="h-8 px-3 rounded-lg bg-violet-600 text-white text-[9px] font-black uppercase tracking-[0.12em] hover:bg-violet-700 transition-all"
+            >
+              Aplicar Restauração
+            </button>
+            <button
+              onClick={cancelMonthlyRestore}
+              className="h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] text-gray-500 dark:text-zinc-300 hover:text-gray-700 dark:hover:text-zinc-100"
+            >
+              Cancelar
+            </button>
+            <p className="w-full text-[8px] font-semibold text-violet-700/80 dark:text-violet-300/80">
+              O cardápio será distribuído a partir do dia escolhido, respeitando os dias letivos abertos no calendário escolar.
+            </p>
+          </div>
+        )}
       </section>
 
       {isLoading ? (
         <div className="flex flex-col items-center justify-center py-32 space-y-4 animate-pulse">
            <RefreshCw size={48} className="text-indigo-400 animate-spin" />
-           <p className="text-[10px] font-black text-gray-400 uppercase tracking-[4px]">Sincronizando grade mensal...</p>
+           <p className="text-[10px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-[4px]">Sincronizando grade mensal...</p>
         </div>
       ) : (
         <div className="space-y-3 animate-in fade-in duration-500">
           {activeServiceDays.length === 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-5 text-center">
-              <p className="text-[10px] font-black text-amber-700 uppercase tracking-[0.16em]">
+            <div className="bg-amber-50 dark:bg-amber-950/35 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-5 text-center">
+              <p className="text-[10px] font-black text-amber-700 dark:text-amber-300 uppercase tracking-[0.16em]">
                 Nenhum dia de atendimento ativo em Ajustes &gt; Atendimento.
               </p>
             </div>
@@ -1437,14 +1957,20 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
               Boolean(getDateForWeekAndDay(selectedMonth, week, day.dayOfWeek as DayOfWeek))
               && activeServiceDaySet.has(day.dayOfWeek as DayOfWeek)
             ));
-            if (weekMenu.length === 0) return null;
+            const weekMenuByDay = new Map<DayOfWeek, MenuDay>(
+              weekMenu.map((day) => [day.dayOfWeek as DayOfWeek, day as MenuDay])
+            );
+            const weekGridDays: Array<MenuDay | null> = WEEKDAY_GRID_ORDER.map((dayKey) => weekMenuByDay.get(dayKey) ?? null);
+            if (weekGridDays.every((day) => !day)) return null;
             return (
-              <section key={`week-grid-${week}`} className="space-y-1.5">
-                <div className="px-1">
-                  <h2 className="text-base md:text-lg font-black text-indigo-700 uppercase tracking-[0.16em]">{week}ª Semana</h2>
-                </div>
-                <div className="grid items-start grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2">
-                  {weekMenu.map(day => {
+              <section key={`week-grid-${week}`} className="space-y-1.5 w-full">
+                <h2 className="text-base md:text-lg font-black text-indigo-700 uppercase tracking-[0.16em] px-0">{week}ª Semana</h2>
+                <div className="grid items-stretch grid-cols-5 gap-1.5 w-full">
+                  {weekGridDays.map((day, dayIndex) => {
+                    if (!day) {
+                      return <div key={`week-${week}-placeholder-${WEEKDAY_GRID_ORDER[dayIndex]}`} className="min-w-0" aria-hidden="true" />;
+                    }
+
                     const dayDate = getDateForWeekAndDay(selectedMonth, week, day.dayOfWeek as DayOfWeek);
                     const dayOfMonth = dayDate ? `${dayDate.getDate()}`.padStart(2, '0') : '--';
                     const isBlockedDay = dayDate ? !isSchoolDateAllowed(dayDate) : false;
@@ -1453,16 +1979,23 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
 
                     if (isBlockedDay) {
                       return (
-                        <div key={`week-${week}-${day.id}`} className="flex flex-col self-start">
-                          <div className="bg-rose-50 p-2.5 rounded-xl border-b-2 border-rose-300 shadow-sm">
-                            <div className="flex items-start justify-between gap-1">
-                              <div>
-                                <h3 className="text-sm font-black text-rose-700 uppercase tracking-[0.12em]">{SHORT_DAY_LABEL[day.dayOfWeek as DayOfWeek]}</h3>
-                                <p className="text-[10px] font-bold text-rose-400 uppercase">{dayOfMonth}</p>
-                              </div>
-                              <AlertTriangle size={14} className="text-rose-400 mt-0.5 shrink-0" />
+                        <div
+                          key={`week-${week}-${day.id}`}
+                          className="flex flex-col gap-1.5 self-start h-full min-w-0"
+                        >
+                          <div className="bg-white dark:bg-zinc-900 p-2.5 rounded-xl border-b-2 border-rose-400 dark:border-rose-700 shadow-sm flex items-center justify-between gap-2">
+                            <div>
+                              <h3 className="text-sm md:text-base font-black text-rose-700 dark:text-rose-300 uppercase tracking-[0.12em]">{SHORT_DAY_LABEL[day.dayOfWeek as DayOfWeek]}</h3>
                             </div>
-                            <p className="mt-1.5 text-[9px] font-black text-rose-600 uppercase tracking-[0.06em] leading-tight" title={eventTitle!}>
+                            <span className="min-w-[34px] h-8 px-1 rounded-lg bg-rose-100 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-700 text-rose-700 dark:text-rose-300 text-[16px] leading-none font-black flex items-center justify-center">
+                              {dayOfMonth}
+                            </span>
+                          </div>
+                          <div className="rounded-xl transition-all flex-1 min-h-[280px] flex flex-col bg-rose-50 dark:bg-rose-950/35 border border-rose-200 dark:border-rose-800 shadow-sm p-3 md:p-4">
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <AlertTriangle size={16} className="text-rose-400 dark:text-rose-300 shrink-0" />
+                            </div>
+                            <p className="text-[10px] font-black text-rose-600 dark:text-rose-300 uppercase tracking-[0.08em] leading-relaxed flex-1" title={eventTitle!}>
                               {eventTitle}
                             </p>
                           </div>
@@ -1471,22 +2004,18 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                     }
 
                     return (
-            <div key={`week-${week}-${day.id}`} className="flex flex-col gap-1.5 self-start">
-              <div className="bg-white p-2.5 rounded-xl border-b-2 border-indigo-500 shadow-sm flex items-center justify-between gap-2">
-                <div>
-                   <h3 className="text-sm md:text-base font-black text-gray-800 uppercase tracking-[0.12em]">{day.dayOfWeek}</h3>
-                   <p className="text-[10px] font-bold text-gray-400 uppercase">{day.items.length} Opções</p>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="min-w-[34px] h-8 px-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 text-[16px] leading-none font-black flex items-center justify-center">
-                    {dayOfMonth}
-                  </span>
+            <div
+              key={`week-${week}-${day.id}`}
+              className="flex flex-col gap-0.5 self-start h-full w-full min-w-0"
+            >
+              <div className="bg-white dark:bg-zinc-900 p-2 rounded-xl border-b-2 border-indigo-500 dark:border-indigo-700 shadow-sm flex items-center justify-between gap-2 w-full">
+              <div className="flex items-center gap-1 flex-shrink-0">
                   <button
                     onClick={() => toggleDayDuplicatePicker(week, day)}
-                    className="w-7 h-7 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center hover:bg-emerald-600 hover:text-white transition-all shadow-inner"
+                    className="w-6 h-6 bg-emerald-50 dark:bg-emerald-950/35 text-emerald-600 dark:text-emerald-300 rounded-md flex items-center justify-center hover:bg-emerald-600 dark:hover:bg-emerald-500 hover:text-white transition-all shadow-inner flex-shrink-0"
                     title="Duplicar dia"
                   >
-                    <CalendarDays size={13} />
+                    <CalendarDays size={12} />
                   </button>
                   <button 
                     onClick={() => {
@@ -1501,16 +2030,36 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                         [dayKey]: prev[dayKey] || plansCatalog[0]?.id || '',
                       }));
                     }}
-                    className="w-7 h-7 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center hover:bg-indigo-600 hover:text-white transition-all shadow-inner"
+                    className="w-6 h-6 bg-indigo-50 dark:bg-indigo-950/35 text-indigo-600 dark:text-indigo-300 rounded-md flex items-center justify-center hover:bg-indigo-600 dark:hover:bg-indigo-500 hover:text-white transition-all shadow-inner flex-shrink-0"
                     title="Adicionar opção"
                   >
-                    <Plus size={14} />
+                    <Plus size={12} />
                   </button>
+                  <button
+                    onClick={() => setEditingItem({ week, dayId: day.id, item: day.items[0] })}
+                    className="w-6 h-6 bg-blue-50 dark:bg-blue-950/35 text-blue-600 dark:text-blue-300 rounded-md flex items-center justify-center hover:bg-blue-600 dark:hover:bg-blue-500 hover:text-white transition-all shadow-inner flex-shrink-0"
+                    title="Editar ficha"
+                  >
+                    <Edit3 size={12} />
+                  </button>
+                  <button
+                    onClick={() => removeItemFromDay(week, day.id, day.items[0]?.id)}
+                    className="w-6 h-6 bg-red-50 dark:bg-red-950/35 text-red-600 dark:text-red-300 rounded-md flex items-center justify-center hover:bg-red-600 dark:hover:bg-red-500 hover:text-white transition-all shadow-inner flex-shrink-0"
+                    title="Remover opção"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <h3 className="text-[10px] font-black text-gray-700 dark:text-zinc-200 uppercase tracking-[0.1em] whitespace-nowrap">{SHORT_DAY_LABEL[day.dayOfWeek as DayOfWeek]}</h3>
+                  <span className="min-w-[30px] h-7 px-1 rounded-md bg-indigo-50 dark:bg-indigo-950/35 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-[14px] leading-none font-black flex items-center justify-center flex-shrink-0">
+                    {dayOfMonth}
+                  </span>
                 </div>
               </div>
               {dayDuplicateTarget?.sourceWeek === week && dayDuplicateTarget?.sourceDayId === day.id && (
-                <div className="bg-white rounded-xl border border-emerald-100 shadow-sm p-2.5 space-y-2">
-                  <p className="text-[9px] font-black text-gray-500 uppercase tracking-[0.12em]">
+                <div className="bg-white dark:bg-zinc-900 rounded-xl border border-emerald-100 dark:border-emerald-800 shadow-sm p-2.5 space-y-2">
+                  <p className="text-[9px] font-black text-gray-500 dark:text-zinc-400 uppercase tracking-[0.12em]">
                     Duplicar {SHORT_DAY_LABEL[day.dayOfWeek as DayOfWeek]} para:
                   </p>
                   <div className="grid grid-cols-2 gap-2">
@@ -1527,7 +2076,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                           return { ...prev, targetWeek: nextWeek, targetDayOfWeek: nextDay };
                         });
                       }}
-                      className="h-8 rounded-lg border border-gray-200 px-2 text-[10px] font-black uppercase tracking-[0.08em] text-gray-700 focus:outline-none focus:border-emerald-400"
+                      className="h-8 rounded-lg border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 text-[10px] font-black uppercase tracking-[0.08em] text-gray-700 dark:text-zinc-100 focus:outline-none focus:border-emerald-400"
                     >
                       {WEEK_OPTIONS.map((week) => (
                         <option key={`dup-week-${week}`} value={week}>
@@ -1541,7 +2090,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                         const nextDay = (e.target.value || day.dayOfWeek) as DayOfWeek;
                         setDayDuplicateTarget((prev) => prev ? { ...prev, targetDayOfWeek: nextDay } : prev);
                       }}
-                      className="h-8 rounded-lg border border-gray-200 px-2 text-[10px] font-black uppercase tracking-[0.08em] text-gray-700 focus:outline-none focus:border-emerald-400"
+                      className="h-8 rounded-lg border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 text-[10px] font-black uppercase tracking-[0.08em] text-gray-700 dark:text-zinc-100 focus:outline-none focus:border-emerald-400"
                     >
                       {getExistingDayKeysForWeek(dayDuplicateTarget.targetWeek).map((dayKey) => (
                         <option key={`dup-day-${dayKey}`} value={dayKey}>
@@ -1553,7 +2102,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                   <div className="flex justify-end gap-2">
                     <button
                       onClick={() => setDayDuplicateTarget(null)}
-                      className="px-3 h-8 rounded-lg text-[10px] font-black uppercase tracking-widest text-gray-500 hover:text-gray-700"
+                      className="px-3 h-8 rounded-lg text-[10px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-300 hover:text-gray-700 dark:hover:text-zinc-100"
                     >
                       Cancelar
                     </button>
@@ -1567,8 +2116,8 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                 </div>
               )}
               {openPlanPickerDayId === `${week}-${day.id}` && (
-                <div className="bg-white rounded-xl border border-indigo-100 shadow-sm p-2.5 space-y-1.5">
-                  <p className="text-[9px] font-black text-gray-500 uppercase tracking-[0.12em]">Escolha o plano para criar o cardápio</p>
+                <div className="bg-white dark:bg-zinc-900 rounded-xl border border-indigo-100 dark:border-indigo-800 shadow-sm p-2.5 space-y-1.5">
+                  <p className="text-[9px] font-black text-gray-500 dark:text-zinc-400 uppercase tracking-[0.12em]">Escolha o plano para criar o cardápio</p>
                   <div className="flex items-center gap-2">
                     <select
                       value={newItemPlanByDay[`${week}-${day.id}`] || ''}
@@ -1576,7 +2125,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                         const nextPlanId = e.target.value;
                         setNewItemPlanByDay((prev) => ({ ...prev, [`${week}-${day.id}`]: nextPlanId }));
                       }}
-                      className="flex-1 h-8 rounded-lg border border-gray-200 px-2.5 text-[10px] font-black uppercase tracking-[0.1em] text-gray-700 focus:outline-none focus:border-indigo-400"
+                      className="flex-1 h-8 rounded-lg border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2.5 text-[10px] font-black uppercase tracking-[0.1em] text-gray-700 dark:text-zinc-100 focus:outline-none focus:border-indigo-400"
                     >
                       {plansCatalog.length === 0 ? (
                         <option value="">Sem planos ativos</option>
@@ -1599,7 +2148,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
               )}
 
               <div
-                className={`rounded-2xl transition-all ${dragOverDayKey === dayDropKey ? 'ring-2 ring-indigo-300 ring-offset-1 bg-indigo-50/40' : ''}`}
+                className={`rounded-xl transition-all flex-1 min-h-[280px] flex flex-col ${dragOverDayKey === dayDropKey ? 'ring-2 ring-indigo-300 ring-offset-1 bg-indigo-50/40 dark:bg-indigo-950/35' : ''}`}
                 onDragOver={(e) => {
                   e.preventDefault();
                   if (draggingMenuItem) {
@@ -1612,11 +2161,8 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                 }}
               >
                 {day.items.length > 0 && (
-                  <div className="bg-white/95 dark:bg-slate-900/60 rounded-xl border border-gray-100 dark:border-slate-700 shadow-sm divide-y divide-gray-100 dark:divide-slate-700 overflow-hidden">
-                    {day.items.map(item => (
-                      (() => {
-                        const planColor = getPlanCardColor(item.planId, item.name);
-                        return (
+                  <div className={`rounded-xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col h-full ${day.items.length > 1 ? 'grid grid-rows-[repeat(auto-fit,1fr)]' : ''}`}>
+                    {day.items.map((item, itemIndex) => (
                       <div
                         key={item.id}
                         draggable
@@ -1625,74 +2171,56 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                           setDraggingMenuItem(null);
                           setDragOverDayKey(null);
                         }}
-                        className={`px-2.5 py-2 transition-colors group cursor-grab active:cursor-grabbing border-l-4 border-y border-r ${planColor.bg} ${planColor.border}`}
+                        className={`px-3 md:px-4 py-3 md:py-4 transition-colors group cursor-grab active:cursor-grabbing border-l-4 border-y border-r flex-1 flex flex-col ${itemIndex > 0 ? 'border-t-0' : ''} ${(() => { const planColor = getPlanCardColor(item.planId, item.name); return `${planColor.bg} ${planColor.border}`; })()}`}
                       >
-                        <div className="flex items-start gap-3">
-                          <div className="min-w-0 flex-1">
-                            <p className={`text-[11px] font-black uppercase tracking-tight truncate ${planColor.title}`}>
-                              {item.name}
-                            </p>
-                            {item.planId && (
-                              <p className={`text-[9px] font-black uppercase tracking-[0.12em] mt-0.5 truncate ${planColor.badge}`}>
-                                Plano: {plansCatalog.find((plan) => plan.id === item.planId)?.name || 'Plano vinculado'}
-                              </p>
-                            )}
-                            {item.ingredients.length > 0 ? (
-                              <ul className="mt-1 space-y-0.5">
-                                {item.ingredients.map((ing) => (
-                                  <li
-                                    key={ing.id}
-                                    className={`text-[11px] font-semibold leading-tight list-disc list-inside truncate ${planColor.text}`}
-                                  >
-                                    {ing.name}
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <p className={`text-[11px] font-semibold leading-tight mt-0.5 ${planColor.text}`}>
-                                {item.description?.trim() || 'Sem insumos definidos'}
-                              </p>
-                            )}
+                        <div className={`flex flex-col gap-2 ${day.items.length === 1 ? 'flex-1' : ''}`}>
+                          <div className="w-full flex-1 flex flex-col gap-2">
+                            {(() => {
+                              const planColor = getPlanCardColor(item.planId, item.name);
+                              return (
+                                <>
+                                  <p className={`text-[10px] md:text-[11px] font-black uppercase tracking-tight break-words ${planColor.title}`}>
+                                    {item.name}
+                                  </p>
+                                  {item.planId && (
+                                    <p className={`text-[8px] md:text-[9px] font-black uppercase tracking-[0.12em] mt-1 break-words ${planColor.badge}`}>
+                                      Plano: {plansCatalog.find((plan) => plan.id === item.planId)?.name || 'Plano vinculado'}
+                                    </p>
+                                  )}
+                                  {item.ingredients.length > 0 ? (
+                                    <ul className="mt-2 space-y-1">
+                                      {item.ingredients.map((ing) => (
+                                        <li
+                                          key={ing.id}
+                                          className={`text-[9px] md:text-[10px] font-semibold leading-snug list-disc list-inside break-words ${planColor.text}`}
+                                        >
+                                          {ing.name}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  ) : (
+                                    <p className={`text-[9px] md:text-[10px] font-semibold leading-snug mt-1 break-words ${planColor.text}`}>
+                                      {item.description?.trim() || 'Sem insumos definidos'}
+                                    </p>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </div>
-                          <div className="shrink-0 text-right">
-                            <p className={`text-[11px] font-black whitespace-nowrap ${planColor.kcal}`}>
+                          <div className="w-full text-left mt-auto pt-2 border-t border-gray-200/50">
+                            <p className={`text-[9px] md:text-[10px] font-black ${(() => { const planColor = getPlanCardColor(item.planId, item.name); return planColor.kcal; })()}`}>
                               {calculateTotalNutrients(item.ingredients).calories} kcal
                             </p>
-                            <div className="mt-1 flex items-center justify-end gap-1">
-                              <button
-                                onClick={() => toggleDayDuplicatePicker(week, day)}
-                                className="p-1.5 bg-white/85 dark:bg-slate-900/65 border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-200 hover:text-emerald-600 dark:hover:text-emerald-300 rounded-lg"
-                                title="Duplicar dia"
-                              >
-                                <CalendarDays size={13} />
-                              </button>
-                              <button
-                                onClick={() => setEditingItem({ week, dayId: day.id, item })}
-                                className="p-1.5 bg-white/85 dark:bg-slate-900/65 border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-300 rounded-lg"
-                                title="Editar ficha"
-                              >
-                                <Edit3 size={13} />
-                              </button>
-                              <button
-                                onClick={() => removeItemFromDay(week, day.id, item.id)}
-                                className="p-1.5 bg-white/85 dark:bg-slate-900/65 border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-200 hover:text-red-500 dark:hover:text-rose-300 rounded-lg"
-                                title="Remover opção"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            </div>
                           </div>
                         </div>
                       </div>
-                        );
-                      })()
                     ))}
                   </div>
                 )}
               </div>
             </div>
-                    );
-                  })}
+            );
+          })}
                 </div>
               </section>
             );
@@ -1703,7 +2231,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       {editingItem && (
         <div className="fixed inset-0 z-[600] flex justify-end animate-in fade-in duration-300">
            <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-sm" onClick={() => setEditingItem(null)}></div>
-           <div className="relative w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right-10 duration-500">
+           <div className="relative w-full max-w-2xl bg-white dark:bg-zinc-950 h-full shadow-2xl flex flex-col animate-in slide-in-from-right-10 duration-500">
               
               <div className="bg-indigo-900 p-8 text-white flex items-center justify-between shrink-0">
                  <div className="flex items-center gap-4">
@@ -1724,27 +2252,27 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                  {/* Título e descrição */}
                  <div className="space-y-6">
                     <div className="space-y-2">
-                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Título do Cardápio</label>
+                       <label className="text-[10px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-widest ml-1">Título do Cardápio</label>
                        <input 
                          value={editingItem.item.name}
                          onChange={(e) => setEditingItem({...editingItem, item: { ...editingItem.item, name: e.target.value }})}
-                         className="w-full text-xl font-black text-gray-800 text-center bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl px-6 py-4 outline-none transition-all"
+                         className="w-full text-xl font-black text-gray-800 dark:text-zinc-100 text-center bg-gray-50 dark:bg-zinc-900 border-2 border-transparent dark:border-zinc-700 focus:border-indigo-500 rounded-2xl px-6 py-4 outline-none transition-all placeholder:text-gray-400 dark:placeholder:text-zinc-500"
                          placeholder="Ex: Frango grelhado com arroz integral"
                        />
                     </div>
                     <div className="space-y-2">
-                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Descrição</label>
+                       <label className="text-[10px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-widest ml-1">Descrição</label>
                        <textarea
                          value={editingItem.item.description || ''}
                          onChange={(e) => setEditingItem({...editingItem, item: { ...editingItem.item, description: e.target.value }})}
-                         className="w-full min-h-[110px] text-sm font-bold text-gray-700 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl px-5 py-4 outline-none transition-all resize-none"
+                         className="w-full min-h-[110px] text-sm font-bold text-gray-700 dark:text-zinc-100 bg-gray-50 dark:bg-zinc-900 border-2 border-transparent dark:border-zinc-700 focus:border-indigo-500 rounded-2xl px-5 py-4 outline-none transition-all resize-none placeholder:text-gray-400 dark:placeholder:text-zinc-500"
                          placeholder="Descreva o preparo, acompanhamentos e observações."
                        />
                     </div>
                  </div>
 
                  <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Plano vinculado</label>
+                      <label className="text-[10px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-widest ml-1">Plano vinculado</label>
                       <select
                         value={editingItem.item.planId || ''}
                         onChange={(e) => {
@@ -1759,7 +2287,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                             },
                           });
                         }}
-                        className="w-full h-12 rounded-2xl border border-gray-200 px-4 text-sm font-black text-gray-700 focus:outline-none focus:border-indigo-500 bg-white"
+                        className="w-full h-12 rounded-2xl border border-gray-200 dark:border-zinc-700 px-4 text-sm font-black text-gray-700 dark:text-zinc-100 focus:outline-none focus:border-indigo-500 bg-white dark:bg-zinc-900"
                       >
                         <option value="">Sem plano vinculado</option>
                         {plansCatalog.map((plan) => (
@@ -1778,17 +2306,17 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                  {/* COMPONENTES NUTRICIONAIS */}
                  <div className="space-y-6">
                     <div className="flex items-center justify-between border-b pb-4">
-                       <h3 className="text-xs font-black text-gray-800 uppercase tracking-[2px] flex items-center gap-2">
+                       <h3 className="text-xs font-black text-gray-800 dark:text-zinc-100 uppercase tracking-[2px] flex items-center gap-2">
                           <Utensils size={18} className="text-indigo-600" /> Componentes e Insumos
                        </h3>
-                       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Monte os insumos por item</p>
+                       <p className="text-[10px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-widest">Monte os insumos por item</p>
                     </div>
 
                     <div className="space-y-4">
-                       <div className="bg-indigo-50/60 border border-indigo-100 rounded-2xl p-4">
+                       <div className="bg-indigo-50/60 dark:bg-zinc-900/80 border border-indigo-100 dark:border-zinc-700 rounded-2xl p-4">
                          <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
                            <div className="md:col-span-7 relative">
-                             <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest ml-1">Nome do item</label>
+                             <label className="text-[10px] font-black text-indigo-500 dark:text-indigo-300 uppercase tracking-widest ml-1">Nome do item</label>
                              <input
                                value={quickIngredientQuery}
                                onFocus={() => setIsQuickIngredientListOpen(true)}
@@ -1841,18 +2369,18 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                                    setQuickIngredientHighlightedIndex(-1);
                                  }
                                }}
-                               className="mt-1 w-full bg-white border-2 border-transparent focus:border-indigo-400 rounded-xl px-4 py-2.5 text-sm font-bold text-gray-700 outline-none"
+                               className="mt-1 w-full bg-white dark:bg-zinc-950 border-2 border-transparent dark:border-zinc-700 focus:border-indigo-400 dark:focus:border-indigo-400 rounded-xl px-4 py-2.5 text-sm font-bold text-gray-700 dark:text-zinc-100 placeholder:text-gray-400 dark:placeholder:text-zinc-500 outline-none"
                                placeholder="Digite para buscar na base nutricional..."
                              />
                              {isQuickIngredientListOpen && (
-                               <div className="absolute z-[710] left-0 right-0 mt-1 bg-white border border-indigo-100 rounded-xl shadow-xl max-h-52 overflow-y-auto">
+                               <div className="absolute z-[710] left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border border-indigo-100 dark:border-zinc-700 rounded-xl shadow-xl max-h-52 overflow-y-auto">
                                  {isLoadingQuickIngredientSuggestions && (
-                                   <div className="px-3 py-2 text-[11px] font-semibold text-gray-500">
+                                   <div className="px-3 py-2 text-[11px] font-semibold text-gray-500 dark:text-zinc-300">
                                      Buscando insumos...
                                    </div>
                                  )}
                                  {!isLoadingQuickIngredientSuggestions && quickIngredientSuggestions.length === 0 && quickIngredientQuery.trim() && (
-                                   <div className="px-3 py-2 text-[11px] font-semibold text-gray-500">
+                                   <div className="px-3 py-2 text-[11px] font-semibold text-gray-500 dark:text-zinc-300">
                                      Nenhum insumo encontrado.
                                    </div>
                                  )}
@@ -1866,10 +2394,10 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                                        setQuickIngredientHighlightedIndex(idx);
                                      }}
                                      onClick={() => addIngredientFromQuickForm(item)}
-                                     className={`w-full text-left px-3 py-2 border-b last:border-b-0 ${quickIngredientSuggestions[quickIngredientHighlightedIndex]?.id === item.id ? 'bg-indigo-100' : 'hover:bg-indigo-50'}`}
+                                     className={`w-full text-left px-3 py-2 border-b border-indigo-100 dark:border-zinc-700 last:border-b-0 ${quickIngredientSuggestions[quickIngredientHighlightedIndex]?.id === item.id ? 'bg-indigo-100 dark:bg-indigo-900/60' : 'hover:bg-indigo-50 dark:hover:bg-zinc-800/80'}`}
                                    >
-                                     <p className="text-xs font-black text-gray-800 uppercase">{item.name}</p>
-                                     <p className="text-[10px] font-semibold text-gray-500">{item.calories} kcal • {item.proteins}P • {item.carbs}C • {item.fats}G (base 100{item.unit})</p>
+                                     <p className="text-xs font-black text-gray-800 dark:text-zinc-100 uppercase">{item.name}</p>
+                                     <p className="text-[10px] font-semibold text-gray-500 dark:text-zinc-300">{item.calories} kcal • {item.proteins}P • {item.carbs}C • {item.fats}G (base 100{item.unit})</p>
                                    </button>
                                  ))}
                                </div>
@@ -1877,12 +2405,12 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                            </div>
                            <div className="md:col-span-2">
                              <div className="flex items-center gap-2 ml-1 mb-1">
-                               <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Qtd/gramagem</label>
+                               <label className="text-[10px] font-black text-indigo-500 dark:text-indigo-300 uppercase tracking-widest">Qtd/gramagem</label>
                                <button
                                  type="button"
                                  onClick={() => setQuickIngredientGramsEnabled((v) => !v)}
                                  className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${
-                                   quickIngredientGramsEnabled ? 'bg-indigo-500' : 'bg-gray-300'
+                                   quickIngredientGramsEnabled ? 'bg-indigo-500' : 'bg-gray-300 dark:bg-zinc-700'
                                  }`}
                                  title={quickIngredientGramsEnabled ? 'Desativar gramagem' : 'Ativar gramagem'}
                                >
@@ -1899,8 +2427,8 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                                value={quickIngredientWeight}
                                onChange={(e) => setQuickIngredientWeight(e.target.value)}
                                disabled={!quickIngredientGramsEnabled}
-                               className={`w-full bg-white border-2 border-transparent focus:border-indigo-400 rounded-xl px-3 py-2.5 text-sm font-black outline-none transition-opacity ${
-                                 quickIngredientGramsEnabled ? 'text-gray-700 opacity-100' : 'text-gray-400 opacity-40 cursor-not-allowed'
+                               className={`w-full bg-white dark:bg-zinc-950 border-2 border-transparent dark:border-zinc-700 focus:border-indigo-400 rounded-xl px-3 py-2.5 text-sm font-black outline-none transition-opacity placeholder:text-gray-400 dark:placeholder:text-zinc-500 ${
+                                 quickIngredientGramsEnabled ? 'text-gray-700 dark:text-zinc-100 opacity-100' : 'text-gray-400 dark:text-zinc-500 opacity-40 cursor-not-allowed'
                                }`}
                                placeholder="100"
                              />
@@ -1909,7 +2437,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                              <button
                                type="button"
                                onClick={() => addIngredientFromQuickForm()}
-                               className="w-full text-[10px] font-black text-indigo-600 bg-white px-4 py-3 rounded-xl hover:bg-indigo-600 hover:text-white transition-all uppercase tracking-widest border border-indigo-200 flex items-center justify-center gap-2"
+                               className="w-full text-[10px] font-black text-indigo-600 dark:text-indigo-300 bg-white dark:bg-zinc-900 px-4 py-3 rounded-xl hover:bg-indigo-600 dark:hover:bg-indigo-500 hover:text-white transition-all uppercase tracking-widest border border-indigo-200 dark:border-zinc-700 flex items-center justify-center gap-2"
                              >
                                <Plus size={15} /> Adicionar à Lista
                              </button>
@@ -1918,32 +2446,32 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                        </div>
 
                        {editingItem.item.ingredients.length === 0 ? (
-                         <div className="text-center py-16 bg-gray-50 rounded-[40px] border-2 border-dashed border-gray-200">
-                            <Info size={40} className="mx-auto text-gray-300 mb-3" />
-                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nenhum componente vinculado a esta opção</p>
+                         <div className="text-center py-16 bg-gray-50 dark:bg-zinc-900 rounded-[40px] border-2 border-dashed border-gray-200 dark:border-zinc-700">
+                            <Info size={40} className="mx-auto text-gray-300 dark:text-zinc-600 mb-3" />
+                            <p className="text-[10px] font-black text-gray-400 dark:text-zinc-400 uppercase tracking-widest">Nenhum componente vinculado a esta opção</p>
                          </div>
                        ) : (
                          <div className="space-y-2">
                            {editingItem.item.ingredients.map((ing) => (
-                             <div key={ing.id} className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm">
+                             <div key={ing.id} className="bg-white dark:bg-zinc-900 p-3 rounded-2xl border border-gray-100 dark:border-zinc-700 shadow-sm">
                                <div className="flex items-center justify-between gap-3">
                                  <div className="min-w-0">
-                                   <p className="text-sm font-black text-gray-800 truncate">{ing.name}</p>
-                                   <p className="text-[11px] text-gray-500 font-semibold mt-0.5">
+                                   <p className="text-sm font-black text-gray-800 dark:text-zinc-100 truncate">{ing.name}</p>
+                                   <p className="text-[11px] text-gray-500 dark:text-zinc-300 font-semibold mt-0.5">
                                      {Number(ing.calories || 0).toFixed(1)} kcal • P {Number(ing.proteins || 0).toFixed(1)}g • C {Number(ing.carbs || 0).toFixed(1)}g • G {Number(ing.fats || 0).toFixed(1)}g
                                    </p>
                                  </div>
                                  <div className="shrink-0 flex items-center gap-2">
                                    <button
                                      onClick={() => toggleIngredientReplicatePicker(ing.id)}
-                                     className="h-8 px-3 bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-100 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5"
+                                     className="h-8 px-3 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5"
                                      title="Repetir ingrediente em outros dias"
                                    >
                                      <CalendarDays size={13} /> Repetir
                                    </button>
                                    <button
                                      onClick={() => removeIngredient(ing.id)}
-                                     className="p-2.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                                     className="p-2.5 text-gray-400 dark:text-zinc-400 hover:text-red-500 dark:hover:text-rose-300 hover:bg-red-50 dark:hover:bg-rose-950/40 rounded-xl transition-all"
                                      title="Remover item"
                                    >
                                      <Trash2 size={18} />
@@ -1951,8 +2479,8 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                                  </div>
                                </div>
                                {ingredientReplicateTargetId === ing.id && (
-                                 <div className="mt-3 p-3 rounded-xl border border-indigo-100 bg-indigo-50/50">
-                                   <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">
+                                 <div className="mt-3 p-3 rounded-xl border border-indigo-100 dark:border-indigo-900 bg-indigo-50/50 dark:bg-indigo-950/30">
+                                   <p className="text-[10px] font-black text-gray-500 dark:text-zinc-300 uppercase tracking-widest mb-2">
                                      Repetir este item em:
                                    </p>
                                    <div className="grid grid-cols-3 gap-2">
@@ -1962,7 +2490,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                                        return (
                                          <label
                                            key={dayKey}
-                                           className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2 py-1.5 rounded-lg ${isCurrentDay ? 'bg-indigo-100 text-indigo-600' : 'bg-white text-gray-600 border border-gray-200 cursor-pointer'}`}
+                                           className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2 py-1.5 rounded-lg ${isCurrentDay ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-600 dark:text-indigo-300' : 'bg-white dark:bg-zinc-900 text-gray-600 dark:text-zinc-200 border border-gray-200 dark:border-zinc-700 cursor-pointer'}`}
                                          >
                                            <input
                                              type="checkbox"
@@ -1986,7 +2514,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                                          setIngredientReplicateTargetId(null);
                                          setIngredientReplicateDays([]);
                                        }}
-                                       className="px-3 h-8 rounded-lg text-[10px] font-black uppercase tracking-widest text-gray-500 hover:text-gray-700"
+                                       className="px-3 h-8 rounded-lg text-[10px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-300 hover:text-gray-700 dark:hover:text-zinc-100"
                                      >
                                        Cancelar
                                      </button>
@@ -2020,26 +2548,26 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
               </div>
 
               {/* Botões de Ação Fixos no Rodapé */}
-              <div className="absolute bottom-0 left-0 right-0 p-8 bg-white/90 backdrop-blur-md border-t border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-6 shadow-[0_-15px_40px_rgba(0,0,0,0.05)] z-[600]">
+              <div className="absolute bottom-0 left-0 right-0 p-8 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-md border-t border-gray-100 dark:border-zinc-800 flex flex-col sm:flex-row justify-between items-center gap-6 shadow-[0_-15px_40px_rgba(0,0,0,0.05)] z-[600]">
                  <div className="flex flex-col">
                     <p className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${canSaveFicha ? 'text-emerald-600' : 'text-amber-500'}`}>
                        {canSaveFicha ? <CheckCircle2 size={12}/> : <AlertCircle size={12}/>} 
                        {canSaveFicha ? 'Pronto para salvar' : 'Ação Necessária'}
                     </p>
-                    <p className="text-[8px] font-bold text-gray-400 uppercase mt-1 leading-relaxed">
+                    <p className="text-[8px] font-bold text-gray-400 dark:text-zinc-400 uppercase mt-1 leading-relaxed">
                        {!editingItem?.item.name?.trim() ? '• Informe um título. ' : ''}
                        {editingItem?.item.ingredients.length === 0 ? '• Adicione pelo menos 1 componente.' : ''}
                     </p>
                  </div>
                  <div className="flex gap-4 w-full sm:w-auto">
-                    <button onClick={() => setEditingItem(null)} className="px-10 py-5 text-xs font-black text-gray-400 uppercase tracking-widest hover:text-gray-600 transition-colors">Cancelar</button>
+                    <button onClick={() => setEditingItem(null)} className="px-10 py-5 text-xs font-black text-gray-400 dark:text-zinc-400 uppercase tracking-widest hover:text-gray-600 dark:hover:text-zinc-200 transition-colors">Cancelar</button>
                     <button 
                       onClick={saveEditingItem} 
                       disabled={!canSaveFicha}
                       className={`flex-1 sm:flex-none px-14 py-5 rounded-[24px] font-black text-xs uppercase tracking-widest shadow-2xl transition-all flex items-center justify-center gap-3 ${
                         canSaveFicha 
                           ? 'bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700 active:scale-95' 
-                          : 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'
+                          : 'bg-gray-200 dark:bg-zinc-800 text-gray-400 dark:text-zinc-500 cursor-not-allowed shadow-none'
                       }`}
                     >
                       <Save size={20} /> Salvar Ficha

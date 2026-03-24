@@ -8,7 +8,7 @@ import {
   Sparkles, Beef, Store, Calendar, CalendarDays,
   LogOut, Menu, DollarSign, MessageCircle,
   Truck, Settings, AlertTriangle, X, Plus, Check, Sun, Moon,
-  ChevronLeft, ChevronRight, FolderTree, FileText // Ícones adicionais
+  ChevronLeft, ChevronRight // Ícones adicionais
 } from 'lucide-react';
 
 // Pages
@@ -44,8 +44,6 @@ import SystemSettingsPage from './pages/SystemSettingsPage';
 import SettingsPage from './pages/SettingsPage';
 import FinancialPage from './pages/FinancialPage';
 import WhatsAppPage from './pages/WhatsAppPage';
-import ProductCategoriesPage from './pages/ProductCategoriesPage';
-import PdfModelsPage from './pages/PdfModelsPage';
 import NotificationCenter from './components/NotificationCenter';
 import { useTheme } from './components/ThemeProvider';
 
@@ -133,6 +131,27 @@ const App: React.FC = () => {
     };
     window.addEventListener('canteen:session-expired', onSessionExpired);
     return () => window.removeEventListener('canteen:session-expired', onSessionExpired);
+  }, []);
+
+  useEffect(() => {
+    const handleOutsideActionsMenuClick = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('details[data-actions-menu="true"]')) return;
+
+      const openMenus = document.querySelectorAll('details[data-actions-menu="true"][open]');
+      openMenus.forEach((menu) => {
+        (menu as HTMLDetailsElement).open = false;
+      });
+    };
+
+    document.addEventListener('mousedown', handleOutsideActionsMenuClick);
+    document.addEventListener('touchstart', handleOutsideActionsMenuClick, { passive: true });
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideActionsMenuClick);
+      document.removeEventListener('touchstart', handleOutsideActionsMenuClick);
+    };
   }, []);
 
   // Recarregar empresas quando usuário autenticado não tiver empresa selecionada
@@ -414,14 +433,13 @@ const AppContent: React.FC<any> = (props) => {
                     )}
 
                     {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Calendar size={20} />} label="Cardápio Local" to="/menu-lunch" isOpen={isSidebarOpen} />}
-                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<CalendarDays size={20} />} label="CALENDÁRIO ESCOLAR" to="/school-calendar" isOpen={isSidebarOpen} />}
+                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<CalendarDays size={20} />} label="Calendário Escolar" to="/school-calendar" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Beef size={20} />} label="Base Nutricional" to="/nutritional-info" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Sparkles size={20} />} label="Planos Ativos" to={`/plans/${activeEnterprise?.id}`} isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessReports && <SidebarItem icon={<ReceiptText size={20} />} label="Transações" to="/unit-sales" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessReports && <SidebarItem icon={<DollarSign size={20} />} label="Financeiro" to="/financial" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessReports && <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp" to="/whatsapp" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessInventory && <SidebarItem icon={<ArrowRightLeft size={20} />} label="Estoque Unidade" to="/inventory" isOpen={isSidebarOpen} />}
-                    {resolvedPermissions.canAccessReports && <SidebarItem icon={<FileText size={20} />} label="Modelos PDF" to="/pdf-models" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canManageStaff && <SidebarItem icon={<Settings size={20} />} label="Ajustes" to="/settings" isOpen={isSidebarOpen} />}
                     {isOwner && <SidebarItem icon={<ShieldCheck size={20} />} label="Config. Sistema" to="/system-settings" isOpen={isSidebarOpen} />}
                   </div>
@@ -443,7 +461,6 @@ const AppContent: React.FC<any> = (props) => {
                     {resolvedPermissions.canAccessClients && <SidebarItem icon={<UserCircle size={20} />} label="Cliente/Responsável" to="/clients-responsaveis" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessClients && <SidebarItem icon={<Users size={20} />} label="Alunos" to="/clients" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Package size={20} />} label="Produtos" to="/products" isOpen={isSidebarOpen} />}
-                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<FolderTree size={20} />} label="Categoria Produto" to="/product-categories" isOpen={isSidebarOpen} />}
                     <SidebarItem icon={<ClipboardList size={20} />} label="Suprimentos" to="/orders" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Truck size={20} />} label="Fornecedores" to="/suppliers" isOpen={isSidebarOpen} />
                   </div>
@@ -516,7 +533,7 @@ const AppContent: React.FC<any> = (props) => {
                   <Route path="/clients" element={resolvedPermissions.canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="ALUNOS" /> : <Navigate to="/" />} />
                   <Route path="/clients-responsaveis" element={resolvedPermissions.canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="CLIENTES_RESPONSAVEIS" /> : <Navigate to="/" />} />
                   <Route path="/products" element={resolvedPermissions.canAccessInventory ? <ProductsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
-                  <Route path="/product-categories" element={resolvedPermissions.canAccessInventory ? <ProductCategoriesPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/product-categories" element={<Navigate to="/products" replace />} />
                   <Route path="/inventory" element={resolvedPermissions.canAccessInventory ? <InventoryPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/reports" element={resolvedPermissions.canAccessReports ? <ReportsPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/saas-plans" element={isSuperAdmin ? <SaasPlansPage currentUser={currentUser} /> : <Navigate to="/" />} />
@@ -544,7 +561,6 @@ const AppContent: React.FC<any> = (props) => {
                   <Route path="/plans/:enterpriseId" element={resolvedPermissions.canAccessInventory ? <PlansPage activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/daily-delivery" element={resolvedPermissions.canAccessReports ? <DailyDeliveryPage activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <Navigate to="/" />} />
                   <Route path="/settings" element={resolvedPermissions.canManageStaff ? <SettingsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
-                  <Route path="/pdf-models" element={resolvedPermissions.canAccessReports ? <PdfModelsPage activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="*" element={<Navigate to="/" />} />
                 </Routes>
               </div>

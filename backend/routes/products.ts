@@ -67,6 +67,35 @@ router.get('/', (req: Request, res: Response) => {
   res.json(products);
 });
 
+// Restore products snapshot
+router.post('/restore', (req: Request, res: Response) => {
+  const { enterpriseId } = req.body || {};
+  const normalizedEnterpriseId = String(enterpriseId || '').trim();
+  const items = Array.isArray(req.body)
+    ? req.body
+    : (Array.isArray(req.body?.items) ? req.body.items : null);
+
+  if (!normalizedEnterpriseId) {
+    return res.status(400).json({ error: 'enterpriseId é obrigatório para restauração.' });
+  }
+
+  if (!items) {
+    return res.status(400).json({ error: 'Payload inválido. Envie um array de itens ou { items: [...] }.' });
+  }
+
+  try {
+    const restored = db.restoreProductsSnapshot(normalizedEnterpriseId, items);
+    return res.json({
+      message: 'Backup de produtos restaurado com sucesso.',
+      count: restored.length,
+      items: restored,
+    });
+  } catch (error) {
+    console.error('❌ [PRODUCTS] Erro ao restaurar snapshot de produtos:', (error as Error).message);
+    return res.status(500).json({ error: 'Erro ao restaurar backup de produtos.' });
+  }
+});
+
 // Upload de foto de produto
 router.post('/upload-photo', async (req: Request, res: Response) => {
   try {

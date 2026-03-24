@@ -240,6 +240,16 @@ export class ApiService {
     return response.json();
   }
 
+  static async restoreProductsSnapshot(enterpriseId: string, items: any[]) {
+    const response = await fetch(`${API_URL}/products/restore`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ enterpriseId, items }),
+    });
+    if (!response.ok) throw new Error('Falha ao restaurar backup de produtos');
+    return response.json();
+  }
+
   // ===== CATEGORIES =====
   static async getCategories(enterpriseId?: string) {
     const url = new URL(`${API_URL}/categories`);
@@ -357,6 +367,17 @@ export class ApiService {
     });
     this.handleUnauthorized(response);
     if (!response.ok) throw new Error('Falha ao deletar cliente');
+    return response.json();
+  }
+
+  static async restoreClientsSnapshot(enterpriseId: string, items: any[]) {
+    const response = await fetch(`${API_URL}/clients/restore`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ enterpriseId, items }),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error('Falha ao restaurar backup de clientes');
     return response.json();
   }
 
@@ -563,8 +584,12 @@ export class ApiService {
   }
 
   // ===== INGREDIENTS =====
-  static async getIngredients() {
-    const response = await fetch(`${API_URL}/ingredients`, {
+  static async getIngredients(includeInactive = false) {
+    const url = new URL(`${API_URL}/ingredients`);
+    if (includeInactive) {
+      url.searchParams.set('includeInactive', 'true');
+    }
+    const response = await fetch(url.toString(), {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao buscar ingredientes');
@@ -616,6 +641,16 @@ export class ApiService {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao deletar ingrediente');
+    return response.json();
+  }
+
+  static async restoreIngredientsTable(items: any[]) {
+    const response = await fetch(`${API_URL}/ingredients/restore`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ items }),
+    });
+    if (!response.ok) throw new Error('Falha ao restaurar base nutricional');
     return response.json();
   }
 

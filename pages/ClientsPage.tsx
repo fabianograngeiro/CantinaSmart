@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -9,7 +9,7 @@ import {
   Check, Copy, FileText, Building2,
   ChevronDown, UserPlus, ChevronLeft, Eye, ShieldAlert,
   Phone, GraduationCap, AlertTriangle, Trash2,
-  Beef, HeartPulse, CreditCard, Landmark, Edit, ShoppingCart, Layers, Upload, FileSpreadsheet, Printer
+  Beef, HeartPulse, CreditCard, Landmark, Edit, ShoppingCart, Layers, Upload, Download, FileSpreadsheet, Printer
 } from 'lucide-react';
 import { Client, ClientPlanType, User, Enterprise, Role, Plan, TransactionRecord } from '../types';
 import ApiService from '../services/api';
@@ -229,6 +229,7 @@ const normalizeSearchText = (value?: string) =>
 
 const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise, viewMode = 'ALUNOS' }) => {
   const navigate = useNavigate();
+  const restoreClientsInputRef = useRef<HTMLInputElement | null>(null);
   const [openingWhatsAppKey, setOpeningWhatsAppKey] = useState<string | null>(null);
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
@@ -281,6 +282,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const [clientPhotoFile, setClientPhotoFile] = useState<File | null>(null);
   const [clientPhotoPreview, setClientPhotoPreview] = useState('');
   const [isSavingPlanView, setIsSavingPlanView] = useState(false);
+  const [isRestoringClientsBackup, setIsRestoringClientsBackup] = useState(false);
   const [planViewNotice, setPlanViewNotice] = useState<{ type: 'warning' | 'success' | 'error'; message: string } | null>(null);
 
   const isUnitAdmin = currentUser?.role === Role.ADMIN
@@ -2631,6 +2633,198 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     });
   }, [filteredClients, enterprises, clientPlanBalances]);
 
+  const backupResponsibleSnapshot = useMemo(() => {
+    const enterpriseClients = clients.filter((client) => String(client.enterpriseId || '').trim() === String(activeEnterprise?.id || '').trim());
+    const responsibleClients = enterpriseClients.filter((client) => {
+      const type = String(client.type || '').toUpperCase();
+      return type === 'RESPONSAVEL' || type === 'COLABORADOR';
+    });
+
+    const relatedStudentsMap = new Map<string, Client>();
+    const enterpriseStudents = enterpriseClients.filter((client) => String(client.type || '').toUpperCase() === 'ALUNO');
+
+    const responsibleIds = new Set(responsibleClients.map((client) => String(client.id || '').trim()).filter(Boolean));
+    const responsibleNameKeys = new Set(
+      responsibleClients
+        .map((client) => normalizeSearchText(client.name))
+        .filter(Boolean)
+    );
+    const responsiblePhones = new Set(
+      responsibleClients
+        .flatMap((client) => [
+          normalizePhoneDigits(client.phone),
+          normalizePhoneDigits(client.parentWhatsapp),
+          normalizePhoneDigits(client.guardianPhone),
+        ])
+        .filter((value) => String(value || '').length >= 10)
+    );
+    const responsibleEmails = new Set(
+      responsibleClients
+        .flatMap((client) => [
+          normalizeSearchText(client.email),
+          normalizeSearchText(client.parentEmail),
+          normalizeSearchText(client.guardianEmail),
+        ])
+        .filter(Boolean)
+    );
+
+    responsibleClients.forEach((responsible) => {
+      const directIds = [
+        ...(Array.isArray((responsible as any).relatedStudentIds) ? (responsible as any).relatedStudentIds : []),
+        String((responsible as any)?.relatedStudent?.studentId || '').trim(),
+      ]
+        .map((id) => String(id || '').trim())
+        .filter(Boolean);
+
+      directIds.forEach((studentId) => {
+        const found = enterpriseStudents.find((student) => String(student.id || '').trim() === studentId);
+        if (found) relatedStudentsMap.set(String(found.id), found);
+      });
+    });
+
+    enterpriseStudents.forEach((student) => {
+      const responsibleCollaboratorId = String((student as any)?.responsibleCollaboratorId || '').trim();
+      const parentNameKey = normalizeSearchText(student.parentName || student.guardianName);
+      const parentPhoneDigits = normalizePhoneDigits(student.parentWhatsapp || student.guardianPhone || student.phone);
+      const parentEmailKey = normalizeSearchText(student.parentEmail || student.guardianEmail || student.email);
+
+      const isRelated =
+        (responsibleCollaboratorId && responsibleIds.has(responsibleCollaboratorId))
+        || (parentNameKey && responsibleNameKeys.has(parentNameKey))
+        || (parentPhoneDigits && responsiblePhones.has(parentPhoneDigits))
+        || (parentEmailKey && responsibleEmails.has(parentEmailKey));
+
+      if (isRelated) {
+        relatedStudentsMap.set(String(student.id), student);
+      }
+    });
+
+    const items = [...responsibleClients, ...Array.from(relatedStudentsMap.values())];
+    return {
+      items,
+      responsibleCount: responsibleClients.length,
+      studentsCount: relatedStudentsMap.size,
+    };
+  }, [clients, activeEnterprise?.id]);
+
+  const handleBackupResponsibleClients = () => {
+    const now = new Date();
+    const payload = {
+      kind: 'CLIENTS_RESPONSAVEIS_BACKUP',
+      version: 1,
+      generatedAt: now.toISOString(),
+      generatedAtReadable: now.toLocaleString('pt-BR'),
+      audit: {
+        exportedBy: String(currentUser?.name || currentUser?.email || '').trim() || 'Não informado',
+        enterpriseId: String(activeEnterprise?.id || ''),
+        enterpriseName: String(activeEnterprise?.name || '').trim() || 'Não informada',
+        viewMode,
+      },
+      totalItems: backupResponsibleSnapshot.items.length,
+      responsibleCount: backupResponsibleSnapshot.responsibleCount,
+      relatedStudentsCount: backupResponsibleSnapshot.studentsCount,
+      items: backupResponsibleSnapshot.items,
+    };
+
+    if (payload.totalItems === 0) {
+      alert('Nenhum responsável/colaborador ou aluno relacionado encontrado para backup.');
+      return;
+    }
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `backup-clientes-responsaveis-${now.toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const parseClientsRestoreItems = (payload: any): Client[] => {
+    const itemsRaw = Array.isArray(payload)
+      ? payload
+      : (Array.isArray(payload?.items) ? payload.items : []);
+
+    return itemsRaw
+      .map((item: any) => ({
+        ...item,
+        id: String(item?.id || '').trim(),
+        enterpriseId: String(item?.enterpriseId || activeEnterprise?.id || '').trim(),
+        type: String(item?.type || '').toUpperCase(),
+      }))
+      .filter((item: any) => {
+        const type = String(item.type || '').toUpperCase();
+        return Boolean(item.id) && Boolean(item.enterpriseId) && ['ALUNO', 'RESPONSAVEL', 'COLABORADOR'].includes(type);
+      });
+  };
+
+  const handleRestoreResponsibleClients = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsRestoringClientsBackup(true);
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const items = parseClientsRestoreItems(parsed);
+
+      if (items.length === 0) {
+        alert('Arquivo inválido. Nenhum registro de cliente/responsável/aluno relacionado encontrado.');
+        return;
+      }
+
+      const totalResponsibles = items.filter((item: any) => {
+        const type = String(item?.type || '').toUpperCase();
+        return type === 'RESPONSAVEL' || type === 'COLABORADOR';
+      }).length;
+      const totalStudents = items.filter((item: any) => String(item?.type || '').toUpperCase() === 'ALUNO').length;
+
+      const backupKind = String(parsed?.kind || 'Arquivo genérico').trim();
+      const backupVersion = String(parsed?.version || '-').trim();
+      const backupGeneratedAt = String(parsed?.generatedAtReadable || '').trim()
+        || (parsed?.generatedAt ? new Date(parsed.generatedAt).toLocaleString('pt-BR') : 'Não informado');
+      const backupExportedBy = String(parsed?.audit?.exportedBy || 'Não informado').trim();
+      const backupEnterpriseName = String(parsed?.audit?.enterpriseName || 'Não informada').trim();
+      const backupEnterpriseId = String(parsed?.audit?.enterpriseId || '').trim();
+      const sourceTotalItems = Number(parsed?.totalItems || items.length);
+      const isDifferentEnterprise = Boolean(backupEnterpriseId) && backupEnterpriseId !== String(activeEnterprise?.id || '').trim();
+
+      const confirmText = [
+        'Pré-visualização do backup',
+        `Tipo: ${backupKind} (v${backupVersion})`,
+        `Exportado por: ${backupExportedBy}`,
+        `Data: ${backupGeneratedAt}`,
+        `Empresa origem: ${backupEnterpriseName}${backupEnterpriseId ? ` (${backupEnterpriseId})` : ''}`,
+        `Empresa destino: ${String(activeEnterprise?.name || 'Não informada')} (${String(activeEnterprise?.id || '-')})`,
+        `Total no arquivo: ${sourceTotalItems}`,
+        `Responsáveis/Colaboradores: ${totalResponsibles}`,
+        `Alunos relacionados: ${totalStudents}`,
+        isDifferentEnterprise ? 'ATENÇÃO: backup de outra empresa/unidade.' : '',
+        '',
+        'Deseja continuar a restauração?',
+      ].filter(Boolean).join('\n');
+
+      if (!window.confirm(confirmText)) {
+        return;
+      }
+
+      await ApiService.restoreClientsSnapshot(String(activeEnterprise?.id || ''), items);
+      const refreshed = await ApiService.getClients(String(activeEnterprise?.id || ''));
+      setClients(Array.isArray(refreshed) ? refreshed : []);
+      alert('Backup de Cliente/Responsável restaurado com sucesso.');
+    } catch (error) {
+      console.error('Erro ao restaurar backup de clientes/responsáveis:', error);
+      alert('Erro ao restaurar backup de clientes/responsáveis.');
+    } finally {
+      setIsRestoringClientsBackup(false);
+      if (restoreClientsInputRef.current) {
+        restoreClientsInputRef.current.value = '';
+      }
+    }
+  };
+
   const handleExportCsv = () => {
     if (exportRows.length === 0) {
       alert('Nenhum cliente para exportar.');
@@ -2778,6 +2972,30 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
           <button onClick={handleOpenCreateModal} className="bg-indigo-600 text-white px-3.5 py-2 rounded-xl font-black uppercase tracking-[0.12em] text-[9px] shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-1.5">
             <Plus size={12} /> {viewMode === 'ALUNOS' ? 'Adicionar' : 'Novo Responsável'}
           </button>
+          {viewMode === 'CLIENTES_RESPONSAVEIS' && (
+            <>
+              <button
+                onClick={handleBackupResponsibleClients}
+                className="bg-white border border-emerald-200 text-emerald-700 px-3 py-2 rounded-xl font-black uppercase tracking-[0.12em] text-[9px] hover:bg-emerald-50 transition-all flex items-center gap-1.5"
+              >
+                <Download size={12} /> Backup JSON
+              </button>
+              <button
+                onClick={() => restoreClientsInputRef.current?.click()}
+                disabled={isRestoringClientsBackup}
+                className="bg-white border border-amber-200 text-amber-700 px-3 py-2 rounded-xl font-black uppercase tracking-[0.12em] text-[9px] hover:bg-amber-50 transition-all flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Upload size={12} /> {isRestoringClientsBackup ? 'Restaurando...' : 'Restaurar JSON'}
+              </button>
+              <input
+                ref={restoreClientsInputRef}
+                type="file"
+                accept="application/json,.json"
+                onChange={handleRestoreResponsibleClients}
+                className="hidden"
+              />
+            </>
+          )}
           <button onClick={handleExportCsv} className="bg-white border border-gray-200 text-gray-700 px-3 py-2 rounded-xl font-black uppercase tracking-[0.12em] text-[9px] hover:border-indigo-200 hover:text-indigo-700 transition-all flex items-center gap-1.5">
             <FileSpreadsheet size={12} /> CSV
           </button>

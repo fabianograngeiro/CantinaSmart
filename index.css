@@ -11,6 +11,13 @@ html.dark body {
   @apply bg-slate-900 text-slate-100;
 }
 
+html.dark button[class*='shadow'],
+html.dark a[class*='shadow'],
+html.dark [role='button'][class*='shadow'] {
+  box-shadow: none !important;
+  filter: none !important;
+}
+
 .product-grid-scrollbar {
   scrollbar-width: auto;
   scrollbar-color: #6366f1 #e5e7eb;

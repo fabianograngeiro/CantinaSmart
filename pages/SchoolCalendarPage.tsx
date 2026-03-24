@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Plus, Trash2, Save, Download, Flag, Tags, School, Edit3, X } from 'lucide-react';
+import { CalendarDays, Plus, Trash2, Save, Download, Tags, School, Edit3, X } from 'lucide-react';
 import jsPDF from 'jspdf';
 import { Enterprise, User } from '../types';
 import { ApiService } from '../services/api';
@@ -150,6 +150,11 @@ const getPdfTextColorFromHex = (hexColor: string): [number, number, number] => {
   const { r, g, b } = hexToRgb(hexColor);
   const luminance = (0.299 * r) + (0.587 * g) + (0.114 * b);
   return luminance > 155 ? [17, 24, 39] : [255, 255, 255];
+};
+
+const getReadableTextColorFromHex = (hexColor: string): string => {
+  const [r, g, b] = getPdfTextColorFromHex(hexColor);
+  return `rgb(${r}, ${g}, ${b})`;
 };
 
 const SchoolCalendarPage: React.FC<SchoolCalendarPageProps> = ({ currentUser, activeEnterprise }) => {
@@ -756,25 +761,25 @@ const SchoolCalendarPage: React.FC<SchoolCalendarPageProps> = ({ currentUser, ac
   }, [events, legendById]);
 
   return (
-    <div className="dash-shell min-h-screen p-4 md:p-6 space-y-5">
-      <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 md:p-5 shadow-sm">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+    <div className="dash-shell min-h-screen p-2 sm:p-3 md:p-4 space-y-3">
+      <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-2.5 sm:p-3 shadow-sm">
+        <div className="flex flex-col gap-2.5 md:flex-row md:items-start md:justify-between">
           <div>
-            <h1 className="text-xl md:text-2xl font-black text-gray-800 dark:text-zinc-100 flex items-center gap-2">
-              <CalendarDays className="text-indigo-600" size={24} />
+            <h1 className="text-base sm:text-lg md:text-xl font-black text-gray-800 dark:text-zinc-100 flex items-center gap-2">
+              <CalendarDays className="text-indigo-600" size={18} />
               CALENDARIO ESCOLAR
             </h1>
-            <p className="text-xs md:text-sm text-slate-500 dark:text-zinc-400 mt-1">
+            <p className="text-[11px] sm:text-xs text-slate-500 dark:text-zinc-400 mt-1">
               Modelo anual para cadastrar feriados, eventos e tipos de legendas para toda a escola.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-3 w-full md:w-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full md:w-auto">
             <button
               onClick={exportAnnualPdf}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm"
+              className="inline-flex items-center justify-center gap-1.5 px-3 h-8.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs"
             >
-              <Download size={16} />
+              <Download size={14} />
               Baixar Calendario PDF
             </button>
             <button
@@ -782,9 +787,9 @@ const SchoolCalendarPage: React.FC<SchoolCalendarPageProps> = ({ currentUser, ac
                 void persistCalendar(true);
               }}
               disabled={isCalendarLoading || isCalendarSaving}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold text-sm"
+              className="inline-flex items-center justify-center gap-1.5 px-3 h-8.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold text-xs"
             >
-              <Save size={16} />
+              <Save size={14} />
               Salvar Agora
             </button>
           </div>
@@ -805,11 +810,11 @@ const SchoolCalendarPage: React.FC<SchoolCalendarPageProps> = ({ currentUser, ac
           </div>
         )}
 
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
           <label className="space-y-1">
             <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Unidade</span>
-            <div className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 flex items-center text-sm text-slate-700 dark:text-slate-100 font-bold">
-              <School size={16} className="mr-2 text-indigo-600" />
+            <div className="h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 flex items-center text-sm text-slate-700 dark:text-slate-100 font-bold">
+              <School size={14} className="mr-2 text-indigo-600" />
               {activeEnterprise?.name || '-'}
             </div>
           </label>
@@ -826,7 +831,7 @@ const SchoolCalendarPage: React.FC<SchoolCalendarPageProps> = ({ currentUser, ac
                 setSelectedYear(y);
                 setMeta((prev) => ({ ...prev, schoolYear: y }));
               }}
-              className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm font-semibold"
+              className="h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm font-semibold"
             />
           </label>
 
@@ -836,7 +841,7 @@ const SchoolCalendarPage: React.FC<SchoolCalendarPageProps> = ({ currentUser, ac
               type="date"
               value={meta.periodStart}
               onChange={(e) => setMeta((prev) => ({ ...prev, periodStart: e.target.value }))}
-              className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm font-semibold"
+              className="h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm font-semibold"
             />
           </label>
 
@@ -846,12 +851,12 @@ const SchoolCalendarPage: React.FC<SchoolCalendarPageProps> = ({ currentUser, ac
               type="date"
               value={meta.periodEnd}
               onChange={(e) => setMeta((prev) => ({ ...prev, periodEnd: e.target.value }))}
-              className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm font-semibold"
+              className="h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm font-semibold"
             />
           </label>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-2">
           <label className="space-y-1">
             <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Dias Letivos Planejados</span>
             <input
@@ -860,7 +865,7 @@ const SchoolCalendarPage: React.FC<SchoolCalendarPageProps> = ({ currentUser, ac
               max={300}
               value={meta.plannedSchoolDays}
               onChange={(e) => setMeta((prev) => ({ ...prev, plannedSchoolDays: Number(e.target.value || 0) }))}
-              className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm font-semibold"
+              className="h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm font-semibold"
             />
           </label>
           <label className="space-y-1">
@@ -870,42 +875,42 @@ const SchoolCalendarPage: React.FC<SchoolCalendarPageProps> = ({ currentUser, ac
               value={meta.notes}
               onChange={(e) => setMeta((prev) => ({ ...prev, notes: e.target.value }))}
               placeholder="Observacoes do calendario anual"
-              className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm font-semibold"
+              className="h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm font-semibold"
             />
           </label>
         </div>
       </section>
 
-      <section className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 md:p-5 shadow-sm">
-          <h2 className="text-lg font-black text-gray-800 dark:text-zinc-100 flex items-center gap-2">
+      <section>
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-3 sm:p-4 shadow-sm space-y-3">
+          <h2 className="text-base sm:text-lg font-black text-gray-800 dark:text-zinc-100 flex items-center gap-2">
             <Tags size={18} className="text-indigo-600" />
             Tipos de Legenda
           </h2>
 
-          <div className="mt-3 grid grid-cols-1 md:grid-cols-4 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
             <input
               value={legendForm.name}
               onChange={(e) => setLegendForm((prev) => ({ ...prev, name: e.target.value }))}
               placeholder="Nome da legenda"
-              className="h-10 rounded-xl border border-slate-200 dark:border-slate-700 px-3 text-sm md:col-span-2 bg-white dark:bg-slate-800"
+              className="h-9 rounded-xl border border-slate-200 dark:border-slate-700 px-3 text-sm lg:col-span-2 bg-white dark:bg-slate-800"
             />
             <input
               value={legendForm.shortCode}
               onChange={(e) => setLegendForm((prev) => ({ ...prev, shortCode: e.target.value.slice(0, 3).toUpperCase() }))}
               placeholder="Sigla"
-              className="h-10 rounded-xl border border-slate-200 dark:border-slate-700 px-3 text-sm bg-white dark:bg-slate-800"
+              className="h-9 rounded-xl border border-slate-200 dark:border-slate-700 px-3 text-sm bg-white dark:bg-slate-800"
             />
             <input
               type="color"
               value={legendForm.color}
               onChange={(e) => setLegendForm((prev) => ({ ...prev, color: e.target.value }))}
-              className="h-10 rounded-xl border border-slate-200 dark:border-slate-700 px-2 bg-white dark:bg-slate-800"
+              className="h-9 rounded-xl border border-slate-200 dark:border-slate-700 px-2 bg-white dark:bg-slate-800"
             />
             <select
               value={legendForm.category}
               onChange={(e) => setLegendForm((prev) => ({ ...prev, category: e.target.value as LegendCategory }))}
-              className="h-10 rounded-xl border border-slate-200 dark:border-slate-700 px-3 text-sm md:col-span-3 bg-white dark:bg-slate-800"
+              className="h-9 rounded-xl border border-slate-200 dark:border-slate-700 px-3 text-sm lg:col-span-3 bg-white dark:bg-slate-800"
             >
               {LEGEND_CATEGORIES.map((category) => (
                 <option key={category.value} value={category.value}>{category.label}</option>
@@ -913,7 +918,7 @@ const SchoolCalendarPage: React.FC<SchoolCalendarPageProps> = ({ currentUser, ac
             </select>
             <button
               onClick={saveLegend}
-              className="h-10 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold inline-flex items-center justify-center gap-1"
+              className="h-9 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold inline-flex items-center justify-center gap-1"
             >
               <Save size={15} />
               {editingLegendId ? 'Salvar Tipo' : 'Adicionar'}
@@ -921,7 +926,7 @@ const SchoolCalendarPage: React.FC<SchoolCalendarPageProps> = ({ currentUser, ac
             {editingLegendId && (
               <button
                 onClick={cancelLegendEdit}
-                className="h-10 rounded-xl border border-slate-300 text-slate-700 dark:text-slate-200 text-sm font-bold inline-flex items-center justify-center gap-1"
+                className="h-9 rounded-xl border border-slate-300 text-slate-700 dark:text-slate-200 text-sm font-bold inline-flex items-center justify-center gap-1"
               >
                 <X size={15} />
                 Cancelar
@@ -929,158 +934,67 @@ const SchoolCalendarPage: React.FC<SchoolCalendarPageProps> = ({ currentUser, ac
             )}
           </div>
 
-          <div className="mt-4 space-y-2 max-h-60 overflow-auto pr-1">
+          <div className="space-y-2 max-h-56 overflow-auto pr-1">
             {legends.map((legend) => (
-              <div key={legend.id} className="flex items-center gap-2 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2">
+              <div key={legend.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-2 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2">
                 <div className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: legend.color }} />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-bold text-slate-700 dark:text-slate-100 truncate">{legend.name}</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">{legend.shortCode} • {legend.category}</p>
                 </div>
-                <button
-                  onClick={() => editLegend(legend)}
-                  className="h-8 w-8 rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 inline-flex items-center justify-center"
-                  title="Editar tipo"
-                >
-                  <Edit3 size={14} />
-                </button>
-                {![
-                  'ferias',
-                  'inicio_termino_aulas',
-                  'planejamento_pedagogico',
-                  'sabados_letivos',
-                  'conselho_classe',
-                  'feriado',
-                  'recesso',
-                  'resultado_final',
-                  'adaptacao_ed_infantil',
-                ].includes(legend.id) && (
+                <div className="flex items-center gap-1">
                   <button
-                    onClick={() => removeLegend(legend.id)}
-                    className="h-8 w-8 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 inline-flex items-center justify-center"
-                    title="Remover tipo"
+                    onClick={() => editLegend(legend)}
+                    className="h-8 w-8 rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 inline-flex items-center justify-center"
+                    title="Editar tipo"
                   >
-                    <Trash2 size={15} />
+                    <Edit3 size={14} />
                   </button>
-                )}
+                  {![
+                    'ferias',
+                    'inicio_termino_aulas',
+                    'planejamento_pedagogico',
+                    'sabados_letivos',
+                    'conselho_classe',
+                    'feriado',
+                    'recesso',
+                    'resultado_final',
+                    'adaptacao_ed_infantil',
+                  ].includes(legend.id) && (
+                    <button
+                      onClick={() => removeLegend(legend.id)}
+                      className="h-8 w-8 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 inline-flex items-center justify-center"
+                      title="Remover tipo"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
         </div>
-
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 md:p-5 shadow-sm">
-          <h2 className="text-lg font-black text-gray-800 dark:text-zinc-100 flex items-center gap-2">
-            <Flag size={18} className="text-indigo-600" />
-            Cadastro de Feriados e Eventos
-          </h2>
-
-          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={openBatchActionModal}
-              className="h-10 rounded-xl border border-slate-200 dark:border-slate-700 px-3 text-sm bg-white dark:bg-slate-800 inline-flex items-center gap-2 text-left"
-              title="Selecione os dias no calendario e clique para acao"
-            >
-              <CalendarDays size={16} className="text-indigo-600" />
-              <span className="font-semibold text-slate-700 dark:text-slate-200">
-                {selectedDates.length > 0
-                  ? `${selectedDates.length} dia(s) selecionado(s) no calendario`
-                  : 'Clique nos dias do calendario para selecionar'}
-              </span>
-            </button>
-            <input
-              value={eventForm.title}
-              onChange={(e) => setEventForm((prev) => ({ ...prev, title: e.target.value }))}
-              placeholder="Titulo do feriado/evento (edicao individual)"
-              className="h-10 rounded-xl border border-slate-200 dark:border-slate-700 px-3 text-sm bg-white dark:bg-slate-800"
-            />
-            <select
-              value={eventForm.legendTypeId}
-              onChange={(e) => setEventForm((prev) => ({ ...prev, legendTypeId: e.target.value }))}
-              className="h-10 rounded-xl border border-slate-200 dark:border-slate-700 px-3 text-sm bg-white dark:bg-slate-800"
-            >
-              {legends.map((legend) => (
-                <option key={legend.id} value={legend.id}>{legend.shortCode} - {legend.name}</option>
-              ))}
-            </select>
-            <input
-              value={eventForm.notes}
-              onChange={(e) => setEventForm((prev) => ({ ...prev, notes: e.target.value }))}
-              placeholder="Observacao"
-              className="h-10 rounded-xl border border-slate-200 dark:border-slate-700 px-3 text-sm bg-white dark:bg-slate-800"
-            />
-            <button
-              onClick={saveEvent}
-              disabled={!editingEventId}
-              className="h-10 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed text-white text-sm font-bold inline-flex items-center justify-center gap-1 md:col-span-2"
-            >
-              <Save size={15} />
-              {editingEventId ? 'Salvar Edicao Individual' : 'Edite um item da lista para salvar'}
-            </button>
-            {editingEventId && (
-              <button
-                onClick={cancelEventEdit}
-                className="h-10 rounded-xl border border-slate-300 text-slate-700 dark:text-slate-200 text-sm font-bold inline-flex items-center justify-center gap-1 md:col-span-2"
-              >
-                <X size={15} />
-                Cancelar Edicao
-              </button>
-            )}
-          </div>
-
-          <div className="mt-4 max-h-72 overflow-auto pr-1 space-y-2">
-            {events.map((ev) => {
-              const legend = legendById.get(ev.legendTypeId);
-              return (
-                <div key={ev.id} className="border border-slate-200 dark:border-slate-700 rounded-xl p-2.5">
-                  <div className="flex items-start gap-2">
-                    <div className="mt-0.5 w-3 h-3 rounded-full" style={{ backgroundColor: legend?.color || '#94a3b8' }} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-slate-700 dark:text-slate-100 truncate">{ev.title}</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">{ev.date} • {legend?.shortCode || '-'} - {legend?.name || 'Sem legenda'}</p>
-                      {ev.notes && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Obs: {ev.notes}</p>}
-                    </div>
-                    <button
-                      onClick={() => editEvent(ev)}
-                      className="h-8 w-8 rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 inline-flex items-center justify-center"
-                      title="Editar item"
-                    >
-                      <Edit3 size={14} />
-                    </button>
-                    <button
-                      onClick={() => removeEvent(ev.id)}
-                      className="h-8 w-8 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 inline-flex items-center justify-center"
-                      title="Remover item"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
       </section>
 
-      <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 md:p-5 shadow-sm">
-        <h2 className="text-lg font-black text-gray-800 dark:text-zinc-100">Modelo Anual • {selectedYear}</h2>
+      <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-2.5 sm:p-3 shadow-sm">
+        <h2 className="text-base sm:text-lg font-black text-gray-800 dark:text-zinc-100">Modelo Anual • {selectedYear}</h2>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
           Grade anual com 12 meses. Cada dia mostra as legendas cadastradas para visualizacao rapida.
         </p>
 
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        <div className="mt-2.5 grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-2">
           {MONTH_LABELS.map((label, monthIndex) => {
             const monthGrid = buildMonthGrid(selectedYear, monthIndex);
             const monthSummary = monthSummaryByIndex.get(monthIndex) || [];
             return (
-              <article key={label} className="rounded-2xl border-2 border-slate-300 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-900">
-                <header className="px-3 py-2 bg-slate-100 dark:bg-slate-800 border-b-2 border-slate-300 dark:border-slate-700">
-                  <h3 className="text-sm font-black text-indigo-700 dark:text-indigo-300">{label}</h3>
+              <article key={label} className="rounded-xl border border-indigo-100 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-900 shadow-sm">
+                <header className="px-2.5 py-1.5 bg-gradient-to-r from-indigo-600 to-violet-600 border-b border-indigo-500">
+                  <h3 className="text-sm font-black text-white">{label}</h3>
                 </header>
-                <div className="p-2">
+                <div className="p-1.5 sm:p-2">
                   <div className="grid grid-cols-7 gap-1 mb-1">
                     {WEEKDAY_SHORT.map((day) => (
-                      <div key={`${label}-${day}`} className="text-[10px] text-center font-black text-slate-600 bg-slate-100 dark:bg-slate-800 rounded py-0.5">{day}</div>
+                      <div key={`${label}-${day}`} className="text-[9px] text-center font-black text-indigo-700 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-950/40 rounded py-0.5">{day}</div>
                     ))}
                   </div>
                   <div className="space-y-1">
@@ -1091,31 +1005,35 @@ const SchoolCalendarPage: React.FC<SchoolCalendarPageProps> = ({ currentUser, ac
                             ? `${selectedYear}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
                             : '';
                           const dayEvents = day ? (eventsByDate.get(dateKey) || []) : [];
+                          const visibleEvents = dayEvents.slice(0, 2);
+                          const hiddenEventsCount = Math.max(0, dayEvents.length - visibleEvents.length);
                           const isSelected = Boolean(day && selectedDates.includes(dateKey));
                           const isLastSelected = Boolean(day && selectedDates[selectedDates.length - 1] === dateKey);
                           return (
                             <div
                               key={`${label}-${weekIdx}-${dayIdx}`}
                               onClick={() => day && toggleDateSelection(dateKey)}
-                              className={`relative rounded-lg border ${day ? 'cursor-pointer transition-all' : 'border-transparent bg-transparent'} p-1 ${isSelected ? 'border-indigo-600 ring-2 ring-indigo-300 dark:ring-indigo-700' : (day ? 'border-slate-300 dark:border-slate-700 hover:ring-2 hover:ring-indigo-300 dark:hover:ring-indigo-700' : '')}`}
+                              className={`relative rounded-md border ${day ? 'cursor-pointer transition-all' : 'border-transparent bg-transparent'} p-1 min-h-[48px] sm:min-h-[54px] ${isSelected ? 'border-indigo-600 ring-2 ring-indigo-300 dark:ring-indigo-700' : (day ? 'border-slate-300 dark:border-slate-700 hover:ring-2 hover:ring-indigo-300 dark:hover:ring-indigo-700' : '')}`}
                               style={{
-                                minHeight: `${66 + Math.max(0, dayEvents.length - 2) * 12}px`,
                                 ...(dayEvents[0]
-                                  ? { backgroundColor: softTintFromHex(legendById.get(dayEvents[0].legendTypeId)?.color || '#ffffff', 0.14) }
+                                  ? {
+                                    backgroundColor: softTintFromHex(legendById.get(dayEvents[0].legendTypeId)?.color || '#ffffff', 0.2),
+                                    borderColor: softTintFromHex(legendById.get(dayEvents[0].legendTypeId)?.color || '#94a3b8', 0.45),
+                                  }
                                   : {}),
                               }}
                             >
                               {day && (
                                 <>
-                                  <div className="text-[11px] font-black text-slate-700 dark:text-slate-200">{day}</div>
+                                  <div className="text-[11px] font-black text-slate-900 dark:text-slate-100">{day}</div>
                                   {isLastSelected && selectedDates.length > 0 && (
-                                    <div className="absolute right-1 top-1 flex items-center gap-1 z-10 flex-wrap justify-end max-w-[calc(100%-18px)]">
+                                    <div className="absolute right-1 top-1 flex items-center gap-0.5 z-10 flex-wrap justify-end max-w-[calc(100%-18px)]">
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           openBatchActionModal();
                                         }}
-                                        className="h-5 px-1.5 rounded bg-indigo-600 hover:bg-indigo-700 text-white text-[9px] font-black"
+                                        className="h-4 px-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white text-[8px] font-black"
                                       >
                                         CRIAR
                                       </button>
@@ -1125,7 +1043,7 @@ const SchoolCalendarPage: React.FC<SchoolCalendarPageProps> = ({ currentUser, ac
                                             e.stopPropagation();
                                             openExistingEventActionModal('edit');
                                           }}
-                                          className="h-5 px-1.5 rounded bg-amber-500 hover:bg-amber-600 text-white text-[9px] font-black"
+                                          className="h-4 px-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-[8px] font-black"
                                         >
                                           EDITAR
                                         </button>
@@ -1136,7 +1054,7 @@ const SchoolCalendarPage: React.FC<SchoolCalendarPageProps> = ({ currentUser, ac
                                             e.stopPropagation();
                                             openExistingEventActionModal('delete');
                                           }}
-                                          className="h-5 px-1.5 rounded bg-rose-600 hover:bg-rose-700 text-white text-[9px] font-black"
+                                          className="h-4 px-1 rounded bg-rose-600 hover:bg-rose-700 text-white text-[8px] font-black"
                                         >
                                           EXCLUIR
                                         </button>
@@ -1146,26 +1064,35 @@ const SchoolCalendarPage: React.FC<SchoolCalendarPageProps> = ({ currentUser, ac
                                           e.stopPropagation();
                                           cancelMultiSelect();
                                         }}
-                                        className="h-5 px-1.5 rounded border border-slate-300 bg-white/90 text-slate-700 text-[9px] font-black"
+                                        className="h-4 px-1 rounded border border-slate-300 bg-white/90 text-slate-700 text-[8px] font-black"
                                       >
                                         CANCELAR
                                       </button>
                                     </div>
                                   )}
                                   <div className="mt-1 space-y-1">
-                                    {dayEvents.map((ev) => {
+                                    {visibleEvents.map((ev) => {
                                       const legend = legendById.get(ev.legendTypeId);
                                       return (
                                         <div
                                           key={ev.id}
-                                          className="text-[9px] leading-none px-1 py-0.5 rounded text-white font-bold truncate"
-                                          style={{ backgroundColor: legend?.color || '#64748b' }}
+                                          className="text-[8px] leading-none px-1 py-0.5 rounded font-bold truncate border"
+                                          style={{
+                                            backgroundColor: legend?.color || '#64748b',
+                                            color: getReadableTextColorFromHex(legend?.color || '#64748b'),
+                                            borderColor: softTintFromHex('#0f172a', 0.25),
+                                          }}
                                           title={`${ev.title} (${legend?.name || 'Sem legenda'})`}
                                         >
                                           {(legend?.shortCode || '?')}: {ev.title}
                                         </div>
                                       );
                                     })}
+                                    {hiddenEventsCount > 0 && (
+                                      <p className="inline-flex items-center rounded px-1 py-0.5 text-[8px] font-black text-slate-700 dark:text-slate-200 bg-white/80 dark:bg-slate-900/70 leading-none">
+                                        +{hiddenEventsCount} evento(s)
+                                      </p>
+                                    )}
                                   </div>
                                 </>
                               )}
@@ -1178,12 +1105,12 @@ const SchoolCalendarPage: React.FC<SchoolCalendarPageProps> = ({ currentUser, ac
 
                   <div className="mt-2 border-t border-slate-300 dark:border-slate-700 pt-2 space-y-1">
                     {monthSummary.length === 0 ? (
-                      <p className="text-[10px] font-semibold text-slate-400">Sem eventos neste mes</p>
+                      <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-300">Sem eventos neste mes</p>
                     ) : (
                       monthSummary.map((line) => (
                         <div key={line.id} className="flex items-start gap-1.5">
                           <span className="mt-0.5 inline-block w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: line.color }} />
-                          <p className="text-[10px] leading-snug text-slate-700 dark:text-slate-200 font-semibold">
+                          <p className="text-[10px] leading-snug text-slate-800 dark:text-slate-100 font-semibold">
                             {line.intervalLabel} - {line.title}
                           </p>
                         </div>

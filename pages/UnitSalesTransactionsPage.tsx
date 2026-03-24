@@ -2653,7 +2653,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       </div>
 
       {/* SUMÁRIO RÁPIDO NO RODAPÉ */}
-      <div className="grid grid-cols-1 gap-6 animate-in fade-in duration-700">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3 animate-in fade-in duration-700">
          <QuickSummaryCard label="Total Receitas R$" value={`R$ ${totalRevenueFiltered.toFixed(2)}`} sub="Entradas conforme filtros selecionados" icon={<Store />} color="bg-emerald-600" />
          <QuickSummaryCard label="Total Descontos de Consumos R$" value={`R$ ${totalConsumptionDiscountFiltered.toFixed(2)}`} sub="Saídas de consumo conforme filtros" icon={<Sparkles />} color="bg-indigo-600" />
          <QuickSummaryCard label="Ticket Médio Mês" value={`R$ ${monthlyTicketAverage.toFixed(2)}`} sub="Vendas do mês (balcão)" icon={<DollarSign />} color="bg-slate-900" />
@@ -3283,16 +3283,16 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 };
 
 const QuickSummaryCard = ({ label, value, sub, icon, color }: any) => (
-  <div className={`${color} w-full p-8 rounded-[40px] text-white shadow-2xl flex items-center justify-between group overflow-hidden relative border-b-8 border-black/10`}>
+  <div className={`${color} w-full p-3 sm:p-4 rounded-2xl text-white shadow-lg flex items-center justify-between gap-2 group overflow-hidden relative border-b-4 border-black/10 min-w-0`}>
      <div className="relative z-10">
-        <p className="text-[10px] font-black uppercase tracking-[3px] opacity-60 mb-2">{label}</p>
-        <p className="text-3xl font-black tracking-tighter mb-1">{value}</p>
-        <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest">{sub}</p>
+      <p className="text-[8px] sm:text-[9px] font-black uppercase tracking-[0.12em] opacity-70 mb-1 leading-tight">{label}</p>
+      <p className="text-sm sm:text-lg lg:text-xl font-black tracking-tight leading-tight break-words">{value}</p>
+      <p className="text-[8px] sm:text-[9px] font-bold opacity-70 uppercase tracking-[0.1em] leading-tight line-clamp-2">{sub}</p>
      </div>
-     <div className="p-5 bg-white/10 rounded-[28px] backdrop-blur-md relative z-10 group-hover:scale-110 transition-transform duration-500">
-        {React.cloneElement(icon as React.ReactElement, { size: 32 })}
+    <div className="p-2 sm:p-2.5 bg-white/10 rounded-xl backdrop-blur-md relative z-10 group-hover:scale-105 transition-transform duration-300 shrink-0">
+      {React.cloneElement(icon as React.ReactElement, { size: 16 })}
      </div>
-     <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+    <div className="absolute top-0 right-0 w-16 h-16 bg-white/10 rounded-full -mr-8 -mt-8 blur-xl"></div>
   </div>
 );
 

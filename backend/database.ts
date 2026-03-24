@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { NUTRITIONAL_BASE_SEED } from './data/nutritionalBaseSeed';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -933,6 +934,8 @@ export class Database {
   private normalizeStoredData() {
     this.enterprises = this.enterprises.map((enterprise) => this.normalizeContactFields(enterprise));
     this.suppliers = this.suppliers.map((supplier) => this.normalizeContactFields(supplier));
+    this.ingredients = this.ingredients.map((ingredient) => this.normalizeIngredientRecord(ingredient));
+    this.ensureNutritionalBaseSeed();
     this.deduplicateDeliveryHistoryTransactions();
     this.clients = this.clients.map((client) => {
       const contactNormalized = this.normalizeContactFields(client);
@@ -1466,6 +1469,56 @@ export class Database {
     return false;
   }
 
+  restoreProductsSnapshot(enterpriseId: string, records: any[]) {
+    const normalizedEnterpriseId = String(enterpriseId || '').trim();
+    const safeRecords = Array.isArray(records) ? records : [];
+
+    const restoredRecords = safeRecords
+      .map((record) => {
+        const idRaw = String(record?.id || '').trim();
+        const id = idRaw || this.generateEntityId('p');
+        return {
+          ...record,
+          id,
+          enterpriseId: normalizedEnterpriseId || String(record?.enterpriseId || '').trim(),
+          name: String(record?.name || '').trim(),
+          category: String(record?.category || 'GERAL').trim() || 'GERAL',
+          subCategory: String(record?.subCategory || '').trim(),
+          ean: String(record?.ean || '').trim(),
+          unit: String(record?.unit || 'UN').trim().toUpperCase(),
+          controlsStock: record?.controlsStock !== false,
+          price: this.toFiniteNumber(record?.price, 0),
+          cost: this.toFiniteNumber(record?.cost, 0),
+          stock: this.toFiniteNumber(record?.stock, 0),
+          minStock: this.toFiniteNumber(record?.minStock, 0),
+          expiryDate: String(record?.expiryDate || '').trim(),
+          image: String(record?.image || '').trim(),
+          isActive: record?.isActive !== false,
+        };
+      })
+      .filter((record) => Boolean(record?.id) && Boolean(record?.enterpriseId) && Boolean(record?.name));
+
+    restoredRecords.forEach((record) => {
+      const existingIndex = this.products.findIndex((product) => String(product?.id || '').trim() === String(record.id).trim());
+      if (existingIndex > -1) {
+        this.products[existingIndex] = { ...this.products[existingIndex], ...record };
+      } else {
+        this.products.push(record);
+      }
+    });
+
+    const maxSequence = this.products.reduce((max, product) => {
+      const match = /^p_(\d+)$/.exec(String(product?.id || ''));
+      if (!match) return max;
+      const parsed = Number(match[1]);
+      return Number.isFinite(parsed) ? Math.max(max, parsed) : max;
+    }, 0);
+    this.productSequence = Math.max(this.productSequence, maxSequence);
+
+    this.saveData();
+    return restoredRecords;
+  }
+
   // ===== CATEGORIES =====
   getCategories(enterpriseId?: string) {
     if (enterpriseId) {
@@ -1680,6 +1733,124 @@ export class Database {
       return true;
     }
     return false;
+  }
+
+  restoreClientsSnapshot(enterpriseId: string, records: any[]) {
+    const normalizedEnterpriseId = String(enterpriseId || '').trim();
+    const safeRecords = Array.isArray(records) ? records : [];
+
+    const restoredRecords = safeRecords
+      .map((record) => {
+        const nextRecord = {
+          ...record,
+          enterpriseId: normalizedEnterpriseId || String(record?.enterpriseId || '').trim(),
+          id: String(record?.id || this.generateEntityId('c')).trim(),
+        };
+        if (!String(nextRecord.enterpriseId || '').trim()) return null;
+        return this.normalizeClientPlanBalances(this.normalizeContactFields(nextRecord));
+      })
+      .filter((record): record is any => Boolean(record?.id));
+
+    restoredRecords.forEach((record) => {
+      const existingIndex = this.clients.findIndex((client) => String(client?.id || '').trim() === String(record.id).trim());
+      if (existingIndex > -1) {
+        this.clients[existingIndex] = record;
+      } else {
+        this.clients.push(record);
+      }
+    });
+
+    restoredRecords.forEach((record) => {
+      const type = String(record?.type || '').trim().toUpperCase();
+      if (type !== 'RESPONSAVEL' && type !== 'COLABORADOR') return;
+
+      const relatedStudent = this.normalizeRelatedStudentPayload(record?.relatedStudent);
+      if (!relatedStudent?.name) return;
+
+      const responsibleId = String(record?.id || '').trim();
+      const enterpriseIdFromResponsible = String(record?.enterpriseId || normalizedEnterpriseId).trim();
+      const relatedRegistration = String(relatedStudent?.registrationId || '').trim();
+      const relatedNameNormalized = this.normalizeToken(relatedStudent?.name);
+
+      const alreadyLinkedStudent = this.clients.find((client: any) => {
+        if (String(client?.type || '').trim().toUpperCase() !== 'ALUNO') return false;
+        if (String(client?.enterpriseId || '').trim() !== enterpriseIdFromResponsible) return false;
+
+        const sameResponsible = String(client?.responsibleCollaboratorId || '').trim() === responsibleId;
+        const sameRegistration = relatedRegistration
+          && this.normalizeToken(client?.registrationId) === this.normalizeToken(relatedRegistration);
+        const sameName = relatedNameNormalized
+          && this.normalizeToken(client?.name) === relatedNameNormalized;
+
+        return sameResponsible || Boolean(sameRegistration) || Boolean(sameName);
+      });
+
+      const linkedStudentId = String((record as any)?.relatedStudent?.studentId || '').trim();
+      if (alreadyLinkedStudent) {
+        const existingIds = this.toStringArray(record?.relatedStudentIds);
+        if (!existingIds.includes(String(alreadyLinkedStudent.id))) {
+          record.relatedStudentIds = [...existingIds, String(alreadyLinkedStudent.id)];
+        }
+        if (!linkedStudentId) {
+          record.relatedStudent = {
+            ...relatedStudent,
+            studentId: String(alreadyLinkedStudent.id),
+          };
+        }
+        return;
+      }
+
+      const generatedStudentId = linkedStudentId || this.generateEntityId('c');
+      const responsiblePhone = this.normalizeBrazilPhone(record?.phone || record?.parentWhatsapp || '');
+      const responsibleCountryCode = String(record?.parentWhatsappCountryCode || '55').replace(/\D/g, '') || '55';
+      const classValue = String(relatedStudent.class || '').trim()
+        || [String(relatedStudent.classType || '').trim(), String(relatedStudent.classGrade || '').trim()].filter(Boolean).join(' - ');
+
+      const generatedStudent = this.normalizeClientPlanBalances(
+        this.normalizeContactFields({
+          id: generatedStudentId,
+          enterpriseId: enterpriseIdFromResponsible,
+          type: 'ALUNO',
+          registrationId: relatedRegistration || `${String(record?.registrationId || 'RESP')}-ALUNO`,
+          name: relatedStudent.name,
+          class: classValue,
+          dailyLimit: this.toFiniteNumber(relatedStudent.dailyLimit, 0),
+          restrictions: this.toStringArray(relatedStudent.restrictions),
+          servicePlans: ['PREPAGO'],
+          selectedPlansConfig: [],
+          planCreditBalances: {},
+          balance: 0,
+          spentToday: 0,
+          isBlocked: false,
+          parentName: String(record?.name || '').trim(),
+          parentRelationship: relatedStudent.responsibleType || 'PAIS',
+          parentWhatsappCountryCode: responsibleCountryCode,
+          parentWhatsapp: responsiblePhone,
+          phone: responsiblePhone,
+          parentEmail: String(record?.email || record?.parentEmail || '').trim(),
+          email: '',
+          parentCpf: String(record?.cpf || record?.parentCpf || '').replace(/\D/g, ''),
+          cpf: '',
+          responsibleCollaboratorId: responsibleId,
+          responsibleOriginType: type === 'COLABORADOR' ? 'COLABORADOR' : 'MANUAL',
+        })
+      );
+
+      this.clients.push(generatedStudent);
+      const existingIds = this.toStringArray(record?.relatedStudentIds);
+      if (!existingIds.includes(generatedStudentId)) {
+        record.relatedStudentIds = [...existingIds, generatedStudentId];
+      }
+      record.relatedStudent = {
+        ...relatedStudent,
+        studentId: generatedStudentId,
+      };
+    });
+
+    this.syncCollaboratorStudentRelationships();
+    this.saveData();
+
+    return restoredRecords;
   }
 
   // ===== PLANS =====
@@ -2127,8 +2298,47 @@ export class Database {
   }
 
   // ===== INGREDIENTS =====
-  getIngredients() {
-    return this.ingredients;
+  private normalizeIngredientRecord(record: any) {
+    const unit = String(record?.unit || 'g').trim().toLowerCase();
+    const safeUnit = unit === 'ml' || unit === 'un' ? unit : 'g';
+    const normalizedSource = String(record?.source || '').trim().toUpperCase();
+    return {
+      ...record,
+      id: String(record?.id || this.generateEntityId('ing')).trim(),
+      name: String(record?.name || '').trim(),
+      category: String(record?.category || 'Outros').trim() || 'Outros',
+      unit: safeUnit,
+      calories: this.roundValue(this.toFiniteNumber(record?.calories, 0), 2),
+      proteins: this.roundValue(this.toFiniteNumber(record?.proteins, 0), 2),
+      carbs: this.roundValue(this.toFiniteNumber(record?.carbs, 0), 2),
+      fats: this.roundValue(this.toFiniteNumber(record?.fats, 0), 2),
+      fiber: this.roundValue(this.toFiniteNumber(record?.fiber, 0), 2),
+      calciumMg: this.roundValue(this.toFiniteNumber(record?.calciumMg, 0), 2),
+      ironMg: this.roundValue(this.toFiniteNumber(record?.ironMg, 0), 2),
+      isActive: record?.isActive !== false,
+      source: normalizedSource === 'NATIVE' ? 'NATIVE' : 'CUSTOM',
+    };
+  }
+
+  private ensureNutritionalBaseSeed() {
+    const existingNames = new Set(
+      this.ingredients
+        .map((ingredient) => this.normalizeToken(String(ingredient?.name || '')))
+        .filter(Boolean)
+    );
+
+    const missingSeedItems = NUTRITIONAL_BASE_SEED
+      .filter((seedItem) => !existingNames.has(this.normalizeToken(seedItem.name)))
+      .map((seedItem) => this.normalizeIngredientRecord(seedItem));
+
+    if (missingSeedItems.length > 0) {
+      this.ingredients.push(...missingSeedItems);
+    }
+  }
+
+  getIngredients(includeInactive = false) {
+    if (includeInactive) return this.ingredients;
+    return this.ingredients.filter((ingredient) => ingredient?.isActive !== false);
   }
 
   getIngredient(id: string) {
@@ -2136,7 +2346,12 @@ export class Database {
   }
 
   createIngredient(data: any) {
-    const newIngredient = { ...data, id: 'ing_' + Date.now() };
+    const newIngredient = this.normalizeIngredientRecord({
+      ...data,
+      id: 'ing_' + Date.now(),
+      isActive: data?.isActive !== false,
+      source: data?.source || 'CUSTOM',
+    });
     this.ingredients.push(newIngredient);
     this.saveData();
     return newIngredient;
@@ -2145,7 +2360,7 @@ export class Database {
   updateIngredient(id: string, data: any) {
     const index = this.ingredients.findIndex(i => i.id === id);
     if (index > -1) {
-      this.ingredients[index] = { ...this.ingredients[index], ...data };
+      this.ingredients[index] = this.normalizeIngredientRecord({ ...this.ingredients[index], ...data });
       this.saveData();
       return this.ingredients[index];
     }
@@ -2160,6 +2375,17 @@ export class Database {
       return true;
     }
     return false;
+  }
+
+  replaceIngredients(data: any[]) {
+    const safeList = Array.isArray(data) ? data : [];
+    const normalized = safeList
+      .map((item) => this.normalizeIngredientRecord(item))
+      .filter((item) => String(item?.name || '').trim().length > 0);
+
+    this.ingredients = normalized;
+    this.saveData();
+    return this.ingredients;
   }
 }
 

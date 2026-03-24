@@ -144,6 +144,8 @@ export type Ingredient = {
   fiber?: number;
   calciumMg?: number;
   ironMg?: number;
+  isActive?: boolean;
+  source?: 'NATIVE' | 'CUSTOM';
 };
 
 export type MenuItem = {

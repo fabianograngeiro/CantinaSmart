@@ -1,9 +1,9 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Search, Plus, Package, Trash2, Edit, X,
   DollarSign, CheckCircle2, TrendingUp,
-  AlertCircle, Archive, Barcode, Calendar, Upload
+  AlertCircle, Archive, Barcode, Calendar, Upload, Download
 } from 'lucide-react';
 import { ApiService } from '../services/api';
 import notificationService from '../services/notificationService';
@@ -43,6 +43,7 @@ const fileToBase64 = (file: File): Promise<string> =>
   });
 
 const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterprise }) => {
+  const restoreProductsInputRef = useRef<HTMLInputElement | null>(null);
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
     return (
@@ -114,6 +115,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [productImageFile, setProductImageFile] = useState<File | null>(null);
   const [productImagePreview, setProductImagePreview] = useState('');
+  const [isRestoringProductsBackup, setIsRestoringProductsBackup] = useState(false);
 
   // Form de Produto
   const [productForm, setProductForm] = useState({
@@ -282,6 +284,123 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
     }
   };
 
+  const backupProductsPayload = useMemo(() => {
+    const enterpriseProducts = products.filter((product) => String(product.enterpriseId || '').trim() === String(activeEnterprise.id || '').trim());
+    return enterpriseProducts.map((product) => ({
+      id: String(product.id || ''),
+      name: String(product.name || ''),
+      ean: String(product.ean || ''),
+      category: String(product.category || 'GERAL'),
+      subCategory: String(product.subCategory || ''),
+      unit: String(product.unit || 'UN'),
+      controlsStock: product.controlsStock !== false,
+      price: Number(product.price || 0),
+      cost: Number(product.cost || 0),
+      stock: Number(product.stock || 0),
+      minStock: Number(product.minStock || 0),
+      expiryDate: String(product.expiryDate || ''),
+      image: String(product.image || ''),
+      isActive: product.isActive !== false,
+      enterpriseId: String(product.enterpriseId || activeEnterprise.id),
+    }));
+  }, [products, activeEnterprise.id]);
+
+  const handleBackupProducts = () => {
+    const now = new Date();
+    const payload = {
+      kind: 'PRODUCTS_BACKUP',
+      version: 1,
+      generatedAt: now.toISOString(),
+      generatedAtReadable: now.toLocaleString('pt-BR'),
+      audit: {
+        exportedBy: String(currentUser?.name || currentUser?.email || '').trim() || 'Não informado',
+        enterpriseId: String(activeEnterprise?.id || ''),
+        enterpriseName: String(activeEnterprise?.name || '').trim() || 'Não informada',
+      },
+      totalItems: backupProductsPayload.length,
+      items: backupProductsPayload,
+    };
+
+    if (payload.totalItems === 0) {
+      notificationService.alerta('Sem dados', 'Nenhum produto encontrado para backup nesta unidade.');
+      return;
+    }
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `backup-produtos-${now.toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    notificationService.informativo('Backup gerado', `${payload.totalItems} produto(s) exportado(s).`);
+  };
+
+  const parseProductsBackupItems = (payload: any): Product[] => {
+    const itemsRaw = Array.isArray(payload)
+      ? payload
+      : (Array.isArray(payload?.items) ? payload.items : []);
+
+    return itemsRaw
+      .map((item: any) => ({
+        ...item,
+        id: String(item?.id || '').trim(),
+        name: String(item?.name || '').trim(),
+        enterpriseId: String(item?.enterpriseId || activeEnterprise?.id || '').trim(),
+      }))
+      .filter((item: any) => Boolean(item.id) && Boolean(item.name) && Boolean(item.enterpriseId)) as Product[];
+  };
+
+  const handleRestoreProducts = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsRestoringProductsBackup(true);
+      const raw = await file.text();
+      const parsed = JSON.parse(raw);
+      const items = parseProductsBackupItems(parsed);
+
+      if (items.length === 0) {
+        notificationService.alerta('Backup inválido', 'Nenhum produto válido encontrado no arquivo.');
+        return;
+      }
+
+      const backupGeneratedAt = String(parsed?.generatedAtReadable || '').trim()
+        || (parsed?.generatedAt ? new Date(parsed.generatedAt).toLocaleString('pt-BR') : 'Não informado');
+      const backupExportedBy = String(parsed?.audit?.exportedBy || 'Não informado').trim();
+      const backupEnterpriseName = String(parsed?.audit?.enterpriseName || 'Não informada').trim();
+
+      const confirmText = [
+        'Pré-visualização do backup de produtos',
+        `Exportado por: ${backupExportedBy}`,
+        `Data: ${backupGeneratedAt}`,
+        `Empresa origem: ${backupEnterpriseName}`,
+        `Empresa destino: ${String(activeEnterprise?.name || 'Não informada')}`,
+        `Total de itens: ${items.length}`,
+        '',
+        'Deseja continuar a restauração?',
+      ].join('\n');
+
+      if (!window.confirm(confirmText)) return;
+
+      await ApiService.restoreProductsSnapshot(String(activeEnterprise.id), items);
+      const refreshed = await ApiService.getProducts(activeEnterprise.id);
+      setProducts(Array.isArray(refreshed) ? refreshed : []);
+      notificationService.informativo('Restauração concluída', `${items.length} produto(s) restaurado(s).`);
+    } catch (error) {
+      console.error('Erro ao restaurar backup de produtos:', error);
+      notificationService.alerta('Erro na restauração', 'Não foi possível restaurar o backup de produtos.');
+    } finally {
+      setIsRestoringProductsBackup(false);
+      if (restoreProductsInputRef.current) {
+        restoreProductsInputRef.current.value = '';
+      }
+    }
+  };
+
   const activeCategories = useMemo(() => (
     categories
       .filter((c: any) => (isOwner || c.enterpriseId === activeEnterprise.id) && c?.isActive !== false)
@@ -332,12 +451,25 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
                 <span className="text-[10px] font-black text-indigo-900 uppercase">{filteredProducts.length} Itens</span>
              </div>
              <button
-               type="button"
-               onClick={() => { window.location.hash = '#/product-categories'; }}
-               className="bg-white text-indigo-700 px-3 py-2.5 rounded-xl font-black uppercase tracking-widest text-[10px] border border-indigo-200 hover:bg-indigo-50 transition-all"
+               onClick={handleBackupProducts}
+               className="bg-white text-emerald-700 px-3 py-2.5 rounded-xl font-black uppercase tracking-widest text-[10px] border border-emerald-200 hover:bg-emerald-50 transition-all flex items-center gap-1.5"
              >
-               Categoria Produto
+               <Download size={12} /> Backup
              </button>
+             <button
+               onClick={() => restoreProductsInputRef.current?.click()}
+               disabled={isRestoringProductsBackup}
+               className="bg-white text-amber-700 px-3 py-2.5 rounded-xl font-black uppercase tracking-widest text-[10px] border border-amber-200 hover:bg-amber-50 transition-all flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
+             >
+               <Upload size={12} /> {isRestoringProductsBackup ? 'Restaurando...' : 'Restaurar'}
+             </button>
+             <input
+               ref={restoreProductsInputRef}
+               type="file"
+               accept="application/json,.json"
+               className="hidden"
+               onChange={handleRestoreProducts}
+             />
              <button 
                onClick={handleOpenNewProduct}
                className="bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-black uppercase tracking-widest text-[11px] shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2 active:scale-95"

@@ -55,6 +55,35 @@ router.get('/', (req: Request, res: Response) => {
   }
 });
 
+// Restore clients snapshot (responsáveis/clientes + alunos relacionados)
+router.post('/restore', (req: Request, res: Response) => {
+  const { enterpriseId } = req.body || {};
+  const normalizedEnterpriseId = String(enterpriseId || '').trim();
+  const items = Array.isArray(req.body)
+    ? req.body
+    : (Array.isArray(req.body?.items) ? req.body.items : null);
+
+  if (!normalizedEnterpriseId) {
+    return res.status(400).json({ error: 'enterpriseId é obrigatório para restauração.' });
+  }
+
+  if (!items) {
+    return res.status(400).json({ error: 'Payload inválido. Envie um array de itens ou { items: [...] }.' });
+  }
+
+  try {
+    const restored = db.restoreClientsSnapshot(normalizedEnterpriseId, items);
+    return res.json({
+      message: 'Backup de clientes/restaurado com sucesso.',
+      count: restored.length,
+      items: restored,
+    });
+  } catch (error) {
+    console.error('❌ [CLIENTS] Error restoring snapshot:', (error as Error).message);
+    return res.status(500).json({ error: 'Erro ao restaurar backup de clientes' });
+  }
+});
+
 // Upload de foto do cliente/usuário
 router.post('/upload-photo', async (req: Request, res: Response) => {
   try {

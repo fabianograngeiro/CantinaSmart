@@ -33,8 +33,28 @@ router.get('/search', (req: Request, res: Response) => {
 
 // Get all ingredients
 router.get('/', (req: Request, res: Response) => {
-  const ingredients = db.getIngredients();
+  const includeInactiveParam = String(req.query.includeInactive || '').toLowerCase();
+  const includeInactive = includeInactiveParam === 'true' || includeInactiveParam === '1';
+  const ingredients = db.getIngredients(includeInactive);
   res.json(ingredients);
+});
+
+// Restore full ingredients table
+router.post('/restore', (req: Request, res: Response) => {
+  const payloadItems = Array.isArray(req.body)
+    ? req.body
+    : (Array.isArray(req.body?.items) ? req.body.items : null);
+
+  if (!payloadItems) {
+    return res.status(400).json({ error: 'Payload inválido. Envie um array de itens ou { items: [...] }.' });
+  }
+
+  const restored = db.replaceIngredients(payloadItems);
+  return res.json({
+    message: 'Base nutricional restaurada com sucesso.',
+    count: restored.length,
+    items: restored,
+  });
 });
 
 // Get ingredient by ID

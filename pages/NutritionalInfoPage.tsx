@@ -1,16 +1,18 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Beef, Search, Plus, Trash2, Edit, Save, X, 
   Flame, Zap, Droplets, Apple, Info, ChevronRight,
   Filter, Scale, ArrowUpRight, CheckCircle2,
-  AlertCircle, Tag, LayoutGrid, PlusCircle, Sparkles
+  AlertCircle, Tag, LayoutGrid, PlusCircle, Sparkles, Download, Upload
 } from 'lucide-react';
 import { ApiService } from '../services/api';
 import notificationService from '../services/notificationService';
 import { Ingredient, IngredientUnit } from '../types';
 
 type NutrientReferenceRow = {
+  ingredientId?: string;
+  isActive?: boolean;
   group: string;
   focus: string;
   food: string;
@@ -31,46 +33,6 @@ const normalizeFoodKey = (value?: string) =>
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]/g, '');
 
-const FOOD_NUTRIENT_REFERENCE: NutrientReferenceRow[] = [
-  { group: 'Proteínas', focus: 'Crescimento muscular e renovação das células', food: 'Ovo', kcal: 143, protein: 12.6, carbs: 1.1, fats: 9.5, fiber: 0, calciumMg: 50, ironMg: 1.8, vitaminNote: 'Vit. B12, colina' },
-  { group: 'Proteínas', focus: 'Crescimento muscular e renovação das células', food: 'Peito de Frango', kcal: 165, protein: 31, carbs: 0, fats: 3.6, fiber: 0, calciumMg: 15, ironMg: 0.9, vitaminNote: 'Niacina, B6' },
-  { group: 'Proteínas', focus: 'Crescimento muscular e renovação das células', food: 'Tilápia', kcal: 128, protein: 26, carbs: 0, fats: 2.7, fiber: 0, calciumMg: 10, ironMg: 0.6, vitaminNote: 'B12, selênio' },
-  { group: 'Proteínas', focus: 'Crescimento muscular e renovação das células', food: 'Sardinha', kcal: 208, protein: 24.6, carbs: 0, fats: 11.5, fiber: 0, calciumMg: 382, ironMg: 2.9, vitaminNote: 'Vit. D, ômega-3' },
-  { group: 'Proteínas', focus: 'Crescimento muscular e renovação das células', food: 'Carne Bovina Magra', kcal: 170, protein: 26, carbs: 0, fats: 7, fiber: 0, calciumMg: 12, ironMg: 2.6, vitaminNote: 'B12, zinco' },
-  { group: 'Proteínas', focus: 'Crescimento muscular e renovação das células', food: 'Iogurte Natural', kcal: 61, protein: 3.5, carbs: 4.7, fats: 3.3, fiber: 0, calciumMg: 121, ironMg: 0.1, vitaminNote: 'Cálcio, B2' },
-  { group: 'Proteínas', focus: 'Crescimento muscular e renovação das células', food: 'Lentilha', kcal: 116, protein: 9, carbs: 20.1, fats: 0.4, fiber: 7.9, calciumMg: 19, ironMg: 3.3, vitaminNote: 'Folato' },
-  { group: 'Carboidratos', focus: 'Energia para estudar e brincar', food: 'Arroz Integral', kcal: 123, protein: 2.7, carbs: 25.6, fats: 1, fiber: 1.6, calciumMg: 10, ironMg: 0.4 },
-  { group: 'Carboidratos', focus: 'Energia para estudar e brincar', food: 'Batata-Doce', kcal: 86, protein: 1.6, carbs: 20.1, fats: 0.1, fiber: 3, calciumMg: 30, ironMg: 0.6, vitaminNote: 'Betacaroteno' },
-  { group: 'Carboidratos', focus: 'Energia para estudar e brincar', food: 'Aveia em Flocos', kcal: 389, protein: 16.9, carbs: 66.3, fats: 6.9, fiber: 10.6, calciumMg: 54, ironMg: 4.7 },
-  { group: 'Carboidratos', focus: 'Energia para estudar e brincar', food: 'Milho', kcal: 96, protein: 3.4, carbs: 21, fats: 1.5, fiber: 2.4, calciumMg: 2, ironMg: 0.5, vitaminNote: 'Luteína' },
-  { group: 'Carboidratos', focus: 'Energia para estudar e brincar', food: 'Banana', kcal: 89, protein: 1.1, carbs: 22.8, fats: 0.3, fiber: 2.6, calciumMg: 5, ironMg: 0.3, vitaminNote: 'Potássio, B6' },
-  { group: 'Carboidratos', focus: 'Energia para estudar e brincar', food: 'Mandioca', kcal: 125, protein: 0.6, carbs: 30.1, fats: 0.3, fiber: 1.8, calciumMg: 17, ironMg: 0.3 },
-  { group: 'Fibras', focus: 'Digestão e saúde do intestino', food: 'Couve-Flor', kcal: 25, protein: 1.9, carbs: 5, fats: 0.3, fiber: 2, calciumMg: 22, ironMg: 0.4, vitaminNote: 'Vit. C, K' },
-  { group: 'Fibras', focus: 'Digestão e saúde do intestino', food: 'Brócolis', kcal: 34, protein: 2.8, carbs: 6.6, fats: 0.4, fiber: 2.6, calciumMg: 47, ironMg: 0.7, vitaminNote: 'Vit. C, K' },
-  { group: 'Fibras', focus: 'Digestão e saúde do intestino', food: 'Feijão Preto', kcal: 132, protein: 8.9, carbs: 23.7, fats: 0.5, fiber: 8.7, calciumMg: 27, ironMg: 2.1 },
-  { group: 'Fibras', focus: 'Digestão e saúde do intestino', food: 'Maçã com Casca', kcal: 52, protein: 0.3, carbs: 13.8, fats: 0.2, fiber: 2.4, calciumMg: 6, ironMg: 0.1, vitaminNote: 'Vit. C' },
-  { group: 'Fibras', focus: 'Digestão e saúde do intestino', food: 'Chia', kcal: 486, protein: 16.5, carbs: 42.1, fats: 30.7, fiber: 34.4, calciumMg: 631, ironMg: 7.7, vitaminNote: 'Ômega-3' },
-  { group: 'Fibras', focus: 'Digestão e saúde do intestino', food: 'Linhaça', kcal: 534, protein: 18.3, carbs: 28.9, fats: 42.2, fiber: 27.3, calciumMg: 255, ironMg: 5.7, vitaminNote: 'Ômega-3' },
-  { group: 'Fibras', focus: 'Digestão e saúde do intestino', food: 'Farelo de Trigo', kcal: 216, protein: 15.6, carbs: 64.5, fats: 4.3, fiber: 42.8, calciumMg: 73, ironMg: 10.6 },
-  { group: 'Cálcio', focus: 'Ossos e dentes fortes', food: 'Leite de Vaca', kcal: 61, protein: 3.2, carbs: 4.8, fats: 3.3, fiber: 0, calciumMg: 113, ironMg: 0, vitaminNote: 'B12' },
-  { group: 'Cálcio', focus: 'Ossos e dentes fortes', food: 'Queijo Branco (Minas)', kcal: 264, protein: 17.4, carbs: 3.2, fats: 20.2, fiber: 0, calciumMg: 579, ironMg: 0.2 },
-  { group: 'Cálcio', focus: 'Ossos e dentes fortes', food: 'Gergelim', kcal: 573, protein: 17.7, carbs: 23.5, fats: 49.7, fiber: 11.8, calciumMg: 975, ironMg: 14.6 },
-  { group: 'Cálcio', focus: 'Ossos e dentes fortes', food: 'Espinafre', kcal: 23, protein: 2.9, carbs: 3.6, fats: 0.4, fiber: 2.2, calciumMg: 99, ironMg: 2.7, vitaminNote: 'Folato, K' },
-  { group: 'Cálcio', focus: 'Ossos e dentes fortes', food: 'Tofu', kcal: 76, protein: 8, carbs: 1.9, fats: 4.8, fiber: 0.3, calciumMg: 350, ironMg: 5.4 },
-  { group: 'Cálcio', focus: 'Ossos e dentes fortes', food: 'Sardinha Cozida', kcal: 208, protein: 24.6, carbs: 0, fats: 11.5, fiber: 0, calciumMg: 382, ironMg: 2.9, vitaminNote: 'Vit. D' },
-  { group: 'Ferro', focus: 'Prevenção da anemia e foco mental', food: 'Fígado de Boi', kcal: 135, protein: 20.4, carbs: 3.9, fats: 3.6, fiber: 0, calciumMg: 5, ironMg: 6.5, vitaminNote: 'Vit. A, B12' },
-  { group: 'Ferro', focus: 'Prevenção da anemia e foco mental', food: 'Feijão Carioca', kcal: 127, protein: 8.7, carbs: 22.8, fats: 0.5, fiber: 8.5, calciumMg: 28, ironMg: 1.9 },
-  { group: 'Ferro', focus: 'Prevenção da anemia e foco mental', food: 'Gema de Ovo', kcal: 322, protein: 15.9, carbs: 3.6, fats: 26.5, fiber: 0, calciumMg: 129, ironMg: 2.7, vitaminNote: 'Colina' },
-  { group: 'Ferro', focus: 'Prevenção da anemia e foco mental', food: 'Beterraba', kcal: 43, protein: 1.6, carbs: 9.6, fats: 0.2, fiber: 2.8, calciumMg: 16, ironMg: 0.8, vitaminNote: 'Folato' },
-  { group: 'Ferro', focus: 'Prevenção da anemia e foco mental', food: 'Couve-Manteiga', kcal: 32, protein: 2.9, carbs: 5.4, fats: 0.6, fiber: 4.1, calciumMg: 177, ironMg: 0.5, vitaminNote: 'A, C, K' },
-  { group: 'Ferro', focus: 'Prevenção da anemia e foco mental', food: 'Grão-de-Bico', kcal: 164, protein: 8.9, carbs: 27.4, fats: 2.6, fiber: 7.6, calciumMg: 49, ironMg: 2.9 },
-  { group: 'Vitaminas', focus: 'Imunidade e saúde da visão/pele', food: 'Laranja', kcal: 47, protein: 0.9, carbs: 11.8, fats: 0.1, fiber: 2.4, calciumMg: 40, ironMg: 0.1, vitaminNote: 'Vit. C' },
-  { group: 'Vitaminas', focus: 'Imunidade e saúde da visão/pele', food: 'Cenoura', kcal: 41, protein: 0.9, carbs: 9.6, fats: 0.2, fiber: 2.8, calciumMg: 33, ironMg: 0.3, vitaminNote: 'Vit. A' },
-  { group: 'Vitaminas', focus: 'Imunidade e saúde da visão/pele', food: 'Acerola', kcal: 32, protein: 0.4, carbs: 7.7, fats: 0.3, fiber: 1.1, calciumMg: 12, ironMg: 0.2, vitaminNote: 'Vit. C elevada' },
-  { group: 'Vitaminas', focus: 'Imunidade e saúde da visão/pele', food: 'Abóbora', kcal: 26, protein: 1, carbs: 6.5, fats: 0.1, fiber: 0.5, calciumMg: 21, ironMg: 0.8, vitaminNote: 'Betacaroteno' },
-  { group: 'Vitaminas', focus: 'Imunidade e saúde da visão/pele', food: 'Mamão', kcal: 43, protein: 0.5, carbs: 10.8, fats: 0.3, fiber: 1.7, calciumMg: 20, ironMg: 0.3, vitaminNote: 'Vit. A e C' },
-  { group: 'Vitaminas', focus: 'Imunidade e saúde da visão/pele', food: 'Pimentão Amarelo', kcal: 27, protein: 1, carbs: 6.3, fats: 0.2, fiber: 0.9, calciumMg: 11, ironMg: 0.5, vitaminNote: 'Vit. C elevada' },
-];
 
 const normalizeCategoryLabel = (value?: string) => {
   const raw = String(value || '').trim();
@@ -94,7 +56,11 @@ const normalizeCategoryLabel = (value?: string) => {
   return aliases[key] || raw;
 };
 
+const AUTH_USER_STORAGE_KEY = 'canteen_auth_user';
+const ACTIVE_ENTERPRISE_STORAGE_KEY = 'canteen_active_enterprise';
+
 const NutritionalInfoPage: React.FC = () => {
+  const restoreFileInputRef = useRef<HTMLInputElement | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('TODOS');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -110,12 +76,13 @@ const NutritionalInfoPage: React.FC = () => {
   const [customCategories, setCustomCategories] = useState<string[]>([]);
 
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
+  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
 
   // Carregar ingredientes da API
   useEffect(() => {
     const loadIngredients = async () => {
       try {
-        const data = await ApiService.getIngredients();
+        const data = await ApiService.getIngredients(true);
         setIngredients(data);
       } catch (err) {
         console.error('Erro ao carregar ingredientes:', err);
@@ -169,8 +136,10 @@ const NutritionalInfoPage: React.FC = () => {
 
   const mergedReferenceRows = useMemo(() => {
     const dynamicRows: NutrientReferenceRow[] = ingredients.map((ing) => ({
+      ingredientId: ing.id,
+      isActive: ing.isActive !== false,
       group: normalizeCategoryLabel(ing.category) || 'Outros',
-      focus: 'Cadastro local da unidade',
+      focus: ing.source === 'NATIVE' ? 'Base nativa do sistema' : 'Cadastro local da unidade',
       food: String(ing.name || '').trim(),
       kcal: Number(ing.calories || 0),
       protein: Number(ing.proteins || 0),
@@ -179,18 +148,12 @@ const NutritionalInfoPage: React.FC = () => {
       fiber: Number(ing.fiber || 0),
       calciumMg: Number(ing.calciumMg || 0),
       ironMg: Number(ing.ironMg || 0),
-      vitaminNote: 'Item cadastrado localmente',
+      vitaminNote: ing.isActive === false
+        ? 'Item desativado'
+        : (ing.source === 'NATIVE' ? 'Base nativa do sistema' : 'Item cadastrado localmente'),
     })).filter((row) => row.food);
 
-    const map = new Map<string, NutrientReferenceRow>();
-    FOOD_NUTRIENT_REFERENCE.forEach((row) => {
-      map.set(normalizeFoodKey(row.food), row);
-    });
-    // Cadastro local sobrescreve referência base com mesmo nome
-    dynamicRows.forEach((row) => {
-      map.set(normalizeFoodKey(row.food), row);
-    });
-    return Array.from(map.values());
+    return dynamicRows;
   }, [ingredients]);
 
   const nutrientReferenceMap = useMemo(() => {
@@ -204,6 +167,11 @@ const NutritionalInfoPage: React.FC = () => {
     map[normalizeFoodKey('Pimentao Amarelo')] = map[normalizeFoodKey('Pimentão Amarelo')] || map[normalizeFoodKey('Pimentao Amarelo')];
     return map;
   }, [mergedReferenceRows]);
+
+  const ingredientsById = useMemo(
+    () => new Map(ingredients.map((ingredient) => [ingredient.id, ingredient] as const)),
+    [ingredients]
+  );
 
   const groupedReferenceRows = useMemo(() => {
     return mergedReferenceRows.reduce<Record<string, NutrientReferenceRow[]>>((acc, row) => {
@@ -250,20 +218,22 @@ const NutritionalInfoPage: React.FC = () => {
     [formData.name, nutrientReferenceMap]
   );
 
-  const filteredIngredients = useMemo(() => {
-    const search = String(searchTerm || '').trim().toLowerCase();
-    return ingredients.filter(i => {
-      const normalizedIngredientCategory = normalizeCategoryLabel(i.category);
-      const categoryLabel = String(normalizedIngredientCategory || '').toLowerCase();
-      const itemName = String(i.name || '').toLowerCase();
-      const matchesSearch =
-        !search
-        || itemName.includes(search)
-        || categoryLabel.includes(search);
-      const matchesCategory = selectedCategory === 'TODOS' || normalizedIngredientCategory === selectedCategory;
-      return matchesSearch && matchesCategory;
-    });
-  }, [ingredients, searchTerm, selectedCategory]);
+  const handleToggleIngredientActive = async (ingredient: Ingredient) => {
+    const nextActive = ingredient.isActive === false;
+    try {
+      const updated = await ApiService.updateIngredient(ingredient.id, { isActive: nextActive });
+      setIngredients((prev) => prev.map((item) => (item.id === ingredient.id ? updated : item)));
+      notificationService.informativo(
+        nextActive ? 'Item ativado' : 'Item desativado',
+        nextActive
+          ? 'O item voltou a ficar disponível na base nutricional.'
+          : 'O item foi desativado e não aparece nas telas operacionais.'
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Falha ao atualizar status do item.';
+      notificationService.alerta('Erro ao atualizar status', message);
+    }
+  };
 
   const handleOpenModal = (ing: Ingredient | null = null) => {
     if (ing) {
@@ -484,6 +454,14 @@ const NutritionalInfoPage: React.FC = () => {
     }
   };
 
+  const closeMobileActionMenu = (target: EventTarget | null) => {
+    if (!(target instanceof HTMLElement)) return;
+    const details = target.closest('details') as HTMLDetailsElement | null;
+    if (details) {
+      details.open = false;
+    }
+  };
+
   const getUnitLabel = (unit: IngredientUnit) => {
     switch(unit) {
       case 'g': return '100 gramas';
@@ -517,6 +495,137 @@ const NutritionalInfoPage: React.FC = () => {
     ));
   };
 
+  const backupTableData = useMemo(() => {
+    return ingredients.map((ingredient) => ({
+      id: String(ingredient.id || ''),
+      name: String(ingredient.name || ''),
+      category: String(ingredient.category || ''),
+      unit: ingredient.unit,
+      calories: Number(ingredient.calories || 0),
+      proteins: Number(ingredient.proteins || 0),
+      carbs: Number(ingredient.carbs || 0),
+      fats: Number(ingredient.fats || 0),
+      fiber: Number(ingredient.fiber || 0),
+      calciumMg: Number(ingredient.calciumMg || 0),
+      ironMg: Number(ingredient.ironMg || 0),
+      isActive: ingredient.isActive !== false,
+      source: ingredient.source || 'CUSTOM',
+    }));
+  }, [ingredients]);
+
+  const handleBackupFullTable = () => {
+    const now = new Date();
+    let exportedBy = 'Não informado';
+    let enterpriseName = 'Não informada';
+
+    try {
+      const rawUser = localStorage.getItem(AUTH_USER_STORAGE_KEY);
+      const rawEnterprise = localStorage.getItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
+      if (rawUser) {
+        const parsedUser = JSON.parse(rawUser);
+        exportedBy = String(parsedUser?.name || parsedUser?.email || '').trim() || 'Não informado';
+      }
+      if (rawEnterprise) {
+        const parsedEnterprise = JSON.parse(rawEnterprise);
+        enterpriseName = String(parsedEnterprise?.name || '').trim() || 'Não informada';
+      }
+    } catch {
+      exportedBy = 'Não informado';
+      enterpriseName = 'Não informada';
+    }
+
+    const payload = {
+      kind: 'NUTRITIONAL_TABLE_BACKUP',
+      version: 1,
+      generatedAt: now.toISOString(),
+      generatedAtReadable: now.toLocaleString('pt-BR'),
+      audit: {
+        exportedBy,
+        enterpriseName,
+      },
+      totalItems: backupTableData.length,
+      items: backupTableData,
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    const dateKey = new Date().toISOString().slice(0, 10);
+    anchor.href = url;
+    anchor.download = `backup-base-nutricional-${dateKey}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+
+    notificationService.informativo('Backup gerado', `${backupTableData.length} item(ns) exportado(s) da base nutricional.`);
+  };
+
+  const parseBackupItems = (payload: any): Ingredient[] => {
+    const itemsRaw = Array.isArray(payload)
+      ? payload
+      : (Array.isArray(payload?.items) ? payload.items : []);
+
+    return itemsRaw
+      .map((item: any): Ingredient => ({
+        id: String(item?.id || Math.random().toString(36).slice(2)),
+        name: String(item?.name || '').trim(),
+        category: String(item?.category || 'Outros').trim() || 'Outros',
+        unit: String(item?.unit || 'g') as IngredientUnit,
+        calories: Number(item?.calories || 0),
+        proteins: Number(item?.proteins || 0),
+        carbs: Number(item?.carbs || 0),
+        fats: Number(item?.fats || 0),
+        fiber: Number(item?.fiber || 0),
+        calciumMg: Number(item?.calciumMg || 0),
+        ironMg: Number(item?.ironMg || 0),
+        isActive: item?.isActive !== false,
+        source: String(item?.source || 'CUSTOM').toUpperCase() === 'NATIVE' ? 'NATIVE' : 'CUSTOM',
+      }))
+      .filter((item) => String(item.name || '').trim().length > 0);
+  };
+
+  const handleRestoreBackupFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsRestoringBackup(true);
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const items = parseBackupItems(parsed);
+
+      if (items.length === 0) {
+        notificationService.alerta('Backup inválido', 'Nenhum item válido encontrado no arquivo de backup.');
+        return;
+      }
+
+      if (!window.confirm(`Restaurar backup com ${items.length} item(ns)? Esta ação substituirá toda a tabela atual.`)) {
+        return;
+      }
+
+      const result = await ApiService.restoreIngredientsTable(items);
+      const restoredItems = Array.isArray(result?.items) ? result.items : items;
+      setIngredients(restoredItems);
+      setSelectedCategory('TODOS');
+      setCustomCategories((prev) => {
+        const fromRestored = restoredItems
+          .map((item: Ingredient) => normalizeCategoryLabel(item.category))
+          .filter(Boolean);
+        return Array.from(new Set([...prev, ...fromRestored]));
+      });
+      notificationService.informativo('Base restaurada', `${restoredItems.length} item(ns) restaurado(s) com sucesso.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Falha ao restaurar backup da base nutricional.';
+      notificationService.alerta('Erro na restauração', message);
+    } finally {
+      setIsRestoringBackup(false);
+      if (restoreFileInputRef.current) {
+        restoreFileInputRef.current.value = '';
+      }
+    }
+  };
+
   return (
     <div className="dash-shell nutrition-shell space-y-3 min-h-screen">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -529,18 +638,38 @@ const NutritionalInfoPage: React.FC = () => {
           </p>
         </div>
         <div className="flex gap-1.5 sm:gap-2 flex-wrap">
+          <button
+            onClick={handleBackupFullTable}
+            className="bg-white text-emerald-700 border border-emerald-200 px-3 py-2 rounded-lg font-black uppercase tracking-[0.12em] text-[9px] shadow-sm dark:shadow-none hover:bg-emerald-50 transition-all flex items-center gap-1.5"
+          >
+            <Download size={12} /> Backup Completo
+          </button>
+          <button
+            onClick={() => restoreFileInputRef.current?.click()}
+            disabled={isRestoringBackup}
+            className="bg-white text-amber-700 border border-amber-200 px-3 py-2 rounded-lg font-black uppercase tracking-[0.12em] text-[9px] shadow-sm dark:shadow-none hover:bg-amber-50 transition-all flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <Upload size={12} /> {isRestoringBackup ? 'Restaurando...' : 'Restaurar Backup'}
+          </button>
           <button 
             onClick={() => setIsCategoryModalOpen(true)}
-            className="bg-white text-indigo-600 border border-indigo-200 px-3 py-2 rounded-lg font-black uppercase tracking-[0.12em] text-[9px] shadow-sm hover:bg-indigo-50 transition-all flex items-center gap-1.5"
+            className="bg-white text-indigo-600 border border-indigo-200 px-3 py-2 rounded-lg font-black uppercase tracking-[0.12em] text-[9px] shadow-sm dark:shadow-none hover:bg-indigo-50 transition-all flex items-center gap-1.5"
           >
             <Tag size={12} /> Nova Categoria
           </button>
           <button 
             onClick={() => handleOpenModal()}
-            className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-black uppercase tracking-[0.12em] text-[9px] shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-1.5 active:scale-95"
+            className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-black uppercase tracking-[0.12em] text-[9px] shadow-lg shadow-indigo-100 dark:shadow-none hover:bg-indigo-700 transition-all flex items-center gap-1.5 active:scale-95"
           >
             <Plus size={13} /> Cadastrar Item Comida
           </button>
+          <input
+            ref={restoreFileInputRef}
+            type="file"
+            accept="application/json,.json"
+            onChange={handleRestoreBackupFile}
+            className="hidden"
+          />
         </div>
       </header>
 
@@ -571,7 +700,7 @@ const NutritionalInfoPage: React.FC = () => {
               </div>
               <button 
                 onClick={() => setSelectedCategory('TODOS')}
-                className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] transition-all border ${selectedCategory === 'TODOS' ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-gray-100 text-gray-400 hover:border-indigo-200'}`}
+                className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] transition-all border ${selectedCategory === 'TODOS' ? 'bg-indigo-600 border-indigo-600 text-white shadow-md dark:shadow-none' : 'bg-white border-gray-100 text-gray-400 hover:border-indigo-200'}`}
               >
                 Todos
               </button>
@@ -579,7 +708,7 @@ const NutritionalInfoPage: React.FC = () => {
                 <button 
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
-                  className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] transition-all border ${selectedCategory === cat ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-gray-100 text-gray-400 hover:border-indigo-200'}`}
+                  className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] transition-all border ${selectedCategory === cat ? 'bg-indigo-600 border-indigo-600 text-white shadow-md dark:shadow-none' : 'bg-white border-gray-100 text-gray-400 hover:border-indigo-200'}`}
                 >
                   {cat}
                 </button>
@@ -588,61 +717,130 @@ const NutritionalInfoPage: React.FC = () => {
         </div>
       </div>
 
-      <section className="bg-white p-3 rounded-[22px] border shadow-sm">
+      <section className="bg-white dark:bg-zinc-900 p-3 rounded-[22px] border border-gray-200 dark:border-zinc-700 shadow-sm">
         <div className="flex items-center justify-between gap-2 mb-2.5">
           <div>
-            <h3 className="text-[11px] font-black uppercase tracking-[0.14em] text-gray-700">
+            <h3 className="text-[11px] font-black uppercase tracking-[0.14em] text-gray-700 dark:text-zinc-100">
               Tabela Nutricional de Referência (100g)
             </h3>
-            <p className="text-[9px] font-semibold text-gray-500">
+            <p className="text-[9px] font-semibold text-gray-500 dark:text-zinc-400">
               Base usada para sugestão da IA por tipo de alimento.
             </p>
           </div>
         </div>
         <div className="space-y-3">
           {Object.keys(filteredGroupedReferenceRows).length === 0 && (
-            <div className="rounded-xl border border-dashed border-gray-200 p-4 text-center text-[10px] font-semibold text-gray-500">
+            <div className="rounded-xl border border-dashed border-gray-200 dark:border-zinc-700 p-4 text-center text-[10px] font-semibold text-gray-500 dark:text-zinc-400">
               Nenhum item da tabela corresponde ao termo pesquisado.
             </div>
           )}
           {Object.entries(filteredGroupedReferenceRows as Record<string, NutrientReferenceRow[]>).map(([group, rows]) => (
-            <div key={group} className="border border-gray-100 rounded-xl overflow-hidden">
-              <div className="px-3 py-2 bg-indigo-50 border-b border-indigo-100">
-                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-700">{highlightMatch(group)}</p>
-                <p className="text-[9px] font-semibold text-indigo-500">{rows[0]?.focus}</p>
+            <div key={group} className="border border-gray-100 dark:border-zinc-700 rounded-xl overflow-hidden">
+              <div className="px-3 py-2 bg-indigo-50 dark:bg-indigo-950/35 border-b border-indigo-100 dark:border-indigo-800">
+                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-700 dark:text-indigo-300">{highlightMatch(group)}</p>
+                <p className="text-[9px] font-semibold text-indigo-500 dark:text-indigo-400">{rows[0]?.focus}</p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[840px]">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-50 dark:bg-zinc-900">
                     <tr>
-                      <th className="text-left px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500">Alimento</th>
-                      <th className="text-left px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500">Kcal</th>
-                      <th className="text-left px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500">Prot (g)</th>
-                      <th className="text-left px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500">Carb (g)</th>
-                      <th className="text-left px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500">Gord (g)</th>
-                      <th className="text-left px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500">Fibra (g)</th>
-                      <th className="text-left px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500">Cálcio (mg)</th>
-                      <th className="text-left px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500">Ferro (mg)</th>
-                      <th className="text-left px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500">Observação</th>
+                      <th className="text-left px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-400">Alimento</th>
+                      <th className="text-left px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-400">Kcal</th>
+                      <th className="text-left px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-400">Prot (g)</th>
+                      <th className="text-left px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-400">Carb (g)</th>
+                      <th className="text-left px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-400">Gord (g)</th>
+                      <th className="text-left px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-400">Fibra (g)</th>
+                      <th className="text-left px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-400">Cálcio (mg)</th>
+                      <th className="text-left px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-400">Ferro (mg)</th>
+                      <th className="text-left px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-400">Observação</th>
+                      <th className="text-right px-2.5 py-2 text-[9px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-400">Ações</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row, index) => (
-                      <tr
-                        key={`${group}-${row.food}`}
-                        className={`border-t border-gray-100 ${index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}
-                      >
-                        <td className="px-2.5 py-2 text-[10px] font-black text-gray-700 uppercase">{highlightMatch(row.food)}</td>
-                        <td className="px-2.5 py-2 text-[10px] font-semibold text-gray-700">{row.kcal}</td>
-                        <td className="px-2.5 py-2 text-[10px] font-semibold text-gray-700">{row.protein}</td>
-                        <td className="px-2.5 py-2 text-[10px] font-semibold text-gray-700">{row.carbs}</td>
-                        <td className="px-2.5 py-2 text-[10px] font-semibold text-gray-700">{row.fats}</td>
-                        <td className="px-2.5 py-2 text-[10px] font-semibold text-gray-700">{row.fiber}</td>
-                        <td className="px-2.5 py-2 text-[10px] font-semibold text-gray-700">{row.calciumMg}</td>
-                        <td className="px-2.5 py-2 text-[10px] font-semibold text-gray-700">{row.ironMg}</td>
-                        <td className="px-2.5 py-2 text-[10px] font-semibold text-gray-500">{row.vitaminNote || '-'}</td>
-                      </tr>
-                    ))}
+                    {rows.map((row, index) => {
+                      const rowIngredient = row.ingredientId ? ingredientsById.get(row.ingredientId) : null;
+                      return (
+                        <tr
+                          key={`${group}-${row.food}`}
+                          className={`border-t border-gray-100 dark:border-zinc-700 ${index % 2 === 0 ? 'bg-white dark:bg-zinc-900' : 'bg-slate-50 dark:bg-zinc-800/80'} ${row.isActive === false ? 'opacity-70' : ''}`}
+                        >
+                          <td className="px-2.5 py-2 text-[10px] font-black text-gray-700 dark:text-zinc-100 uppercase">{highlightMatch(row.food)}</td>
+                          <td className="px-2.5 py-2 text-[10px] font-semibold text-gray-700 dark:text-zinc-200">{row.kcal}</td>
+                          <td className="px-2.5 py-2 text-[10px] font-semibold text-gray-700 dark:text-zinc-200">{row.protein}</td>
+                          <td className="px-2.5 py-2 text-[10px] font-semibold text-gray-700 dark:text-zinc-200">{row.carbs}</td>
+                          <td className="px-2.5 py-2 text-[10px] font-semibold text-gray-700 dark:text-zinc-200">{row.fats}</td>
+                          <td className="px-2.5 py-2 text-[10px] font-semibold text-gray-700 dark:text-zinc-200">{row.fiber}</td>
+                          <td className="px-2.5 py-2 text-[10px] font-semibold text-gray-700 dark:text-zinc-200">{row.calciumMg}</td>
+                          <td className="px-2.5 py-2 text-[10px] font-semibold text-gray-700 dark:text-zinc-200">{row.ironMg}</td>
+                          <td className="px-2.5 py-2 text-[10px] font-semibold text-gray-500 dark:text-zinc-300">{row.vitaminNote || '-'}</td>
+                          <td className="px-2.5 py-2 text-right">
+                            {rowIngredient ? (
+                              <>
+                                <div className="hidden md:inline-flex items-center gap-1.5">
+                                  <button
+                                    onClick={() => handleOpenModal(rowIngredient)}
+                                    className="p-1.5 text-indigo-600 bg-white border rounded-lg hover:bg-indigo-50 transition-colors"
+                                    title="Editar"
+                                  >
+                                    <Edit size={12} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDelete(rowIngredient.id)}
+                                    className="p-1.5 text-red-500 bg-white border rounded-lg hover:bg-red-50 transition-colors"
+                                    title="Apagar"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleToggleIngredientActive(rowIngredient)}
+                                    className={`p-1.5 bg-white border rounded-lg transition-colors ${rowIngredient.isActive === false ? 'text-emerald-600 hover:bg-emerald-50' : 'text-amber-600 hover:bg-amber-50'}`}
+                                    title={rowIngredient.isActive === false ? 'Ativar' : 'Desativar'}
+                                  >
+                                    {rowIngredient.isActive === false ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
+                                  </button>
+                                </div>
+                                <details data-actions-menu="true" className="md:hidden inline-block text-left">
+                                  <summary className="list-none cursor-pointer px-2 py-1 text-[9px] font-black uppercase tracking-[0.1em] text-gray-600 dark:text-zinc-300 border border-gray-200 dark:border-zinc-700 rounded-lg select-none">
+                                    Ações
+                                  </summary>
+                                  <div className="absolute right-2 mt-1 z-20 min-w-[120px] bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-lg shadow-lg p-1.5 space-y-1">
+                                    <button
+                                      onClick={(e) => {
+                                        handleOpenModal(rowIngredient);
+                                        closeMobileActionMenu(e.currentTarget);
+                                      }}
+                                      className="w-full text-left px-2 py-1.5 rounded-md text-[9px] font-black uppercase tracking-[0.08em] text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"
+                                    >
+                                      Editar
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        closeMobileActionMenu(e.currentTarget);
+                                        handleDelete(rowIngredient.id);
+                                      }}
+                                      className="w-full text-left px-2 py-1.5 rounded-md text-[9px] font-black uppercase tracking-[0.08em] text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
+                                    >
+                                      Apagar
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        handleToggleIngredientActive(rowIngredient);
+                                        closeMobileActionMenu(e.currentTarget);
+                                      }}
+                                      className={`w-full text-left px-2 py-1.5 rounded-md text-[9px] font-black uppercase tracking-[0.08em] ${rowIngredient.isActive === false ? 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30' : 'text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30'}`}
+                                    >
+                                      {rowIngredient.isActive === false ? 'Ativar' : 'Desativar'}
+                                    </button>
+                                  </div>
+                                </details>
+                              </>
+                            ) : (
+                              <span className="text-[9px] font-semibold text-gray-400 dark:text-zinc-500">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -650,57 +848,6 @@ const NutritionalInfoPage: React.FC = () => {
           ))}
         </div>
       </section>
-
-      {/* Grid de Itens Comida */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 animate-in fade-in duration-500">
-        {filteredIngredients.length === 0 ? (
-          <div className="col-span-full py-32 text-center space-y-4 opacity-30">
-            <Search size={64} className="mx-auto text-gray-400" />
-            <p className="text-xl font-black uppercase tracking-[4px]">Nenhum item encontrado</p>
-          </div>
-        ) : (
-          filteredIngredients.map(ing => (
-            <div key={ing.id} className="bg-white rounded-[20px] border border-gray-100 shadow-sm hover:shadow-xl transition-all group overflow-hidden flex flex-col">
-              <div className="p-3 flex-1 space-y-3">
-                <div className="flex justify-between items-start">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all shadow-inner ${
-                    ing.unit === 'ml' ? 'bg-blue-50 text-blue-600' : 
-                    ing.unit === 'un' ? 'bg-amber-50 text-amber-600' : 
-                    'bg-indigo-50 text-indigo-600'
-                  } group-hover:rotate-6`}>
-                    <Beef size={16} />
-                  </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                    <button onClick={() => handleOpenModal(ing)} className="p-1.5 text-indigo-600 bg-white border rounded-lg shadow-sm hover:bg-indigo-50 transition-colors" title="Editar"><Edit size={12}/></button>
-                    <button onClick={() => handleDelete(ing.id)} className="p-1.5 text-red-500 bg-white border rounded-lg shadow-sm hover:bg-red-50 transition-colors" title="Apagar"><Trash2 size={12}/></button>
-                  </div>
-                </div>
-                
-                <div>
-                  <span className="text-[8px] font-black text-indigo-400 uppercase tracking-[0.12em] bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100 mb-1 inline-block">{normalizeCategoryLabel(ing.category)}</span>
-                  <h3 className="font-black text-gray-800 text-sm leading-tight uppercase tracking-tight">{ing.name}</h3>
-                  <div className="flex items-center gap-1.5 mt-1">
-                     <p className="text-[9px] font-black text-gray-400 uppercase tracking-[1px]">Base: {getShortUnitLabel(ing.unit)}</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-1.5 pt-2 border-t border-gray-50 mt-2">
-                  <NutrientBadge icon={<Flame size={10}/>} label="KCAL" value={ing.calories} color="amber" />
-                  <NutrientBadge icon={<Zap size={10}/>} label="PROT" value={ing.proteins} color="blue" />
-                  <NutrientBadge icon={<Droplets size={10}/>} label="CARB" value={ing.carbs} color="indigo" />
-                  <NutrientBadge icon={<Apple size={10}/>} label="GORD" value={ing.fats} color="rose" />
-                </div>
-              </div>
-              <div className="px-3 py-2 bg-gray-50/50 border-t border-gray-100 flex items-center justify-between">
-                <span className="text-[8px] font-black text-gray-400 uppercase tracking-[0.12em]">ID: #{ing.id.toUpperCase().substring(0,6)}</span>
-                <div className="flex items-center gap-1 text-[8px] font-black text-emerald-600 uppercase">
-                  <CheckCircle2 size={12} /> Validado
-                </div>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
 
       {/* Modal de Cadastro/Edição de Item Comida */}
       {isModalOpen && (
@@ -896,7 +1043,7 @@ const NutritionalInfoPage: React.FC = () => {
 
             <div className="p-3 bg-gray-50 border-t flex gap-2 shrink-0 shadow-[0_-8px_20px_rgba(0,0,0,0.05)]">
               <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-2 text-[9px] font-black text-gray-400 uppercase tracking-[0.12em] hover:text-gray-600 transition-colors">Cancelar</button>
-              <button type="submit" className="flex-[2] py-2 bg-indigo-600 text-white rounded-[12px] font-black uppercase tracking-[0.12em] text-[9px] shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center justify-center gap-1.5 active:scale-95">
+              <button type="submit" className="flex-[2] py-2 bg-indigo-600 text-white rounded-[12px] font-black uppercase tracking-[0.12em] text-[9px] shadow-lg shadow-indigo-100 dark:shadow-none hover:bg-indigo-700 transition-all flex items-center justify-center gap-1.5 active:scale-95">
                 <Save size={12} /> {editingIngredient ? 'Salvar Alterações' : 'Concluir Cadastro'}
               </button>
             </div>
@@ -926,7 +1073,7 @@ const NutritionalInfoPage: React.FC = () => {
                     const input = document.getElementById('newCatName') as HTMLInputElement;
                     if(input.value) handleAddCategory(input.value);
                   }}
-                  className="w-full py-5 bg-indigo-600 text-white rounded-[24px] font-black uppercase tracking-widest text-xs shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all"
+                  className="w-full py-5 bg-indigo-600 text-white rounded-[24px] font-black uppercase tracking-widest text-xs shadow-xl shadow-indigo-100 dark:shadow-none hover:bg-indigo-700 transition-all"
                  >
                     Criar Categoria
                  </button>
@@ -934,24 +1081,6 @@ const NutritionalInfoPage: React.FC = () => {
            </div>
         </div>
       )}
-    </div>
-  );
-};
-
-const NutrientBadge = ({ icon, label, value, color }: any) => {
-  const colors: any = {
-    amber: 'bg-amber-50 text-amber-600 border-amber-100',
-    blue: 'bg-blue-50 text-blue-600 border-blue-100',
-    indigo: 'bg-indigo-50 text-indigo-600 border-indigo-100',
-    rose: 'bg-rose-50 text-rose-600 border-rose-100',
-  };
-  return (
-    <div className={`p-2.5 rounded-xl border flex items-center gap-2 transition-all ${colors[color]} hover:shadow-inner group-hover:scale-[1.02]`}>
-      <div className="bg-white/50 p-1 rounded-lg">{icon}</div>
-      <div className="flex flex-col">
-        <span className="text-[7px] font-black uppercase leading-none mb-0.5">{label}</span>
-        <p className="text-[11px] font-black leading-none">{value}</p>
-      </div>
     </div>
   );
 };
