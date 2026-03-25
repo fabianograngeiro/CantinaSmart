@@ -31,7 +31,7 @@ backend/data/.wwebjs_cache/
 backend/data/whatsapp-auth/
 backend/data/uploads/
 backend/data/tmp/
-
+!backend/data/nutritionalBaseSeed.ts
 # Build artifacts
 dist/
 backend/dist/
