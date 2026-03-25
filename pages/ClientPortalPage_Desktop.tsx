@@ -218,7 +218,7 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
 
   const handleLogout = () => {
     ApiService.clearToken();
-    window.location.href = '#!/login';
+    window.location.hash = '#/';
   };
 
   if (loading) {

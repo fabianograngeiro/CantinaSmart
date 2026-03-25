@@ -125,6 +125,9 @@ const App: React.FC = () => {
       setTransactions([]);
       localStorage.removeItem(AUTH_USER_STORAGE_KEY);
       localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
+      if (typeof window !== 'undefined') {
+        window.location.hash = '#/';
+      }
       notificationService.critico(
         'Sessão expirada',
         'Sua sessão expirou. Faça login novamente.'
@@ -223,6 +226,9 @@ const App: React.FC = () => {
     ApiService.clearToken();
     localStorage.removeItem(AUTH_USER_STORAGE_KEY);
     localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
+    if (typeof window !== 'undefined') {
+      window.location.hash = '#/';
+    }
   };
 
   const handleSetupComplete = () => {
