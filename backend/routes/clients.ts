@@ -31,8 +31,6 @@ const extensionFromMime = (mimeType: string) => {
   return null;
 };
 
-const PHONE_REQUIRED_VALIDATION_ERROR = 'Telefone é obrigatório para responsável e colaborador';
-
 const hasActiveAiTemporaryPatchForPhoneValidation = () => {
   const tickets = db.getErrorTickets({ status: 'OPEN' });
   return tickets.some((ticket: any) => {
@@ -43,7 +41,8 @@ const hasActiveAiTemporaryPatchForPhoneValidation = () => {
     if (!looksLikeTemporaryAiPatch) return false;
     const message = String(ticket?.message || '').trim();
     const details = String(ticket?.details || '').trim();
-    return message.includes(PHONE_REQUIRED_VALIDATION_ERROR) || details.includes(PHONE_REQUIRED_VALIDATION_ERROR);
+    return message.includes('Telefone é obrigatório para responsável e colaborador')
+      || details.includes('Telefone é obrigatório para responsável e colaborador');
   });
 };
 

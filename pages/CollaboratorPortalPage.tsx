@@ -157,7 +157,7 @@ const CollaboratorPortalPage: React.FC = () => {
 
   const handleLogout = () => {
     ApiService.clearToken();
-    window.location.href = '#!/login';
+    window.location.hash = '#/';
   };
 
   if (loading) {
