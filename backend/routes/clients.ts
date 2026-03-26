@@ -6,6 +6,8 @@ import { db } from '../database';
 import { validateClient, validateClientUpdate } from '../utils/validation';
 import { authMiddleware } from '../middleware/auth';
 
+const PHONE_REQUIRED_VALIDATION_ERROR = 'Telefone é obrigatório para responsável e colaborador';
+
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
