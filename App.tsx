@@ -8,7 +8,7 @@ import {
   Sparkles, Beef, Store, Calendar, CalendarDays,
   LogOut, Menu, DollarSign, MessageCircle,
   Truck, Settings, AlertTriangle, X, Plus, Check, Sun, Moon,
-  ChevronLeft, ChevronRight // Ícones adicionais
+  ChevronLeft, ChevronRight, UserCog, Shield
 } from 'lucide-react';
 
 // Pages
@@ -41,6 +41,8 @@ import UnitSalesTransactionsPage from './pages/UnitSalesTransactionsPage';
 import PlansPage from './pages/PlansPage';
 import DailyDeliveryPage from './pages/DailyDeliveryPage';
 import UserManagementPage from './pages/UserManagementPage';
+import SaasClientsPage from './pages/SaasClientsPage';
+import SystemStaffPage from './pages/SystemStaffPage';
 import SystemSettingsPage from './pages/SystemSettingsPage';
 import SettingsPage from './pages/SettingsPage';
 import FinancialPage from './pages/FinancialPage';
@@ -237,6 +239,7 @@ const App: React.FC = () => {
 
   const isSuperAdmin = isSuperAdminRole(String(currentUser?.role || ''));
   const roleKey = normalizeRole(String(currentUser?.role || ''));
+  const isAdminSistema = roleKey === Role.ADMIN_SISTEMA;
   const isOwner = roleKey === Role.OWNER;
   const isAdminUnit = roleKey === Role.ADMIN
     || roleKey === Role.ADMIN_RESTAURANTE
@@ -307,6 +310,7 @@ const App: React.FC = () => {
         handleSetupComplete={handleSetupComplete}
         currentUser={currentUser}
         isSuperAdmin={isSuperAdmin}
+        isAdminSistema={isAdminSistema}
         isOwner={isOwner}
         isAdminUnit={isAdminUnit}
         isRestaurant={isRestaurant}
@@ -351,7 +355,7 @@ const AppContent: React.FC<any> = (props) => {
   const { theme, toggleTheme, isDark } = useTheme();
   const {
     isAuthenticated, needsSetup, handleSetupComplete, currentUser,
-    isSuperAdmin, isOwner, isAdminUnit, isRestaurant, isCantina,
+    isSuperAdmin, isAdminSistema, isOwner, isAdminUnit, isRestaurant, isCantina,
     isSidebarOpen, setIsSidebarOpen, activeEnterprise, setActiveEnterprise,
     handleLogout, handleLogin, transactions, setTransactions,
     availableEnterprises,
@@ -419,7 +423,8 @@ const AppContent: React.FC<any> = (props) => {
                 {isSuperAdmin && (
                   <div className="pt-4 pb-2 space-y-1">
                     <p className={`text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Master Control</p>
-                    <SidebarItem icon={<ShieldCheck size={20} />} label="Usuários" to="/users" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<Users size={20} />} label="Clientes" to="/saas-clients" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<Shield size={20} />} label="Equipe Interna" to="/system-staff" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Building2 size={20} />} label="Clientes SaaS" to="/enterprises" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Sparkles size={20} />} label="Planos SaaS" to="/saas-plans" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<DollarSign size={20} />} label="Cobranças SaaS" to="/saas-billing" isOpen={isSidebarOpen} />
@@ -428,6 +433,36 @@ const AppContent: React.FC<any> = (props) => {
                     <SidebarItem icon={<ClipboardList size={20} />} label="Auditoria SaaS" to="/saas-audit" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<AlertTriangle size={20} />} label="TICKET ERRO" to="/error-tickets" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Settings size={20} />} label="Configurações" to="/system-settings" isOpen={isSidebarOpen} />
+                  </div>
+                )}
+
+                {isAdminSistema && (
+                  <div className="pt-4 pb-2 space-y-1">
+                    <p className={`text-[9px] font-black text-purple-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Painel SaaS</p>
+                    {currentUser?.systemPermissions?.canManageClients && (
+                      <SidebarItem icon={<Users size={20} />} label="Clientes" to="/saas-clients" isOpen={isSidebarOpen} />
+                    )}
+                    {currentUser?.systemPermissions?.canManageEnterprises && (
+                      <SidebarItem icon={<Building2 size={20} />} label="Clientes SaaS" to="/enterprises" isOpen={isSidebarOpen} />
+                    )}
+                    {currentUser?.systemPermissions?.canManagePlans && (
+                      <SidebarItem icon={<Sparkles size={20} />} label="Planos SaaS" to="/saas-plans" isOpen={isSidebarOpen} />
+                    )}
+                    {currentUser?.systemPermissions?.canViewBilling && (
+                      <SidebarItem icon={<DollarSign size={20} />} label="Cobranças SaaS" to="/saas-billing" isOpen={isSidebarOpen} />
+                    )}
+                    {currentUser?.systemPermissions?.canViewFinancial && (
+                      <SidebarItem icon={<ReceiptText size={20} />} label="Financeiro SaaS" to="/saas-financial" isOpen={isSidebarOpen} />
+                    )}
+                    {currentUser?.systemPermissions?.canManageWhatsApp && (
+                      <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp SaaS" to="/saas-whatsapp" isOpen={isSidebarOpen} />
+                    )}
+                    {currentUser?.systemPermissions?.canViewAudit && (
+                      <SidebarItem icon={<ClipboardList size={20} />} label="Auditoria SaaS" to="/saas-audit" isOpen={isSidebarOpen} />
+                    )}
+                    {currentUser?.systemPermissions?.canViewErrorTickets && (
+                      <SidebarItem icon={<AlertTriangle size={20} />} label="TICKET ERRO" to="/error-tickets" isOpen={isSidebarOpen} />
+                    )}
                   </div>
                 )}
 
@@ -544,18 +579,20 @@ const AppContent: React.FC<any> = (props) => {
                   <Route path="/product-categories" element={<Navigate to="/products" replace />} />
                   <Route path="/inventory" element={resolvedPermissions.canAccessInventory ? <InventoryPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/reports" element={resolvedPermissions.canAccessReports ? <ReportsPage currentUser={currentUser} /> : <Navigate to="/" />} />
-                  <Route path="/saas-plans" element={isSuperAdmin ? <SaasPlansPage currentUser={currentUser} /> : <Navigate to="/" />} />
-                  <Route path="/saas-billing" element={isSuperAdmin ? <SaasBillingPage currentUser={currentUser} /> : <Navigate to="/" />} />
-                  <Route path="/saas-financial" element={isSuperAdmin ? <SaasFinancialPage currentUser={currentUser} /> : <Navigate to="/" />} />
-                  <Route path="/saas-whatsapp" element={isSuperAdmin ? <SaasWhatsAppPage currentUser={currentUser} /> : <Navigate to="/" />} />
-                  <Route path="/saas-audit" element={isSuperAdmin ? <SaasAuditPage currentUser={currentUser} /> : <Navigate to="/" />} />
-                  <Route path="/error-tickets" element={isSuperAdmin ? <ErrorTicketsPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-plans" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canManagePlans) ? <SaasPlansPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-billing" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canViewBilling) ? <SaasBillingPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-financial" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canViewFinancial) ? <SaasFinancialPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-whatsapp" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canManageWhatsApp) ? <SaasWhatsAppPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-audit" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canViewAudit) ? <SaasAuditPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/error-tickets" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canViewErrorTickets) ? <ErrorTicketsPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-clients" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canManageClients) ? <SaasClientsPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/system-staff" element={isSuperAdmin ? <SystemStaffPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/unit-sales" element={resolvedPermissions.canAccessReports ? <UnitSalesTransactionsPage activeEnterprise={activeEnterprise} transactions={transactions} /> : <Navigate to="/" />} />
                   <Route path="/financial" element={resolvedPermissions.canAccessReports ? <FinancialPage activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/whatsapp" element={resolvedPermissions.canAccessReports ? <WhatsAppPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/users" element={(isSuperAdmin || isOwner || resolvedPermissions.canManageStaff) ? <UserManagementPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/system-settings" element={<SystemSettingsPage currentUser={currentUser} />} />
-                  <Route path="/enterprises" element={<EnterprisesPage currentUser={currentUser} />} />
+                  <Route path="/enterprises" element={isSuperAdmin || isOwner || (isAdminSistema && currentUser?.systemPermissions?.canManageEnterprises) ? <EnterprisesPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/suppliers" element={<SuppliersPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
                   <Route path="/portal" element={
                     currentUser?.role === 'RESPONSAVEL' ? <ClientPortalPageWrapper /> :

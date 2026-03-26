@@ -1,6 +1,7 @@
 
 export enum Role {
   SUPERADMIN = 'SUPERADMIN',
+  ADMIN_SISTEMA = 'ADMIN_SISTEMA',
   OWNER = 'OWNER',
   ADMIN = 'ADMIN',
   ADMIN_RESTAURANTE = 'ADMIN_RESTAURANTE',
@@ -20,6 +21,17 @@ export type UserPermissions = {
   canManageStaff: boolean;
 };
 
+export type SystemStaffPermissions = {
+  canManageClients: boolean;
+  canManageEnterprises: boolean;
+  canManagePlans: boolean;
+  canViewBilling: boolean;
+  canViewFinancial: boolean;
+  canViewAudit: boolean;
+  canManageWhatsApp: boolean;
+  canViewErrorTickets: boolean;
+};
+
 export type User = {
   id: string;
   name: string;
@@ -30,7 +42,9 @@ export type User = {
   isActive: boolean;
   phone?: string;
   createdAt?: string;
+  trialExpiresAt?: string;
   permissions?: UserPermissions;
+  systemPermissions?: SystemStaffPermissions;
 };
 
 export type OpeningHours = {
