@@ -3,6 +3,7 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import { fileURLToPath } from 'url';
 import { db } from '../database';
+import { authMiddleware, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -60,15 +61,54 @@ const tryDeleteLocalPhoto = async (photoUrl: string, excludeProductId: string) =
   }
 };
 
+const normalizeRole = (value?: string) => String(value || '').trim().toUpperCase();
+const canAccessAllEnterprises = (role?: string) => {
+  const normalized = normalizeRole(role);
+  return normalized === 'SUPERADMIN' || normalized === 'ADMIN_SISTEMA';
+};
+const getRequesterUser = (req: AuthRequest) => {
+  if (!req.userId) return null;
+  return db.getUser(req.userId);
+};
+const getRequesterEnterpriseIds = (req: AuthRequest) => {
+  const requester = getRequesterUser(req);
+  if (!requester || !Array.isArray(requester.enterpriseIds)) return [] as string[];
+  return requester.enterpriseIds.map((id: unknown) => String(id || '').trim()).filter(Boolean);
+};
+const requesterCanAccessEnterprise = (req: AuthRequest, enterpriseId: string) => {
+  if (canAccessAllEnterprises(req.userRole)) return true;
+  const allowedIds = getRequesterEnterpriseIds(req);
+  return allowedIds.includes(String(enterpriseId || '').trim());
+};
+
+router.use(authMiddleware);
+
 // Get all products
-router.get('/', (req: Request, res: Response) => {
-  const { enterpriseId } = req.query;
-  const products = db.getProducts(enterpriseId as string);
-  res.json(products);
+router.get('/', (req: AuthRequest, res: Response) => {
+  const requestedEnterpriseId = String(req.query?.enterpriseId || '').trim();
+  const allProducts = db.getProducts();
+
+  if (canAccessAllEnterprises(req.userRole)) {
+    if (!requestedEnterpriseId) return res.json(allProducts);
+    return res.json(allProducts.filter((product: any) => String(product?.enterpriseId || '').trim() === requestedEnterpriseId));
+  }
+
+  const allowedIds = new Set(getRequesterEnterpriseIds(req));
+  if (requestedEnterpriseId && !allowedIds.has(requestedEnterpriseId)) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
+  }
+
+  const scopedProducts = allProducts.filter((product: any) => allowedIds.has(String(product?.enterpriseId || '').trim()));
+  if (!requestedEnterpriseId) {
+    return res.json(scopedProducts);
+  }
+
+  const filteredProducts = scopedProducts.filter((product: any) => String(product?.enterpriseId || '').trim() === requestedEnterpriseId);
+  return res.json(filteredProducts);
 });
 
 // Restore products snapshot
-router.post('/restore', (req: Request, res: Response) => {
+router.post('/restore', (req: AuthRequest, res: Response) => {
   const { enterpriseId } = req.body || {};
   const normalizedEnterpriseId = String(enterpriseId || '').trim();
   const items = Array.isArray(req.body)
@@ -77,6 +117,10 @@ router.post('/restore', (req: Request, res: Response) => {
 
   if (!normalizedEnterpriseId) {
     return res.status(400).json({ error: 'enterpriseId é obrigatório para restauração.' });
+  }
+
+  if (!requesterCanAccessEnterprise(req, normalizedEnterpriseId)) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
 
   if (!items) {
@@ -97,7 +141,7 @@ router.post('/restore', (req: Request, res: Response) => {
 });
 
 // Upload de foto de produto
-router.post('/upload-photo', async (req: Request, res: Response) => {
+router.post('/upload-photo', async (req: AuthRequest, res: Response) => {
   try {
     const { fileName, mimeType, dataBase64 } = req.body || {};
     if (!dataBase64 || typeof dataBase64 !== 'string') {
@@ -133,26 +177,39 @@ router.post('/upload-photo', async (req: Request, res: Response) => {
 });
 
 // Get product by ID
-router.get('/:id', (req: Request, res: Response) => {
+router.get('/:id', (req: AuthRequest, res: Response) => {
   const product = db.getProduct(req.params.id);
   if (!product) {
     return res.status(404).json({ error: 'Produto não encontrado' });
+  }
+  if (!requesterCanAccessEnterprise(req, String((product as any)?.enterpriseId || ''))) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
   res.json(product);
 });
 
 // Create product
-router.post('/', (req: Request, res: Response) => {
+router.post('/', (req: AuthRequest, res: Response) => {
+  const enterpriseId = String(req.body?.enterpriseId || '').trim();
+  if (!enterpriseId) {
+    return res.status(400).json({ error: 'enterpriseId é obrigatório' });
+  }
+  if (!requesterCanAccessEnterprise(req, enterpriseId)) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
+  }
   const newProduct = db.createProduct(req.body);
   res.status(201).json(newProduct);
 });
 
 // Update product
-router.put('/:id', (req: Request, res: Response) => {
+router.put('/:id', (req: AuthRequest, res: Response) => {
   const productId = req.params.id;
   const current = db.getProduct(productId);
   if (!current) {
     return res.status(404).json({ error: 'Produto não encontrado' });
+  }
+  if (!requesterCanAccessEnterprise(req, String((current as any)?.enterpriseId || ''))) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
 
   const oldImage = String(current.image || '');
@@ -172,11 +229,14 @@ router.put('/:id', (req: Request, res: Response) => {
 });
 
 // Delete product
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', async (req: AuthRequest, res: Response) => {
   const productId = req.params.id;
   const current = db.getProduct(productId);
   if (!current) {
     return res.status(404).json({ error: 'Produto não encontrado' });
+  }
+  if (!requesterCanAccessEnterprise(req, String((current as any)?.enterpriseId || ''))) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
 
   const imageToDelete = String(current.image || '');

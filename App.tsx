@@ -97,8 +97,18 @@ const App: React.FC = () => {
       setIsAuthenticated(true);
       if (rawEnterprise) {
         const parsedEnterprise = JSON.parse(rawEnterprise) as Enterprise;
-        if (parsedEnterprise?.id) {
+        const normalizedRole = String(parsedUser?.role || '').toUpperCase();
+        const userEnterpriseIds = Array.isArray(parsedUser?.enterpriseIds)
+          ? parsedUser.enterpriseIds.map((id) => String(id || '').trim()).filter(Boolean)
+          : [];
+        const canReuseStoredEnterprise = normalizedRole === Role.SUPERADMIN
+          || normalizedRole === Role.ADMIN_SISTEMA
+          || userEnterpriseIds.includes(String(parsedEnterprise?.id || '').trim());
+
+        if (parsedEnterprise?.id && canReuseStoredEnterprise) {
           setActiveEnterprise(parsedEnterprise);
+        } else {
+          localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
         }
       }
     } catch (err) {
@@ -191,7 +201,9 @@ const App: React.FC = () => {
       // Usuário já foi autenticado em LoginPage, apenas atualiza estado
       setCurrentUser(user);
       setIsAuthenticated(true);
+      setActiveEnterprise(null);
       localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user));
+      localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
       
       // Para SUPERADMIN, não precisa de activeEnterprise
       if (isSuperAdminRole(String(user.role))) {
