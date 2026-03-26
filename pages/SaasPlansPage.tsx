@@ -1,96 +1,77 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { BadgeDollarSign, History, Save, RefreshCw, ArrowUpDown, Building2 } from 'lucide-react';
+import {
+  Users, Edit, Trash2, Power, PowerOff, RotateCcw,
+  X, Clock, CheckCircle2, AlertTriangle, Mail, Phone,
+  Calendar, Settings2, Building2, Save, RefreshCw,
+} from 'lucide-react';
 import ApiService from '../services/api';
 import { Enterprise, Role, User } from '../types';
-import { appendSaasAuditLog } from '../services/saasAuditLog';
 
 interface SaasPlansPageProps {
   currentUser: User;
 }
 
-type SaaSPlanKey = 'BASIC' | 'PREMIUM';
+const TRIAL_DAYS_KEY = 'saas_trial_days_v1';
+const DEFAULT_TRIAL_DAYS = 7;
 
-type SaaSPlanConfig = {
-  key: SaaSPlanKey;
+
+const addDays = (date: Date, days: number) => {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+};
+
+const diffDays = (iso: string) =>
+  Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000);
+
+const fmtDoc = (doc?: string) => {
+  const d = String(doc || '').replace(/\D/g, '');
+  if (d.length === 14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+  if (d.length === 11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+  return doc || '—';
+};
+
+const fmtPhone = (phone?: string) => {
+  const p = String(phone || '').replace(/\D/g, '');
+  if (p.length === 13) return `+${p.slice(0, 2)} (${p.slice(2, 4)}) ${p.slice(4, 9)}-${p.slice(9)}`;
+  if (p.length === 12) return `+${p.slice(0, 2)} (${p.slice(2, 4)}) ${p.slice(4, 8)}-${p.slice(8)}`;
+  if (p.length === 11) return `(${p.slice(0, 2)}) ${p.slice(2, 7)}-${p.slice(7)}`;
+  if (p.length === 10) return `(${p.slice(0, 2)}) ${p.slice(2, 6)}-${p.slice(6)}`;
+  return phone || '—';
+};
+
+type ClientFormData = {
   name: string;
-  monthlyPrice: number;
-  maxUnits: number;
-  maxStaffUsers: number;
-  hasWhatsappBroadcast: boolean;
-  hasBillingAutomation: boolean;
-  hasAdvancedBI: boolean;
-  hasPrioritySupport: boolean;
+  email: string;
+  password: string;
+  phone: string;
+  enterpriseIds: string[];
+  isTrial: boolean;
+  trialDays: number;
 };
-
-type PlanChangeHistory = {
-  id: string;
-  changedAt: string;
-  enterpriseId: string;
-  enterpriseName: string;
-  fromPlan: SaaSPlanKey;
-  toPlan: SaaSPlanKey;
-  fromFee: number;
-  toFee: number;
-  changedBy: string;
-};
-
-const SAAS_PLAN_CATALOG_KEY = 'saas_plan_catalog_v1';
-const SAAS_PLAN_HISTORY_KEY = 'saas_plan_history_v1';
-
-const DEFAULT_CATALOG: Record<SaaSPlanKey, SaaSPlanConfig> = {
-  BASIC: {
-    key: 'BASIC',
-    name: 'Básico',
-    monthlyPrice: 197,
-    maxUnits: 1,
-    maxStaffUsers: 5,
-    hasWhatsappBroadcast: false,
-    hasBillingAutomation: false,
-    hasAdvancedBI: false,
-    hasPrioritySupport: false
-  },
-  PREMIUM: {
-    key: 'PREMIUM',
-    name: 'Premium',
-    monthlyPrice: 397,
-    maxUnits: 10,
-    maxStaffUsers: 50,
-    hasWhatsappBroadcast: true,
-    hasBillingAutomation: true,
-    hasAdvancedBI: true,
-    hasPrioritySupport: true
-  }
-};
-
-const normalizePlanType = (raw?: string): SaaSPlanKey => {
-  const normalized = String(raw || '').trim().toUpperCase();
-  if (normalized === 'PREMIUM' || normalized === 'PRO' || normalized === 'ENTERPRISE') return 'PREMIUM';
-  return 'BASIC';
-};
-
-const formatCurrency = (value: number) =>
-  value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 });
 
 const SaasPlansPage: React.FC<SaasPlansPageProps> = ({ currentUser }) => {
   const isSuperAdmin = String(currentUser.role || '').toUpperCase() === Role.SUPERADMIN;
   const [isLoading, setIsLoading] = useState(false);
   const [enterprises, setEnterprises] = useState<Enterprise[]>([]);
-  const [catalog, setCatalog] = useState<Record<SaaSPlanKey, SaaSPlanConfig>>(DEFAULT_CATALOG);
-  const [history, setHistory] = useState<PlanChangeHistory[]>([]);
-  const [selectedPlanByEnterprise, setSelectedPlanByEnterprise] = useState<Record<string, SaaSPlanKey>>({});
+  const [ownerUsers, setOwnerUsers] = useState<User[]>([]);
+  const [clientModal, setClientModal] = useState<{ open: boolean; user: User | null }>({ open: false, user: null });
+  const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
+  const [clientSearch, setClientSearch] = useState('');
 
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [enterpriseData] = await Promise.all([ApiService.getEnterprises()]);
+      const [enterpriseData, usersData] = await Promise.all([
+        ApiService.getEnterprises(),
+        ApiService.getUsers(),
+      ]);
       const normalizedEnterprises = Array.isArray(enterpriseData) ? enterpriseData : [];
+      const owners: User[] = Array.isArray(usersData)
+        ? usersData.filter((u: User) => String(u.role).toUpperCase() === Role.OWNER)
+        : [];
       setEnterprises(normalizedEnterprises);
-      setSelectedPlanByEnterprise(
-        normalizedEnterprises.reduce((acc: Record<string, SaaSPlanKey>, ent: Enterprise) => {
-          acc[ent.id] = normalizePlanType(ent.planType);
-          return acc;
-        }, {})
-      );
+      setOwnerUsers(owners);
     } catch (err) {
       console.error('Erro ao carregar dados de planos SaaS:', err);
       setEnterprises([]);
@@ -103,138 +84,92 @@ const SaasPlansPage: React.FC<SaasPlansPageProps> = ({ currentUser }) => {
     loadData();
   }, []);
 
-  useEffect(() => {
+  const stats = useMemo(() => ({
+    totalClients: ownerUsers.length,
+    trials: ownerUsers.filter(u => u.trialExpiresAt && diffDays(u.trialExpiresAt) > 0).length,
+  }), [ownerUsers]);
+
+  const handleSaveClient = async (data: ClientFormData, editingUser: User | null) => {
     try {
-      const rawCatalog = localStorage.getItem(SAAS_PLAN_CATALOG_KEY);
-      if (rawCatalog) {
-        const parsed = JSON.parse(rawCatalog);
-        setCatalog({
-          BASIC: { ...DEFAULT_CATALOG.BASIC, ...(parsed?.BASIC || {}) },
-          PREMIUM: { ...DEFAULT_CATALOG.PREMIUM, ...(parsed?.PREMIUM || {}) }
-        });
-      }
-    } catch (err) {
-      console.error('Erro ao carregar catálogo SaaS local:', err);
-      setCatalog(DEFAULT_CATALOG);
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
-      const rawHistory = localStorage.getItem(SAAS_PLAN_HISTORY_KEY);
-      if (rawHistory) {
-        const parsed = JSON.parse(rawHistory);
-        if (Array.isArray(parsed)) setHistory(parsed);
-      }
-    } catch (err) {
-      console.error('Erro ao carregar histórico local de planos:', err);
-      setHistory([]);
-    }
-  }, []);
-
-  const stats = useMemo(() => {
-    const totals = enterprises.reduce(
-      (acc, ent) => {
-        const plan = normalizePlanType(ent.planType);
-        const fee = Number(ent.monthlyFee || catalog[plan].monthlyPrice || 0);
-        acc.totalClients += 1;
-        acc[plan] += 1;
-        acc.mrr += fee;
-        return acc;
-      },
-      { totalClients: 0, BASIC: 0, PREMIUM: 0, mrr: 0 }
-    );
-    return totals;
-  }, [enterprises, catalog]);
-
-  const handleCatalogField = (plan: SaaSPlanKey, field: keyof SaaSPlanConfig, value: string | number | boolean) => {
-    setCatalog((prev) => ({
-      ...prev,
-      [plan]: {
-        ...prev[plan],
-        [field]: value
-      }
-    }));
-  };
-
-  const handleSaveCatalog = () => {
-    localStorage.setItem(SAAS_PLAN_CATALOG_KEY, JSON.stringify(catalog));
-    appendSaasAuditLog({
-      actorName: currentUser.name,
-      actorRole: String(currentUser.role || ''),
-      module: 'PLANOS',
-      action: 'SAAS_PLAN_CATALOG_UPDATED',
-      entityType: 'SAAS_PLAN_CATALOG',
-      summary: 'Catálogo de planos SaaS atualizado',
-      metadata: {
-        basicPrice: catalog.BASIC.monthlyPrice,
-        premiumPrice: catalog.PREMIUM.monthlyPrice,
-        basicUsers: catalog.BASIC.maxStaffUsers,
-        premiumUsers: catalog.PREMIUM.maxStaffUsers
-      }
-    });
-    alert('Catálogo de planos salvo com sucesso.');
-  };
-
-  const handleApplyPlan = async (enterprise: Enterprise, nextPlan: SaaSPlanKey) => {
-    const currentPlan = normalizePlanType(enterprise.planType);
-    if (currentPlan === nextPlan && Number(enterprise.monthlyFee || 0) === Number(catalog[nextPlan].monthlyPrice)) {
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Confirmar ${currentPlan === nextPlan ? 'reajuste de valor' : 'mudança de plano'} para ${enterprise.name}?\n` +
-      `Novo plano: ${catalog[nextPlan].name} (${formatCurrency(catalog[nextPlan].monthlyPrice)}/mês)`
-    );
-    if (!confirmed) return;
-
-    try {
-      const fromFee = Number(enterprise.monthlyFee || catalog[currentPlan].monthlyPrice || 0);
-      const toFee = Number(catalog[nextPlan].monthlyPrice || 0);
-      const updated = await ApiService.updateEnterprise(enterprise.id, {
-        ...enterprise,
-        planType: nextPlan,
-        monthlyFee: toFee
-      });
-
-      setEnterprises((prev) => prev.map((item) => (item.id === enterprise.id ? updated : item)));
-
-      const entry: PlanChangeHistory = {
-        id: `hist_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        changedAt: new Date().toISOString(),
-        enterpriseId: enterprise.id,
-        enterpriseName: enterprise.name,
-        fromPlan: currentPlan,
-        toPlan: nextPlan,
-        fromFee,
-        toFee,
-        changedBy: currentUser.name
+      const payload: Record<string, unknown> = {
+        name: data.name.trim(),
+        email: data.email.trim(),
+        phone: data.phone.trim(),
+        role: Role.OWNER,
+        isActive: true,
+        enterpriseIds: data.enterpriseIds,
       };
-      const nextHistory = [entry, ...history].slice(0, 300);
-      setHistory(nextHistory);
-      localStorage.setItem(SAAS_PLAN_HISTORY_KEY, JSON.stringify(nextHistory));
-      appendSaasAuditLog({
-        actorName: currentUser.name,
-        actorRole: String(currentUser.role || ''),
-        module: 'PLANOS',
-        action: 'SAAS_CLIENT_PLAN_CHANGED',
-        entityType: 'ENTERPRISE',
-        entityId: enterprise.id,
-        enterpriseId: enterprise.id,
-        enterpriseName: enterprise.name,
-        summary: `Plano alterado de ${currentPlan} para ${nextPlan}`,
-        metadata: {
-          fromPlan: currentPlan,
-          toPlan: nextPlan,
-          fromFee,
-          toFee
-        }
-      });
+      if (data.password) payload.password = data.password;
+      if (data.isTrial) {
+        payload.trialExpiresAt = addDays(new Date(), data.trialDays).toISOString();
+      }
+      if (editingUser) {
+        await ApiService.updateUser(editingUser.id, payload);
+      } else {
+        await ApiService.createUser(payload);
+      }
+      if (data.isTrial && data.enterpriseIds.length > 0) {
+        await Promise.all(
+          data.enterpriseIds.map(eid =>
+            ApiService.updateEnterprise(eid, { serviceStatus: 'TRIAL' })
+          )
+        );
+      }
+      setClientModal({ open: false, user: null });
+      await loadData();
     } catch (err) {
-      console.error('Erro ao aplicar plano SaaS:', err);
-      alert('Erro ao aplicar plano. Tente novamente.');
+      console.error('Erro ao salvar cliente:', err);
+      alert('Erro ao salvar cliente. Verifique os dados e tente novamente.');
     }
   };
+
+  const handleDeleteClient = async (user: User) => {
+    try {
+      await ApiService.deleteUser(user.id);
+      await loadData();
+    } catch (err) {
+      console.error('Erro ao excluir cliente:', err);
+      alert('Erro ao excluir cliente.');
+    }
+  };
+
+  const handleToggleActive = async (user: User) => {
+    try {
+      await ApiService.updateUser(user.id, { isActive: !user.isActive });
+      await loadData();
+    } catch (err) {
+      console.error('Erro ao alterar status do cliente:', err);
+      alert('Erro ao alterar status.');
+    }
+  };
+
+  const handleRenew = async (user: User) => {
+    try {
+      const base = user.trialExpiresAt && diffDays(user.trialExpiresAt) > 0
+        ? new Date(user.trialExpiresAt)
+        : new Date();
+      const newExpiry = addDays(base, 30).toISOString();
+      await ApiService.updateUser(user.id, { isActive: true, trialExpiresAt: newExpiry });
+      for (const eid of user.enterpriseIds || []) {
+        await ApiService.updateEnterprise(eid, { serviceStatus: 'ATIVO' });
+      }
+      await loadData();
+    } catch (err) {
+      console.error('Erro ao renovar cliente:', err);
+      alert('Erro ao renovar.');
+    }
+  };
+
+  const filteredOwnerUsers = useMemo(() => {
+    if (!clientSearch.trim()) return ownerUsers;
+    const q = clientSearch.toLowerCase();
+    return ownerUsers.filter(u =>
+      u.name.toLowerCase().includes(q) ||
+      u.email.toLowerCase().includes(q) ||
+      (u.phone || '').includes(q) ||
+      enterprises.filter(e => u.enterpriseIds?.includes(e.id)).some(e => e.name.toLowerCase().includes(q))
+    );
+  }, [ownerUsers, enterprises, clientSearch]);
 
   if (!isSuperAdmin) {
     return (
@@ -249,212 +184,407 @@ const SaasPlansPage: React.FC<SaasPlansPageProps> = ({ currentUser }) => {
       <header className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center">
-            <BadgeDollarSign size={16} />
+            <Users size={16} />
           </div>
           <div>
-            <h1 className="text-xl font-black text-slate-900 dark:text-zinc-100 uppercase tracking-tight">Planos & Assinaturas SaaS</h1>
+            <h1 className="text-xl font-black text-slate-900 dark:text-zinc-100 uppercase tracking-tight">Clientes / Planos</h1>
             <p className="text-[10px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-[0.16em]">
-              Catálogo de planos, upgrade/downgrade e gestão de MRR
+              Gestão de donos de rede, trials e contratos
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={loadData}
-            className="px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-200 bg-white dark:bg-zinc-900 text-[11px] font-black uppercase tracking-widest hover:bg-slate-50 dark:hover:bg-zinc-800 flex items-center gap-1.5"
-          >
-            <RefreshCw size={13} />
-            Atualizar
-          </button>
-          <button
-            onClick={handleSaveCatalog}
-            className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-[11px] font-black uppercase tracking-widest hover:bg-indigo-700 flex items-center gap-1.5"
-          >
-            <Save size={13} />
-            Salvar Catálogo
-          </button>
-        </div>
+        <button
+          onClick={loadData}
+          className="px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-200 bg-white dark:bg-zinc-900 text-[11px] font-black uppercase tracking-widest hover:bg-slate-50 dark:hover:bg-zinc-800 flex items-center gap-1.5"
+        >
+          <RefreshCw size={13} />
+          Atualizar
+        </button>
       </header>
 
-      <section className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <MetricCard title="Clientes SaaS" value={String(stats.totalClients)} />
-        <MetricCard title="Plano Básico" value={String(stats.BASIC)} />
-        <MetricCard title="Plano Premium" value={String(stats.PREMIUM)} />
-        <MetricCard title="MRR Projetado" value={formatCurrency(stats.mrr)} />
-      </section>
-
-      <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        {(['BASIC', 'PREMIUM'] as SaaSPlanKey[]).map((planKey) => {
-          const plan = catalog[planKey];
-          return (
-            <div key={planKey} className="bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-black text-slate-800 dark:text-zinc-100 uppercase tracking-wider">{plan.name}</h3>
-                <span className="text-[10px] font-black px-2 py-0.5 rounded-full border border-indigo-200 text-indigo-700 bg-indigo-50">
-                  {plan.key}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <FieldNumber label="Mensalidade (R$)" value={plan.monthlyPrice} onChange={(v) => handleCatalogField(planKey, 'monthlyPrice', v)} />
-                <FieldNumber label="Máx. Unidades" value={plan.maxUnits} onChange={(v) => handleCatalogField(planKey, 'maxUnits', v)} />
-                <FieldNumber label="Máx. Usuários Staff" value={plan.maxStaffUsers} onChange={(v) => handleCatalogField(planKey, 'maxStaffUsers', v)} />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <FieldCheck label="Disparo WhatsApp" checked={plan.hasWhatsappBroadcast} onToggle={(v) => handleCatalogField(planKey, 'hasWhatsappBroadcast', v)} />
-                <FieldCheck label="Automação Cobrança" checked={plan.hasBillingAutomation} onToggle={(v) => handleCatalogField(planKey, 'hasBillingAutomation', v)} />
-                <FieldCheck label="BI Avançado" checked={plan.hasAdvancedBI} onToggle={(v) => handleCatalogField(planKey, 'hasAdvancedBI', v)} />
-                <FieldCheck label="Suporte Prioritário" checked={plan.hasPrioritySupport} onToggle={(v) => handleCatalogField(planKey, 'hasPrioritySupport', v)} />
-              </div>
-            </div>
-          );
-        })}
+      <section className="grid grid-cols-2 gap-3">
+        <MetricCard title="Total de Clientes" value={String(stats.totalClients)} />
+        <MetricCard title="Clientes Testes" value={String(stats.trials)} highlight />
       </section>
 
       <section className="bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-200 dark:border-zinc-700 flex items-center justify-between">
-          <h3 className="text-sm font-black uppercase tracking-wider text-slate-800 dark:text-zinc-100">Clientes e Assinaturas</h3>
-          {isLoading && <span className="text-[10px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-widest">Carregando...</span>}
+        <div className="px-4 py-3 border-b border-slate-200 dark:border-zinc-700 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+          <div className="flex items-center gap-2 flex-1">
+            <Users size={14} className="text-indigo-600" />
+            <h3 className="text-sm font-black uppercase tracking-wider text-slate-800 dark:text-zinc-100">Clientes — Donos de Rede</h3>
+            {isLoading && <span className="text-[10px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-widest ml-2">Carregando...</span>}
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <input
+              type="text"
+              placeholder="Buscar cliente..."
+              value={clientSearch}
+              onChange={e => setClientSearch(e.target.value)}
+              className="h-8 px-3 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-xs font-medium text-slate-700 dark:text-zinc-200 outline-none focus:border-indigo-500 w-44"
+            />
+            <button
+              onClick={() => setClientModal({ open: true, user: null })}
+              className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[11px] font-black uppercase tracking-widest hover:bg-indigo-700 flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <Users size={12} />
+              Novo Cliente
+            </button>
+          </div>
         </div>
         <div className="overflow-auto">
-          <table className="w-full min-w-[900px] text-xs">
+          <table className="w-full min-w-[860px] text-xs">
             <thead className="bg-slate-50 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 uppercase tracking-wider text-[10px]">
               <tr>
                 <th className="px-3 py-2 text-left">Cliente</th>
-                <th className="px-3 py-2 text-left">Owner</th>
-                <th className="px-3 py-2 text-center">Plano Atual</th>
-                <th className="px-3 py-2 text-center">Mensalidade</th>
-                <th className="px-3 py-2 text-center">Trocar Plano</th>
-                <th className="px-3 py-2 text-center">Ação</th>
+                <th className="px-3 py-2 text-left">Empresa</th>
+                <th className="px-3 py-2 text-left">CNPJ / CPF</th>
+                <th className="px-3 py-2 text-left">Telefone</th>
+                <th className="px-3 py-2 text-left">E-mail</th>
+                <th className="px-3 py-2 text-center">Status</th>
+                <th className="px-3 py-2 text-right">Ações</th>
               </tr>
             </thead>
-            <tbody>
-              {enterprises.map((ent) => {
-                const currentPlan = normalizePlanType(ent.planType);
-                const selectedPlan = selectedPlanByEnterprise[ent.id] || currentPlan;
-                return (
-                  <React.Fragment key={ent.id}>
-                    <PlanRow
-                      enterprise={ent}
-                      currentPlan={currentPlan}
-                      selectedPlan={selectedPlan}
-                      setSelectedPlan={(next) => setSelectedPlanByEnterprise((prev) => ({ ...prev, [ent.id]: next }))}
-                      catalog={catalog}
-                      onApply={(nextPlan) => handleApplyPlan(ent, nextPlan)}
-                    />
-                  </React.Fragment>
-                );
-              })}
+            <tbody className="divide-y divide-slate-100 dark:divide-zinc-800">
+              {filteredOwnerUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-xs font-bold text-slate-400 dark:text-zinc-500">
+                    {clientSearch ? 'Nenhum cliente encontrado para a busca.' : 'Nenhum cliente cadastrado. Clique em "Novo Cliente" para começar.'}
+                  </td>
+                </tr>
+              ) : (
+                filteredOwnerUsers.map(user => {
+                  const userEnts = enterprises.filter(e => user.enterpriseIds?.includes(e.id));
+                  const firstEnt = userEnts[0];
+                  const trialing = user.trialExpiresAt ? diffDays(user.trialExpiresAt) : null;
+                  return (
+                    <tr key={user.id} className="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">
+                      <td className="px-3 py-2.5">
+                        <p className="font-black text-slate-800 dark:text-zinc-100 leading-tight">{user.name}</p>
+                        {trialing !== null && trialing > 0 && (
+                          <span className="inline-flex items-center gap-0.5 mt-0.5 text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                            <Clock size={8} /> Teste · {trialing}d
+                          </span>
+                        )}
+                        {trialing !== null && trialing <= 0 && (
+                          <span className="inline-flex items-center gap-0.5 mt-0.5 text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">
+                            <AlertTriangle size={8} /> Trial expirado
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 max-w-[160px]">
+                        {userEnts.length === 0 ? (
+                          <span className="text-slate-400 dark:text-zinc-500">—</span>
+                        ) : (
+                          <div className="space-y-0.5">
+                            {userEnts.map(e => (
+                              <p key={e.id} className="font-bold text-slate-700 dark:text-zinc-200 truncate">{e.name}</p>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 font-mono font-semibold text-slate-600 dark:text-zinc-300 whitespace-nowrap">
+                        {fmtDoc(firstEnt?.document)}
+                      </td>
+                      <td className="px-3 py-2.5 font-semibold text-slate-600 dark:text-zinc-300 whitespace-nowrap">
+                        {fmtPhone(user.phone || firstEnt?.phone1)}
+                      </td>
+                      <td className="px-3 py-2.5 font-semibold text-slate-600 dark:text-zinc-300 max-w-[180px] truncate">
+                        {user.email}
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        {user.isActive ? (
+                          <span className="inline-flex items-center gap-0.5 text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
+                            <CheckCircle2 size={8} /> Ativo
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-0.5 text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">
+                            <PowerOff size={8} /> Inativo
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <button
+                            title="Editar"
+                            onClick={() => setClientModal({ open: true, user })}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors"
+                          >
+                            <Edit size={13} />
+                          </button>
+                          <button
+                            title={user.isActive ? 'Desativar' : 'Ativar'}
+                            onClick={() => handleToggleActive(user)}
+                            className={`p-1.5 rounded-lg transition-colors ${
+                              user.isActive
+                                ? 'text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30'
+                                : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30'
+                            }`}
+                          >
+                            {user.isActive ? <PowerOff size={13} /> : <Power size={13} />}
+                          </button>
+                          <button
+                            title="Renovar (+30 dias)"
+                            onClick={() => handleRenew(user)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+                          >
+                            <RotateCcw size={13} />
+                          </button>
+                          <button
+                            title="Excluir"
+                            onClick={() => setDeleteTarget(user)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
       </section>
 
-      <section className="bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-200 dark:border-zinc-700 flex items-center gap-2">
-          <History size={14} className="text-indigo-600" />
-          <h3 className="text-sm font-black uppercase tracking-wider text-slate-800 dark:text-zinc-100">Histórico de Alterações</h3>
+
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="text-base font-black text-slate-800 dark:text-zinc-100 uppercase tracking-wide">Confirmar Exclusão</h3>
+            <p className="text-sm text-slate-600 dark:text-zinc-300">
+              Tem certeza que deseja excluir o cliente <strong>{deleteTarget.name}</strong>? Esta ação não pode ser desfeita.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="px-4 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 text-sm font-bold text-slate-700 dark:text-zinc-200 hover:bg-slate-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => { handleDeleteClient(deleteTarget); setDeleteTarget(null); }}
+                className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-bold hover:bg-red-700"
+              >
+                Excluir
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="max-h-72 overflow-auto">
-          {history.length === 0 ? (
-            <p className="px-4 py-6 text-xs font-bold text-slate-500 dark:text-zinc-400">Nenhuma alteração registrada ainda.</p>
-          ) : (
-            <ul className="divide-y divide-slate-100 dark:divide-zinc-800">
-              {history.map((entry) => (
-                <li key={entry.id} className="px-4 py-2.5 text-xs">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-bold text-slate-700 dark:text-zinc-200">
-                      <Building2 size={12} className="inline mr-1 text-indigo-600" />
-                      {entry.enterpriseName}
-                    </p>
-                    <p className="text-[10px] font-bold text-slate-500 dark:text-zinc-400">
-                      {new Date(entry.changedAt).toLocaleString('pt-BR')}
-                    </p>
-                  </div>
-                  <p className="text-[11px] font-bold text-slate-600 dark:text-zinc-300">
-                    {entry.fromPlan} ({formatCurrency(entry.fromFee)}) <ArrowUpDown size={11} className="inline mx-1" />
-                    {entry.toPlan} ({formatCurrency(entry.toFee)}) por {entry.changedBy}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </section>
+      )}
+
+      {clientModal.open && (
+        <OwnerClientModal
+          mode={clientModal.user ? 'edit' : 'create'}
+          user={clientModal.user}
+          enterprises={enterprises}
+          defaultTrialDays={Number(localStorage.getItem(TRIAL_DAYS_KEY) || DEFAULT_TRIAL_DAYS)}
+          onSave={(data) => handleSaveClient(data, clientModal.user)}
+          onClose={() => setClientModal({ open: false, user: null })}
+        />
+      )}
     </div>
   );
 };
 
-const MetricCard = ({ title, value }: { title: string; value: string }) => (
-  <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl p-3">
-    <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400 dark:text-zinc-400">{title}</p>
-    <p className="text-lg font-black text-slate-900 dark:text-zinc-100 leading-tight">{value}</p>
+const MetricCard = ({ title, value, highlight }: { title: string; value: string; highlight?: boolean }) => (
+  <div className={`border rounded-xl p-3 ${highlight ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700' : 'bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-700'}`}>
+    <p className={`text-[10px] font-black uppercase tracking-[0.14em] ${highlight ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400 dark:text-zinc-400'}`}>{title}</p>
+    <p className={`text-lg font-black leading-tight ${highlight ? 'text-amber-800 dark:text-amber-200' : 'text-slate-900 dark:text-zinc-100'}`}>{value}</p>
   </div>
 );
 
-const FieldNumber = ({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) => (
-  <label className="block space-y-1">
-    <span className="text-[10px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-wider">{label}</span>
-    <input
-      type="number"
-      value={value}
-      onChange={(e) => onChange(Number(e.target.value) || 0)}
-      className="w-full h-8 px-2 rounded-md border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-xs font-bold text-slate-700 dark:text-zinc-200 outline-none focus:border-indigo-500"
-    />
-  </label>
-);
-
-const FieldCheck = ({ label, checked, onToggle }: { label: string; checked: boolean; onToggle: (v: boolean) => void }) => (
-  <label className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-[11px] font-bold text-slate-700 dark:text-zinc-200">
-    <input type="checkbox" checked={checked} onChange={(e) => onToggle(e.target.checked)} />
-    {label}
-  </label>
-);
-
-const PlanRow = ({
-  enterprise,
-  currentPlan,
-  selectedPlan,
-  setSelectedPlan,
-  catalog,
-  onApply
+const OwnerClientModal = ({
+  mode,
+  user,
+  enterprises,
+  defaultTrialDays,
+  onSave,
+  onClose,
 }: {
-  enterprise: Enterprise;
-  currentPlan: SaaSPlanKey;
-  selectedPlan: SaaSPlanKey;
-  setSelectedPlan: (next: SaaSPlanKey) => void;
-  catalog: Record<SaaSPlanKey, SaaSPlanConfig>;
-  onApply: (next: SaaSPlanKey) => void;
-}) => (
-  <tr className="border-b border-slate-100 dark:border-zinc-800">
-    <td className="px-3 py-2.5 font-black text-slate-800 dark:text-zinc-100">{enterprise.name}</td>
-    <td className="px-3 py-2.5 font-bold text-slate-600 dark:text-zinc-300">{enterprise.ownerName || enterprise.managerName || '-'}</td>
-    <td className="px-3 py-2.5 text-center">
-      <span className="px-2 py-0.5 text-[10px] font-black rounded-full border border-indigo-200 text-indigo-700 bg-indigo-50">
-        {currentPlan}
-      </span>
-    </td>
-    <td className="px-3 py-2.5 text-center font-black text-slate-800 dark:text-zinc-100">{formatCurrency(Number(enterprise.monthlyFee || 0))}</td>
-    <td className="px-3 py-2.5 text-center">
-      <select
-        value={selectedPlan}
-        onChange={(e) => setSelectedPlan(e.target.value as SaaSPlanKey)}
-        className="h-8 px-2 rounded-md border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-[11px] font-black text-slate-700 dark:text-zinc-200 outline-none focus:border-indigo-500"
-      >
-        <option value="BASIC">BASIC ({formatCurrency(catalog.BASIC.monthlyPrice)})</option>
-        <option value="PREMIUM">PREMIUM ({formatCurrency(catalog.PREMIUM.monthlyPrice)})</option>
-      </select>
-    </td>
-    <td className="px-3 py-2.5 text-center">
-      <button
-        onClick={() => onApply(selectedPlan)}
-        className="px-2.5 py-1.5 rounded-md bg-indigo-600 text-white text-[10px] font-black uppercase tracking-wider hover:bg-indigo-700"
-      >
-        Aplicar
-      </button>
-    </td>
-  </tr>
-);
+  mode: 'create' | 'edit';
+  user: User | null;
+  enterprises: Enterprise[];
+  defaultTrialDays: number;
+  onSave: (data: ClientFormData) => Promise<void>;
+  onClose: () => void;
+}) => {
+  const [saving, setSaving] = useState(false);
+  const [showPass, setShowPass] = useState(false);
+  const [formData, setFormData] = useState<ClientFormData>({
+    name: user?.name || '',
+    email: user?.email || '',
+    password: '',
+    phone: user?.phone || '',
+    enterpriseIds: user?.enterpriseIds || [],
+    isTrial: !!user?.trialExpiresAt,
+    trialDays: defaultTrialDays,
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.name.trim()) { alert('Nome é obrigatório.'); return; }
+    if (!formData.email.trim()) { alert('E-mail é obrigatório.'); return; }
+    if (mode === 'create' && !formData.password) { alert('Senha é obrigatória para novo cliente.'); return; }
+    setSaving(true);
+    await onSave(formData);
+    setSaving(false);
+  };
+
+  const toggleEnt = (eid: string) =>
+    setFormData(prev => ({
+      ...prev,
+      enterpriseIds: prev.enterpriseIds.includes(eid)
+        ? prev.enterpriseIds.filter(id => id !== eid)
+        : [...prev.enterpriseIds, eid],
+    }));
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-4 overflow-y-auto">
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-lg my-8">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-zinc-700">
+          <h3 className="text-sm font-black text-slate-800 dark:text-zinc-100 uppercase tracking-wide">
+            {mode === 'create' ? 'Novo Cliente / Teste' : 'Editar Cliente'}
+          </h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-500">
+            <X size={16} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="sm:col-span-2 space-y-1">
+              <label className="text-[10px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-widest">Nome Completo *</label>
+              <input
+                type="text"
+                required
+                value={formData.name}
+                onChange={e => setFormData(p => ({ ...p, name: e.target.value }))}
+                placeholder="Nome do responsável"
+                className="w-full h-9 px-3 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm font-medium text-slate-700 dark:text-zinc-200 outline-none focus:border-indigo-500"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-widest flex items-center gap-1">
+                <Mail size={10} /> E-mail *
+              </label>
+              <input
+                type="email"
+                required
+                value={formData.email}
+                onChange={e => setFormData(p => ({ ...p, email: e.target.value }))}
+                placeholder="email@dominio.com"
+                className="w-full h-9 px-3 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm font-medium text-slate-700 dark:text-zinc-200 outline-none focus:border-indigo-500"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-widest flex items-center gap-1">
+                <Phone size={10} /> Telefone
+              </label>
+              <input
+                type="tel"
+                value={formData.phone}
+                onChange={e => setFormData(p => ({ ...p, phone: e.target.value }))}
+                placeholder="+55 (11) 99999-9999"
+                className="w-full h-9 px-3 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm font-medium text-slate-700 dark:text-zinc-200 outline-none focus:border-indigo-500"
+              />
+            </div>
+            <div className="sm:col-span-2 space-y-1">
+              <label className="text-[10px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-widest">
+                {mode === 'create' ? 'Senha *' : 'Nova Senha (deixe em branco para não alterar)'}
+              </label>
+              <div className="relative">
+                <input
+                  type={showPass ? 'text' : 'password'}
+                  required={mode === 'create'}
+                  value={formData.password}
+                  onChange={e => setFormData(p => ({ ...p, password: e.target.value }))}
+                  placeholder={mode === 'create' ? 'Senha de acesso' : 'Deixe em branco para manter'}
+                  className="w-full h-9 px-3 pr-10 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm font-medium text-slate-700 dark:text-zinc-200 outline-none focus:border-indigo-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPass(p => !p)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  {showPass ? <CheckCircle2 size={14} /> : <Settings2 size={14} />}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-widest flex items-center gap-1">
+              <Building2 size={10} /> Empresas Vinculadas
+            </label>
+            <div className="max-h-32 overflow-y-auto border border-slate-200 dark:border-zinc-700 rounded-lg p-2 space-y-1">
+              {enterprises.length === 0 ? (
+                <p className="text-[11px] text-slate-400 dark:text-zinc-500 text-center py-2">Nenhuma empresa cadastrada.</p>
+              ) : enterprises.map(ent => (
+                <label key={ent.id} className="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.enterpriseIds.includes(ent.id)}
+                    onChange={() => toggleEnt(ent.id)}
+                    className="rounded border-slate-300"
+                  />
+                  <span className="text-xs font-medium text-slate-700 dark:text-zinc-200">{ent.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2 border border-slate-200 dark:border-zinc-700 rounded-lg p-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.isTrial}
+                onChange={e => setFormData(p => ({ ...p, isTrial: e.target.checked }))}
+                className="rounded border-slate-300"
+              />
+              <span className="text-xs font-black text-slate-700 dark:text-zinc-200 uppercase tracking-wide flex items-center gap-1">
+                <Clock size={11} /> Habilitar período de teste (trial)
+              </span>
+            </label>
+            {formData.isTrial && (
+              <div className="flex items-center gap-3 pt-1 pl-1">
+                <label className="text-[10px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-widest flex items-center gap-1">
+                  <Calendar size={10} /> Dias de Trial
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={formData.trialDays}
+                  onChange={e => setFormData(p => ({ ...p, trialDays: Number(e.target.value) || 7 }))}
+                  className="w-20 h-8 px-2 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm font-bold text-slate-700 dark:text-zinc-200 outline-none focus:border-indigo-500"
+                />
+                <span className="text-[11px] text-slate-500 dark:text-zinc-400">dias a partir de hoje</span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2 justify-end pt-1 border-t border-slate-100 dark:border-zinc-800">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 text-sm font-bold text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-60 flex items-center gap-1.5"
+            >
+              <Save size={13} />
+              {saving ? 'Salvando...' : mode === 'create' ? 'Criar Cliente' : 'Salvar Alterações'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
 
 export default SaasPlansPage;

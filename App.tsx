@@ -6,7 +6,7 @@ import {
   ReceiptText, Building2, Building, ShieldCheck, 
   UserCircle, Globe, ClipboardList, 
   Sparkles, Beef, Store, Calendar, CalendarDays,
-  LogOut, Menu, DollarSign, MessageCircle,
+  LogOut, Menu, DollarSign, MessageCircle, BadgeDollarSign,
   Truck, Settings, AlertTriangle, X, Plus, Check, Sun, Moon,
   ChevronLeft, ChevronRight, UserCog, Shield
 } from 'lucide-react';
@@ -22,6 +22,7 @@ import ProductsPage from './pages/ProductsPage';
 import InventoryPage from './pages/InventoryPage';
 import ReportsPage from './pages/ReportsPage';
 import SaasPlansPage from './pages/SaasPlansPage';
+import SaasPlanosPage from './pages/SaasPlanosPage';
 import SaasBillingPage from './pages/SaasBillingPage';
 import SaasFinancialPage from './pages/SaasFinancialPage';
 import SaasWhatsAppPage from './pages/SaasWhatsAppPage';
@@ -425,6 +426,7 @@ const AppContent: React.FC<any> = (props) => {
                     <p className={`text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Master Control</p>
                     <SidebarItem icon={<Shield size={20} />} label="Equipe Interna" to="/system-staff" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Sparkles size={20} />} label="Clientes/Planos" to="/saas-plans" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<BadgeDollarSign size={20} />} label="Planos" to="/saas-planos" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<DollarSign size={20} />} label="Cobranças SaaS" to="/saas-billing" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<ReceiptText size={20} />} label="Financeiro SaaS" to="/saas-financial" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp SaaS" to="/saas-whatsapp" isOpen={isSidebarOpen} />
@@ -439,6 +441,9 @@ const AppContent: React.FC<any> = (props) => {
                     <p className={`text-[9px] font-black text-purple-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Painel SaaS</p>
                     {currentUser?.systemPermissions?.canManagePlans && (
                       <SidebarItem icon={<Sparkles size={20} />} label="Clientes/Planos" to="/saas-plans" isOpen={isSidebarOpen} />
+                    )}
+                    {currentUser?.systemPermissions?.canManagePlans && (
+                      <SidebarItem icon={<BadgeDollarSign size={20} />} label="Planos" to="/saas-planos" isOpen={isSidebarOpen} />
                     )}
                     {currentUser?.systemPermissions?.canViewBilling && (
                       <SidebarItem icon={<DollarSign size={20} />} label="Cobranças SaaS" to="/saas-billing" isOpen={isSidebarOpen} />
@@ -572,6 +577,7 @@ const AppContent: React.FC<any> = (props) => {
                   <Route path="/inventory" element={resolvedPermissions.canAccessInventory ? <InventoryPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/reports" element={resolvedPermissions.canAccessReports ? <ReportsPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/saas-plans" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canManagePlans) ? <SaasPlansPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-planos" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canManagePlans) ? <SaasPlanosPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/saas-billing" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canViewBilling) ? <SaasBillingPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/saas-financial" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canViewFinancial) ? <SaasFinancialPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/saas-whatsapp" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canManageWhatsApp) ? <SaasWhatsAppPage currentUser={currentUser} /> : <Navigate to="/" />} />
