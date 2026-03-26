@@ -424,7 +424,7 @@ const AppContent: React.FC<any> = (props) => {
                   <div className="pt-4 pb-2 space-y-1">
                     <p className={`text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Master Control</p>
                     <SidebarItem icon={<Shield size={20} />} label="Equipe Interna" to="/system-staff" isOpen={isSidebarOpen} />
-                    <SidebarItem icon={<Sparkles size={20} />} label="Planos SaaS" to="/saas-plans" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<Sparkles size={20} />} label="Clientes/Planos" to="/saas-plans" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<DollarSign size={20} />} label="Cobranças SaaS" to="/saas-billing" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<ReceiptText size={20} />} label="Financeiro SaaS" to="/saas-financial" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp SaaS" to="/saas-whatsapp" isOpen={isSidebarOpen} />
@@ -438,7 +438,7 @@ const AppContent: React.FC<any> = (props) => {
                   <div className="pt-4 pb-2 space-y-1">
                     <p className={`text-[9px] font-black text-purple-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Painel SaaS</p>
                     {currentUser?.systemPermissions?.canManagePlans && (
-                      <SidebarItem icon={<Sparkles size={20} />} label="Planos SaaS" to="/saas-plans" isOpen={isSidebarOpen} />
+                      <SidebarItem icon={<Sparkles size={20} />} label="Clientes/Planos" to="/saas-plans" isOpen={isSidebarOpen} />
                     )}
                     {currentUser?.systemPermissions?.canViewBilling && (
                       <SidebarItem icon={<DollarSign size={20} />} label="Cobranças SaaS" to="/saas-billing" isOpen={isSidebarOpen} />
