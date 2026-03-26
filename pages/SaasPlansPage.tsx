@@ -374,16 +374,25 @@ const SaasPlansPage: React.FC<SaasPlansPageProps> = ({ currentUser }) => {
         </div>
       )}
 
-      {clientModal.open && (
+      {clientModal.open && (() => {
+        const editingUser = clientModal.user;
+        const occupiedIds = new Set(
+          ownerUsers
+            .filter(u => !editingUser || u.id !== editingUser.id)
+            .flatMap(u => u.enterpriseIds || [])
+        );
+        const availableEnterprises = enterprises.filter(e => !occupiedIds.has(e.id));
+        return (
         <OwnerClientModal
-          mode={clientModal.user ? 'edit' : 'create'}
-          user={clientModal.user}
-          enterprises={enterprises}
+          mode={editingUser ? 'edit' : 'create'}
+          user={editingUser}
+          enterprises={availableEnterprises}
           defaultTrialDays={Number(localStorage.getItem(TRIAL_DAYS_KEY) || DEFAULT_TRIAL_DAYS)}
-          onSave={(data) => handleSaveClient(data, clientModal.user)}
+          onSave={(data) => handleSaveClient(data, editingUser)}
           onClose={() => setClientModal({ open: false, user: null })}
         />
-      )}
+        );
+      })()}
     </div>
   );
 };
