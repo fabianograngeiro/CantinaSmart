@@ -1579,7 +1579,8 @@ export class Database {
 
   getUserByEmail(email: string) {
     console.log('🔍 [DB] Getting user by email:', email);
-    const user = this.users.find(u => u.email === email);
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const user = this.users.find(u => String(u?.email || '').trim().toLowerCase() === normalizedEmail);
     console.log('   Result:', user ? `Found ${user.id}` : 'Not found');
     if (!user) {
       console.log('   Available emails:', this.users.map(u => u.email).join(', '));

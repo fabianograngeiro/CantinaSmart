@@ -10,12 +10,40 @@ import {
 
 const router = Router();
 
+const normalizeDocument = (value: unknown) => String(value || '').replace(/\D/g, '');
+const normalizeEmail = (value: unknown) => String(value || '').trim().toLowerCase();
+const isBcryptHash = (value: unknown) => /^\$2[aby]\$\d{2}\$/.test(String(value || ''));
+const startOfToday = () => {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return now;
+};
+const isDateOnOrBeforeToday = (value?: string) => {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  date.setHours(0, 0, 0, 0);
+  return date.getTime() <= startOfToday().getTime();
+};
+
+const findDuplicateUser = (params: { email?: string; document?: string; ignoreUserId?: string }) => {
+  const normalizedEmail = String(params.email || '').trim().toLowerCase();
+  const normalizedDocument = normalizeDocument(params.document);
+  return db.getUsers().find((user: any) => {
+    if (params.ignoreUserId && user.id === params.ignoreUserId) return false;
+    const sameEmail = normalizedEmail && String(user?.email || '').trim().toLowerCase() === normalizedEmail;
+    const sameDocument = normalizedDocument && normalizeDocument(user?.document) === normalizedDocument;
+    return Boolean(sameEmail || sameDocument);
+  });
+};
+
 // Login
 router.post('/login', async (req: Request, res: Response) => {
   console.log('\n🔐 [AUTH] Login attempt received');
   console.log('📧 Email:', req.body.email);
   
-  const { email, password } = req.body;
+  const email = normalizeEmail(req.body?.email);
+  const password = String(req.body?.password ?? '');
 
   // Validate email format
   if (!email || !isValidEmail(email)) {
@@ -37,11 +65,31 @@ router.post('/login', async (req: Request, res: Response) => {
     return res.status(401).json({ error: 'Email ou senha inválidos' });
   }
 
+  if (user.isActive === false) {
+    console.log('⛔ [AUTH] Inactive account login blocked:', user.email);
+    return res.status(403).json({ error: 'Conta desativada. Entre em contato com o suporte.' });
+  }
+
+  if (isDateOnOrBeforeToday(user.expirationDate)) {
+    if (user.isActive !== false) {
+      db.updateUser(user.id, { isActive: false });
+    }
+    console.log('⛔ [AUTH] Expired account login blocked:', user.email, user.expirationDate);
+    return res.status(403).json({ error: 'Acesso vencido. Renove a assinatura para voltar a acessar.' });
+  }
+
   console.log('✅ [AUTH] User found:', user.email);
   
   // Compare password with stored hash
   try {
-    const passwordMatch = await comparePassword(password, user.password);
+    let passwordMatch = await comparePassword(password, String(user.password || ''));
+
+    if (!passwordMatch && !isBcryptHash(user.password) && password === String(user.password || '')) {
+      const migratedHash = await hashPassword(password);
+      db.updateUser(user.id, { password: migratedHash });
+      passwordMatch = true;
+      console.log('🔄 [AUTH] Legacy plaintext password migrated to bcrypt for user:', user.email);
+    }
     
     if (!passwordMatch) {
       console.log('❌ [AUTH] Password mismatch!');
@@ -67,7 +115,10 @@ router.post('/register', async (req: Request, res: Response) => {
   console.log('\n➕ [AUTH] Registration attempt received');
   console.log('📧 Email:', req.body.email);
   
-  const { email, password, name, role = 'USER' } = req.body;
+  const email = normalizeEmail(req.body?.email);
+  const password = String(req.body?.password ?? '');
+  const name = String(req.body?.name ?? '');
+  const role = req.body?.role || 'USER';
 
   // Validate email
   if (!email || !isValidEmail(email)) {
@@ -150,7 +201,10 @@ router.post('/', async (req: Request, res: Response) => {
   console.log('➕ [AUTH] Creating new user');
   console.log('📝 User data:', { ...req.body, password: '****' });
   
-  const { email, password, name, role = 'USER' } = req.body;
+  const { role = 'USER', ...rest } = req.body;
+  const email = normalizeEmail(req.body?.email);
+  const password = String(req.body?.password ?? '');
+  const name = String(req.body?.name ?? '');
 
   // Validate inputs
   if (!email || !isValidEmail(email)) {
@@ -167,14 +221,17 @@ router.post('/', async (req: Request, res: Response) => {
     });
   }
 
-  // Check if user already exists
-  if (db.getUserByEmail(email)) {
-    return res.status(400).json({ error: 'Email já registrado' });
+  const duplicateUser = findDuplicateUser({ email, document: rest?.document });
+  if (duplicateUser) {
+    if (String(duplicateUser?.email || '').trim().toLowerCase() === String(email).trim().toLowerCase()) {
+      return res.status(400).json({ error: 'Já existe uma conta cadastrada com este e-mail.' });
+    }
+    return res.status(400).json({ error: 'Já existe uma conta cadastrada com este CPF/CNPJ.' });
   }
 
   try {
     const hashedPassword = await hashPassword(password);
-    const newUser = db.createUser({ email, password: hashedPassword, name, role });
+    const newUser = db.createUser({ email, password: hashedPassword, name, role, ...rest });
     console.log('✅ [AUTH] User created:', newUser.id);
     res.status(201).json({ ...newUser, password: undefined });
   } catch (error) {
@@ -186,7 +243,36 @@ router.post('/', async (req: Request, res: Response) => {
 // Update user
 router.put('/:id', async (req: Request, res: Response) => {
   const { password, ...updateData } = req.body;
+  const normalizedUpdateData = {
+    ...updateData,
+    ...(updateData?.email ? { email: normalizeEmail(updateData.email) } : {}),
+  } as any;
+  const existingUser = db.getUser(req.params.id);
+  if (!existingUser) {
+    return res.status(404).json({ error: 'Usuário não encontrado' });
+  }
+
+  const duplicateUser = findDuplicateUser({
+    email: normalizedUpdateData?.email,
+    document: normalizedUpdateData?.document,
+    ignoreUserId: req.params.id,
+  });
+  if (duplicateUser) {
+    if (String(duplicateUser?.email || '').trim().toLowerCase() === String(normalizedUpdateData?.email || '').trim().toLowerCase()) {
+      return res.status(400).json({ error: 'Já existe uma conta cadastrada com este e-mail.' });
+    }
+    return res.status(400).json({ error: 'Já existe uma conta cadastrada com este CPF/CNPJ.' });
+  }
   
+
+  if (normalizedUpdateData?.isActive === true) {
+    const nextExpirationDate = String(normalizedUpdateData?.expirationDate || existingUser?.expirationDate || '').trim();
+    if (isDateOnOrBeforeToday(nextExpirationDate)) {
+      return res.status(400).json({
+        error: 'Não é possível ativar conta vencida. Renove para uma data futura para reativar.',
+      });
+    }
+  }
   // If password is being updated, validate and hash it
   if (password) {
     if (!isStrongPassword(password)) {
@@ -196,17 +282,15 @@ router.put('/:id', async (req: Request, res: Response) => {
     }
     
     try {
-      updateData.password = await hashPassword(password);
+      normalizedUpdateData.password = await hashPassword(password);
     } catch (error) {
       console.log('❌ [AUTH] Error hashing password:', (error as Error).message);
       return res.status(500).json({ error: 'Erro ao atualizar usuário' });
     }
   }
 
-  const updated = db.updateUser(req.params.id, updateData);
-  if (!updated) {
-    return res.status(404).json({ error: 'Usuário não encontrado' });
-  }
+  const updated = db.updateUser(req.params.id, normalizedUpdateData);
+  if (!updated) return res.status(404).json({ error: 'Usuário não encontrado' });
   
   res.json({ ...updated, password: undefined });
 });

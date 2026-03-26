@@ -29,6 +29,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [successData, setSuccessData] = useState<{email: string, pass: string} | null>(null);
   const [editingEnterprise, setEditingEnterprise] = useState<Enterprise | null>(null);
+  const [showFirstAccessGuide, setShowFirstAccessGuide] = useState(false);
 
   // Carregar empresas da API
   useEffect(() => {
@@ -43,6 +44,17 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
     };
     loadEnterprises();
   }, []);
+
+  useEffect(() => {
+    if (!isOwner) {
+      setShowFirstAccessGuide(false);
+      return;
+    }
+    const storageKey = `owner_first_access_guide_seen_${currentUser?.id || 'unknown'}`;
+    const alreadySeen = localStorage.getItem(storageKey) === '1';
+    const hasEnterprise = enterprises.length > 0;
+    setShowFirstAccessGuide(!alreadySeen && !hasEnterprise);
+  }, [isOwner, currentUser?.id, enterprises.length]);
 
   const [formData, setFormData] = useState({
     type: 'CANTINA' as 'CANTINA' | 'RESTAURANTE',
@@ -62,6 +74,31 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
     planType: 'BASIC' as 'BASIC' | 'PREMIUM',
     monthlyFee: 197.00
   });
+  const [isCnpjLookupLoading, setIsCnpjLookupLoading] = useState(false);
+  const [isCepLookupLoading, setIsCepLookupLoading] = useState(false);
+
+  const onlyDigits = (value: string) => String(value || '').replace(/\D/g, '');
+
+  const formatCpfCnpj = (value: string) => {
+    const digits = onlyDigits(value).slice(0, 14);
+    if (digits.length <= 11) {
+      return digits
+        .replace(/(\d{3})(\d)/, '$1.$2')
+        .replace(/(\d{3})(\d)/, '$1.$2')
+        .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+    }
+    return digits
+      .replace(/(\d{2})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d)/, '$1/$2')
+      .replace(/(\d{4})(\d{1,2})$/, '$1-$2');
+  };
+
+  const formatCep = (value: string) => {
+    const digits = onlyDigits(value).slice(0, 8);
+    if (digits.length <= 5) return digits;
+    return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+  };
 
   const normalizePlanType = (plan?: string): 'BASIC' | 'PREMIUM' => {
     const normalized = String(plan || '').trim().toUpperCase();
@@ -212,6 +249,54 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
     }
   };
 
+  const handleDocumentBlur = async () => {
+    const docDigits = onlyDigits(formData.document);
+    if (docDigits.length !== 14) return;
+    setIsCnpjLookupLoading(true);
+    try {
+      const cnpjData = await ApiService.lookupEnterpriseByCnpj(docDigits);
+      setFormData((prev) => ({
+        ...prev,
+        nomeFantasia: prev.nomeFantasia || String(cnpjData?.name || cnpjData?.legalName || ''),
+        managerName: prev.managerName || String(cnpjData?.managerName || ''),
+        email: prev.email || String(cnpjData?.email || ''),
+        phone1: prev.phone1 || String(cnpjData?.phone1 || ''),
+        phone2: prev.phone2 || String(cnpjData?.phone2 || ''),
+        cep: prev.cep || formatCep(String(cnpjData?.cep || '')),
+        street: prev.street || String(cnpjData?.street || ''),
+        number: prev.number || String(cnpjData?.number || ''),
+        neighborhood: prev.neighborhood || String(cnpjData?.neighborhood || ''),
+        city: prev.city || String(cnpjData?.city || ''),
+        state: prev.state || String(cnpjData?.state || ''),
+      }));
+    } catch (err) {
+      console.error('Erro ao integrar CNPJ:', err);
+    } finally {
+      setIsCnpjLookupLoading(false);
+    }
+  };
+
+  const handleCepBlur = async () => {
+    const cepDigits = onlyDigits(formData.cep);
+    if (cepDigits.length !== 8) return;
+    setIsCepLookupLoading(true);
+    try {
+      const cepData = await ApiService.lookupAddressByCep(cepDigits);
+      setFormData((prev) => ({
+        ...prev,
+        cep: formatCep(String(cepData?.cep || cepDigits)),
+        street: prev.street || String(cepData?.street || ''),
+        neighborhood: prev.neighborhood || String(cepData?.neighborhood || ''),
+        city: prev.city || String(cepData?.city || ''),
+        state: prev.state || String(cepData?.state || ''),
+      }));
+    } catch (err) {
+      console.error('Erro ao integrar CEP:', err);
+    } finally {
+      setIsCepLookupLoading(false);
+    }
+  };
+
   const resetFormAndClose = () => {
     setFormData({
       type: 'CANTINA',
@@ -237,6 +322,11 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
   };
 
   const handleOpenCreateModal = () => {
+    if (isOwner && showFirstAccessGuide) {
+      const storageKey = `owner_first_access_guide_seen_${currentUser?.id || 'unknown'}`;
+      localStorage.setItem(storageKey, '1');
+      setShowFirstAccessGuide(false);
+    }
     setEditingEnterprise(null);
     setSuccessData(null);
     setIsModalOpen(true);
@@ -348,10 +438,36 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
           </div>
         </div>
 
-        <button onClick={handleOpenCreateModal} className="bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-black uppercase tracking-widest text-[11px] shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2">
+        <button
+          onClick={handleOpenCreateModal}
+          className={`bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-black uppercase tracking-widest text-[11px] shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2 ${showFirstAccessGuide ? 'animate-pulse ring-4 ring-indigo-200 ring-offset-2' : ''}`}
+        >
           <Plus size={14} /> {isSuperAdmin ? 'Cadastrar Novo Cliente SaaS' : 'Cadastrar Nova Unidade'}
         </button>
       </header>
+
+      {showFirstAccessGuide && isOwner && (
+        <div className="rounded-2xl border-2 border-indigo-200 bg-indigo-50 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 animate-pulse">
+          <div className="flex items-start gap-2">
+            <Sparkles size={16} className="text-indigo-600 mt-0.5" />
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-wider text-indigo-700">Primeiro acesso do dono de rede</p>
+              <p className="text-sm font-bold text-indigo-900">Comece por aqui: clique em <strong>Cadastrar Nova Unidade</strong> para fazer a configuração inicial da sua conta.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const storageKey = `owner_first_access_guide_seen_${currentUser?.id || 'unknown'}`;
+              localStorage.setItem(storageKey, '1');
+              setShowFirstAccessGuide(false);
+            }}
+            className="self-start sm:self-auto px-3 py-1.5 rounded-lg border border-indigo-200 bg-white text-indigo-700 text-[11px] font-black uppercase tracking-wider hover:bg-indigo-100 transition-all"
+          >
+            Entendi
+          </button>
+        </div>
+      )}
 
       {isSuperAdmin && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -501,9 +617,9 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[1000] flex items-start justify-center p-4 overflow-y-auto">
            <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-sm animate-in fade-in" onClick={resetFormAndClose}></div>
-           <div className="relative w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[95vh]">
+           <div className="relative my-4 w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[95vh]">
               
               {!successData ? (
                 <form onSubmit={handleSaveEnterprise} className="flex flex-col h-full">
@@ -524,7 +640,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
                      <button type="button" onClick={resetFormAndClose} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={22} /></button>
                   </div>
 
-                  <div className="p-5 space-y-5 flex-1 overflow-y-auto scrollbar-hide">
+                  <div className="p-5 space-y-5 flex-1 overflow-y-auto">
                      {/* Escolha de Tipo de Unidade */}
                      <div className="space-y-4">
                         <label className="text-[11px] font-black text-gray-400 uppercase tracking-[3px] block text-center">Tipo de Unidade Operacional *</label>
@@ -546,17 +662,31 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
                         </div>
                      </div>
 
-                     {/* Informações da Filial */}
+                    {/* Informações da Filial */}
                      <div className="space-y-4 pt-3 border-t border-gray-50">
                         <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[4px] border-b pb-2 flex items-center gap-2">
                            <ShieldCheck size={14}/> Dados Gerais
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                           <InputField label="Nome Fantasia *" value={formData.nomeFantasia} onChange={(v:string) => setFormData({...formData, nomeFantasia: v})} required placeholder="Ex: Cantina Central Alpha" />
-                           <InputField label={isSuperAdmin ? "Nome do Proprietário *" : "Nome do Gerente Responsável *"} value={formData.managerName} onChange={(v:string) => setFormData({...formData, managerName: v})} required placeholder="Nome completo" />
+                        <InputField
+                          label="CNPJ/CPF *"
+                          value={formData.document}
+                          onChange={(v:string) => setFormData({...formData, document: formatCpfCnpj(v)})}
+                          onBlur={handleDocumentBlur}
+                          required
+                          placeholder={formData.type === 'RESTAURANTE' ? '00.000.000/0001-00 ou 000.000.000-00' : '00.000.000/0001-00'}
+                          helperText={isCnpjLookupLoading ? 'Consultando dados no CNPJ...' : 'Ao informar CNPJ válido, os dados são preenchidos automaticamente.'}
+                        />
+                        <InputField
+                          label="Nome/Razão Social *"
+                          value={formData.nomeFantasia}
+                          onChange={(v:string) => setFormData({...formData, nomeFantasia: v})}
+                          required
+                          placeholder={formData.type === 'RESTAURANTE' ? 'Ex: Restaurante Sabor da Serra LTDA' : 'Ex: Cantina Central Alpha LTDA'}
+                        />
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                           <InputField label="CNPJ Filial *" value={formData.document} onChange={(v:string) => setFormData({...formData, document: v})} required placeholder="00.000.000/0001-00" />
+                        <InputField label={isSuperAdmin ? "Nome do Proprietário *" : "Nome do Gerente Responsável *"} value={formData.managerName} onChange={(v:string) => setFormData({...formData, managerName: v})} required placeholder={formData.type === 'RESTAURANTE' ? 'Nome do gerente do restaurante' : 'Nome completo do responsável'} />
                            <InputField label="E-mail de Acesso (Login) *" type="email" value={formData.email} onChange={(v:string) => setFormData({...formData, email: v})} required placeholder="exemplo@email.com" />
                         </div>
                         
@@ -604,7 +734,15 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                            <div className="md:col-span-1">
-                             <InputField label="CEP *" value={formData.cep} onChange={(v:string) => setFormData({...formData, cep: v})} required placeholder="00000-000" />
+                             <InputField
+                               label="CEP *"
+                               value={formData.cep}
+                               onChange={(v:string) => setFormData({...formData, cep: formatCep(v)})}
+                               onBlur={handleCepBlur}
+                               required
+                               placeholder="00000-000"
+                               helperText={isCepLookupLoading ? 'Consultando endereço pelo CEP...' : 'Ao informar CEP válido, o endereço é preenchido automaticamente.'}
+                             />
                            </div>
                            <div className="md:col-span-2">
                              <InputField label="Logradouro (Rua/Av) *" value={formData.street} onChange={(v:string) => setFormData({...formData, street: v})} required placeholder="Rua das Flores" />
@@ -685,7 +823,7 @@ const SaaSStatCard = ({ title, value, icon }: any) => (
   </div>
 );
 
-const InputField = ({ label, value, onChange, placeholder, type = "text", required = false, icon }: any) => (
+const InputField = ({ label, value, onChange, onBlur, placeholder, type = "text", required = false, icon, helperText }: any) => (
   <div className="space-y-1.5 relative">
     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{label}</label>
     <div className="relative">
@@ -695,10 +833,12 @@ const InputField = ({ label, value, onChange, placeholder, type = "text", requir
         required={required}
         value={value} 
         onChange={e => onChange(e.target.value)} 
+        onBlur={onBlur}
         className={`w-full ${icon ? 'pl-10 pr-3' : 'px-4'} py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-bold text-gray-800 text-sm transition-all shadow-inner focus:bg-white`} 
         placeholder={placeholder} 
       />
     </div>
+    {helperText && <p className="text-[10px] font-semibold text-gray-400 ml-1">{helperText}</p>}
   </div>
 );
 

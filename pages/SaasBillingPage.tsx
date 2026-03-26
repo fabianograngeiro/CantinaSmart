@@ -145,7 +145,7 @@ const SaasBillingPage: React.FC<SaasBillingPageProps> = ({ currentUser }) => {
     localStorage.setItem(INVOICES_STORAGE_KEY, JSON.stringify(next));
   };
 
-  const generateMonthlyInvoices = () => {
+  const generateMonthlyInvoices = async () => {
     const referenceMonth = getReferenceMonth(new Date());
     const dueDate = getDueDateByReference(referenceMonth, DEFAULT_DUE_DAY);
     const activeClients = enterprises.filter((ent) => (ent.serviceStatus || 'ATIVO') !== 'CANCELADO');
@@ -160,6 +160,10 @@ const SaasBillingPage: React.FC<SaasBillingPageProps> = ({ currentUser }) => {
     activeClients.forEach((ent) => {
       const key = `${ent.id}::${referenceMonth}`;
       if (existingKeys.has(key)) return;
+      const pendingAdjustment = Number(ent.pendingPlanAdjustmentAmount || 0);
+      const baseAmount = Number(ent.monthlyFee || 0);
+      const finalAmount = baseAmount + pendingAdjustment;
+      const noteParts = [pendingAdjustment > 0 ? `Ajuste de plano: +${formatCurrency(pendingAdjustment)}` : '', ent.pendingPlanAdjustmentReason || ''].filter(Boolean);
       generated.push({
         id: `inv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         enterpriseId: ent.id,
@@ -167,8 +171,9 @@ const SaasBillingPage: React.FC<SaasBillingPageProps> = ({ currentUser }) => {
         ownerName: ent.ownerName || ent.managerName || 'Owner',
         referenceMonth,
         dueDate,
-        amount: Number(ent.monthlyFee || 0),
-        status: 'PENDING'
+        amount: finalAmount,
+        status: 'PENDING',
+        notes: noteParts.join(' | ') || undefined,
       });
     });
 
@@ -179,6 +184,22 @@ const SaasBillingPage: React.FC<SaasBillingPageProps> = ({ currentUser }) => {
 
     const next = [...generated, ...invoices];
     saveInvoices(next);
+    const adjustedEnterprises = activeClients.filter((ent) => Number(ent.pendingPlanAdjustmentAmount || 0) > 0);
+    if (adjustedEnterprises.length > 0) {
+      try {
+        const updatedEnterprises = await Promise.all(
+          adjustedEnterprises.map((ent) =>
+            ApiService.updateEnterprise(ent.id, {
+              pendingPlanAdjustmentAmount: 0,
+              pendingPlanAdjustmentReason: '',
+            })
+          )
+        );
+        setEnterprises((prev) => prev.map((ent) => updatedEnterprises.find((item) => item.id === ent.id) || ent));
+      } catch (err) {
+        console.error('Erro ao limpar ajustes pendentes de plano:', err);
+      }
+    }
     appendSaasAuditLog({
       actorName: currentUser.name,
       actorRole: String(currentUser.role || ''),

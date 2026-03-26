@@ -6,6 +6,7 @@ import { exec as execCallback } from 'child_process';
 import { promisify } from 'util';
 import { db } from '../database';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { hashPassword } from '../utils/security';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -310,7 +311,7 @@ router.get('/needs-setup', (req: Request, res: Response) => {
 });
 
 // Setup inicial - Cria o primeiro usuário SUPERADMIN
-router.post('/initial-setup', (req: Request, res: Response) => {
+router.post('/initial-setup', async (req: Request, res: Response) => {
   console.log('\n🚀 [SYSTEM] INITIAL SETUP REQUEST RECEIVED');
   
   const { name, email, password } = req.body;
@@ -334,12 +335,14 @@ router.post('/initial-setup', (req: Request, res: Response) => {
       });
     }
     
+    const hashedPassword = await hashPassword(String(password));
+
     // Cria o primeiro usuário SUPERADMIN
     const superAdmin = {
       id: 'u_super',
       name,
       email,
-      password, // Em produção, deveria ser hasheado
+      password: hashedPassword,
       role: 'SUPERADMIN',
       avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${name}`,
       isActive: true

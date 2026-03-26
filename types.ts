@@ -38,9 +38,18 @@ export type User = {
   email: string;
   role: Role;
   avatar?: string;
+  document?: string;
   enterpriseIds?: string[];
   isActive: boolean;
   phone?: string;
+  expirationDate?: string;
+  cep?: string;
+  street?: string;
+  number?: string;
+  neighborhood?: string;
+  complement?: string;
+  city?: string;
+  state?: string;
   createdAt?: string;
   trialExpiresAt?: string;
   permissions?: UserPermissions;
@@ -90,6 +99,8 @@ export type Enterprise = {
   receiptFontSize?: 'SMALL' | 'NORMAL' | 'LARGE';
   receiptMarginVertical?: number;
   receiptMarginHorizontal?: number;
+  pendingPlanAdjustmentAmount?: number;
+  pendingPlanAdjustmentReason?: string;
   receiptItemGapTop?: number;
   receiptItemGapBottom?: number;
 };

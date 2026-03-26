@@ -55,6 +55,35 @@ type DashboardMetrics = {
   salesByCategory: Array<{ name: string; value: number; fill: string }>;
 };
 
+type SuperAdminInsights = {
+  totalRevenue: number;
+  renewalsCount: number;
+  totalClientsByDocument: number;
+  activeOwners: number;
+  inactiveOwners: number;
+  newOwnersInRange: number;
+  convertedTrialsCount: number;
+  mrrEstimated: number;
+  avgRenewalTicket: number;
+  previousRevenue: number;
+  revenueProgressPct: number;
+  trendSeries: Array<{
+    label: string;
+    revenue: number;
+    profitPct: number;
+  }>;
+};
+
+type SaasInvoice = {
+  id: string;
+  enterpriseId: string;
+  amount: number;
+  status: 'PENDING' | 'PAID' | 'OVERDUE' | 'CANCELED';
+  paidAt?: string;
+};
+
+const SAAS_INVOICES_STORAGE_KEY = 'saas_invoices_v1';
+
 const toDateKey = (date: Date) => {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, '0');
@@ -100,6 +129,31 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
     salesByCategory: [],
   });
   const [isLoadingDashboardMetrics, setIsLoadingDashboardMetrics] = useState(false);
+  const [superAdminRange, setSuperAdminRange] = useState<{ start: string; end: string }>(() => {
+    const today = new Date();
+    const start = new Date(today);
+    start.setDate(today.getDate() - 29);
+    return {
+      start: toDateKey(start),
+      end: toDateKey(today),
+    };
+  });
+  const [superAdminInsights, setSuperAdminInsights] = useState<SuperAdminInsights>({
+    totalRevenue: 0,
+    renewalsCount: 0,
+    totalClientsByDocument: 0,
+    activeOwners: 0,
+    inactiveOwners: 0,
+    newOwnersInRange: 0,
+    convertedTrialsCount: 0,
+    mrrEstimated: 0,
+    avgRenewalTicket: 0,
+    previousRevenue: 0,
+    revenueProgressPct: 0,
+    trendSeries: [],
+  });
+  const [isLoadingSuperAdminInsights, setIsLoadingSuperAdminInsights] = useState(false);
+  const [superAdminChartTick, setSuperAdminChartTick] = useState(0);
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const [chartContainerSize, setChartContainerSize] = useState({ width: 0, height: 0 });
   const chartGridColor = isDark ? '#334155' : '#f1f5f9';
@@ -114,6 +168,19 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
     } else {
       setIsLoadingStats(false); // Para não-SUPERADMIN, não precisa carregar stats
     }
+  }, [currentUser.role]);
+
+  useEffect(() => {
+    if (currentUser.role !== Role.SUPERADMIN) return;
+    loadSuperAdminInsights();
+  }, [currentUser.role, superAdminRange.start, superAdminRange.end]);
+
+  useEffect(() => {
+    if (currentUser.role !== Role.SUPERADMIN) return;
+    const interval = window.setInterval(() => {
+      setSuperAdminChartTick((prev) => prev + 1);
+    }, 4500);
+    return () => window.clearInterval(interval);
   }, [currentUser.role]);
 
   // Buscar colaboradores com débito para unidades
@@ -469,10 +536,270 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
     }
   };
 
+  const loadSuperAdminInsights = async () => {
+    try {
+      setIsLoadingSuperAdminInsights(true);
+      const [users, enterprises] = await Promise.all([
+        ApiService.getUsers(),
+        ApiService.getEnterprises(),
+      ]);
+
+      let invoices: SaasInvoice[] = [];
+      try {
+        const raw = localStorage.getItem(SAAS_INVOICES_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        invoices = Array.isArray(parsed) ? parsed : [];
+      } catch (storageErr) {
+        console.error('Erro ao carregar faturas SaaS no dashboard:', storageErr);
+        invoices = [];
+      }
+
+      const startDate = new Date(`${superAdminRange.start}T00:00:00`);
+      const endDate = new Date(`${superAdminRange.end}T23:59:59`);
+      const periodDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / 86400000) + 1);
+      const prevEnd = new Date(startDate);
+      prevEnd.setDate(prevEnd.getDate() - 1);
+      const prevStart = new Date(prevEnd);
+      prevStart.setDate(prevStart.getDate() - (periodDays - 1));
+
+      const normalizePaidDate = (invoice: SaasInvoice) => {
+        const date = new Date(invoice.paidAt || '');
+        return Number.isNaN(date.getTime()) ? null : date;
+      };
+      const numericInvoiceValue = (invoice: SaasInvoice) => {
+        const value = Number(invoice?.amount ?? 0);
+        return Number.isFinite(value) ? value : 0;
+      };
+
+      const paidInvoices = invoices.filter((invoice) => String(invoice?.status || '').toUpperCase() === 'PAID');
+      const inRangePaidInvoices = paidInvoices.filter((invoice) => {
+        const paidDate = normalizePaidDate(invoice);
+        return paidDate && paidDate >= startDate && paidDate <= endDate;
+      });
+      const prevRangePaidInvoices = paidInvoices.filter((invoice) => {
+        const paidDate = normalizePaidDate(invoice);
+        return paidDate && paidDate >= prevStart && paidDate <= prevEnd;
+      });
+
+      const totalRevenue = inRangePaidInvoices.reduce((sum, invoice) => sum + numericInvoiceValue(invoice), 0);
+      const previousRevenue = prevRangePaidInvoices.reduce((sum, invoice) => sum + numericInvoiceValue(invoice), 0);
+
+      const owners = (Array.isArray(users) ? users : []).filter((user: User) => String(user.role || '').toUpperCase() === Role.OWNER);
+      const sanitizedDocuments = owners
+        .map((owner: User) => String(owner.document || '').replace(/\D/g, ''))
+        .filter((document) => document.length >= 11);
+      const totalClientsByDocument = new Set(sanitizedDocuments).size;
+      const activeOwners = owners.filter((owner: User) => owner.isActive !== false).length;
+      const inactiveOwners = owners.filter((owner: User) => owner.isActive === false).length;
+      const newOwnersInRange = owners.filter((owner: User) => {
+        const createdAt = owner.createdAt ? new Date(owner.createdAt) : null;
+        return createdAt && !Number.isNaN(createdAt.getTime()) && createdAt >= startDate && createdAt <= endDate;
+      }).length;
+
+      const activeEnterprises = (Array.isArray(enterprises) ? enterprises : []).filter((enterprise: Enterprise) => String(enterprise.serviceStatus || '').toUpperCase() !== 'CANCELADO');
+      const mrrEstimated = activeEnterprises.reduce((sum: number, enterprise: Enterprise) => sum + Number(enterprise.monthlyFee || 0), 0);
+      const convertedTrialsCount = new Set(
+        activeEnterprises
+          .filter((enterprise: Enterprise) => String(enterprise.serviceStatus || '').toUpperCase() !== 'TRIAL')
+          .map((enterprise: Enterprise) => enterprise.id)
+          .filter((enterpriseId: string) => paidInvoices.some((invoice) => invoice.enterpriseId === enterpriseId))
+      ).size;
+
+      const inRangeRenewalsCount = inRangePaidInvoices.length;
+      const avgRenewalTicket = inRangeRenewalsCount > 0 ? totalRevenue / inRangeRenewalsCount : 0;
+
+      const trendMap = new Map<string, { revenue: number; date: Date }>();
+      for (let cursor = new Date(startDate); cursor <= endDate; cursor.setDate(cursor.getDate() + 1)) {
+        const key = toDateKey(cursor);
+        trendMap.set(key, { revenue: 0, date: new Date(cursor) });
+      }
+      inRangePaidInvoices.forEach((invoice) => {
+        const paidDate = normalizePaidDate(invoice);
+        if (!paidDate) return;
+        const key = toDateKey(paidDate);
+        const current = trendMap.get(key);
+        if (!current) return;
+        current.revenue += numericInvoiceValue(invoice);
+      });
+
+      const trendRevenueSeries = Array.from(trendMap.values()).map((point) => ({
+        label: point.date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+        revenue: Number(point.revenue.toFixed(2)),
+      }));
+      const trendSeries = trendRevenueSeries.map((point, index) => {
+        const previousPoint = trendRevenueSeries[index - 1];
+        const previousRevenueByDay = Number(previousPoint?.revenue || 0);
+        const profitPct = previousRevenueByDay <= 0
+          ? (point.revenue > 0 ? 100 : 0)
+          : ((point.revenue - previousRevenueByDay) / previousRevenueByDay) * 100;
+        return {
+          label: point.label,
+          revenue: point.revenue,
+          profitPct: Number(profitPct.toFixed(1)),
+        };
+      });
+
+      const revenueProgressPct = previousRevenue <= 0
+        ? (totalRevenue > 0 ? 100 : 0)
+        : ((totalRevenue - previousRevenue) / previousRevenue) * 100;
+
+      setSuperAdminInsights({
+        totalRevenue: Number(totalRevenue.toFixed(2)),
+        renewalsCount: inRangeRenewalsCount,
+        totalClientsByDocument,
+        activeOwners,
+        inactiveOwners,
+        newOwnersInRange,
+        convertedTrialsCount,
+        mrrEstimated: Number(mrrEstimated.toFixed(2)),
+        avgRenewalTicket: Number(avgRenewalTicket.toFixed(2)),
+        previousRevenue: Number(previousRevenue.toFixed(2)),
+        revenueProgressPct: Number(revenueProgressPct.toFixed(1)),
+        trendSeries,
+      });
+    } catch (err) {
+      console.error('Erro ao carregar insights do SUPERADMIN:', err);
+      setSuperAdminInsights({
+        totalRevenue: 0,
+        renewalsCount: 0,
+        totalClientsByDocument: 0,
+        activeOwners: 0,
+        inactiveOwners: 0,
+        newOwnersInRange: 0,
+        convertedTrialsCount: 0,
+        mrrEstimated: 0,
+        avgRenewalTicket: 0,
+        previousRevenue: 0,
+        revenueProgressPct: 0,
+        trendSeries: [],
+      });
+    } finally {
+      setIsLoadingSuperAdminInsights(false);
+    }
+  };
+
   const isSuperAdmin = currentUser.role === Role.SUPERADMIN;
   const isOwner = currentUser.role === Role.OWNER;
   const isRestaurant = activeEnterprise?.type === 'RESTAURANTE';
   const hasHourlyMovement = (dashboardMetrics.todayHourly || []).some((point) => Number(point?.sales || 0) > 0);
+
+  if (isSuperAdmin) {
+    return (
+      <div className="dash-shell space-y-4 p-4">
+        <header className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <img
+              src={resolveUserAvatar(currentUser?.avatar, currentUser?.name)}
+              alt={currentUser?.name || 'Usuário'}
+              className="w-11 h-11 rounded-xl object-cover border-2 border-white shadow-sm"
+            />
+            <div>
+              <h1 className="text-xl font-black text-slate-900 dark:text-zinc-100 uppercase tracking-tight flex items-center gap-2">
+                <Globe className="text-indigo-600" size={18} /> Dashboard SUPERADMIN
+              </h1>
+              <p className="text-[11px] font-semibold text-slate-500 dark:text-zinc-400">Desempenho, financeiro, clientes e progresso global da plataforma</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={superAdminRange.start}
+              onChange={(e) => setSuperAdminRange((prev) => ({ ...prev, start: e.target.value }))}
+              className="h-9 px-2 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs font-bold"
+            />
+            <span className="text-xs font-black text-slate-400 uppercase">até</span>
+            <input
+              type="date"
+              value={superAdminRange.end}
+              onChange={(e) => setSuperAdminRange((prev) => ({ ...prev, end: e.target.value }))}
+              className="h-9 px-2 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs font-bold"
+            />
+          </div>
+        </header>
+
+        <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 p-3">
+            <p className="text-[10px] font-black uppercase tracking-wider text-emerald-600">Receita no período</p>
+            <p className="text-xl font-black text-emerald-800 dark:text-emerald-200">R$ {superAdminInsights.totalRevenue.toFixed(2)}</p>
+          </div>
+          <div className="rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-900/20 p-3">
+            <p className="text-[10px] font-black uppercase tracking-wider text-blue-600">Renovações no período</p>
+            <p className="text-xl font-black text-blue-800 dark:text-blue-200">{superAdminInsights.renewalsCount}</p>
+          </div>
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50 dark:bg-indigo-900/20 p-3">
+            <p className="text-[10px] font-black uppercase tracking-wider text-indigo-600">MRR estimado</p>
+            <p className="text-xl font-black text-indigo-800 dark:text-indigo-200">R$ {superAdminInsights.mrrEstimated.toFixed(2)}</p>
+          </div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/20 p-3">
+            <p className="text-[10px] font-black uppercase tracking-wider text-amber-600">Ticket médio da renovação</p>
+            <p className="text-xl font-black text-amber-800 dark:text-amber-200">R$ {superAdminInsights.avgRenewalTicket.toFixed(2)}</p>
+          </div>
+        </section>
+
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <div className="rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4 space-y-2">
+            <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500">Clientes e contas</h3>
+            <p className="text-sm font-bold text-slate-700 dark:text-zinc-200">Clientes totais (donos com doc): {superAdminInsights.totalClientsByDocument}</p>
+            <p className="text-sm font-bold text-slate-700 dark:text-zinc-200">Owners ativos: {superAdminInsights.activeOwners}</p>
+            <p className="text-sm font-bold text-slate-700 dark:text-zinc-200">Owners inativos: {superAdminInsights.inactiveOwners}</p>
+            <p className="text-sm font-bold text-slate-700 dark:text-zinc-200">Novos owners no período: {superAdminInsights.newOwnersInRange}</p>
+            <p className="text-sm font-bold text-slate-700 dark:text-zinc-200">Testes convertidos em clientes: {superAdminInsights.convertedTrialsCount}</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4 space-y-2">
+            <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500">Base da plataforma</h3>
+            <p className="text-sm font-bold text-slate-700 dark:text-zinc-200">Usuários: {systemStats?.users || 0}</p>
+            <p className="text-sm font-bold text-slate-700 dark:text-zinc-200">Empresas: {systemStats?.enterprises || 0}</p>
+            <p className="text-sm font-bold text-slate-700 dark:text-zinc-200">Pedidos: {systemStats?.orders || 0}</p>
+          </div>
+        </section>
+
+        <section className="grid grid-cols-1 gap-3">
+          <div className="rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4 space-y-3">
+            <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500">Desempenho e progresso</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <p className="text-sm font-bold text-slate-700 dark:text-zinc-200">Receita: R$ {superAdminInsights.totalRevenue.toFixed(2)}</p>
+              <p className={`text-sm font-black ${superAdminInsights.revenueProgressPct >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                Porcentagem de lucro: {superAdminInsights.revenueProgressPct >= 0 ? '+' : ''}{superAdminInsights.revenueProgressPct.toFixed(1)}%
+              </p>
+            </div>
+            <p className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Comparado ao período anterior equivalente.</p>
+            <div className="h-56 w-full rounded-lg border border-slate-100 dark:border-zinc-800 bg-slate-50/80 dark:bg-zinc-950/40 p-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart key={`superadmin-trend-${superAdminChartTick}`} data={superAdminInsights.trendSeries} margin={{ top: 8, right: 12, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartGridColor} />
+                  <XAxis dataKey="label" tick={{ fill: chartTextColor, fontSize: 10 }} axisLine={false} tickLine={false} minTickGap={14} />
+                  <YAxis yAxisId="revenue" tick={{ fill: chartTextColor, fontSize: 10 }} axisLine={false} tickLine={false} width={56} />
+                  <YAxis yAxisId="profitPct" orientation="right" tick={{ fill: chartTextColor, fontSize: 10 }} axisLine={false} tickLine={false} width={44} tickFormatter={(value) => `${value}%`} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: chartTooltipBg,
+                      border: `1px solid ${chartTooltipBorder}`,
+                      borderRadius: '10px',
+                      color: chartTextColor,
+                      fontSize: '12px',
+                    }}
+                    formatter={(value: number, name: string) => {
+                      if (name === 'Receita') return [`R$ ${Number(value).toFixed(2)}`, name];
+                      if (name === '% Lucro') return [`${Number(value).toFixed(1)}%`, name];
+                      return [String(value), name];
+                    }}
+                  />
+                  <Line yAxisId="revenue" type="monotone" dataKey="revenue" name="Receita" stroke="#10b981" strokeWidth={3} dot={false} isAnimationActive animationDuration={2400} animationEasing="ease-in-out" />
+                  <Line yAxisId="profitPct" type="monotone" dataKey="profitPct" name="% Lucro" stroke="#f59e0b" strokeWidth={2.5} dot={false} strokeDasharray="7 4" isAnimationActive animationDuration={2400} animationEasing="ease-in-out" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </section>
+
+        {(isLoadingStats || isLoadingSuperAdminInsights) && (
+          <div className="rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4 text-sm font-bold text-slate-500 dark:text-zinc-400">
+            Carregando indicadores do SUPERADMIN...
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // Guard clause: se não houver enterprise ativa E não for SUPERADMIN, mostrar mensagem
   if (!activeEnterprise && !isSuperAdmin) {
@@ -609,7 +936,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
     }
   };
 
-  if (isSuperAdmin) {
+  if (false && isSuperAdmin) {
     return (
       <div className="space-y-6">
         <div className="flex justify-between items-center">

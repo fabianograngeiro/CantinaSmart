@@ -362,6 +362,41 @@ const AppContent: React.FC<any> = (props) => {
     availableEnterprises,
     showEnterpriseSelector, setShowEnterpriseSelector, resolvedPermissions
   } = props;
+  const [trialBanner, setTrialBanner] = React.useState<{ show: boolean; expiresAt: string; daysLeft: number }>({
+    show: false,
+    expiresAt: '',
+    daysLeft: 0,
+  });
+
+  const calcTrialDaysLeft = (iso: string) => {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return 0;
+    return Math.ceil((date.getTime() - Date.now()) / 86400000);
+  };
+
+  const applyTrialBanner = (trialExpiresAt?: string) => {
+    const iso = String(trialExpiresAt || '').trim();
+    if (!iso) {
+      setTrialBanner({ show: false, expiresAt: '', daysLeft: 0 });
+      return;
+    }
+    setTrialBanner({ show: true, expiresAt: iso, daysLeft: calcTrialDaysLeft(iso) });
+  };
+
+  const trialBannerTone = trialBanner.daysLeft < 0
+    ? {
+        wrapper: 'border-red-300/80 bg-red-50 text-red-900',
+        icon: 'text-red-700',
+      }
+    : trialBanner.daysLeft <= 3
+      ? {
+          wrapper: 'border-orange-300/80 bg-orange-50 text-orange-900',
+          icon: 'text-orange-700',
+        }
+      : {
+          wrapper: 'border-amber-300/80 bg-amber-50 text-amber-900',
+          icon: 'text-amber-700',
+        };
 
   // Verificar se está na página de enterprises
   const isOnEnterprisesPage = location.pathname === '/enterprises';
@@ -374,8 +409,109 @@ const AppContent: React.FC<any> = (props) => {
     }
   }, [isAuthenticated, isPortalUser, location.pathname]);
 
+  React.useEffect(() => {
+    if (!isAuthenticated || !currentUser) return;
+    const isOwnerRole = normalizeRole(String(currentUser.role || '')) === Role.OWNER;
+    if (!isOwnerRole) return;
+    const hasLinkedEnterprise = Array.isArray(currentUser.enterpriseIds) && currentUser.enterpriseIds.length > 0;
+    if (!hasLinkedEnterprise && location.pathname !== '/enterprises') {
+      notificationService.alerta(
+        'Configuração inicial necessária',
+        'Cadastre sua primeira unidade para concluir a configuração da conta.'
+      );
+      navigate('/enterprises');
+    }
+  }, [
+    isAuthenticated,
+    currentUser?.id,
+    currentUser?.role,
+    (currentUser?.enterpriseIds || []).join(','),
+    location.pathname,
+  ]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const resolveTrialBanner = async () => {
+      if (!isAuthenticated || !currentUser) {
+        if (!cancelled) setTrialBanner({ show: false, expiresAt: '', daysLeft: 0 });
+        return;
+      }
+
+      const roleKey = normalizeRole(String(currentUser.role || ''));
+      if (isSuperAdminRole(roleKey) || roleKey === Role.ADMIN_SISTEMA) {
+        if (!cancelled) setTrialBanner({ show: false, expiresAt: '', daysLeft: 0 });
+        return;
+      }
+
+      if (String(currentUser.trialExpiresAt || '').trim()) {
+        if (!cancelled) applyTrialBanner(currentUser.trialExpiresAt);
+        return;
+      }
+
+      const candidateEnterpriseIds = new Set<string>([
+        String(activeEnterprise?.id || '').trim(),
+        ...(Array.isArray(currentUser.enterpriseIds) ? currentUser.enterpriseIds : []),
+      ].filter(Boolean));
+
+      if (candidateEnterpriseIds.size === 0) {
+        if (!cancelled) setTrialBanner({ show: false, expiresAt: '', daysLeft: 0 });
+        return;
+      }
+
+      try {
+        const users = await ApiService.getUsers();
+        if (cancelled) return;
+        const owner = (Array.isArray(users) ? users : []).find((user: User) => {
+          if (normalizeRole(String(user.role || '')) !== Role.OWNER) return false;
+          const ownerEnterpriseIds = Array.isArray(user.enterpriseIds) ? user.enterpriseIds : [];
+          return ownerEnterpriseIds.some((enterpriseId) => candidateEnterpriseIds.has(String(enterpriseId || '').trim()));
+        });
+        applyTrialBanner(owner?.trialExpiresAt);
+      } catch {
+        if (!cancelled) setTrialBanner({ show: false, expiresAt: '', daysLeft: 0 });
+      }
+    };
+
+    resolveTrialBanner();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isAuthenticated,
+    currentUser?.id,
+    currentUser?.role,
+    currentUser?.trialExpiresAt,
+    activeEnterprise?.id,
+    (currentUser?.enterpriseIds || []).join(','),
+  ]);
+
   return (
       <div className="flex h-screen bg-gray-50 dark:bg-[#0c0c0e] overflow-hidden text-gray-900 dark:text-zinc-100 font-['Inter'] relative">
+        {isAuthenticated && trialBanner.show && (
+          <div className="fixed top-0 inset-x-0 z-[120] px-3 pt-2 pointer-events-none">
+            <div className={`mx-auto max-w-5xl pointer-events-auto rounded-xl border px-4 py-2.5 shadow-md ${trialBannerTone.wrapper}`}>
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={14} className={`${trialBannerTone.icon} shrink-0`} />
+                {trialBanner.daysLeft > 0 ? (
+                  <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide">
+                    {trialBanner.daysLeft <= 3
+                      ? `Atenção: seu período de teste termina em ${trialBanner.daysLeft} dia${trialBanner.daysLeft === 1 ? '' : 's'}. Renove agora para não ficar sem acesso.`
+                      : `Seu período de teste termina em ${trialBanner.daysLeft} dia${trialBanner.daysLeft === 1 ? '' : 's'}. Renove para não ficar sem acesso.`}
+                  </p>
+                ) : trialBanner.daysLeft === 0 ? (
+                  <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide">
+                    Seu período de teste termina hoje. Renove agora para não ficar sem acesso.
+                  </p>
+                ) : (
+                  <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide">
+                    Seu período de teste expirou há {Math.abs(trialBanner.daysLeft)} dia{Math.abs(trialBanner.daysLeft) === 1 ? '' : 's'}. Renove para evitar bloqueio de acesso.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         <NotificationCenter />
         
         {!isAuthenticated ? (

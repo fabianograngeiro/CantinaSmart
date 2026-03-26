@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Mail, Lock, LogIn, ShieldCheck, UserPlus, X, User, AlertCircle } from 'lucide-react';
 import { User as UserType } from '../types';
 import ApiService from '../services/api';
+import notificationService from '../services/notificationService';
 
 interface LoginPageProps {
   onLogin: (user: UserType) => void;
@@ -33,7 +34,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
       const response = await ApiService.login(email, password);
       onLogin(response.user);
     } catch (err) {
-      setError('Credenciais inválidas');
+      const message = err instanceof Error ? err.message : 'Credenciais inválidas';
+      setError(message);
+      notificationService.critico('Falha no login', message);
       setIsLoading(false);
     }
   };
@@ -44,7 +47,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     setRegisterError('');
 
     if (!registerData.name || !registerData.email || !registerData.password) {
-      setRegisterError('Preencha todos os campos');
+      const message = 'Preencha todos os campos';
+      setRegisterError(message);
+      notificationService.alerta('Cadastro incompleto', message);
       setIsRegisterLoading(false);
       return;
     }
@@ -62,7 +67,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
       onLogin(newUser);
       setIsRegisterModalOpen(false);
     } catch (err) {
-      setRegisterError('Erro ao registrar. Tente novamente.');
+      const message = err instanceof Error ? err.message : 'Erro ao registrar. Tente novamente.';
+      setRegisterError(message);
+      notificationService.critico('Falha no cadastro', message);
       setIsRegisterLoading(false);
     }
   };

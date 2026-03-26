@@ -15,6 +15,7 @@ type SaaSPlanConfig = {
   key: SaaSPlanKey;
   name: string;
   monthlyPrice: number;
+  graceDaysAfterDue: number;
   maxUnits: number;
   maxStaffUsers: number;
   hasWhatsappBroadcast: boolean;
@@ -43,6 +44,7 @@ const DEFAULT_CATALOG: Record<SaaSPlanKey, SaaSPlanConfig> = {
     key: 'BASIC',
     name: 'Básico',
     monthlyPrice: 197,
+    graceDaysAfterDue: 0,
     maxUnits: 1,
     maxStaffUsers: 5,
     hasWhatsappBroadcast: false,
@@ -54,6 +56,7 @@ const DEFAULT_CATALOG: Record<SaaSPlanKey, SaaSPlanConfig> = {
     key: 'PREMIUM',
     name: 'Premium',
     monthlyPrice: 397,
+    graceDaysAfterDue: 0,
     maxUnits: 10,
     maxStaffUsers: 50,
     hasWhatsappBroadcast: true,
@@ -114,6 +117,8 @@ const SaasPlanosPage: React.FC<SaasPlanosPageProps> = ({ currentUser }) => {
       metadata: {
         basicPrice: catalog.BASIC.monthlyPrice,
         premiumPrice: catalog.PREMIUM.monthlyPrice,
+        basicGraceDaysAfterDue: catalog.BASIC.graceDaysAfterDue,
+        premiumGraceDaysAfterDue: catalog.PREMIUM.graceDaysAfterDue,
         basicUsers: catalog.BASIC.maxStaffUsers,
         premiumUsers: catalog.PREMIUM.maxStaffUsers,
       },
@@ -168,6 +173,7 @@ const SaasPlanosPage: React.FC<SaasPlanosPageProps> = ({ currentUser }) => {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <FieldNumber label="Mensalidade (R$)" value={plan.monthlyPrice} onChange={(v) => handleCatalogField(planKey, 'monthlyPrice', v)} />
+                <FieldNumber label="Dias após vencimento" value={plan.graceDaysAfterDue} onChange={(v) => handleCatalogField(planKey, 'graceDaysAfterDue', Math.max(0, Math.trunc(v)))} />
                 <FieldNumber label="Máx. Unidades" value={plan.maxUnits} onChange={(v) => handleCatalogField(planKey, 'maxUnits', v)} />
                 <FieldNumber label="Máx. Usuários Staff" value={plan.maxStaffUsers} onChange={(v) => handleCatalogField(planKey, 'maxStaffUsers', v)} />
               </div>
