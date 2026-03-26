@@ -15,6 +15,7 @@ backend/data/database.json
 backend/data/*.json
 !backend/data/*.example.json
 !backend/data/.gitkeep
+!backend/data/nutritionalBaseSeed.ts
 *.db
 *.sqlite
 *.sqlite3
