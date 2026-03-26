@@ -423,7 +423,6 @@ const AppContent: React.FC<any> = (props) => {
                 {isSuperAdmin && (
                   <div className="pt-4 pb-2 space-y-1">
                     <p className={`text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Master Control</p>
-                    <SidebarItem icon={<Users size={20} />} label="Clientes" to="/saas-clients" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Shield size={20} />} label="Equipe Interna" to="/system-staff" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Building2 size={20} />} label="Clientes SaaS" to="/enterprises" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Sparkles size={20} />} label="Planos SaaS" to="/saas-plans" isOpen={isSidebarOpen} />
@@ -439,9 +438,6 @@ const AppContent: React.FC<any> = (props) => {
                 {isAdminSistema && (
                   <div className="pt-4 pb-2 space-y-1">
                     <p className={`text-[9px] font-black text-purple-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Painel SaaS</p>
-                    {currentUser?.systemPermissions?.canManageClients && (
-                      <SidebarItem icon={<Users size={20} />} label="Clientes" to="/saas-clients" isOpen={isSidebarOpen} />
-                    )}
                     {currentUser?.systemPermissions?.canManageEnterprises && (
                       <SidebarItem icon={<Building2 size={20} />} label="Clientes SaaS" to="/enterprises" isOpen={isSidebarOpen} />
                     )}
