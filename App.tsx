@@ -781,7 +781,7 @@ const AppContent: React.FC<any> = (props) => {
               <div className="flex-1 min-w-0 overflow-auto bg-gray-50 dark:bg-zinc-900/50">
                 <Routes>
                   <Route path="/" element={
-                    isOwner && !activeEnterprise ? (
+                    isOwner ? (
                       <OwnerDashboardPage currentUser={currentUser} enterprises={availableEnterprises} onSelectEnterprise={setActiveEnterprise} />
                     ) : (
                       <DashboardPage currentUser={currentUser} activeEnterprise={activeEnterprise} />
