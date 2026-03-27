@@ -1,7 +1,4 @@
-import { Router, Request, Response } from 'express';
-import path from 'path';
-import { promises as fs } from 'fs';
-import { fileURLToPath } from 'url';
+import { Router, Response } from 'express';
 import { db } from '../database.js';
 import { validateClient, validateClientUpdate } from '../utils/validation.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
@@ -10,29 +7,8 @@ import { requesterCanAccessEnterprise } from '../utils/enterpriseAccess.js';
 const PHONE_REQUIRED_VALIDATION_ERROR = 'Telefone é obrigatório para responsável e colaborador';
 
 const router = Router();
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const CLIENT_PHOTOS_DIR = path.resolve(__dirname, '../clients_photos');
 
-const ensureClientPhotosDir = async () => {
-  await fs.mkdir(CLIENT_PHOTOS_DIR, { recursive: true });
-};
-
-const sanitizeFileName = (name: string) => {
-  return String(name || 'cliente')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9._-]/g, '_')
-    .toLowerCase();
-};
-
-const extensionFromMime = (mimeType: string) => {
-  const normalized = String(mimeType || '').toLowerCase();
-  if (normalized === 'image/jpeg' || normalized === 'image/jpg') return 'jpg';
-  if (normalized === 'image/png') return 'png';
-  if (normalized === 'image/webp') return 'webp';
-  return null;
-};
+const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
 
 const hasActiveAiTemporaryPatchForPhoneValidation = () => {
   const tickets = db.getErrorTickets({ status: 'OPEN' });
@@ -110,39 +86,32 @@ router.post('/restore', (req: AuthRequest, res: Response) => {
   }
 });
 
-// Upload de foto do cliente/usuário
-router.post('/upload-photo', async (req: AuthRequest, res: Response) => {
+// Upload de foto do cliente/usuário — armazenado como Data URI no banco de dados
+router.post('/upload-photo', (req: AuthRequest, res: Response) => {
   try {
-    const { fileName, mimeType, dataBase64 } = req.body || {};
+    const { mimeType, dataBase64 } = req.body || {};
     if (!dataBase64 || typeof dataBase64 !== 'string') {
       return res.status(400).json({ error: 'Arquivo inválido para upload.' });
     }
 
-    const ext = extensionFromMime(mimeType);
-    if (!ext) {
+    const normalizedMime = String(mimeType || '').toLowerCase().trim();
+    if (!ALLOWED_MIME_TYPES.has(normalizedMime)) {
       return res.status(400).json({ error: 'Formato de imagem não suportado. Use JPG, PNG ou WEBP.' });
     }
 
-    const safeName = sanitizeFileName(fileName || 'cliente');
-    const baseName = safeName.replace(/\.[^.]+$/, '') || 'cliente';
-    const finalFileName = `${baseName}_${Date.now()}.${ext}`;
-    const filePath = path.join(CLIENT_PHOTOS_DIR, finalFileName);
-
-    const fileBuffer = Buffer.from(dataBase64, 'base64');
-    if (!fileBuffer.length) {
+    if (!dataBase64.length) {
       return res.status(400).json({ error: 'Conteúdo da imagem está vazio.' });
     }
 
-    await ensureClientPhotosDir();
-    await fs.writeFile(filePath, fileBuffer);
+    const dataUri = `data:${normalizedMime};base64,${dataBase64}`;
 
     return res.json({
       success: true,
-      photoUrl: `/clients_photos/${finalFileName}`
+      photoUrl: dataUri,
     });
   } catch (error) {
     console.error('❌ [CLIENTS] Error uploading client photo:', (error as Error).message);
-    return res.status(500).json({ error: 'Erro ao salvar foto do cliente' });
+    return res.status(500).json({ error: 'Erro ao processar foto do cliente' });
   }
 });
 

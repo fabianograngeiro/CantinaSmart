@@ -70,3 +70,4 @@ Thumbs.db
 # Local overrides
 *.local
 *.secret
+vite.config.ts

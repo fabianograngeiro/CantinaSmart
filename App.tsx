@@ -185,6 +185,10 @@ const App: React.FC = () => {
               return;
             }
           }
+          if (currentUser.role === 'OWNER' && enterprises.length === 1) {
+            setActiveEnterprise(enterprises[0]);
+            return;
+          }
           if (currentUser.role !== 'OWNER' && enterprises.length > 0) {
             setActiveEnterprise(enterprises[0]);
           }
@@ -194,7 +198,64 @@ const App: React.FC = () => {
       }
     };
     loadEnterprises();
-  }, [isAuthenticated, currentUser, activeEnterprise]);
+  }, [isAuthenticated, currentUser, activeEnterprise, location.pathname]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !currentUser) return;
+    if (normalizeRole(String(currentUser.role || '')) !== Role.OWNER) return;
+
+    const currentEnterpriseIds = Array.isArray(currentUser.enterpriseIds)
+      ? currentUser.enterpriseIds.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    if (currentEnterpriseIds.length > 0) return;
+
+    let cancelled = false;
+
+    const refreshOwnerScope = async () => {
+      try {
+        const freshUser = await ApiService.getUser(currentUser.id);
+        if (cancelled || !freshUser?.id) return;
+
+        const nextEnterpriseIds = Array.isArray(freshUser.enterpriseIds)
+          ? freshUser.enterpriseIds.map((id: string) => String(id || '').trim()).filter(Boolean)
+          : [];
+        if (nextEnterpriseIds.length === 0) return;
+
+        const mergedUser: User = {
+          ...currentUser,
+          ...freshUser,
+          enterpriseIds: nextEnterpriseIds,
+        };
+
+        setCurrentUser(mergedUser);
+        localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(mergedUser));
+
+        if (!activeEnterprise) {
+          const enterprises = await ApiService.getEnterprises();
+          if (cancelled) return;
+          const nextEnterprise = enterprises.find((enterprise: Enterprise) =>
+            nextEnterpriseIds.includes(String(enterprise?.id || '').trim())
+          ) || (enterprises.length === 1 ? enterprises[0] : null);
+          if (nextEnterprise) {
+            setActiveEnterprise(nextEnterprise);
+          }
+        }
+      } catch (err) {
+        console.error('Erro ao sincronizar escopo de empresas do owner:', err);
+      }
+    };
+
+    void refreshOwnerScope();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isAuthenticated,
+    currentUser?.id,
+    currentUser?.role,
+    (currentUser?.enterpriseIds || []).join(','),
+    activeEnterprise?.id,
+  ]);
 
   const handleLogin = async (user: User) => {
     try {

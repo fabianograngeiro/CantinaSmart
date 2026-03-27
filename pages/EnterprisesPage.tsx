@@ -671,10 +671,10 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
       {isModalOpen && (
         <div className="fixed inset-0 z-[1000] flex items-start justify-center p-4 overflow-y-auto">
            <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-sm animate-in fade-in" onClick={resetFormAndClose}></div>
-           <div className="relative my-4 w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[95vh]">
+           <div className="relative my-4 w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col h-[calc(100vh-2rem)] max-h-[95vh]">
               
               {!successData ? (
-                <form onSubmit={handleSaveEnterprise} className="flex flex-col h-full">
+                <form onSubmit={handleSaveEnterprise} className="flex flex-col flex-1 min-h-0">
                   <div className="bg-indigo-600 p-5 text-white flex items-center justify-between shrink-0">
                      <div className="flex items-center gap-3">
                         <div className="w-11 h-11 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-md border border-white/20">
@@ -692,7 +692,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
                      <button type="button" onClick={resetFormAndClose} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={22} /></button>
                   </div>
 
-                  <div className="p-5 space-y-5 flex-1 overflow-y-auto">
+                  <div className="p-5 space-y-5 flex-1 min-h-0 overflow-y-auto overscroll-contain">
                      {/* Escolha de Tipo de Unidade */}
                      <div className="space-y-4">
                         <label className="text-[11px] font-black text-gray-400 uppercase tracking-[3px] block text-center">Tipo de Unidade Operacional *</label>
