@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { db } from '../database.js';
+import { db } from '../database';
 
 const router = Router();
 const normalizeSearchText = (value: string) =>

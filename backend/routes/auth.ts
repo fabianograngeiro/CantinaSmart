@@ -1,3 +1,4 @@
+import { randomBytes, createHash } from 'crypto';
 import { Router, Request, Response } from 'express';
 import { db } from '../database.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
@@ -11,6 +12,7 @@ import {
 import { canAccessAllEnterprises, getRequesterEnterpriseIds, hasEnterpriseOverlap, normalizeRole } from '../utils/enterpriseAccess.js';
 
 const router = Router();
+const RESET_PASSWORD_TOKEN_TTL_MS = 60 * 60 * 1000;
 
 const normalizeDocument = (value: unknown) => String(value || '').replace(/\D/g, '');
 const normalizeEmail = (value: unknown) => String(value || '').trim().toLowerCase();
@@ -26,6 +28,29 @@ const isDateOnOrBeforeToday = (value?: string) => {
   if (Number.isNaN(date.getTime())) return false;
   date.setHours(0, 0, 0, 0);
   return date.getTime() <= startOfToday().getTime();
+};
+
+const buildResetTokenHash = (token: string) => createHash('sha256').update(token).digest('hex');
+const getResetBaseUrl = (req: Request) => {
+  const configuredOrigin = String(process.env.APP_PUBLIC_URL || '').trim();
+  const requestOrigin = String(req.get('origin') || '').trim();
+  const origin = configuredOrigin || requestOrigin || `${req.protocol}://${req.get('host') || 'localhost:3000'}`;
+  return `${origin.replace(/\/$/, '')}/#/reset-password`;
+};
+
+const sanitizeUser = (user: any) => ({ ...user, password: undefined });
+
+const findUserByResetToken = (token: string) => {
+  const tokenHash = buildResetTokenHash(token);
+  const now = Date.now();
+  return db.getUsers().find((user: any) => {
+    const storedTokenHash = String(user?.resetPasswordTokenHash || '').trim();
+    const expiresAt = String(user?.resetPasswordExpiresAt || '').trim();
+    if (!storedTokenHash || storedTokenHash !== tokenHash || !expiresAt) return false;
+    const expiresAtMs = new Date(expiresAt).getTime();
+    if (Number.isNaN(expiresAtMs) || expiresAtMs <= now) return false;
+    return true;
+  });
 };
 
 const findDuplicateUser = (params: { email?: string; document?: string; ignoreUserId?: string }) => {
@@ -178,8 +203,117 @@ router.post('/register', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/reset-password/validate', (req: Request, res: Response) => {
+  const token = String(req.query?.token || '').trim();
+  if (!token) {
+    return res.status(400).json({ error: 'Token de redefinição não informado.' });
+  }
+
+  const user = findUserByResetToken(token);
+  if (!user) {
+    return res.status(400).json({ error: 'Link de redefinição inválido ou expirado.' });
+  }
+
+  return res.json({
+    valid: true,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+    },
+  });
+});
+
+router.post('/reset-password/complete', async (req: Request, res: Response) => {
+  const token = String(req.body?.token || '').trim();
+  const password = String(req.body?.password ?? '');
+  const confirmPassword = String(req.body?.confirmPassword ?? '');
+
+  if (!token) {
+    return res.status(400).json({ error: 'Token de redefinição não informado.' });
+  }
+
+  if (!password || !confirmPassword) {
+    return res.status(400).json({ error: 'Informe e confirme a nova senha.' });
+  }
+
+  if (password !== confirmPassword) {
+    return res.status(400).json({ error: 'As senhas informadas não coincidem.' });
+  }
+
+  if (!isStrongPassword(password)) {
+    return res.status(400).json({
+      error: 'Senha deve ter pelo menos 8 caracteres, 1 maiúscula, 1 minúscula e 1 número',
+    });
+  }
+
+  const user = findUserByResetToken(token);
+  if (!user) {
+    return res.status(400).json({ error: 'Link de redefinição inválido ou expirado.' });
+  }
+
+  try {
+    const passwordHash = await hashPassword(password);
+    const updatedUser = db.updateUser(user.id, {
+      password: passwordHash,
+      resetPasswordTokenHash: '',
+      resetPasswordExpiresAt: '',
+      resetPasswordRequestedAt: '',
+      resetPasswordRequestedBy: '',
+    });
+
+    if (!updatedUser) {
+      return res.status(404).json({ error: 'Usuário não encontrado.' });
+    }
+
+    return res.json({ message: 'Senha redefinida com sucesso.', user: sanitizeUser(updatedUser) });
+  } catch {
+    return res.status(500).json({ error: 'Erro ao redefinir a senha.' });
+  }
+});
+
 // Get all users
 router.use(authMiddleware);
+
+router.post('/:id/reset-password-link', (req: AuthRequest, res: Response) => {
+  if (normalizeRole(req.userRole) !== 'SUPERADMIN') {
+    return res.status(403).json({ error: 'Apenas SUPERADMIN pode gerar links de redefinição.' });
+  }
+
+  const targetUser = db.getUser(req.params.id);
+  if (!targetUser) {
+    return res.status(404).json({ error: 'Usuário não encontrado' });
+  }
+
+  const targetRole = normalizeRole(String(targetUser.role || ''));
+  if (targetRole === 'SUPERADMIN') {
+    return res.status(400).json({ error: 'Não é permitido gerar reset por link para outro SUPERADMIN.' });
+  }
+
+  const rawToken = randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + RESET_PASSWORD_TOKEN_TTL_MS).toISOString();
+  const updatedUser = db.updateUser(targetUser.id, {
+    resetPasswordTokenHash: buildResetTokenHash(rawToken),
+    resetPasswordExpiresAt: expiresAt,
+    resetPasswordRequestedAt: new Date().toISOString(),
+    resetPasswordRequestedBy: String(req.userId || '').trim(),
+  });
+
+  if (!updatedUser) {
+    return res.status(404).json({ error: 'Usuário não encontrado' });
+  }
+
+  const resetLink = `${getResetBaseUrl(req)}?token=${encodeURIComponent(rawToken)}`;
+  return res.json({
+    resetLink,
+    expiresAt,
+    user: {
+      id: updatedUser.id,
+      name: updatedUser.name,
+      email: updatedUser.email,
+    },
+  });
+});
 
 // Get all users
 router.get('/', (req: AuthRequest, res: Response) => {
@@ -188,7 +322,7 @@ router.get('/', (req: AuthRequest, res: Response) => {
 
   if (canAccessAllEnterprises(req.userRole)) {
     console.log('✅ [AUTH] Returning', users.length, 'users (global access)');
-    return res.json(users.map(u => ({ ...u, password: undefined })));
+    return res.json(users.map(u => sanitizeUser(u)));
   }
 
   const requesterId = String(req.userId || '').trim();
@@ -205,7 +339,7 @@ router.get('/', (req: AuthRequest, res: Response) => {
   });
 
   console.log('✅ [AUTH] Returning', scopedUsers.length, 'users (scoped access)');
-  return res.json(scopedUsers.map((u: any) => ({ ...u, password: undefined })));
+  return res.json(scopedUsers.map((u: any) => sanitizeUser(u)));
 });
 
 // Get user by ID
@@ -233,7 +367,7 @@ router.get('/:id', (req: AuthRequest, res: Response) => {
   }
 
   console.log('✅ [AUTH] User found:', user.email);
-  res.json({ ...user, password: undefined });
+  res.json(sanitizeUser(user));
 });
 
 // Create user (admin only)
@@ -293,7 +427,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const hashedPassword = await hashPassword(password);
     const newUser = db.createUser({ email, password: hashedPassword, name, role, ...rest });
     console.log('✅ [AUTH] User created:', newUser.id);
-    res.status(201).json({ ...newUser, password: undefined });
+    res.status(201).json(sanitizeUser(newUser));
   } catch (error) {
     console.log('❌ [AUTH] Error creating user:', (error as Error).message);
     res.status(500).json({ error: 'Erro ao criar usuário' });
@@ -380,7 +514,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
   const updated = db.updateUser(req.params.id, normalizedUpdateData);
   if (!updated) return res.status(404).json({ error: 'Usuário não encontrado' });
   
-  res.json({ ...updated, password: undefined });
+  res.json(sanitizeUser(updated));
 });
 
 // Delete user

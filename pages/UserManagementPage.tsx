@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import {
   Users, Plus, Trash2, Edit, X, Save, ShieldCheck,
   Mail, Lock, User as UserIcon, Search, AlertTriangle,
-  CheckCircle2, Shield, Building
+  CheckCircle2, Shield, Building, Link as LinkIcon, Copy, RefreshCcw
 } from 'lucide-react';
 import { User, Role } from '../types';
 import ApiService from '../services/api';
+import notificationService from '../services/notificationService';
 
 interface UserManagementPageProps {
   currentUser: User;
@@ -23,6 +24,10 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [resetLinkTarget, setResetLinkTarget] = useState<User | null>(null);
+  const [resetLinkData, setResetLinkData] = useState<{ resetLink: string; expiresAt: string } | null>(null);
+  const [isResetLinkModalOpen, setIsResetLinkModalOpen] = useState(false);
+  const [isGeneratingResetLink, setIsGeneratingResetLink] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -239,6 +244,46 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
 
   const canEdit = (user: User) => user.id !== currentUser.id;
   const canDelete = (user: User) => user.id !== currentUser.id && user.role !== 'SUPERADMIN';
+  const canGenerateResetLink = (user: User) => currentUser.role === Role.SUPERADMIN && user.role !== Role.SUPERADMIN;
+
+  const handleGenerateResetLink = async (user: User) => {
+    setIsGeneratingResetLink(true);
+    setResetLinkTarget(user);
+    setIsResetLinkModalOpen(true);
+    setResetLinkData(null);
+
+    try {
+      const response = await ApiService.generatePasswordResetLink(user.id);
+      setResetLinkData({
+        resetLink: String(response?.resetLink || ''),
+        expiresAt: String(response?.expiresAt || ''),
+      });
+      notificationService.informativo('Link gerado', `Link de redefinição criado para ${user.email}.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Não foi possível gerar o link de redefinição.';
+      notificationService.critico('Falha ao gerar link', message);
+      setResetLinkData(null);
+    } finally {
+      setIsGeneratingResetLink(false);
+    }
+  };
+
+  const handleCopyResetLink = async () => {
+    if (!resetLinkData?.resetLink) return;
+    try {
+      await navigator.clipboard.writeText(resetLinkData.resetLink);
+      notificationService.informativo('Link copiado', 'O link de redefinição foi copiado para a área de transferência.');
+    } catch {
+      notificationService.alerta('Cópia indisponível', 'Não foi possível copiar automaticamente. Copie manualmente o link exibido.');
+    }
+  };
+
+  const handleCloseResetLinkModal = () => {
+    setIsResetLinkModalOpen(false);
+    setResetLinkTarget(null);
+    setResetLinkData(null);
+    setIsGeneratingResetLink(false);
+  };
 
   const getRoleName = (role: Role) => {
     const names: Record<Role, string> = {
@@ -375,6 +420,15 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
                           title="Editar"
                         >
                           <Edit size={14} />
+                        </button>
+                      )}
+                      {canGenerateResetLink(user) && (
+                        <button
+                          onClick={() => handleGenerateResetLink(user)}
+                          className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                          title="Gerar link de redefinição de senha"
+                        >
+                          <LinkIcon size={14} />
                         </button>
                       )}
                       {canDelete(user) && (
@@ -605,6 +659,80 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {isResetLinkModalOpen && resetLinkTarget && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-5 max-w-xl w-full shadow-2xl border border-indigo-200">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center">
+                  <LinkIcon className="text-indigo-600" size={18} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-gray-800 uppercase tracking-tight">Link de Redefinição</h3>
+                  <p className="text-xs text-gray-500 font-medium">Usuário: {resetLinkTarget.email}</p>
+                </div>
+              </div>
+              <button
+                onClick={handleCloseResetLinkModal}
+                className="p-1.5 hover:bg-gray-100 rounded-lg transition-all"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {isGeneratingResetLink ? (
+              <div className="py-10 text-center space-y-3">
+                <RefreshCcw size={28} className="mx-auto text-indigo-600 animate-spin" />
+                <p className="text-sm font-bold text-gray-700">Gerando link seguro...</p>
+              </div>
+            ) : resetLinkData?.resetLink ? (
+              <div className="space-y-4">
+                <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3">
+                  <p className="text-[11px] font-black text-indigo-900 uppercase tracking-widest mb-2">Link gerado</p>
+                  <textarea
+                    readOnly
+                    value={resetLinkData.resetLink}
+                    className="w-full min-h-[96px] resize-none rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 outline-none"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 font-medium">
+                  Expira em: {new Date(resetLinkData.expiresAt).toLocaleString('pt-BR')}
+                </p>
+                <div className="flex gap-2.5">
+                  <button
+                    type="button"
+                    onClick={handleCopyResetLink}
+                    className="flex-1 px-3 py-2.5 bg-indigo-600 text-white rounded-lg font-bold text-[11px] uppercase tracking-wider hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Copy size={14} />
+                    Copiar Link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCloseResetLinkModal}
+                    className="flex-1 px-3 py-2.5 bg-gray-200 text-gray-700 rounded-lg font-bold text-[11px] uppercase tracking-wider hover:bg-gray-300 transition-all"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="py-6 text-center space-y-3">
+                <AlertTriangle size={28} className="mx-auto text-red-500" />
+                <p className="text-sm font-bold text-gray-700">Não foi possível gerar o link.</p>
+                <button
+                  type="button"
+                  onClick={handleCloseResetLinkModal}
+                  className="px-3 py-2.5 bg-gray-200 text-gray-700 rounded-lg font-bold text-[11px] uppercase tracking-wider hover:bg-gray-300 transition-all"
+                >
+                  Fechar
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

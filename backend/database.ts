@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { NUTRITIONAL_BASE_SEED } from './data/nutritionalBaseSeed.js';
+import { NUTRITIONAL_BASE_SEED } from './data/nutritionalBaseSeed';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1579,8 +1579,7 @@ export class Database {
 
   getUserByEmail(email: string) {
     console.log('🔍 [DB] Getting user by email:', email);
-    const normalizedEmail = String(email || '').trim().toLowerCase();
-    const user = this.users.find(u => String(u?.email || '').trim().toLowerCase() === normalizedEmail);
+    const user = this.users.find(u => u.email === email);
     console.log('   Result:', user ? `Found ${user.id}` : 'Not found');
     if (!user) {
       console.log('   Available emails:', this.users.map(u => u.email).join(', '));

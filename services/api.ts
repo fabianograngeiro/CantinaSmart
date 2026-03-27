@@ -62,7 +62,7 @@ export class ApiService {
       headers: this.getHeaders(),
       body: JSON.stringify({ email, password }),
     });
-    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao fazer login'));
+    if (!response.ok) throw new Error('Falha ao fazer login');
     const data = await response.json();
     this.setToken(data.token);
     return data;
@@ -75,7 +75,7 @@ export class ApiService {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    if (!createResponse.ok) throw new Error(await this.readErrorMessage(createResponse, 'Falha ao registrar usuário'));
+    if (!createResponse.ok) throw new Error('Falha ao registrar usuário');
     
     // Fazer login automático com as credenciais
     const loginResponse = await fetch(`${API_URL}/auth/login`, {
@@ -83,7 +83,7 @@ export class ApiService {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: data.email, password: data.password }),
     });
-    if (!loginResponse.ok) throw new Error(await this.readErrorMessage(loginResponse, 'Falha ao fazer login após registro'));
+    if (!loginResponse.ok) throw new Error('Falha ao fazer login após registro');
     
     const loginData = await loginResponse.json();
     this.setToken(loginData.token);
@@ -95,7 +95,6 @@ export class ApiService {
     const response = await fetch(`${API_URL}/enterprises`, {
       headers: this.getHeaders(),
     });
-    this.handleUnauthorized(response);
     if (!response.ok) throw new Error('Falha ao buscar empresas');
     return response.json();
   }
@@ -104,7 +103,6 @@ export class ApiService {
     const response = await fetch(`${API_URL}/enterprises/${id}`, {
       headers: this.getHeaders(),
     });
-    this.handleUnauthorized(response);
     if (!response.ok) throw new Error('Falha ao buscar empresa');
     return response.json();
   }
@@ -138,42 +136,11 @@ export class ApiService {
     return response.json();
   }
 
-  static async lookupEnterpriseByCnpj(cnpj: string) {
-    const response = await fetch(`${API_URL}/enterprises/integrations/cnpj`, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify({ cnpj }),
-    });
-    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao consultar CNPJ'));
-    return response.json();
-  }
-
-  static async lookupPersonByCpf(cpf: string) {
-    const response = await fetch(`${API_URL}/enterprises/integrations/cpf`, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify({ cpf }),
-    });
-    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao consultar CPF'));
-    return response.json();
-  }
-
-  static async lookupAddressByCep(cep: string) {
-    const response = await fetch(`${API_URL}/enterprises/integrations/cep`, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify({ cep }),
-    });
-    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao consultar CEP'));
-    return response.json();
-  }
-
   // ===== USERS =====
   static async getUsers() {
     const response = await fetch(`${API_URL}/auth`, {
       headers: this.getHeaders(),
     });
-    this.handleUnauthorized(response);
     if (!response.ok) throw new Error('Falha ao buscar usuários');
     return response.json();
   }
@@ -182,7 +149,6 @@ export class ApiService {
     const response = await fetch(`${API_URL}/auth/${id}`, {
       headers: this.getHeaders(),
     });
-    this.handleUnauthorized(response);
     if (!response.ok) throw new Error('Falha ao buscar usuário');
     return response.json();
   }
