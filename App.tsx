@@ -565,8 +565,8 @@ const AppContent: React.FC<any> = (props) => {
   return (
       <div className="flex h-screen bg-gray-50 dark:bg-[#0c0c0e] overflow-hidden text-gray-900 dark:text-zinc-100 font-['Inter'] relative">
         {isAuthenticated && trialBanner.show && (
-          <div className="fixed top-0 inset-x-0 z-[120] px-3 pt-2 pointer-events-none">
-            <div className={`mx-auto max-w-5xl pointer-events-auto rounded-xl border px-4 py-2.5 shadow-md ${trialBannerTone.wrapper}`}>
+          <div className="fixed top-4 right-4 z-[120] pointer-events-none">
+            <div className={`pointer-events-auto rounded-xl border px-4 py-2.5 shadow-md max-w-sm ${trialBannerTone.wrapper}`}>
               <div className="flex items-center gap-2">
                 <AlertTriangle size={14} className={`${trialBannerTone.icon} shrink-0`} />
                 {trialBanner.daysLeft > 0 ? (
