@@ -75,6 +75,8 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/error-tickets', errorTicketsRoutes);
+app.use('/products_photos', express.static(path.join(__dirname, 'products_photos')));
+app.use('/clients_photos', express.static(path.join(__dirname, 'clients_photos')));
 
 // Serve static files (optional)
 app.use(express.static(path.join(__dirname, '../dist')));
