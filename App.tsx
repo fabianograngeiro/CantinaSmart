@@ -17,6 +17,7 @@ import SetupPage from './pages/SetupPage';
 import POSPage from './pages/POSPage';
 import RestaurantPOSPage from './pages/RestaurantPOSPage';
 import DashboardPage from './pages/DashboardPage';
+import OwnerDashboardPage from './pages/OwnerDashboardPage';
 import ClientsPage from './pages/ClientsPage';
 import ProductsPage from './pages/ProductsPage';
 import InventoryPage from './pages/InventoryPage';
@@ -705,7 +706,7 @@ const AppContent: React.FC<any> = (props) => {
                   </div>
                 )}
 
-                {!isSuperAdmin && (
+                {!isSuperAdmin && !isOwner && (
                   <div className="py-4 border-t border-slate-800/50 dark:border-white/5 mt-4 space-y-1">
                     <p className={`text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Operacional</p>
                     {resolvedPermissions.canAccessPOS && <SidebarItem icon={<ShoppingCart size={20} />} label="Vender (PDV)" to="/pos" isOpen={isSidebarOpen} />}
@@ -779,7 +780,13 @@ const AppContent: React.FC<any> = (props) => {
 
               <div className="flex-1 min-w-0 overflow-auto bg-gray-50 dark:bg-zinc-900/50">
                 <Routes>
-                  <Route path="/" element={<DashboardPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
+                  <Route path="/" element={
+                    isOwner && !activeEnterprise ? (
+                      <OwnerDashboardPage currentUser={currentUser} enterprises={availableEnterprises} onSelectEnterprise={setActiveEnterprise} />
+                    ) : (
+                      <DashboardPage currentUser={currentUser} activeEnterprise={activeEnterprise} />
+                    )
+                  } />
                   <Route path="/pos" element={resolvedPermissions.canAccessPOS ? (isRestaurant ? <RestaurantPOSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <POSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} />) : <Navigate to="/" />} />
                   <Route path="/clients" element={resolvedPermissions.canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="ALUNOS" /> : <Navigate to="/" />} />
                   <Route path="/clients-responsaveis" element={resolvedPermissions.canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="CLIENTES_RESPONSAVEIS" /> : <Navigate to="/" />} />
@@ -801,7 +808,7 @@ const AppContent: React.FC<any> = (props) => {
                   <Route path="/whatsapp" element={resolvedPermissions.canAccessReports ? <WhatsAppPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/users" element={(isSuperAdmin || isOwner || resolvedPermissions.canManageStaff) ? <UserManagementPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/system-settings" element={<SystemSettingsPage currentUser={currentUser} />} />
-                  <Route path="/enterprises" element={isSuperAdmin || isOwner || (isAdminSistema && currentUser?.systemPermissions?.canManageEnterprises) ? <EnterprisesPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/enterprises" element={isSuperAdmin || isOwner || (isAdminSistema && currentUser?.systemPermissions?.canManageEnterprises) ? <EnterprisesPage currentUser={currentUser} onSelectEnterprise={(ent) => setActiveEnterprise(ent)} /> : <Navigate to="/" />} />
                   <Route path="/suppliers" element={<SuppliersPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
                   <Route path="/portal" element={
                     currentUser?.role === 'RESPONSAVEL' ? <ClientPortalPageWrapper /> :

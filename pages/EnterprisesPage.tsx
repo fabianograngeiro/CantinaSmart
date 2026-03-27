@@ -16,9 +16,10 @@ import { appendSaasAuditLog } from '../services/saasAuditLog';
 
 interface EnterprisesPageProps {
   currentUser: User;
+  onSelectEnterprise?: (enterprise: Enterprise) => void;
 }
 
-const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
+const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelectEnterprise }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const isSuperAdmin = currentUser?.role === Role.SUPERADMIN;
@@ -609,59 +610,20 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
                 )}
               </div>
 
-              {/* Botões de Ação Rápida - Escondidos para SuperAdmin se não for necessário */}
-              {!isSuperAdmin && (
-                <div className="grid grid-cols-1 gap-1.5 mt-5">
-                  <button 
-                    onClick={() => navigate('/menu-lunch')}
-                    className="w-full flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-indigo-600 hover:text-white transition-all group/btn border border-gray-100"
-                  >
-                    <div className="flex items-center gap-3">
-                        <Calendar size={14} className="text-indigo-400 group-hover/btn:text-white" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">Cardápio Semanal</span>
-                    </div>
-                    <ChevronRight size={12} />
-                  </button>
-                  
-                  <button 
-                    onClick={() => navigate('/nutritional-info')}
-                    className="w-full flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-indigo-600 hover:text-white transition-all group/btn border border-gray-100"
-                  >
-                    <div className="flex items-center gap-3">
-                        <Beef size={14} className="text-indigo-400 group-hover/btn:text-white" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">ITENS COMIDA</span>
-                    </div>
-                    <ChevronRight size={12} />
-                  </button>
 
-                  <button 
-                    onClick={() => navigate(`/plans/${ent.id}`)}
-                    className="w-full flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-indigo-600 hover:text-white transition-all group/btn border border-gray-100"
-                  >
-                    <div className="flex items-center gap-3">
-                        <Sparkles size={14} className="text-indigo-400 group-hover/btn:text-white" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">Plano Alimentação</span>
-                    </div>
-                    <ChevronRight size={12} />
-                  </button>
-
-                  <button 
-                    onClick={() => navigate('/unit-sales')}
-                    className="w-full flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-indigo-600 hover:text-white transition-all group/btn border border-gray-100"
-                  >
-                    <div className="flex items-center gap-3">
-                        <ReceiptText size={14} className="text-indigo-400 group-hover/btn:text-white" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">Transação de Vendas</span>
-                    </div>
-                    <ChevronRight size={12} />
-                  </button>
-                </div>
-              )}
             </div>
             
             <div className="px-4 py-3 bg-indigo-50/30 flex items-center justify-center border-t border-gray-100">
-               <button className="flex items-center gap-2 text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline">
-                  {isSuperAdmin ? 'Gerenciar Assinatura e Faturamento' : 'Console Detalhado da Unidade'} <ExternalLink size={12} />
+               <button 
+                 onClick={() => {
+                   if (onSelectEnterprise) {
+                     onSelectEnterprise(ent);
+                   }
+                   navigate('/');
+                 }}
+                 className="flex items-center gap-2 text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline"
+               >
+                  ACESSAR PAINEL <ExternalLink size={12} />
                </button>
             </div>
           </div>
