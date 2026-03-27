@@ -1,32 +1,59 @@
 import { Router, Request, Response } from 'express';
-import { db } from '../database';
+import { db } from '../database.js';
+import { authMiddleware, AuthRequest } from '../middleware/auth.js';
+import { canAccessAllEnterprises, getRequesterEnterpriseIds, requesterCanAccessEnterprise } from '../utils/enterpriseAccess.js';
 
 const router = Router();
+router.use(authMiddleware);
 
 // Get all transactions
-router.get('/', (req: Request, res: Response) => {
+router.get('/', (req: AuthRequest, res: Response) => {
   const { clientId, enterpriseId } = req.query;
+  const requestedEnterpriseId = String(enterpriseId || '').trim();
+
+  if (!canAccessAllEnterprises(req.userRole)) {
+    const allowedEnterpriseIds = getRequesterEnterpriseIds(req);
+    if (requestedEnterpriseId && !allowedEnterpriseIds.includes(requestedEnterpriseId)) {
+      return res.status(403).json({ error: 'Acesso negado para esta empresa' });
+    }
+  }
+
   const transactions = db.getTransactions({
     clientId: clientId as string | undefined,
     enterpriseId: enterpriseId as string | undefined,
   });
-  res.json(transactions);
+
+  if (canAccessAllEnterprises(req.userRole)) {
+    return res.json(transactions);
+  }
+
+  const allowed = new Set(getRequesterEnterpriseIds(req));
+  const scoped = (Array.isArray(transactions) ? transactions : []).filter((tx: any) =>
+    allowed.has(String(tx?.enterpriseId || '').trim())
+  );
+  return res.json(scoped);
 });
 
 // Get transaction by ID
-router.get('/:id', (req: Request, res: Response) => {
+router.get('/:id', (req: AuthRequest, res: Response) => {
   const transaction = db.getTransaction(req.params.id);
   if (!transaction) {
     return res.status(404).json({ error: 'Transação não encontrada' });
+  }
+  if (!requesterCanAccessEnterprise(req, String((transaction as any)?.enterpriseId || ''))) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
   res.json(transaction);
 });
 
 // Create transaction
-router.post('/', (req: Request, res: Response) => {
+router.post('/', (req: AuthRequest, res: Response) => {
   const payload = req.body || {};
   if (!payload.enterpriseId) {
     return res.status(400).json({ error: 'enterpriseId é obrigatório' });
+  }
+  if (!requesterCanAccessEnterprise(req, String(payload.enterpriseId || ''))) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
 
   const newTransaction = db.createTransaction(req.body);
@@ -34,7 +61,15 @@ router.post('/', (req: Request, res: Response) => {
 });
 
 // Update transaction
-router.put('/:id', (req: Request, res: Response) => {
+router.put('/:id', (req: AuthRequest, res: Response) => {
+  const current = db.getTransaction(req.params.id);
+  if (!current) {
+    return res.status(404).json({ error: 'Transação não encontrada' });
+  }
+  if (!requesterCanAccessEnterprise(req, String((current as any)?.enterpriseId || ''))) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
+  }
+
   const updated = db.updateTransaction(req.params.id, req.body || {});
   if (!updated) {
     return res.status(404).json({ error: 'Transação não encontrada' });
@@ -43,7 +78,10 @@ router.put('/:id', (req: Request, res: Response) => {
 });
 
 // Clear all transactions
-router.delete('/clear-all', (_req: Request, res: Response) => {
+router.delete('/clear-all', (req: AuthRequest, res: Response) => {
+  if (!canAccessAllEnterprises(req.userRole)) {
+    return res.status(403).json({ error: 'Apenas SUPERADMIN/ADMIN_SISTEMA podem limpar todas as transações.' });
+  }
   const removedCount = db.clearTransactions();
   res.json({
     success: true,
@@ -53,7 +91,15 @@ router.delete('/clear-all', (_req: Request, res: Response) => {
 });
 
 // Delete transaction
-router.delete('/:id', (req: Request, res: Response) => {
+router.delete('/:id', (req: AuthRequest, res: Response) => {
+  const current = db.getTransaction(req.params.id);
+  if (!current) {
+    return res.status(404).json({ error: 'Transação não encontrada' });
+  }
+  if (!requesterCanAccessEnterprise(req, String((current as any)?.enterpriseId || ''))) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
+  }
+
   const deleted = db.deleteTransaction(req.params.id);
   if (!deleted) {
     return res.status(404).json({ error: 'Transação não encontrada' });

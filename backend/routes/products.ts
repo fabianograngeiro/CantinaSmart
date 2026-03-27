@@ -2,8 +2,8 @@ import { Router, Request, Response } from 'express';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { fileURLToPath } from 'url';
-import { db } from '../database';
-import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { db } from '../database.js';
+import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);

@@ -2,9 +2,10 @@ import { Router, Request, Response } from 'express';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { fileURLToPath } from 'url';
-import { db } from '../database';
-import { validateClient, validateClientUpdate } from '../utils/validation';
-import { authMiddleware } from '../middleware/auth';
+import { db } from '../database.js';
+import { validateClient, validateClientUpdate } from '../utils/validation.js';
+import { authMiddleware, AuthRequest } from '../middleware/auth.js';
+import { requesterCanAccessEnterprise } from '../utils/enterpriseAccess.js';
 
 const PHONE_REQUIRED_VALIDATION_ERROR = 'Telefone é obrigatório para responsável e colaborador';
 
@@ -52,7 +53,7 @@ const hasActiveAiTemporaryPatchForPhoneValidation = () => {
 router.use(authMiddleware);
 
 // Get all clients
-router.get('/', (req: Request, res: Response) => {
+router.get('/', (req: AuthRequest, res: Response) => {
   console.log('📋 [CLIENTS] GET /clients - User:', (req as any).userId);
   
   const { enterpriseId } = req.query;
@@ -60,6 +61,10 @@ router.get('/', (req: Request, res: Response) => {
   if (!enterpriseId || typeof enterpriseId !== 'string') {
     console.log('❌ [CLIENTS] Invalid or missing enterpriseId');
     return res.status(400).json({ error: 'Enterprise ID é obrigatório' });
+  }
+
+  if (!requesterCanAccessEnterprise(req, enterpriseId)) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
 
   try {
@@ -73,7 +78,7 @@ router.get('/', (req: Request, res: Response) => {
 });
 
 // Restore clients snapshot (responsáveis/clientes + alunos relacionados)
-router.post('/restore', (req: Request, res: Response) => {
+router.post('/restore', (req: AuthRequest, res: Response) => {
   const { enterpriseId } = req.body || {};
   const normalizedEnterpriseId = String(enterpriseId || '').trim();
   const items = Array.isArray(req.body)
@@ -82,6 +87,10 @@ router.post('/restore', (req: Request, res: Response) => {
 
   if (!normalizedEnterpriseId) {
     return res.status(400).json({ error: 'enterpriseId é obrigatório para restauração.' });
+  }
+
+  if (!requesterCanAccessEnterprise(req, normalizedEnterpriseId)) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
 
   if (!items) {
@@ -102,7 +111,7 @@ router.post('/restore', (req: Request, res: Response) => {
 });
 
 // Upload de foto do cliente/usuário
-router.post('/upload-photo', async (req: Request, res: Response) => {
+router.post('/upload-photo', async (req: AuthRequest, res: Response) => {
   try {
     const { fileName, mimeType, dataBase64 } = req.body || {};
     if (!dataBase64 || typeof dataBase64 !== 'string') {
@@ -138,7 +147,7 @@ router.post('/upload-photo', async (req: Request, res: Response) => {
 });
 
 // Get client by ID
-router.get('/:id', (req: Request, res: Response) => {
+router.get('/:id', (req: AuthRequest, res: Response) => {
   console.log('🔍 [CLIENTS] GET /clients/:id -', req.params.id);
   
   const client = db.getClient(req.params.id);
@@ -146,13 +155,17 @@ router.get('/:id', (req: Request, res: Response) => {
     console.log('❌ [CLIENTS] Client not found:', req.params.id);
     return res.status(404).json({ error: 'Cliente não encontrado' });
   }
+
+  if (!requesterCanAccessEnterprise(req, String((client as any)?.enterpriseId || ''))) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
+  }
   
   console.log('✅ [CLIENTS] Client found:', client.name);
   res.json(client);
 });
 
 // Create client
-router.post('/', (req: Request, res: Response) => {
+router.post('/', (req: AuthRequest, res: Response) => {
   console.log('➕ [CLIENTS] POST /clients - User:', (req as any).userId);
   console.log('📝 [CLIENTS] Request body:', req.body);
   
@@ -161,6 +174,10 @@ router.post('/', (req: Request, res: Response) => {
   if (!validation.valid) {
     console.log('❌ [CLIENTS] Validation errors:', validation.errors);
     return res.status(400).json({ error: 'Validação falhou', details: validation.errors });
+  }
+
+  if (!requesterCanAccessEnterprise(req, String(req.body?.enterpriseId || ''))) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
 
   try {
@@ -174,12 +191,16 @@ router.post('/', (req: Request, res: Response) => {
 });
 
 // Update client
-router.put('/:id', (req: Request, res: Response) => {
+router.put('/:id', (req: AuthRequest, res: Response) => {
   console.log('✏️ [CLIENTS] PUT /clients/:id -', req.params.id);
   const current = db.getClient(req.params.id);
   if (!current) {
     console.log('❌ [CLIENTS] Client not found for update:', req.params.id);
     return res.status(404).json({ error: 'Cliente não encontrado' });
+  }
+
+  if (!requesterCanAccessEnterprise(req, String((current as any)?.enterpriseId || ''))) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
   
   // Validate input
@@ -216,10 +237,18 @@ router.put('/:id', (req: Request, res: Response) => {
 });
 
 // Delete client
-router.delete('/:id', (req: Request, res: Response) => {
+router.delete('/:id', (req: AuthRequest, res: Response) => {
   console.log('🗑️ [CLIENTS] DELETE /clients/:id -', req.params.id);
   
   try {
+    const current = db.getClient(req.params.id);
+    if (!current) {
+      return res.status(404).json({ error: 'Cliente não encontrado' });
+    }
+    if (!requesterCanAccessEnterprise(req, String((current as any)?.enterpriseId || ''))) {
+      return res.status(403).json({ error: 'Acesso negado para esta empresa' });
+    }
+
     const deleted = db.deleteClient(req.params.id);
     if (!deleted) {
       console.log('❌ [CLIENTS] Client not found for deletion:', req.params.id);

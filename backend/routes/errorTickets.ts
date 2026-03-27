@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
-import { db } from '../database';
-import { authMiddleware, AuthRequest } from '../middleware/auth';
-import { whatsappSession } from '../utils/whatsappSession';
+import { db } from '../database.js';
+import { authMiddleware, AuthRequest } from '../middleware/auth.js';
+import { whatsappSession } from '../utils/whatsappSession.js';
 
 const router = Router();
 

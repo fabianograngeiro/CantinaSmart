@@ -1,7 +1,10 @@
 import { Router, Request, Response } from 'express';
-import { db } from '../database';
+import { db } from '../database.js';
+import { authMiddleware, AuthRequest } from '../middleware/auth.js';
+import { requesterCanAccessEnterprise } from '../utils/enterpriseAccess.js';
 
 const router = Router();
+router.use(authMiddleware);
 
 const DAYS_OF_WEEK = ['SEGUNDA', 'TERCA', 'QUARTA', 'QUINTA', 'SEXTA', 'SABADO'] as const;
 
@@ -12,7 +15,7 @@ const createEmptyWeeklyMenu = () =>
     items: [],
   }));
 
-router.get('/', (req: Request, res: Response) => {
+router.get('/', (req: AuthRequest, res: Response) => {
   const enterpriseId = String(req.query.enterpriseId || '').trim();
   const type = String(req.query.type || '').trim().toUpperCase();
   const weekIndex = Math.max(1, Math.min(5, Number(req.query.weekIndex || 1) || 1));
@@ -20,6 +23,10 @@ router.get('/', (req: Request, res: Response) => {
 
   if (!enterpriseId || !type) {
     return res.status(400).json({ error: 'enterpriseId e type são obrigatórios.' });
+  }
+
+  if (!requesterCanAccessEnterprise(req, enterpriseId)) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
 
   const record = db.getMenuByEnterpriseAndType(enterpriseId, type, weekIndex, monthKey);
@@ -44,7 +51,7 @@ router.get('/', (req: Request, res: Response) => {
   });
 });
 
-router.put('/', (req: Request, res: Response) => {
+router.put('/', (req: AuthRequest, res: Response) => {
   const enterpriseId = String(req.body?.enterpriseId || '').trim();
   const type = String(req.body?.type || '').trim().toUpperCase();
   const weekIndex = Math.max(1, Math.min(5, Number(req.body?.weekIndex || 1) || 1));
@@ -53,6 +60,10 @@ router.put('/', (req: Request, res: Response) => {
 
   if (!enterpriseId || !type) {
     return res.status(400).json({ error: 'enterpriseId e type são obrigatórios.' });
+  }
+
+  if (!requesterCanAccessEnterprise(req, enterpriseId)) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
 
   const saved = db.upsertMenuByEnterpriseAndType({ enterpriseId, type, weekIndex, monthKey, days });

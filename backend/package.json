@@ -2,12 +2,13 @@
   "name": "cantinasmart-backend",
   "version": "1.0.0",
   "description": "Backend for CantinaSmart",
-  "main": "server.ts",
+  "main": "dist/server.js",
   "type": "module",
   "scripts": {
     "dev": "tsx watch server.ts",
     "build": "tsc",
-    "start": "node --import tsx/esm server.ts"
+    "prestart": "npm run build",
+    "start": "node --experimental-specifier-resolution=node dist/server.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.18",

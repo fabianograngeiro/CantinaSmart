@@ -374,6 +374,7 @@ const AppContent: React.FC<any> = (props) => {
     availableEnterprises,
     showEnterpriseSelector, setShowEnterpriseSelector, resolvedPermissions
   } = props;
+  const [noUnitModalDismissed, setNoUnitModalDismissed] = React.useState(false);
   const [trialBanner, setTrialBanner] = React.useState<{ show: boolean; expiresAt: string; daysLeft: number }>({
     show: false,
     expiresAt: '',
@@ -422,24 +423,25 @@ const AppContent: React.FC<any> = (props) => {
   }, [isAuthenticated, isPortalUser, location.pathname]);
 
   React.useEffect(() => {
-    if (!isAuthenticated || !currentUser) return;
-    const isOwnerRole = normalizeRole(String(currentUser.role || '')) === Role.OWNER;
-    if (!isOwnerRole) return;
-    const hasLinkedEnterprise = Array.isArray(currentUser.enterpriseIds) && currentUser.enterpriseIds.length > 0;
-    if (!hasLinkedEnterprise && location.pathname !== '/enterprises') {
-      notificationService.alerta(
-        'Configuração inicial necessária',
-        'Cadastre sua primeira unidade para concluir a configuração da conta.'
-      );
-      navigate('/enterprises');
+    const isOwnerRole = normalizeRole(String(currentUser?.role || '')) === Role.OWNER;
+    const hasLinkedEnterprise = Array.isArray(currentUser?.enterpriseIds) && currentUser.enterpriseIds.length > 0;
+    if (!isAuthenticated || !isOwnerRole || hasLinkedEnterprise || activeEnterprise) {
+      setNoUnitModalDismissed(false);
     }
   }, [
     isAuthenticated,
     currentUser?.id,
     currentUser?.role,
     (currentUser?.enterpriseIds || []).join(','),
-    location.pathname,
+    activeEnterprise?.id,
   ]);
+
+  const hasLinkedEnterprise = Array.isArray(currentUser?.enterpriseIds) && currentUser.enterpriseIds.length > 0;
+  const shouldShowNoUnitModal = isAuthenticated
+    && isOwner
+    && !activeEnterprise
+    && !hasLinkedEnterprise
+    && !noUnitModalDismissed;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -760,8 +762,52 @@ const AppContent: React.FC<any> = (props) => {
           </>
         )}
 
+        {/* Modal fixo de primeira configuração para OWNER sem unidade */}
+        {shouldShowNoUnitModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-lg w-full shadow-2xl border border-slate-200 dark:border-slate-700 animate-in zoom-in-95 duration-200 relative">
+              <button
+                type="button"
+                onClick={() => setNoUnitModalDismissed(true)}
+                className="absolute top-4 right-4 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                aria-label="Fechar aviso"
+              >
+                <X size={18} className="text-slate-500" />
+              </button>
+
+              <div className="text-center py-2">
+                <div className="w-16 h-16 bg-amber-100 dark:bg-amber-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <AlertTriangle className="text-amber-600" size={32} />
+                </div>
+                <h4 className="text-lg font-black text-gray-800 dark:text-slate-100 mb-2">Nenhuma Unidade Cadastrada</h4>
+                <p className="text-sm text-gray-600 dark:text-slate-300 mb-6">
+                  Você ainda não possui nenhuma unidade cadastrada no sistema.
+                </p>
+
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setNoUnitModalDismissed(true)}
+                    className="px-6 py-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-100 rounded-xl font-bold text-sm hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
+                  >
+                    OK
+                  </button>
+                  <Link
+                    to="/enterprises?openCreate=1"
+                    onClick={() => setNoUnitModalDismissed(true)}
+                    className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all"
+                  >
+                    <Plus size={18} />
+                    Criar Primeira Unidade
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Modal de Seleção de Empresa para OWNER */}
-        {isAuthenticated && isOwner && !activeEnterprise && !isOnEnterprisesPage && (
+        {isAuthenticated && isOwner && !activeEnterprise && !isOnEnterprisesPage && availableEnterprises.length > 0 && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-2xl w-full shadow-2xl border border-slate-200 dark:border-slate-700 animate-in zoom-in-95 duration-200">
               <div className="flex items-center gap-3 mb-6">
@@ -774,25 +820,7 @@ const AppContent: React.FC<any> = (props) => {
                 </div>
               </div>
 
-              {availableEnterprises.length === 0 ? (
-                  <div className="text-center py-12">
-                  <div className="w-16 h-16 bg-amber-100 dark:bg-amber-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <AlertTriangle className="text-amber-600" size={32} />
-                  </div>
-                  <h4 className="text-lg font-black text-gray-800 dark:text-slate-100 mb-2">Nenhuma Unidade Cadastrada</h4>
-                  <p className="text-sm text-gray-600 dark:text-slate-300 mb-6">
-                    Você ainda não possui nenhuma unidade cadastrada no sistema.
-                  </p>
-                  <Link
-                    to="/enterprises"
-                    className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all"
-                  >
-                    <Plus size={18} />
-                    Criar Primeira Unidade
-                  </Link>
-                </div>
-              ) : (
-                <>
+              <>
                   <div className="space-y-3 max-h-96 overflow-y-auto mb-6">
                     {availableEnterprises.map((enterprise) => (
                       <button
@@ -826,7 +854,7 @@ const AppContent: React.FC<any> = (props) => {
 
                   <div className="flex gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
                     <Link
-                      to="/enterprises"
+                      to="/enterprises?openCreate=1"
                       onClick={() => setShowEnterpriseSelector(false)}
                       className="flex-1 px-4 py-3 bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-100 rounded-xl font-bold text-sm hover:bg-gray-200 dark:hover:bg-slate-700 transition-all flex items-center justify-center gap-2"
                     >
@@ -834,8 +862,7 @@ const AppContent: React.FC<any> = (props) => {
                       Criar Nova Unidade
                     </Link>
                   </div>
-                </>
-              )}
+              </>
             </div>
           </div>
         )}

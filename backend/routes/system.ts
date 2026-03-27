@@ -4,9 +4,9 @@ import { promises as fs } from 'fs';
 import { fileURLToPath } from 'url';
 import { exec as execCallback } from 'child_process';
 import { promisify } from 'util';
-import { db } from '../database';
-import { authMiddleware, AuthRequest } from '../middleware/auth';
-import { hashPassword } from '../utils/security';
+import { db } from '../database.js';
+import { authMiddleware, AuthRequest } from '../middleware/auth.js';
+import { hashPassword } from '../utils/security.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);

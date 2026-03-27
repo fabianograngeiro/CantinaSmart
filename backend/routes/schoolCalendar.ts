@@ -1,14 +1,21 @@
 import { Router, Request, Response } from 'express';
-import { db } from '../database';
+import { db } from '../database.js';
+import { authMiddleware, AuthRequest } from '../middleware/auth.js';
+import { requesterCanAccessEnterprise } from '../utils/enterpriseAccess.js';
 
 const router = Router();
+router.use(authMiddleware);
 
-router.get('/', (req: Request, res: Response) => {
+router.get('/', (req: AuthRequest, res: Response) => {
   const enterpriseId = String(req.query.enterpriseId || '').trim();
   const schoolYear = Number(req.query.schoolYear);
 
   if (!enterpriseId || !Number.isFinite(schoolYear)) {
     return res.status(400).json({ error: 'enterpriseId e schoolYear são obrigatórios.' });
+  }
+
+  if (!requesterCanAccessEnterprise(req, enterpriseId)) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
 
   const record = db.getSchoolCalendarByEnterpriseAndYear(enterpriseId, schoolYear);
@@ -33,7 +40,7 @@ router.get('/', (req: Request, res: Response) => {
   });
 });
 
-router.put('/', (req: Request, res: Response) => {
+router.put('/', (req: AuthRequest, res: Response) => {
   const enterpriseId = String(req.body?.enterpriseId || '').trim();
   const schoolYear = Number(req.body?.schoolYear);
   const meta = req.body?.meta;
@@ -42,6 +49,10 @@ router.put('/', (req: Request, res: Response) => {
 
   if (!enterpriseId || !Number.isFinite(schoolYear)) {
     return res.status(400).json({ error: 'enterpriseId e schoolYear são obrigatórios.' });
+  }
+
+  if (!requesterCanAccessEnterprise(req, enterpriseId)) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
 
   const saved = db.upsertSchoolCalendar({

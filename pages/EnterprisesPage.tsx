@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { 
   Building2, Plus, Search, MapPin, ShieldCheck, 
   ExternalLink, Building, CheckCircle2, 
@@ -20,6 +20,7 @@ interface EnterprisesPageProps {
 
 const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const isSuperAdmin = currentUser?.role === Role.SUPERADMIN;
   const isOwner = currentUser?.role === Role.OWNER;
   
@@ -55,6 +56,40 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
     const hasEnterprise = enterprises.length > 0;
     setShowFirstAccessGuide(!alreadySeen && !hasEnterprise);
   }, [isOwner, currentUser?.id, enterprises.length]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('openCreate') !== '1') return;
+
+    const ownerDocument = String(currentUser?.document || '').trim();
+    const ownerName = String(currentUser?.name || '').trim();
+
+    setFormData({
+      type: 'CANTINA',
+      nomeFantasia: '',
+      managerName: isOwner ? ownerName : '',
+      document: isOwner ? formatCpfCnpj(ownerDocument) : '',
+      phone1: '',
+      phone2: '',
+      attachedSchoolName: '',
+      email: '',
+      cep: '',
+      street: '',
+      number: '',
+      neighborhood: '',
+      city: '',
+      state: '',
+      planType: 'BASIC',
+      monthlyFee: 197.00
+    });
+    setEditingEnterprise(null);
+    setSuccessData(null);
+    setIsModalOpen(true);
+
+    params.delete('openCreate');
+    const nextSearch = params.toString();
+    navigate(`/enterprises${nextSearch ? `?${nextSearch}` : ''}`, { replace: true });
+  }, [location.search, navigate, isOwner, currentUser?.document, currentUser?.name]);
 
   const [formData, setFormData] = useState({
     type: 'CANTINA' as 'CANTINA' | 'RESTAURANTE',
@@ -262,12 +297,6 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
         email: prev.email || String(cnpjData?.email || ''),
         phone1: prev.phone1 || String(cnpjData?.phone1 || ''),
         phone2: prev.phone2 || String(cnpjData?.phone2 || ''),
-        cep: prev.cep || formatCep(String(cnpjData?.cep || '')),
-        street: prev.street || String(cnpjData?.street || ''),
-        number: prev.number || String(cnpjData?.number || ''),
-        neighborhood: prev.neighborhood || String(cnpjData?.neighborhood || ''),
-        city: prev.city || String(cnpjData?.city || ''),
-        state: prev.state || String(cnpjData?.state || ''),
       }));
     } catch (err) {
       console.error('Erro ao integrar CNPJ:', err);
@@ -327,6 +356,29 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
       localStorage.setItem(storageKey, '1');
       setShowFirstAccessGuide(false);
     }
+
+    const ownerDocument = String(currentUser?.document || '').trim();
+    const ownerName = String(currentUser?.name || '').trim();
+
+    setFormData({
+      type: 'CANTINA',
+      nomeFantasia: '',
+      managerName: isOwner ? ownerName : '',
+      document: isOwner ? formatCpfCnpj(ownerDocument) : '',
+      phone1: '',
+      phone2: '',
+      attachedSchoolName: '',
+      email: '',
+      cep: '',
+      street: '',
+      number: '',
+      neighborhood: '',
+      city: '',
+      state: '',
+      planType: 'BASIC',
+      monthlyFee: 197.00
+    });
+
     setEditingEnterprise(null);
     setSuccessData(null);
     setIsModalOpen(true);
@@ -675,7 +727,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser }) => {
                           onBlur={handleDocumentBlur}
                           required
                           placeholder={formData.type === 'RESTAURANTE' ? '00.000.000/0001-00 ou 000.000.000-00' : '00.000.000/0001-00'}
-                          helperText={isCnpjLookupLoading ? 'Consultando dados no CNPJ...' : 'Ao informar CNPJ válido, os dados são preenchidos automaticamente.'}
+                          helperText={isCnpjLookupLoading ? 'Consultando dados no CNPJ...' : 'Ao informar CNPJ válido, somente os dados da empresa são preenchidos (endereço não é preenchido).'}
                         />
                         <InputField
                           label="Nome/Razão Social *"

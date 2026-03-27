@@ -1,12 +1,14 @@
 import { Router, Request, Response } from 'express';
-import { db } from '../database';
+import { db } from '../database.js';
+import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { 
   hashPassword, 
   comparePassword, 
   generateToken, 
   isValidEmail, 
   isStrongPassword 
-} from '../utils/security';
+} from '../utils/security.js';
+import { canAccessAllEnterprises, getRequesterEnterpriseIds, hasEnterpriseOverlap, normalizeRole } from '../utils/enterpriseAccess.js';
 
 const router = Router();
 
@@ -177,27 +179,65 @@ router.post('/register', async (req: Request, res: Response) => {
 });
 
 // Get all users
-router.get('/', (req: Request, res: Response) => {
+router.use(authMiddleware);
+
+// Get all users
+router.get('/', (req: AuthRequest, res: Response) => {
   console.log('📋 [AUTH] Fetching all users');
   const users = db.getUsers();
-  console.log('✅ [AUTH] Returning', users.length, 'users');
-  res.json(users.map(u => ({ ...u, password: undefined })));
+
+  if (canAccessAllEnterprises(req.userRole)) {
+    console.log('✅ [AUTH] Returning', users.length, 'users (global access)');
+    return res.json(users.map(u => ({ ...u, password: undefined })));
+  }
+
+  const requesterId = String(req.userId || '').trim();
+  const allowedEnterpriseIds = getRequesterEnterpriseIds(req);
+  const scopedUsers = users.filter((user: any) => {
+    const userId = String(user?.id || '').trim();
+    if (userId === requesterId) return true;
+
+    const role = normalizeRole(String(user?.role || ''));
+    if (role === 'SUPERADMIN' || role === 'ADMIN_SISTEMA') return false;
+    if (role === 'OWNER') return false;
+
+    return hasEnterpriseOverlap(user?.enterpriseIds, allowedEnterpriseIds);
+  });
+
+  console.log('✅ [AUTH] Returning', scopedUsers.length, 'users (scoped access)');
+  return res.json(scopedUsers.map((u: any) => ({ ...u, password: undefined })));
 });
 
 // Get user by ID
-router.get('/:id', (req: Request, res: Response) => {
+router.get('/:id', (req: AuthRequest, res: Response) => {
   console.log('🔍 [AUTH] Fetching user by ID:', req.params.id);
   const user = db.getUser(req.params.id);
   if (!user) {
     console.log('❌ [AUTH] User not found:', req.params.id);
     return res.status(404).json({ error: 'Usuário não encontrado' });
   }
+
+  if (!canAccessAllEnterprises(req.userRole)) {
+    const requesterId = String(req.userId || '').trim();
+    const targetUserId = String(user?.id || '').trim();
+    const allowedEnterpriseIds = getRequesterEnterpriseIds(req);
+    const targetRole = normalizeRole(String(user?.role || ''));
+
+    const canRead = targetUserId === requesterId
+      || (targetRole !== 'OWNER' && targetRole !== 'SUPERADMIN' && targetRole !== 'ADMIN_SISTEMA'
+        && hasEnterpriseOverlap(user?.enterpriseIds, allowedEnterpriseIds));
+
+    if (!canRead) {
+      return res.status(403).json({ error: 'Acesso negado para este usuário' });
+    }
+  }
+
   console.log('✅ [AUTH] User found:', user.email);
   res.json({ ...user, password: undefined });
 });
 
 // Create user (admin only)
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', async (req: AuthRequest, res: Response) => {
   console.log('➕ [AUTH] Creating new user');
   console.log('📝 User data:', { ...req.body, password: '****' });
   
@@ -229,6 +269,26 @@ router.post('/', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Já existe uma conta cadastrada com este CPF/CNPJ.' });
   }
 
+  if (!canAccessAllEnterprises(req.userRole)) {
+    const requesterRole = normalizeRole(req.userRole);
+    const allowedEnterpriseIds = getRequesterEnterpriseIds(req);
+    const requestedEnterpriseIds = Array.isArray(rest?.enterpriseIds)
+      ? rest.enterpriseIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : [];
+
+    const disallowedRole = ['SUPERADMIN', 'ADMIN_SISTEMA', 'OWNER'].includes(normalizeRole(role));
+    if (disallowedRole) {
+      return res.status(403).json({ error: 'Sem permissão para criar usuário com este perfil.' });
+    }
+
+    if (requesterRole === 'OWNER') {
+      const allInsideScope = requestedEnterpriseIds.every((id: string) => allowedEnterpriseIds.includes(id));
+      if (!allInsideScope) {
+        return res.status(403).json({ error: 'Sem permissão para vincular usuário a esta empresa.' });
+      }
+    }
+  }
+
   try {
     const hashedPassword = await hashPassword(password);
     const newUser = db.createUser({ email, password: hashedPassword, name, role, ...rest });
@@ -241,7 +301,7 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // Update user
-router.put('/:id', async (req: Request, res: Response) => {
+router.put('/:id', async (req: AuthRequest, res: Response) => {
   const { password, ...updateData } = req.body;
   const normalizedUpdateData = {
     ...updateData,
@@ -250,6 +310,34 @@ router.put('/:id', async (req: Request, res: Response) => {
   const existingUser = db.getUser(req.params.id);
   if (!existingUser) {
     return res.status(404).json({ error: 'Usuário não encontrado' });
+  }
+
+  if (!canAccessAllEnterprises(req.userRole)) {
+    const requesterId = String(req.userId || '').trim();
+    const requesterRole = normalizeRole(req.userRole);
+    const targetUserRole = normalizeRole(String(existingUser?.role || ''));
+    const allowedEnterpriseIds = getRequesterEnterpriseIds(req);
+    const targetUserId = String(existingUser?.id || '').trim();
+
+    const canEditSelf = targetUserId === requesterId;
+    const canEditScopedUser = targetUserRole !== 'OWNER'
+      && targetUserRole !== 'SUPERADMIN'
+      && targetUserRole !== 'ADMIN_SISTEMA'
+      && hasEnterpriseOverlap(existingUser?.enterpriseIds, allowedEnterpriseIds);
+
+    if (!canEditSelf && !canEditScopedUser) {
+      return res.status(403).json({ error: 'Acesso negado para atualizar este usuário' });
+    }
+
+    if (requesterRole === 'OWNER' && Array.isArray(normalizedUpdateData?.enterpriseIds)) {
+      const nextEnterpriseIds = normalizedUpdateData.enterpriseIds
+        .map((id: unknown) => String(id || '').trim())
+        .filter(Boolean);
+      const allInsideScope = nextEnterpriseIds.every((id: string) => allowedEnterpriseIds.includes(id));
+      if (!allInsideScope) {
+        return res.status(403).json({ error: 'Sem permissão para vincular usuário a esta empresa.' });
+      }
+    }
   }
 
   const duplicateUser = findDuplicateUser({
@@ -296,7 +384,31 @@ router.put('/:id', async (req: Request, res: Response) => {
 });
 
 // Delete user
-router.delete('/:id', (req: Request, res: Response) => {
+router.delete('/:id', (req: AuthRequest, res: Response) => {
+  const targetUser = db.getUser(req.params.id);
+  if (!targetUser) {
+    return res.status(404).json({ error: 'Usuário não encontrado' });
+  }
+
+  if (!canAccessAllEnterprises(req.userRole)) {
+    const requesterId = String(req.userId || '').trim();
+    const targetUserId = String(targetUser?.id || '').trim();
+    if (targetUserId === requesterId) {
+      return res.status(400).json({ error: 'Não é possível excluir o próprio usuário.' });
+    }
+
+    const targetRole = normalizeRole(String(targetUser?.role || ''));
+    const allowedEnterpriseIds = getRequesterEnterpriseIds(req);
+    const canDeleteScopedUser = targetRole !== 'OWNER'
+      && targetRole !== 'SUPERADMIN'
+      && targetRole !== 'ADMIN_SISTEMA'
+      && hasEnterpriseOverlap(targetUser?.enterpriseIds, allowedEnterpriseIds);
+
+    if (!canDeleteScopedUser) {
+      return res.status(403).json({ error: 'Acesso negado para excluir este usuário' });
+    }
+  }
+
   const deleted = db.deleteUser(req.params.id);
   if (!deleted) {
     return res.status(404).json({ error: 'Usuário não encontrado' });
