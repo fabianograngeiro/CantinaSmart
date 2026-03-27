@@ -47,6 +47,7 @@ import SaasClientsPage from './pages/SaasClientsPage';
 import SystemStaffPage from './pages/SystemStaffPage';
 import SystemSettingsPage from './pages/SystemSettingsPage';
 import SettingsPage from './pages/SettingsPage';
+import OwnerProfilePage from './pages/OwnerProfilePage';
 import FinancialPage from './pages/FinancialPage';
 import WhatsAppPage from './pages/WhatsAppPage';
 import NotificationCenter from './components/NotificationCenter';
@@ -703,6 +704,7 @@ const AppContent: React.FC<any> = (props) => {
                     <SidebarItem icon={<Building2 size={20} />} label="Minhas Unidades" to="/enterprises" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Users size={20} />} label="Usuários da Rede" to="/users" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<ArrowRightLeft size={20} />} label="Estoque Geral" to="/inventory" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<UserCog size={20} />} label="Meu Perfil" to="/owner-profile" isOpen={isSidebarOpen} />
                   </div>
                 )}
 
@@ -823,6 +825,7 @@ const AppContent: React.FC<any> = (props) => {
                   <Route path="/plans/:enterpriseId" element={resolvedPermissions.canAccessInventory ? <PlansPage activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/daily-delivery" element={resolvedPermissions.canAccessReports ? <DailyDeliveryPage activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <Navigate to="/" />} />
                   <Route path="/settings" element={resolvedPermissions.canManageStaff ? <SettingsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/owner-profile" element={isOwner ? <OwnerProfilePage currentUser={currentUser} enterprises={availableEnterprises} /> : <Navigate to="/" />} />
                   <Route path="*" element={<Navigate to="/" />} />
                 </Routes>
               </div>
