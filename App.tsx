@@ -6,9 +6,9 @@ import {
   ReceiptText, Building2, Building, ShieldCheck, 
   UserCircle, Globe, ClipboardList, 
   Sparkles, Beef, Store, Calendar, CalendarDays,
-  LogOut, Menu, DollarSign, MessageCircle, BellRing,
+  LogOut, Menu, DollarSign, MessageCircle, BadgeDollarSign,
   Truck, Settings, AlertTriangle, X, Plus, Check, Sun, Moon,
-  ChevronLeft, ChevronRight, Copy // Ícones adicionais
+  ChevronLeft, ChevronRight, UserCog, Shield
 } from 'lucide-react';
 
 // Pages
@@ -17,36 +17,33 @@ import SetupPage from './pages/SetupPage';
 import POSPage from './pages/POSPage';
 import RestaurantPOSPage from './pages/RestaurantPOSPage';
 import DashboardPage from './pages/DashboardPage';
-import OwnerDashboardPage from './pages/OwnerDashboardPage';
 import ClientsPage from './pages/ClientsPage';
 import ProductsPage from './pages/ProductsPage';
 import InventoryPage from './pages/InventoryPage';
 import ReportsPage from './pages/ReportsPage';
 import SaasPlansPage from './pages/SaasPlansPage';
+import SaasPlanosPage from './pages/SaasPlanosPage';
 import SaasBillingPage from './pages/SaasBillingPage';
 import SaasFinancialPage from './pages/SaasFinancialPage';
 import SaasWhatsAppPage from './pages/SaasWhatsAppPage';
 import SaasAuditPage from './pages/SaasAuditPage';
-import SuperAdminProfilePage from './pages/SuperAdminProfilePage';
 import ErrorTicketsPage from './pages/ErrorTicketsPage';
-import SystemStaffPage from './pages/SystemStaffPage';
-import TaskRemindersDashboardPage from './pages/TaskRemindersDashboardPage';
 import EnterprisesPage from './pages/EnterprisesPage';
 import SuppliersPage from './pages/SuppliersPage';
 import ClientPortalPage from './pages/ClientPortalPage';
 import ClientPortalPageDesktop from './pages/ClientPortalPage_Desktop';
 import CollaboratorPortalPage from './pages/CollaboratorPortalPage';
 import MenuManagementPage from './pages/MenuManagementPage';
-import MenuCalendarPage from './pages/MenuCalendarPage';
 import SchoolCalendarPage from './pages/SchoolCalendarPage';
 import OrdersPage from './pages/OrdersPage';
 import RegistrationPage from './pages/RegistrationPage';
-import ResetPasswordPage from './pages/ResetPasswordPage';
 import NutritionalInfoPage from './pages/NutritionalInfoPage';
 import UnitSalesTransactionsPage from './pages/UnitSalesTransactionsPage';
 import PlansPage from './pages/PlansPage';
 import DailyDeliveryPage from './pages/DailyDeliveryPage';
 import UserManagementPage from './pages/UserManagementPage';
+import SaasClientsPage from './pages/SaasClientsPage';
+import SystemStaffPage from './pages/SystemStaffPage';
 import SystemSettingsPage from './pages/SystemSettingsPage';
 import SettingsPage from './pages/SettingsPage';
 import FinancialPage from './pages/FinancialPage';
@@ -63,8 +60,6 @@ const AUTH_USER_STORAGE_KEY = 'canteen_auth_user';
 const ACTIVE_ENTERPRISE_STORAGE_KEY = 'canteen_active_enterprise';
 const normalizeRole = (role?: string): string => String(role || '').trim().toUpperCase();
 const isSuperAdminRole = (role?: string): boolean => normalizeRole(role) === Role.SUPERADMIN;
-const isSystemStaffRole = (role?: string): boolean => normalizeRole(role) === Role.ADMIN_SISTEMA;
-const isGlobalAccessRole = (role?: string): boolean => isSuperAdminRole(role) || isSystemStaffRole(role);
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -75,8 +70,6 @@ const App: React.FC = () => {
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null); // null = loading, true = needs setup, false = already configured
   const [showEnterpriseSelector, setShowEnterpriseSelector] = useState(false);
   const [availableEnterprises, setAvailableEnterprises] = useState<Enterprise[]>([]);
-  const [showMenuCalendarShare, setShowMenuCalendarShare] = useState(false);
-  const [copiedMenuLink, setCopiedMenuLink] = useState(false);
 
   // Verificar se o sistema precisa de setup inicial
   useEffect(() => {
@@ -104,8 +97,18 @@ const App: React.FC = () => {
       setIsAuthenticated(true);
       if (rawEnterprise) {
         const parsedEnterprise = JSON.parse(rawEnterprise) as Enterprise;
-        if (parsedEnterprise?.id) {
+        const normalizedRole = String(parsedUser?.role || '').toUpperCase();
+        const userEnterpriseIds = Array.isArray(parsedUser?.enterpriseIds)
+          ? parsedUser.enterpriseIds.map((id) => String(id || '').trim()).filter(Boolean)
+          : [];
+        const canReuseStoredEnterprise = normalizedRole === Role.SUPERADMIN
+          || normalizedRole === Role.ADMIN_SISTEMA
+          || userEnterpriseIds.includes(String(parsedEnterprise?.id || '').trim());
+
+        if (parsedEnterprise?.id && canReuseStoredEnterprise) {
           setActiveEnterprise(parsedEnterprise);
+        } else {
+          localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
         }
       }
     } catch (err) {
@@ -135,6 +138,9 @@ const App: React.FC = () => {
       setTransactions([]);
       localStorage.removeItem(AUTH_USER_STORAGE_KEY);
       localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
+      if (typeof window !== 'undefined') {
+        window.location.hash = '#/';
+      }
       notificationService.critico(
         'Sessão expirada',
         'Sua sessão expirou. Faça login novamente.'
@@ -168,7 +174,7 @@ const App: React.FC = () => {
   // Recarregar empresas quando usuário autenticado não tiver empresa selecionada
   useEffect(() => {
     const loadEnterprises = async () => {
-      if (isAuthenticated && currentUser && !isGlobalAccessRole(String(currentUser.role)) && !activeEnterprise) {
+      if (isAuthenticated && currentUser && !isSuperAdminRole(String(currentUser.role)) && !activeEnterprise) {
         try {
           const enterprises = await ApiService.getEnterprises();
           setAvailableEnterprises(enterprises);
@@ -195,10 +201,12 @@ const App: React.FC = () => {
       // Usuário já foi autenticado em LoginPage, apenas atualiza estado
       setCurrentUser(user);
       setIsAuthenticated(true);
+      setActiveEnterprise(null);
       localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user));
+      localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
       
       // Para SUPERADMIN, não precisa de activeEnterprise
-      if (isGlobalAccessRole(String(user.role))) {
+      if (isSuperAdminRole(String(user.role))) {
         return;
       }
       
@@ -233,6 +241,9 @@ const App: React.FC = () => {
     ApiService.clearToken();
     localStorage.removeItem(AUTH_USER_STORAGE_KEY);
     localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
+    if (typeof window !== 'undefined') {
+      window.location.hash = '#/';
+    }
   };
 
   const handleSetupComplete = () => {
@@ -241,7 +252,7 @@ const App: React.FC = () => {
 
   const isSuperAdmin = isSuperAdminRole(String(currentUser?.role || ''));
   const roleKey = normalizeRole(String(currentUser?.role || ''));
-  const isSystemStaff = roleKey === Role.ADMIN_SISTEMA;
+  const isAdminSistema = roleKey === Role.ADMIN_SISTEMA;
   const isOwner = roleKey === Role.OWNER;
   const isAdminUnit = roleKey === Role.ADMIN
     || roleKey === Role.ADMIN_RESTAURANTE
@@ -269,14 +280,6 @@ const App: React.FC = () => {
           canAccessClients: true,
           canManageStaff: true,
         };
-      case Role.ADMIN_SISTEMA:
-        return {
-          canAccessInventory: false,
-          canAccessReports: false,
-          canAccessPOS: false,
-          canAccessClients: false,
-          canManageStaff: false,
-        };
       default:
         return {
           canAccessInventory: false,
@@ -290,17 +293,6 @@ const App: React.FC = () => {
   const resolvedPermissions = {
     ...roleDefaultPermissions,
     ...(currentUser?.permissions || {}),
-  };
-  const resolvedSystemPermissions = {
-    canManageClients: true,
-    canManageEnterprises: true,
-    canManagePlans: true,
-    canViewBilling: true,
-    canViewFinancial: true,
-    canViewAudit: true,
-    canManageWhatsApp: true,
-    canViewErrorTickets: true,
-    ...(currentUser?.systemPermissions || {}),
   };
   const isPortalUser = currentUser?.role === 'RESPONSAVEL' || currentUser?.role === 'COLABORADOR' || currentUser?.role === 'CLIENTE';
   const isRestaurant = activeEnterprise?.type === 'RESTAURANTE';
@@ -330,9 +322,8 @@ const App: React.FC = () => {
         needsSetup={needsSetup}
         handleSetupComplete={handleSetupComplete}
         currentUser={currentUser}
-        setCurrentUser={setCurrentUser}
         isSuperAdmin={isSuperAdmin}
-        isSystemStaff={isSystemStaff}
+        isAdminSistema={isAdminSistema}
         isOwner={isOwner}
         isAdminUnit={isAdminUnit}
         isRestaurant={isRestaurant}
@@ -349,11 +340,6 @@ const App: React.FC = () => {
         showEnterpriseSelector={showEnterpriseSelector}
         setShowEnterpriseSelector={setShowEnterpriseSelector}
         resolvedPermissions={resolvedPermissions}
-        resolvedSystemPermissions={resolvedSystemPermissions}
-        showMenuCalendarShare={showMenuCalendarShare}
-        setShowMenuCalendarShare={setShowMenuCalendarShare}
-        copiedMenuLink={copiedMenuLink}
-        setCopiedMenuLink={setCopiedMenuLink}
       />
     </HashRouter>
   );
@@ -382,19 +368,47 @@ const AppContent: React.FC<any> = (props) => {
   const { theme, toggleTheme, isDark } = useTheme();
   const {
     isAuthenticated, needsSetup, handleSetupComplete, currentUser,
-    setCurrentUser,
-    isSuperAdmin, isSystemStaff, isOwner, isAdminUnit, isRestaurant, isCantina,
+    isSuperAdmin, isAdminSistema, isOwner, isAdminUnit, isRestaurant, isCantina,
     isSidebarOpen, setIsSidebarOpen, activeEnterprise, setActiveEnterprise,
     handleLogout, handleLogin, transactions, setTransactions,
     availableEnterprises,
-    showEnterpriseSelector, setShowEnterpriseSelector, resolvedPermissions, resolvedSystemPermissions,
-    showMenuCalendarShare, setShowMenuCalendarShare, copiedMenuLink, setCopiedMenuLink
+    showEnterpriseSelector, setShowEnterpriseSelector, resolvedPermissions
   } = props;
+  const [trialBanner, setTrialBanner] = React.useState<{ show: boolean; expiresAt: string; daysLeft: number }>({
+    show: false,
+    expiresAt: '',
+    daysLeft: 0,
+  });
 
-  const ownerEnterprises = React.useMemo(
-    () => (Array.isArray(availableEnterprises) ? availableEnterprises : []),
-    [availableEnterprises]
-  );
+  const calcTrialDaysLeft = (iso: string) => {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return 0;
+    return Math.ceil((date.getTime() - Date.now()) / 86400000);
+  };
+
+  const applyTrialBanner = (trialExpiresAt?: string) => {
+    const iso = String(trialExpiresAt || '').trim();
+    if (!iso) {
+      setTrialBanner({ show: false, expiresAt: '', daysLeft: 0 });
+      return;
+    }
+    setTrialBanner({ show: true, expiresAt: iso, daysLeft: calcTrialDaysLeft(iso) });
+  };
+
+  const trialBannerTone = trialBanner.daysLeft < 0
+    ? {
+        wrapper: 'border-red-300/80 bg-red-50 text-red-900',
+        icon: 'text-red-700',
+      }
+    : trialBanner.daysLeft <= 3
+      ? {
+          wrapper: 'border-orange-300/80 bg-orange-50 text-orange-900',
+          icon: 'text-orange-700',
+        }
+      : {
+          wrapper: 'border-amber-300/80 bg-amber-50 text-amber-900',
+          icon: 'text-amber-700',
+        };
 
   // Verificar se está na página de enterprises
   const isOnEnterprisesPage = location.pathname === '/enterprises';
@@ -407,8 +421,109 @@ const AppContent: React.FC<any> = (props) => {
     }
   }, [isAuthenticated, isPortalUser, location.pathname]);
 
+  React.useEffect(() => {
+    if (!isAuthenticated || !currentUser) return;
+    const isOwnerRole = normalizeRole(String(currentUser.role || '')) === Role.OWNER;
+    if (!isOwnerRole) return;
+    const hasLinkedEnterprise = Array.isArray(currentUser.enterpriseIds) && currentUser.enterpriseIds.length > 0;
+    if (!hasLinkedEnterprise && location.pathname !== '/enterprises') {
+      notificationService.alerta(
+        'Configuração inicial necessária',
+        'Cadastre sua primeira unidade para concluir a configuração da conta.'
+      );
+      navigate('/enterprises');
+    }
+  }, [
+    isAuthenticated,
+    currentUser?.id,
+    currentUser?.role,
+    (currentUser?.enterpriseIds || []).join(','),
+    location.pathname,
+  ]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const resolveTrialBanner = async () => {
+      if (!isAuthenticated || !currentUser) {
+        if (!cancelled) setTrialBanner({ show: false, expiresAt: '', daysLeft: 0 });
+        return;
+      }
+
+      const roleKey = normalizeRole(String(currentUser.role || ''));
+      if (isSuperAdminRole(roleKey) || roleKey === Role.ADMIN_SISTEMA) {
+        if (!cancelled) setTrialBanner({ show: false, expiresAt: '', daysLeft: 0 });
+        return;
+      }
+
+      if (String(currentUser.trialExpiresAt || '').trim()) {
+        if (!cancelled) applyTrialBanner(currentUser.trialExpiresAt);
+        return;
+      }
+
+      const candidateEnterpriseIds = new Set<string>([
+        String(activeEnterprise?.id || '').trim(),
+        ...(Array.isArray(currentUser.enterpriseIds) ? currentUser.enterpriseIds : []),
+      ].filter(Boolean));
+
+      if (candidateEnterpriseIds.size === 0) {
+        if (!cancelled) setTrialBanner({ show: false, expiresAt: '', daysLeft: 0 });
+        return;
+      }
+
+      try {
+        const users = await ApiService.getUsers();
+        if (cancelled) return;
+        const owner = (Array.isArray(users) ? users : []).find((user: User) => {
+          if (normalizeRole(String(user.role || '')) !== Role.OWNER) return false;
+          const ownerEnterpriseIds = Array.isArray(user.enterpriseIds) ? user.enterpriseIds : [];
+          return ownerEnterpriseIds.some((enterpriseId) => candidateEnterpriseIds.has(String(enterpriseId || '').trim()));
+        });
+        applyTrialBanner(owner?.trialExpiresAt);
+      } catch {
+        if (!cancelled) setTrialBanner({ show: false, expiresAt: '', daysLeft: 0 });
+      }
+    };
+
+    resolveTrialBanner();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isAuthenticated,
+    currentUser?.id,
+    currentUser?.role,
+    currentUser?.trialExpiresAt,
+    activeEnterprise?.id,
+    (currentUser?.enterpriseIds || []).join(','),
+  ]);
+
   return (
       <div className="flex h-screen bg-gray-50 dark:bg-[#0c0c0e] overflow-hidden text-gray-900 dark:text-zinc-100 font-['Inter'] relative">
+        {isAuthenticated && trialBanner.show && (
+          <div className="fixed top-0 inset-x-0 z-[120] px-3 pt-2 pointer-events-none">
+            <div className={`mx-auto max-w-5xl pointer-events-auto rounded-xl border px-4 py-2.5 shadow-md ${trialBannerTone.wrapper}`}>
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={14} className={`${trialBannerTone.icon} shrink-0`} />
+                {trialBanner.daysLeft > 0 ? (
+                  <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide">
+                    {trialBanner.daysLeft <= 3
+                      ? `Atenção: seu período de teste termina em ${trialBanner.daysLeft} dia${trialBanner.daysLeft === 1 ? '' : 's'}. Renove agora para não ficar sem acesso.`
+                      : `Seu período de teste termina em ${trialBanner.daysLeft} dia${trialBanner.daysLeft === 1 ? '' : 's'}. Renove para não ficar sem acesso.`}
+                  </p>
+                ) : trialBanner.daysLeft === 0 ? (
+                  <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide">
+                    Seu período de teste termina hoje. Renove agora para não ficar sem acesso.
+                  </p>
+                ) : (
+                  <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide">
+                    Seu período de teste expirou há {Math.abs(trialBanner.daysLeft)} dia{Math.abs(trialBanner.daysLeft) === 1 ? '' : 's'}. Renove para evitar bloqueio de acesso.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         <NotificationCenter />
         
         {!isAuthenticated ? (
@@ -416,7 +531,6 @@ const AppContent: React.FC<any> = (props) => {
              <Routes>
                <Route path="/portal" element={<ClientPortalPage />} />
                <Route path="/register" element={<RegistrationPage />} />
-               <Route path="/reset-password" element={<ResetPasswordPage />} />
                <Route path="*" element={<LoginPage onLogin={handleLogin} />} />
              </Routes>
           </div>
@@ -458,36 +572,46 @@ const AppContent: React.FC<any> = (props) => {
                 {isSuperAdmin && (
                   <div className="pt-4 pb-2 space-y-1">
                     <p className={`text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Master Control</p>
-                    <SidebarItem icon={<ShieldCheck size={20} />} label="Usuários do Sistema" to="/system-staff" isOpen={isSidebarOpen} />
-                    <SidebarItem icon={<Building2 size={20} />} label="Clientes SaaS" to="/enterprises" isOpen={isSidebarOpen} />
-                    <SidebarItem icon={<Sparkles size={20} />} label="Planos SaaS" to="/saas-plans" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<Shield size={20} />} label="Equipe Interna" to="/system-staff" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<Sparkles size={20} />} label="Clientes/Planos" to="/saas-plans" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<BadgeDollarSign size={20} />} label="Planos" to="/saas-planos" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<DollarSign size={20} />} label="Cobranças SaaS" to="/saas-billing" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<ReceiptText size={20} />} label="Financeiro SaaS" to="/saas-financial" isOpen={isSidebarOpen} />
-                    <SidebarItem icon={<BellRing size={20} />} label="Lembretes" to="/task-reminders" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp SaaS" to="/saas-whatsapp" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<ClipboardList size={20} />} label="Auditoria SaaS" to="/saas-audit" isOpen={isSidebarOpen} />
-                    <SidebarItem icon={<UserCircle size={20} />} label="Perfil" to="/superadmin-profile" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<AlertTriangle size={20} />} label="TICKET ERRO" to="/error-tickets" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Settings size={20} />} label="Configurações" to="/system-settings" isOpen={isSidebarOpen} />
                   </div>
                 )}
 
-                {isSystemStaff && (
-                  <div className="pt-4 pb-2 space-y-1 border-t border-slate-800/30 dark:border-white/5 mt-4">
-                    <p className={`text-[9px] font-black text-cyan-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Usuário do Sistema</p>
-                    {resolvedSystemPermissions.canManageClients && <SidebarItem icon={<Users size={20} />} label="Donos de Rede" to="/enterprises" isOpen={isSidebarOpen} />}
-                    {resolvedSystemPermissions.canManageEnterprises && <SidebarItem icon={<Building2 size={20} />} label="Unidades SaaS" to="/enterprises" isOpen={isSidebarOpen} />}
-                    {resolvedSystemPermissions.canManagePlans && <SidebarItem icon={<Sparkles size={20} />} label="Planos SaaS" to="/saas-plans" isOpen={isSidebarOpen} />}
-                    {resolvedSystemPermissions.canViewBilling && <SidebarItem icon={<DollarSign size={20} />} label="Cobranças SaaS" to="/saas-billing" isOpen={isSidebarOpen} />}
-                    {resolvedSystemPermissions.canViewFinancial && <SidebarItem icon={<ReceiptText size={20} />} label="Financeiro SaaS" to="/saas-financial" isOpen={isSidebarOpen} />}
-                    <SidebarItem icon={<BellRing size={20} />} label="Lembretes" to="/task-reminders" isOpen={isSidebarOpen} />
-                    {resolvedSystemPermissions.canManageWhatsApp && <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp SaaS" to="/saas-whatsapp" isOpen={isSidebarOpen} />}
-                    {resolvedSystemPermissions.canViewAudit && <SidebarItem icon={<ClipboardList size={20} />} label="Auditoria SaaS" to="/saas-audit" isOpen={isSidebarOpen} />}
-                    {resolvedSystemPermissions.canViewErrorTickets && <SidebarItem icon={<AlertTriangle size={20} />} label="Ticket Erro" to="/error-tickets" isOpen={isSidebarOpen} />}
+                {isAdminSistema && (
+                  <div className="pt-4 pb-2 space-y-1">
+                    <p className={`text-[9px] font-black text-purple-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Painel SaaS</p>
+                    {currentUser?.systemPermissions?.canManagePlans && (
+                      <SidebarItem icon={<Sparkles size={20} />} label="Clientes/Planos" to="/saas-plans" isOpen={isSidebarOpen} />
+                    )}
+                    {currentUser?.systemPermissions?.canManagePlans && (
+                      <SidebarItem icon={<BadgeDollarSign size={20} />} label="Planos" to="/saas-planos" isOpen={isSidebarOpen} />
+                    )}
+                    {currentUser?.systemPermissions?.canViewBilling && (
+                      <SidebarItem icon={<DollarSign size={20} />} label="Cobranças SaaS" to="/saas-billing" isOpen={isSidebarOpen} />
+                    )}
+                    {currentUser?.systemPermissions?.canViewFinancial && (
+                      <SidebarItem icon={<ReceiptText size={20} />} label="Financeiro SaaS" to="/saas-financial" isOpen={isSidebarOpen} />
+                    )}
+                    {currentUser?.systemPermissions?.canManageWhatsApp && (
+                      <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp SaaS" to="/saas-whatsapp" isOpen={isSidebarOpen} />
+                    )}
+                    {currentUser?.systemPermissions?.canViewAudit && (
+                      <SidebarItem icon={<ClipboardList size={20} />} label="Auditoria SaaS" to="/saas-audit" isOpen={isSidebarOpen} />
+                    )}
+                    {currentUser?.systemPermissions?.canViewErrorTickets && (
+                      <SidebarItem icon={<AlertTriangle size={20} />} label="TICKET ERRO" to="/error-tickets" isOpen={isSidebarOpen} />
+                    )}
                   </div>
                 )}
 
-                {(isAdminUnit || isOwner) && (
+                {isAdminUnit && (
                   <div className="pt-4 pb-2 space-y-1 border-t border-slate-800/30 dark:border-white/5 mt-4">
                     <p className={`text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Minha Unidade</p>
                     
@@ -496,60 +620,7 @@ const AppContent: React.FC<any> = (props) => {
                       <SidebarItem icon={<Truck size={20} />} label="Entrega do Dia" to="/daily-delivery" isOpen={isSidebarOpen} />
                     )}
 
-                    {/* CARDÁPIO LOCAL COM DROPDOWN */}
-                    {resolvedPermissions.canAccessInventory && (
-                      <div className="relative group">
-                        <button
-                          onClick={() => setShowMenuCalendarShare(!showMenuCalendarShare)}
-                          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                            showMenuCalendarShare
-                              ? 'bg-emerald-500/20 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400'
-                              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
-                          }`}
-                        >
-                          <Calendar size={20} />
-                          {isSidebarOpen && (
-                            <>
-                              <span className="text-sm font-medium flex-1 text-left">Cardápio Local</span>
-                              <ChevronRight size={16} className={`transition-transform ${showMenuCalendarShare ? 'rotate-90' : ''}`} />
-                            </>
-                          )}
-                        </button>
-
-                        {/* Submenu de Cardápio */}
-                        {showMenuCalendarShare && isSidebarOpen && (
-                          <div className="ml-3 mt-1 space-y-1 border-l-2 border-emerald-300 dark:border-emerald-600 pl-3">
-                            <Link
-                              to="/menu-lunch"
-                              onClick={() => setShowMenuCalendarShare(false)}
-                              className="block px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                            >
-                              ✏️ Editar Cardápio
-                            </Link>
-                            <Link
-                              to="/menu-calendar"
-                              onClick={() => setShowMenuCalendarShare(false)}
-                              className="block px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                            >
-                              👁️ Visualizar Público
-                            </Link>
-                            <button
-                              onClick={() => {
-                                const url = `${window.location.origin}/#/menu-calendar?enterprise=${activeEnterprise?.id}`;
-                                navigator.clipboard.writeText(url);
-                                setCopiedMenuLink(true);
-                                setTimeout(() => setCopiedMenuLink(false), 2000);
-                                notificationService.informativo('Link copiado!', 'Cardápio copiado para compartilher');
-                              }}
-                              className="w-full text-left px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-2"
-                            >
-                              {copiedMenuLink ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
-                              {copiedMenuLink ? 'Link Copiado!' : 'Copiar Link'}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Calendar size={20} />} label="Cardápio Local" to="/menu-lunch" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessInventory && <SidebarItem icon={<CalendarDays size={20} />} label="Calendário Escolar" to="/school-calendar" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Beef size={20} />} label="Base Nutricional" to="/nutritional-info" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Sparkles size={20} />} label="Planos Ativos" to={`/plans/${activeEnterprise?.id}`} isOpen={isSidebarOpen} />}
@@ -571,13 +642,13 @@ const AppContent: React.FC<any> = (props) => {
                   </div>
                 )}
 
-                {!isSuperAdmin && !isSystemStaff && (
+                {!isSuperAdmin && (
                   <div className="py-4 border-t border-slate-800/50 dark:border-white/5 mt-4 space-y-1">
                     <p className={`text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Operacional</p>
                     {resolvedPermissions.canAccessPOS && <SidebarItem icon={<ShoppingCart size={20} />} label="Vender (PDV)" to="/pos" isOpen={isSidebarOpen} />}
-                    {isOwner && resolvedPermissions.canAccessClients && <SidebarItem icon={<UserCircle size={20} />} label="Cliente/Responsável" to="/clients-responsaveis" isOpen={isSidebarOpen} />}
-                    {isOwner && resolvedPermissions.canAccessClients && <SidebarItem icon={<Users size={20} />} label="Alunos" to="/clients" isOpen={isSidebarOpen} />}
-                    {isOwner && resolvedPermissions.canAccessInventory && <SidebarItem icon={<Package size={20} />} label="Produtos" to="/products" isOpen={isSidebarOpen} />}
+                    {resolvedPermissions.canAccessClients && <SidebarItem icon={<UserCircle size={20} />} label="Cliente/Responsável" to="/clients-responsaveis" isOpen={isSidebarOpen} />}
+                    {resolvedPermissions.canAccessClients && <SidebarItem icon={<Users size={20} />} label="Alunos" to="/clients" isOpen={isSidebarOpen} />}
+                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Package size={20} />} label="Produtos" to="/products" isOpen={isSidebarOpen} />}
                     <SidebarItem icon={<ClipboardList size={20} />} label="Suprimentos" to="/orders" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Truck size={20} />} label="Fornecedores" to="/suppliers" isOpen={isSidebarOpen} />
                   </div>
@@ -587,19 +658,10 @@ const AppContent: React.FC<any> = (props) => {
               <div className="px-2 py-1.5 border-t border-slate-800/50 dark:border-white/5 space-y-1">
                 {/* Botão para trocar unidade (apenas para OWNER) */}
                 {isOwner && (
-                  <button
-                    onClick={() => navigate('/owner-admin')}
-                    className={`flex items-center w-full px-2 py-1.5 rounded-lg text-cyan-300 hover:bg-cyan-500/10 transition-all ${!isSidebarOpen && 'justify-center'}`}
-                  >
-                    <LayoutDashboard size={16} />
-                    {isSidebarOpen && <span className="ml-2.5 font-bold text-[11px] uppercase tracking-wider">Painel Admin</span>}
-                  </button>
-                )}
-
-                {isOwner && (
                   <button 
                     onClick={() => {
-                      setShowEnterpriseSelector(true);
+                      setActiveEnterprise(null);
+                      // O modal será mostrado automaticamente quando activeEnterprise for null
                     }}
                     className={`flex items-center w-full px-2 py-1.5 rounded-lg text-indigo-400 hover:bg-indigo-500/10 transition-all ${!isSidebarOpen && 'justify-center'}`}
                   >
@@ -654,57 +716,29 @@ const AppContent: React.FC<any> = (props) => {
 
               <div className="flex-1 min-w-0 overflow-auto bg-gray-50 dark:bg-zinc-900/50">
                 <Routes>
-                  <Route path="/" element={isOwner ? (activeEnterprise ? <DashboardPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/owner-admin" replace />) : <DashboardPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
-                  <Route path="/owner-admin" element={isOwner ? <OwnerDashboardPage currentUser={currentUser} enterprises={ownerEnterprises} onSelectEnterprise={setActiveEnterprise} /> : <Navigate to="/" replace />} />
-                  <Route path="/pos" element={resolvedPermissions.canAccessPOS ? (
-                    isOwner ? (
-                      <OwnerEnterpriseScopedView
-                        title="PDV da Rede"
-                        description="Escolha a unidade para abrir o PDV operacional da conta gerente."
-                        enterprises={ownerEnterprises}
-                        activeEnterprise={activeEnterprise}
-                        onSelectEnterprise={setActiveEnterprise}
-                      >
-                        <POSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} />
-                      </OwnerEnterpriseScopedView>
-                    ) : (isRestaurant ? <RestaurantPOSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <POSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} />)
-                  ) : <Navigate to="/" />} />
+                  <Route path="/" element={<DashboardPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
+                  <Route path="/pos" element={resolvedPermissions.canAccessPOS ? (isRestaurant ? <RestaurantPOSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <POSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} />) : <Navigate to="/" />} />
                   <Route path="/clients" element={resolvedPermissions.canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="ALUNOS" /> : <Navigate to="/" />} />
                   <Route path="/clients-responsaveis" element={resolvedPermissions.canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="CLIENTES_RESPONSAVEIS" /> : <Navigate to="/" />} />
                   <Route path="/products" element={resolvedPermissions.canAccessInventory ? <ProductsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/product-categories" element={<Navigate to="/products" replace />} />
-                  <Route path="/inventory" element={resolvedPermissions.canAccessInventory ? (
-                    isOwner ? (
-                      <OwnerEnterpriseScopedView
-                        title="Estoque Geral"
-                        description="Escolha a unidade para administrar o estoque correspondente."
-                        enterprises={ownerEnterprises}
-                        activeEnterprise={activeEnterprise}
-                        onSelectEnterprise={setActiveEnterprise}
-                      >
-                        <InventoryPage currentUser={currentUser} activeEnterprise={activeEnterprise} />
-                      </OwnerEnterpriseScopedView>
-                    ) : <InventoryPage currentUser={currentUser} activeEnterprise={activeEnterprise} />
-                  ) : <Navigate to="/" />} />
+                  <Route path="/inventory" element={resolvedPermissions.canAccessInventory ? <InventoryPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/reports" element={resolvedPermissions.canAccessReports ? <ReportsPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-plans" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canManagePlans) ? <SaasPlansPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-planos" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canManagePlans) ? <SaasPlanosPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-billing" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canViewBilling) ? <SaasBillingPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-financial" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canViewFinancial) ? <SaasFinancialPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-whatsapp" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canManageWhatsApp) ? <SaasWhatsAppPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-audit" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canViewAudit) ? <SaasAuditPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/error-tickets" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canViewErrorTickets) ? <ErrorTicketsPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/saas-clients" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canManageClients) ? <SaasClientsPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/system-staff" element={isSuperAdmin ? <SystemStaffPage currentUser={currentUser} /> : <Navigate to="/" />} />
-                  <Route path="/saas-plans" element={(isSuperAdmin || (isSystemStaff && resolvedSystemPermissions.canManagePlans)) ? <SaasPlansPage currentUser={currentUser} /> : <Navigate to="/" />} />
-                  <Route path="/saas-billing" element={(isSuperAdmin || (isSystemStaff && resolvedSystemPermissions.canViewBilling)) ? <SaasBillingPage currentUser={currentUser} /> : <Navigate to="/" />} />
-                  <Route path="/saas-financial" element={(isSuperAdmin || (isSystemStaff && resolvedSystemPermissions.canViewFinancial)) ? <SaasFinancialPage currentUser={currentUser} /> : <Navigate to="/" />} />
-                  <Route path="/task-reminders" element={(isSuperAdmin || isSystemStaff) ? <TaskRemindersDashboardPage currentUser={currentUser} /> : <Navigate to="/" />} />
-                  <Route path="/saas-whatsapp" element={(isSuperAdmin || (isSystemStaff && resolvedSystemPermissions.canManageWhatsApp)) ? <SaasWhatsAppPage currentUser={currentUser} /> : <Navigate to="/" />} />
-                  <Route path="/saas-audit" element={(isSuperAdmin || (isSystemStaff && resolvedSystemPermissions.canViewAudit)) ? <SaasAuditPage currentUser={currentUser} /> : <Navigate to="/" />} />
-                  <Route path="/superadmin-profile" element={isSuperAdmin ? <SuperAdminProfilePage currentUser={currentUser} onUserUpdated={(nextUser) => {
-                    setCurrentUser(nextUser);
-                    localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(nextUser));
-                  }} /> : <Navigate to="/" />} />
-                  <Route path="/error-tickets" element={(isSuperAdmin || (isSystemStaff && resolvedSystemPermissions.canViewErrorTickets)) ? <ErrorTicketsPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/unit-sales" element={resolvedPermissions.canAccessReports ? <UnitSalesTransactionsPage activeEnterprise={activeEnterprise} transactions={transactions} /> : <Navigate to="/" />} />
                   <Route path="/financial" element={resolvedPermissions.canAccessReports ? <FinancialPage activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/whatsapp" element={resolvedPermissions.canAccessReports ? <WhatsAppPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
-                  <Route path="/users" element={(isOwner || resolvedPermissions.canManageStaff) ? <UserManagementPage currentUser={currentUser} /> : (isSuperAdmin ? <Navigate to="/system-staff" /> : <Navigate to="/" />)} />
+                  <Route path="/users" element={(isSuperAdmin || isOwner || resolvedPermissions.canManageStaff) ? <UserManagementPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/system-settings" element={<SystemSettingsPage currentUser={currentUser} />} />
-                  <Route path="/enterprises" element={(isSuperAdmin || (isSystemStaff && (resolvedSystemPermissions.canManageClients || resolvedSystemPermissions.canManageEnterprises)) || isOwner) ? <EnterprisesPage currentUser={currentUser} onSelectEnterprise={setActiveEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/enterprises" element={isSuperAdmin || isOwner || (isAdminSistema && currentUser?.systemPermissions?.canManageEnterprises) ? <EnterprisesPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/suppliers" element={<SuppliersPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
                   <Route path="/portal" element={
                     currentUser?.role === 'RESPONSAVEL' ? <ClientPortalPageWrapper /> :
@@ -712,7 +746,6 @@ const AppContent: React.FC<any> = (props) => {
                     <Navigate to="/" />
                   } />
                   <Route path="/menu-lunch" element={resolvedPermissions.canAccessInventory ? <MenuManagementPage type="ALMOCO" currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
-                  <Route path="/menu-calendar" element={<MenuCalendarPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
                   <Route path="/school-calendar" element={resolvedPermissions.canAccessInventory ? <SchoolCalendarPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/nutritional-info" element={resolvedPermissions.canAccessInventory ? <NutritionalInfoPage /> : <Navigate to="/" />} />
                   <Route path="/orders" element={<OrdersPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
@@ -728,29 +761,17 @@ const AppContent: React.FC<any> = (props) => {
         )}
 
         {/* Modal de Seleção de Empresa para OWNER */}
-        {isAuthenticated && isOwner && (showEnterpriseSelector || (!activeEnterprise && !isOnEnterprisesPage && location.pathname !== '/owner-admin')) && (
+        {isAuthenticated && isOwner && !activeEnterprise && !isOnEnterprisesPage && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-2xl w-full shadow-2xl border border-slate-200 dark:border-slate-700 animate-in zoom-in-95 duration-200">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-500/20 rounded-2xl flex items-center justify-center">
-                    <Building className="text-indigo-600" size={24} />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-black text-gray-800 dark:text-slate-100">Selecione uma Unidade</h3>
-                    <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Escolha qual unidade você deseja acessar</p>
-                  </div>
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-500/20 rounded-2xl flex items-center justify-center">
+                  <Building className="text-indigo-600" size={24} />
                 </div>
-                {showEnterpriseSelector && (
-                  <button
-                    type="button"
-                    onClick={() => setShowEnterpriseSelector(false)}
-                    className="p-2 rounded-xl text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 hover:text-gray-700 dark:hover:text-slate-200 transition-all"
-                    aria-label="Fechar seletor de unidade"
-                  >
-                    <X size={18} />
-                  </button>
-                )}
+                <div>
+                  <h3 className="text-xl font-black text-gray-800 dark:text-slate-100">Selecione uma Unidade</h3>
+                  <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Escolha qual unidade você deseja acessar</p>
+                </div>
               </div>
 
               {availableEnterprises.length === 0 ? (
@@ -835,65 +856,6 @@ const SidebarItem: React.FC<any> = ({ icon, label, to, isOpen }) => {
         </span>
       )}
     </Link>
-  );
-};
-
-const OwnerEnterpriseScopedView: React.FC<{
-  title: string;
-  description: string;
-  enterprises: Enterprise[];
-  activeEnterprise: Enterprise | null;
-  onSelectEnterprise: (enterprise: Enterprise) => void;
-  children: React.ReactNode;
-}> = ({ title, description, enterprises, activeEnterprise, onSelectEnterprise, children }) => {
-  const hasEnterprises = Array.isArray(enterprises) && enterprises.length > 0;
-
-  return (
-    <div className="space-y-4 p-4 md:p-6">
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-white/10 p-4 md:p-5">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 className="text-lg font-black text-slate-900 dark:text-slate-100 uppercase tracking-tight">{title}</h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold mt-1">{description}</p>
-          </div>
-          {activeEnterprise && (
-            <span className="inline-flex items-center px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 text-[11px] font-black uppercase tracking-wider">
-              Unidade ativa: {activeEnterprise.name}
-            </span>
-          )}
-        </div>
-
-        {!hasEnterprises ? (
-          <div className="mt-4 text-xs font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl p-3">
-            Nenhuma unidade encontrada para esta conta OWNER.
-          </div>
-        ) : (
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-            {enterprises.map((enterprise) => {
-              const selected = activeEnterprise?.id === enterprise.id;
-              return (
-                <button
-                  key={enterprise.id}
-                  type="button"
-                  onClick={() => onSelectEnterprise(enterprise)}
-                  className={`text-left rounded-xl border p-3 transition-all ${selected
-                    ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10 shadow-md shadow-indigo-100/60'
-                    : 'border-slate-200 dark:border-white/10 hover:border-indigo-300 dark:hover:border-indigo-500/40 bg-white dark:bg-zinc-900'
-                  }`}
-                >
-                  <p className="text-sm font-black text-slate-800 dark:text-slate-100 leading-tight">{enterprise.name}</p>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest mt-1">
-                    {enterprise.type}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {activeEnterprise && hasEnterprises && children}
-    </div>
   );
 };
 
