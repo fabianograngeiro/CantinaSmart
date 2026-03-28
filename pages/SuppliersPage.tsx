@@ -14,6 +14,20 @@ interface SuppliersPageProps {
   activeEnterprise: Enterprise;
 }
 
+const PAYMENT_METHOD_OPTIONS = [
+  { value: 'PIX', label: 'PIX' },
+  { value: 'BOLETO', label: 'Boleto' },
+  { value: 'CARTAO_CREDITO', label: 'Cartao de Credito' },
+  { value: 'CARTAO_DEBITO', label: 'Cartao de Debito' },
+  { value: 'DINHEIRO', label: 'Dinheiro' },
+  { value: 'CREDIARIO_PROPRIO', label: 'Crediario Proprio' },
+];
+
+const PAYMENT_TERM_OPTIONS = [
+  { value: 'CREDIARIO_PROPRIO', label: 'Crediario Proprio' },
+  { value: 'BOLETO', label: 'Boleto' },
+];
+
 const SuppliersPage: React.FC<SuppliersPageProps> = ({ currentUser, activeEnterprise }) => {
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
@@ -28,19 +42,24 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ currentUser, activeEnterp
   }
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [enterprises, setEnterprises] = useState<Enterprise[]>([]);
   
-  // Carregar fornecedores da API
   useEffect(() => {
-    const loadSuppliers = async () => {
+    const loadData = async () => {
       try {
-        const data = await ApiService.getSuppliers(activeEnterprise.id);
-        setSuppliers(data);
+        const [suppliersData, enterprisesData] = await Promise.all([
+          ApiService.getSuppliers(activeEnterprise.id),
+          ApiService.getEnterprises(),
+        ]);
+        setSuppliers(Array.isArray(suppliersData) ? suppliersData : []);
+        setEnterprises(Array.isArray(enterprisesData) ? enterprisesData : []);
       } catch (err) {
-        console.error('Erro ao carregar fornecedores:', err);
+        console.error('Erro ao carregar dados de fornecedores:', err);
         setSuppliers([]);
+        setEnterprises([]);
       }
     };
-    loadSuppliers();
+    loadData();
   }, [activeEnterprise.id]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -53,16 +72,25 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ currentUser, activeEnterp
     category: 'ALIMENTOS',
     contactPerson: '',
     email: '',
-    phone: ''
+    phone: '',
+    paymentDeadlineDays: 30,
   });
+  const [selectedEnterpriseIds, setSelectedEnterpriseIds] = useState<string[]>([]);
+  const [selectedPaymentMethods, setSelectedPaymentMethods] = useState<string[]>([]);
+  const [selectedPaymentTerms, setSelectedPaymentTerms] = useState<string[]>([]);
   const [suppliedProducts, setSuppliedProducts] = useState<SuppliedProduct[]>([]);
-  const [tempProduct, setTempProduct] = useState<SuppliedProduct>({ name: '', cost: 0 });
+  const [tempProduct, setTempProduct] = useState<SuppliedProduct>({ name: '', cost: 0, category: 'LANCHE', suggestedPrice: 0 });
 
   const isOwner = currentUser.role === Role.OWNER;
 
   const filteredSuppliers = useMemo(() => {
     return suppliers.filter(s => {
-      const isVisible = isOwner || s.enterpriseId === activeEnterprise.id;
+      const visibleEnterpriseIds = Array.isArray(s.visibleEnterpriseIds)
+        ? s.visibleEnterpriseIds
+        : [s.enterpriseId];
+      const isVisible = isOwner
+        ? visibleEnterpriseIds.some((id) => enterprises.some((ent) => ent.id === id))
+        : visibleEnterpriseIds.includes(activeEnterprise.id) || s.enterpriseId === activeEnterprise.id;
       const matchesSearch = 
         s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
         s.document.includes(searchTerm) ||
@@ -70,17 +98,32 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ currentUser, activeEnterp
       
       return isVisible && matchesSearch;
     });
-  }, [suppliers, searchTerm, isOwner, activeEnterprise.id]);
+  }, [suppliers, searchTerm, isOwner, activeEnterprise.id, enterprises]);
 
-  const handleToggleStatus = (id: string) => {
-    setSuppliers(prev => prev.map(s => 
-      s.id === id ? { ...s, isActive: !s.isActive } : s
-    ));
+  const reloadSuppliers = async () => {
+    const data = await ApiService.getSuppliers(activeEnterprise.id);
+    setSuppliers(Array.isArray(data) ? data : []);
   };
 
-  const handleDelete = (id: string) => {
+  const handleToggleStatus = async (supplier: Supplier) => {
+    try {
+      await ApiService.updateSupplier(supplier.id, { isActive: !supplier.isActive });
+      await reloadSuppliers();
+    } catch (err) {
+      console.error('Erro ao atualizar status do fornecedor:', err);
+      alert('Nao foi possivel atualizar o status do fornecedor.');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
     if (window.confirm("Deseja remover este fornecedor permanentemente?")) {
-      setSuppliers(prev => prev.filter(s => s.id !== id));
+      try {
+        await ApiService.deleteSupplier(id);
+        await reloadSuppliers();
+      } catch (err) {
+        console.error('Erro ao excluir fornecedor:', err);
+        alert('Nao foi possivel excluir o fornecedor.');
+      }
     }
   };
 
@@ -93,9 +136,17 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ currentUser, activeEnterp
         category: supplier.category,
         contactPerson: supplier.contactPerson,
         email: supplier.email,
-        phone: supplier.phone
+        phone: supplier.phone,
+        paymentDeadlineDays: Number(supplier.paymentDeadlineDays || 30),
       });
       setSuppliedProducts(supplier.suppliedProducts || []);
+      setSelectedEnterpriseIds(
+        Array.isArray(supplier.visibleEnterpriseIds) && supplier.visibleEnterpriseIds.length > 0
+          ? supplier.visibleEnterpriseIds
+          : [supplier.enterpriseId]
+      );
+      setSelectedPaymentMethods(Array.isArray(supplier.paymentMethods) ? supplier.paymentMethods : []);
+      setSelectedPaymentTerms(Array.isArray(supplier.paymentTerms) ? supplier.paymentTerms : []);
     } else {
       setEditingSupplier(null);
       setFormData({
@@ -104,29 +155,37 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ currentUser, activeEnterp
         category: 'ALIMENTOS',
         contactPerson: '',
         email: '',
-        phone: ''
+        phone: '',
+        paymentDeadlineDays: 30,
       });
       setSuppliedProducts([]);
+      setSelectedEnterpriseIds([activeEnterprise.id]);
+      setSelectedPaymentMethods([]);
+      setSelectedPaymentTerms([]);
     }
-    setTempProduct({ name: '', cost: 0 });
+    setTempProduct({ name: '', cost: 0, category: 'LANCHE', suggestedPrice: 0 });
     setIsModalOpen(true);
   };
 
   const addProductToCatalog = () => {
     if (!tempProduct.name || tempProduct.cost <= 0) return;
     setSuppliedProducts([...suppliedProducts, { ...tempProduct }]);
-    setTempProduct({ name: '', cost: 0 });
+    setTempProduct({ name: '', cost: 0, category: 'LANCHE', suggestedPrice: 0 });
   };
 
   const removeProductFromCatalog = (index: number) => {
     setSuppliedProducts(suppliedProducts.filter((_, i) => i !== index));
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (selectedEnterpriseIds.length === 0) {
+      alert('Selecione ao menos uma unidade para exibir este parceiro.');
+      return;
+    }
     
-    const supplierData: Supplier = {
-      id: editingSupplier?.id || `s-${Math.random().toString(36).substr(2, 5)}`,
+    const supplierPayload = {
       name: formData.name,
       document: formData.document,
       category: formData.category,
@@ -134,19 +193,30 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ currentUser, activeEnterp
       email: formData.email,
       phone: formData.phone,
       isActive: editingSupplier ? editingSupplier.isActive : true,
-      enterpriseId: editingSupplier?.enterpriseId || activeEnterprise.id,
-      suppliedProducts: suppliedProducts
+      enterpriseId: selectedEnterpriseIds[0] || activeEnterprise.id,
+      visibleEnterpriseIds: selectedEnterpriseIds,
+      paymentMethods: selectedPaymentMethods,
+      paymentTerms: selectedPaymentTerms,
+      paymentDeadlineDays: Number(formData.paymentDeadlineDays || 0),
+      autoCreateProductsInUnits: true,
+      suppliedProducts,
     };
 
-    if (editingSupplier) {
-      setSuppliers(prev => prev.map(s => s.id === editingSupplier.id ? supplierData : s));
-      alert('Catálogo do fornecedor atualizado!');
-    } else {
-      setSuppliers(prev => [supplierData, ...prev]);
-      alert('Novo fornecedor cadastrado com sucesso!');
+    try {
+      if (editingSupplier) {
+        await ApiService.updateSupplier(editingSupplier.id, supplierPayload);
+        alert('Catalogo do fornecedor atualizado!');
+      } else {
+        await ApiService.createSupplier(supplierPayload);
+        alert('Novo fornecedor cadastrado com sucesso!');
+      }
+
+      await reloadSuppliers();
+      setIsModalOpen(false);
+    } catch (err) {
+      console.error('Erro ao salvar fornecedor:', err);
+      alert('Nao foi possivel salvar o fornecedor.');
     }
-    
-    setIsModalOpen(false);
   };
 
   return (
@@ -195,8 +265,10 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ currentUser, activeEnterp
               <tr>
                 <th className="px-4 py-3">Fornecedor / CNPJ</th>
                 <th className="px-4 py-3">Categoria</th>
+                <th className="px-4 py-3">Unidades</th>
                 <th className="px-4 py-3 text-center">Itens no Catálogo</th>
                 <th className="px-4 py-3">Contato</th>
+                <th className="px-4 py-3">Pagamentos</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 text-right">Ações</th>
               </tr>
@@ -204,7 +276,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ currentUser, activeEnterp
             <tbody className="divide-y divide-gray-50">
               {filteredSuppliers.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-gray-400 font-bold uppercase text-[11px] tracking-widest">Nenhum fornecedor encontrado</td>
+                  <td colSpan={8} className="px-4 py-10 text-center text-gray-400 font-bold uppercase text-[11px] tracking-widest">Nenhum fornecedor encontrado</td>
                 </tr>
               ) : (
                 filteredSuppliers.map(s => (
@@ -220,6 +292,19 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ currentUser, activeEnterp
                         {s.category}
                       </span>
                     </td>
+                    <td className="px-4 py-3">
+                      <div className="space-y-0.5">
+                        {(Array.isArray(s.visibleEnterpriseIds) ? s.visibleEnterpriseIds : [s.enterpriseId]).slice(0, 2).map((enterpriseId) => {
+                          const enterpriseName = enterprises.find((ent) => ent.id === enterpriseId)?.name || enterpriseId;
+                          return (
+                            <p key={`${s.id}-${enterpriseId}`} className="text-[10px] font-bold text-gray-600">{enterpriseName}</p>
+                          );
+                        })}
+                        {(Array.isArray(s.visibleEnterpriseIds) ? s.visibleEnterpriseIds.length : 1) > 2 && (
+                          <p className="text-[9px] font-black text-gray-400 uppercase">+ unidades</p>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-center">
                       <div className="flex flex-col items-center">
                          <span className="text-xs font-black text-indigo-600">{(s.suppliedProducts?.length || 0)}</span>
@@ -233,8 +318,20 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ currentUser, activeEnterp
                       </div>
                     </td>
                     <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {(Array.isArray(s.paymentMethods) ? s.paymentMethods : []).slice(0, 2).map((method) => (
+                          <span key={`${s.id}-method-${method}`} className="inline-flex items-center px-2 py-0.5 rounded-md bg-indigo-50 text-[9px] font-black text-indigo-700 uppercase tracking-wider">
+                            {method.replaceAll('_', ' ')}
+                          </span>
+                        ))}
+                        {Array.isArray(s.paymentMethods) && s.paymentMethods.length > 2 && (
+                          <span className="text-[9px] font-black text-gray-400">+{s.paymentMethods.length - 2}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
                       <button 
-                        onClick={() => handleToggleStatus(s.id)}
+                        onClick={() => handleToggleStatus(s)}
                         className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest transition-all ${
                           s.isActive ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-red-100 text-red-700 hover:bg-red-200'
                         }`}
@@ -309,6 +406,82 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ currentUser, activeEnterp
                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Telefone / WhatsApp</label>
                     <input value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:border-indigo-500 font-bold text-sm" placeholder="(00) 00000-0000" />
                   </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Prazo de Pagamento (dias)</label>
+                    <input type="number" min={0} value={formData.paymentDeadlineDays} onChange={e => setFormData({...formData, paymentDeadlineDays: Number(e.target.value || 0)})} className="w-full px-3 py-2.5 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:border-indigo-500 font-bold text-sm" />
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Redes/Unidades para Exibir o Parceiro</label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {(isOwner ? enterprises : [activeEnterprise]).map((enterprise) => {
+                      const checked = selectedEnterpriseIds.includes(enterprise.id);
+                      return (
+                        <label key={`supplier-enterprise-${enterprise.id}`} className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer ${checked ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 bg-white'}`}>
+                          <span className="text-xs font-black text-gray-700">{enterprise.name}</span>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedEnterpriseIds((prev) => Array.from(new Set([...prev, enterprise.id])));
+                              } else {
+                                setSelectedEnterpriseIds((prev) => prev.filter((id) => id !== enterprise.id));
+                              }
+                            }}
+                            className="h-4 w-4"
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Formas de Pagamento</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {PAYMENT_METHOD_OPTIONS.map((option) => (
+                        <label key={`method-${option.value}`} className="flex items-center gap-2 text-xs font-bold text-gray-700 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-2">
+                          <input
+                            type="checkbox"
+                            checked={selectedPaymentMethods.includes(option.value)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedPaymentMethods((prev) => Array.from(new Set([...prev, option.value])));
+                              } else {
+                                setSelectedPaymentMethods((prev) => prev.filter((item) => item !== option.value));
+                              }
+                            }}
+                          />
+                          {option.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Condições (Crediário/Boleto)</label>
+                    <div className="grid grid-cols-1 gap-2">
+                      {PAYMENT_TERM_OPTIONS.map((option) => (
+                        <label key={`term-${option.value}`} className="flex items-center gap-2 text-xs font-bold text-gray-700 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-2">
+                          <input
+                            type="checkbox"
+                            checked={selectedPaymentTerms.includes(option.value)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedPaymentTerms((prev) => Array.from(new Set([...prev, option.value])));
+                              } else {
+                                setSelectedPaymentTerms((prev) => prev.filter((item) => item !== option.value));
+                              }
+                            }}
+                          />
+                          {option.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -323,7 +496,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ currentUser, activeEnterp
 
                  {/* Formulário de Adição Rápida de Produto */}
                  <div className="bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100 grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-                    <div className="md:col-span-7 space-y-1">
+                    <div className="md:col-span-5 space-y-1">
                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Package size={10}/> Nome do Produto</label>
                        <input 
                         value={tempProduct.name}
@@ -346,7 +519,16 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ currentUser, activeEnterp
                           />
                        </div>
                     </div>
-                    <div className="md:col-span-2">
+                      <div className="md:col-span-2 space-y-1">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Categoria</label>
+                        <select value={String(tempProduct.category || 'LANCHE')} onChange={e => setTempProduct({...tempProduct, category: e.target.value})} className="w-full px-2 py-2 bg-white border rounded-lg outline-none focus:border-indigo-500 font-bold text-[11px]">
+                         <option value="LANCHE">LANCHE</option>
+                         <option value="BEBIDA">BEBIDA</option>
+                         <option value="ALMOCO">ALMOCO</option>
+                         <option value="DOCE">DOCE</option>
+                        </select>
+                      </div>
+                      <div className="md:col-span-2">
                        <button 
                         type="button"
                         onClick={addProductToCatalog}
@@ -374,6 +556,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ currentUser, activeEnterp
                                    <div>
                                       <p className="text-xs font-black text-gray-800 leading-none">{prod.name}</p>
                                       <p className="text-[10px] font-bold text-emerald-600 mt-1 uppercase">Custo: R$ {prod.cost.toFixed(2)}</p>
+                                      <p className="text-[9px] font-black text-gray-400 uppercase tracking-wider mt-0.5">{String(prod.category || formData.category)}</p>
                                    </div>
                                 </div>
                                 <button 

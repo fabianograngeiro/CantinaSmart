@@ -71,6 +71,28 @@ router.post('/', authMiddleware, (req: AuthRequest, res: Response) => {
       })
     : null;
 
+  const enterpriseId = String(payload?.enterpriseId || '').trim();
+  const enterprise = enterpriseId ? db.getEnterprise(enterpriseId) : null;
+
+  const ownerCandidates = db.getUsers().filter((user: any) => String(user?.role || '').trim().toUpperCase() === 'OWNER');
+  const ownerByEnterprise = enterpriseId
+    ? ownerCandidates.find((owner: any) => {
+        const enterpriseIds = Array.isArray(owner?.enterpriseIds)
+          ? owner.enterpriseIds.map((id: unknown) => String(id || '').trim())
+          : [];
+        return enterpriseIds.includes(enterpriseId);
+      })
+    : null;
+
+  const ownerClientName = String(payload?.ownerClientName || enterprise?.ownerName || ownerByEnterprise?.name || '').trim();
+  const ownerClientEmail = String(payload?.ownerClientEmail || ownerByEnterprise?.email || '').trim();
+  const ownerClientPhone = String(payload?.ownerClientPhone || ownerByEnterprise?.phone || '').trim();
+
+  const requesterUserId = String(payload?.userId || req.userId || '').trim();
+  const requesterUser = requesterUserId ? db.getUser(requesterUserId) : null;
+  const userEmail = String(payload?.userEmail || requesterUser?.email || '').trim();
+  const userPhone = String(payload?.userPhone || requesterUser?.phone || '').trim();
+
   const created = db.createErrorTicket({
     ...payload,
     status: 'OPEN',
@@ -79,8 +101,13 @@ router.post('/', authMiddleware, (req: AuthRequest, res: Response) => {
     humanValidatedAt: '',
     patchAppliedByAi: Boolean(temporaryAiPatch),
     aiPatch: temporaryAiPatch,
-    userId: String(payload?.userId || req.userId || '').trim(),
+    ownerClientName,
+    ownerClientEmail,
+    ownerClientPhone,
+    userId: requesterUserId,
     userRole: String(payload?.userRole || req.userRole || '').trim(),
+    userEmail,
+    userPhone,
   });
 
   return res.status(201).json(created);

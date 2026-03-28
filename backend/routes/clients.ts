@@ -2,9 +2,9 @@ import { Router, Request, Response } from 'express';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { fileURLToPath } from 'url';
-import { db } from '../database';
-import { validateClient, validateClientUpdate } from '../utils/validation';
-import { authMiddleware } from '../middleware/auth';
+import { db } from '../database.js';
+import { validateClient, validateClientUpdate } from '../utils/validation.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);

@@ -71,3 +71,4 @@ Thumbs.db
 *.local
 *.secret
 vite.config.ts
+.bevel/do_not_share

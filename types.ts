@@ -1,6 +1,7 @@
 
 export enum Role {
   SUPERADMIN = 'SUPERADMIN',
+  ADMIN_SISTEMA = 'ADMIN_SISTEMA',
   OWNER = 'OWNER',
   ADMIN = 'ADMIN',
   ADMIN_RESTAURANTE = 'ADMIN_RESTAURANTE',
@@ -20,6 +21,17 @@ export type UserPermissions = {
   canManageStaff: boolean;
 };
 
+export type SystemStaffPermissions = {
+  canManageClients: boolean;
+  canManageEnterprises: boolean;
+  canManagePlans: boolean;
+  canViewBilling: boolean;
+  canViewFinancial: boolean;
+  canViewAudit: boolean;
+  canManageWhatsApp: boolean;
+  canViewErrorTickets: boolean;
+};
+
 export type User = {
   id: string;
   name: string;
@@ -31,6 +43,7 @@ export type User = {
   phone?: string;
   createdAt?: string;
   permissions?: UserPermissions;
+  systemPermissions?: SystemStaffPermissions;
 };
 
 export type OpeningHours = {
@@ -187,6 +200,8 @@ export type SupplierCategory = 'ALIMENTOS' | 'BEBIDA' | 'LIMPEZA' | 'EQUIPAMENTO
 export type SuppliedProduct = {
   name: string;
   cost: number;
+  category?: ProductCategory | string;
+  suggestedPrice?: number;
 };
 
 export type Supplier = {
@@ -199,6 +214,11 @@ export type Supplier = {
   phone: string;
   isActive: boolean;
   enterpriseId: string;
+  visibleEnterpriseIds?: string[];
+  paymentMethods?: string[];
+  paymentTerms?: string[];
+  paymentDeadlineDays?: number;
+  autoCreateProductsInUnits?: boolean;
   suppliedProducts?: SuppliedProduct[];
 };
 
@@ -217,8 +237,13 @@ export type Order = {
   originalItems?: OrderItem[];
   total: number;
   originalTotal?: number;
-  status: 'ABERTO' | 'ENTREGUE' | 'CANCELADO';
+  status: 'AGUARDANDO_APROVACAO_OWNER' | 'ABERTO' | 'ENTREGUE' | 'CANCELADO';
   enterpriseId: string;
+  enterpriseName?: string;
+  createdBy?: string;
+  approvedAt?: string;
+  approvedBy?: string;
+  trackingNote?: string;
 };
 
 export type FixedSnackConfig = {

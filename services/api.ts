@@ -55,6 +55,28 @@ export class ApiService {
     return fallback;
   }
 
+  private static buildApiUrl(
+    path: string,
+    query?: Record<string, string | number | boolean | undefined | null>
+  ) {
+    const base = String(API_URL || '').trim().replace(/\/+$/, '') || '/api';
+    const normalizedPath = `/${String(path || '').trim().replace(/^\/+/, '')}`;
+    const rawUrl = `${base}${normalizedPath}`;
+
+    if (!query) return rawUrl;
+
+    const params = new URLSearchParams();
+    Object.entries(query).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      const normalizedValue = String(value).trim();
+      if (!normalizedValue) return;
+      params.append(key, normalizedValue);
+    });
+
+    const queryString = params.toString();
+    return queryString ? `${rawUrl}?${queryString}` : rawUrl;
+  }
+
   // ===== AUTH =====
   static async login(email: string, password: string) {
     const response = await fetch(`${API_URL}/auth/login`, {
@@ -88,6 +110,125 @@ export class ApiService {
     const loginData = await loginResponse.json();
     this.setToken(loginData.token);
     return loginData.user;
+  }
+
+  static async generatePasswordResetLink(userId: string) {
+    const response = await fetch(`${API_URL}/auth/${encodeURIComponent(String(userId || '').trim())}/reset-password-link`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao gerar link de redefinição'));
+    return response.json();
+  }
+
+  static async validatePasswordResetToken(token: string) {
+    const response = await fetch(this.buildApiUrl('/auth/reset-password/validate', {
+      token: String(token || '').trim(),
+    }), {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Link de redefinição inválido ou expirado'));
+    return response.json();
+  }
+
+  static async completePasswordReset(payload: { token: string; password: string; confirmPassword: string }) {
+    const response = await fetch(`${API_URL}/auth/reset-password/complete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload || {}),
+    });
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao redefinir senha'));
+    return response.json();
+  }
+
+  // ===== SAAS FINANCIAL =====
+  static async getSaasCashflowEntries() {
+    const response = await fetch(`${API_URL}/saas-financial/cashflow`, {
+      headers: this.getHeaders(),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao buscar lancamentos financeiros SaaS'));
+    return response.json();
+  }
+
+  static async createSaasCashflowEntry(data: any) {
+    const response = await fetch(`${API_URL}/saas-financial/cashflow`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(data || {}),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao criar lancamento financeiro SaaS'));
+    return response.json();
+  }
+
+  static async updateSaasCashflowEntry(id: string, data: any) {
+    const response = await fetch(`${API_URL}/saas-financial/cashflow/${encodeURIComponent(String(id || '').trim())}`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify(data || {}),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao atualizar lancamento financeiro SaaS'));
+    return response.json();
+  }
+
+  static async deleteSaasCashflowEntry(id: string) {
+    const response = await fetch(`${API_URL}/saas-financial/cashflow/${encodeURIComponent(String(id || '').trim())}`, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao excluir lancamento financeiro SaaS'));
+    return response.json();
+  }
+
+  // ===== TASK REMINDERS =====
+  static async getTaskReminders() {
+    const response = await fetch(`${API_URL}/task-reminders`, {
+      headers: this.getHeaders(),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao buscar lembretes de tarefas'));
+    return response.json();
+  }
+
+  static async createTaskReminder(data: any) {
+    const response = await fetch(`${API_URL}/task-reminders`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(data || {}),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao criar lembrete de tarefa'));
+    return response.json();
+  }
+
+  static async updateTaskReminder(id: string, data: any) {
+    const response = await fetch(`${API_URL}/task-reminders/${encodeURIComponent(String(id || '').trim())}`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify(data || {}),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao atualizar lembrete de tarefa'));
+    return response.json();
+  }
+
+  static async deleteTaskReminder(id: string) {
+    const response = await fetch(`${API_URL}/task-reminders/${encodeURIComponent(String(id || '').trim())}`, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao excluir lembrete de tarefa'));
+    return response.json();
   }
 
   // ===== ENTERPRISES =====
@@ -184,9 +325,9 @@ export class ApiService {
 
   // ===== PRODUCTS =====
   static async getProducts(enterpriseId?: string) {
-    const url = new URL(`${API_URL}/products`);
-    if (enterpriseId) url.searchParams.append('enterpriseId', enterpriseId);
-    const response = await fetch(url.toString(), {
+    const response = await fetch(this.buildApiUrl('/products', {
+      enterpriseId,
+    }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao buscar produtos');
@@ -252,9 +393,9 @@ export class ApiService {
 
   // ===== CATEGORIES =====
   static async getCategories(enterpriseId?: string) {
-    const url = new URL(`${API_URL}/categories`);
-    if (enterpriseId) url.searchParams.append('enterpriseId', enterpriseId);
-    const response = await fetch(url.toString(), {
+    const response = await fetch(this.buildApiUrl('/categories', {
+      enterpriseId,
+    }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao buscar categorias');
@@ -300,9 +441,9 @@ export class ApiService {
 
   // ===== CLIENTS =====
   static async getClients(enterpriseId: string) {
-    const url = new URL(`${API_URL}/clients`);
-    url.searchParams.append('enterpriseId', enterpriseId);
-    const response = await fetch(url.toString(), {
+    const response = await fetch(this.buildApiUrl('/clients', {
+      enterpriseId,
+    }), {
       headers: this.getHeaders(),
     });
     this.handleUnauthorized(response);
@@ -411,8 +552,13 @@ export class ApiService {
     page?: string;
     enterpriseId?: string;
     enterpriseName?: string;
+    ownerClientName?: string;
+    ownerClientEmail?: string;
+    ownerClientPhone?: string;
     userId?: string;
     userName?: string;
+    userEmail?: string;
+    userPhone?: string;
     userRole?: string;
     context?: Record<string, any>;
   }) {
@@ -427,10 +573,10 @@ export class ApiService {
   }
 
   static async getErrorTickets(params?: { enterpriseId?: string; status?: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | string }) {
-    const url = new URL(`${API_URL}/error-tickets`);
-    if (params?.enterpriseId) url.searchParams.append('enterpriseId', params.enterpriseId);
-    if (params?.status) url.searchParams.append('status', params.status);
-    const response = await fetch(url.toString(), {
+    const response = await fetch(this.buildApiUrl('/error-tickets', {
+      enterpriseId: params?.enterpriseId,
+      status: params?.status,
+    }), {
       headers: this.getHeaders(),
     });
     this.handleUnauthorized(response);
@@ -471,9 +617,9 @@ export class ApiService {
 
   // ===== PLANS =====
   static async getPlans(enterpriseId?: string) {
-    const url = new URL(`${API_URL}/plans`);
-    if (enterpriseId) url.searchParams.append('enterpriseId', enterpriseId);
-    const response = await fetch(url.toString(), {
+    const response = await fetch(this.buildApiUrl('/plans', {
+      enterpriseId,
+    }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao buscar planos');
@@ -519,9 +665,9 @@ export class ApiService {
 
   // ===== SUPPLIERS =====
   static async getSuppliers(enterpriseId?: string) {
-    const url = new URL(`${API_URL}/suppliers`);
-    if (enterpriseId) url.searchParams.append('enterpriseId', enterpriseId);
-    const response = await fetch(url.toString(), {
+    const response = await fetch(this.buildApiUrl('/suppliers', {
+      enterpriseId,
+    }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao buscar fornecedores');
@@ -567,10 +713,10 @@ export class ApiService {
 
   // ===== TRANSACTIONS =====
   static async getTransactions(params?: { clientId?: string; enterpriseId?: string }) {
-    const url = new URL(`${API_URL}/transactions`);
-    if (params?.clientId) url.searchParams.append('clientId', params.clientId);
-    if (params?.enterpriseId) url.searchParams.append('enterpriseId', params.enterpriseId);
-    const response = await fetch(url.toString(), {
+    const response = await fetch(this.buildApiUrl('/transactions', {
+      clientId: params?.clientId,
+      enterpriseId: params?.enterpriseId,
+    }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao buscar transações');
@@ -625,9 +771,9 @@ export class ApiService {
 
   // ===== ORDERS =====
   static async getOrders(enterpriseId?: string) {
-    const url = new URL(`${API_URL}/orders`);
-    if (enterpriseId) url.searchParams.append('enterpriseId', enterpriseId);
-    const response = await fetch(url.toString(), {
+    const response = await fetch(this.buildApiUrl('/orders', {
+      enterpriseId,
+    }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao buscar pedidos');
@@ -673,11 +819,9 @@ export class ApiService {
 
   // ===== INGREDIENTS =====
   static async getIngredients(includeInactive = false) {
-    const url = new URL(`${API_URL}/ingredients`);
-    if (includeInactive) {
-      url.searchParams.set('includeInactive', 'true');
-    }
-    const response = await fetch(url.toString(), {
+    const response = await fetch(this.buildApiUrl('/ingredients', {
+      includeInactive: includeInactive ? 'true' : undefined,
+    }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao buscar ingredientes');
@@ -685,10 +829,10 @@ export class ApiService {
   }
 
   static async searchIngredients(query: string, limit = 120) {
-    const url = new URL(`${API_URL}/ingredients/search`);
-    url.searchParams.set('q', query);
-    url.searchParams.set('limit', String(limit));
-    const response = await fetch(url.toString(), {
+    const response = await fetch(this.buildApiUrl('/ingredients/search', {
+      q: query,
+      limit: String(limit),
+    }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao buscar sugestões de ingredientes');
@@ -749,14 +893,12 @@ export class ApiService {
     weekIndex: number = 1,
     monthKey: string = ''
   ) {
-    const url = new URL(`${API_URL}/menus`);
-    url.searchParams.set('enterpriseId', enterpriseId);
-    url.searchParams.set('type', type);
-    url.searchParams.set('weekIndex', String(Math.max(1, Math.min(5, Number(weekIndex || 1) || 1))));
-    if (String(monthKey || '').trim()) {
-      url.searchParams.set('monthKey', String(monthKey).trim());
-    }
-    const response = await fetch(url.toString(), {
+    const response = await fetch(this.buildApiUrl('/menus', {
+      enterpriseId,
+      type,
+      weekIndex: String(Math.max(1, Math.min(5, Number(weekIndex || 1) || 1))),
+      monthKey: String(monthKey || '').trim() || undefined,
+    }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao buscar cardápio semanal');
@@ -787,11 +929,10 @@ export class ApiService {
 
   // ===== SCHOOL CALENDAR =====
   static async getSchoolCalendar(enterpriseId: string, schoolYear: number) {
-    const url = new URL(`${API_URL}/school-calendar`);
-    url.searchParams.set('enterpriseId', enterpriseId);
-    url.searchParams.set('schoolYear', String(schoolYear));
-
-    const response = await fetch(url.toString(), {
+    const response = await fetch(this.buildApiUrl('/school-calendar', {
+      enterpriseId,
+      schoolYear: String(schoolYear),
+    }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao buscar calendário escolar');

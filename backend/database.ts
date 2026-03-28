@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { NUTRITIONAL_BASE_SEED } from './data/nutritionalBaseSeed';
+import { NUTRITIONAL_BASE_SEED } from './data/nutritionalBaseSeed.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,6 +24,8 @@ interface DatabaseShape {
   orders: any[];
   ingredients: any[];
   errorTickets: any[];
+  saasCashflowEntries?: any[];
+  taskReminders?: any[];
   devAssistantConfig?: {
     autoPatchEnabled?: boolean;
     updatedAt?: string;
@@ -55,6 +57,8 @@ const createEmptyDatabase = (): DatabaseShape => ({
   orders: [],
   ingredients: [],
   errorTickets: [],
+  saasCashflowEntries: [],
+  taskReminders: [],
   devAssistantConfig: {
     autoPatchEnabled: true,
     updatedAt: '',
@@ -79,6 +83,8 @@ export class Database {
   private orders: any[] = [];
   private ingredients: any[] = [];
   private errorTickets: any[] = [];
+  private saasCashflowEntries: any[] = [];
+  private taskReminders: any[] = [];
   private devAssistantConfig: {
     autoPatchEnabled: boolean;
     updatedAt?: string;
@@ -302,6 +308,41 @@ export class Database {
     });
 
     return matches[0] || null;
+  }
+
+  private isPlanReferenceActive(planId: string, planName: string, enterpriseId?: string) {
+    const plan = this.findPlanByReference(planId, planName, enterpriseId);
+    if (!plan) return false;
+    return plan?.isActive !== false;
+  }
+
+  private pruneClientPlanReferencesToActivePlans(client: any) {
+    const next = { ...(client || {}) };
+    const enterpriseId = String(next?.enterpriseId || '').trim();
+
+    const selectedConfigs = Array.isArray(next?.selectedPlansConfig)
+      ? next.selectedPlansConfig
+      : [];
+    next.selectedPlansConfig = selectedConfigs.filter((cfg: any) => {
+      const planId = String(cfg?.planId || '').trim();
+      const planName = String(cfg?.planName || cfg?.name || '').trim();
+      return this.isPlanReferenceActive(planId, planName, enterpriseId);
+    });
+
+    const balances = next?.planCreditBalances && typeof next.planCreditBalances === 'object' && !Array.isArray(next.planCreditBalances)
+      ? next.planCreditBalances
+      : {};
+    const cleanedBalances: Record<string, any> = {};
+    Object.entries(balances).forEach(([key, value]) => {
+      const entry = value && typeof value === 'object' ? value : {};
+      const planId = String((entry as any)?.planId || '').trim() || (String(key || '').startsWith('plan_') ? String(key).trim() : '');
+      const planName = String((entry as any)?.planName || '').trim();
+      if (!this.isPlanReferenceActive(planId, planName, enterpriseId)) return;
+      cleanedBalances[key] = value;
+    });
+    next.planCreditBalances = cleanedBalances;
+
+    return next;
   }
 
   private resolvePlanUnitValue(planId: string, planName: string, enterpriseId?: string, extraCandidates: any[] = []) {
@@ -596,6 +637,18 @@ export class Database {
       const planName = String(planNameInput || '').trim();
       const key = resolveStateKey(planId, planName);
       if (!key) return null;
+
+      const existingEntry = existingBalances[key] || {};
+      const existingPlanId = String(existingEntry?.planId || '').trim();
+      const existingPlanName = String(existingEntry?.planName || '').trim();
+      const enterpriseId = String(next?.enterpriseId || '').trim();
+      const referencePlanId = planId || existingPlanId;
+      const referencePlanName = planName || existingPlanName;
+
+      if (!this.isPlanReferenceActive(referencePlanId, referencePlanName, enterpriseId)) {
+        return null;
+      }
+
       const current = stateByKey.get(key);
       if (current) {
         if (!current.planId && planId) current.planId = planId;
@@ -604,20 +657,17 @@ export class Database {
         return current;
       }
 
-      const existingEntry = existingBalances[key] || {};
-      const existingPlanId = String(existingEntry?.planId || '').trim();
-      const existingPlanName = String(existingEntry?.planName || '').trim();
       const resolvedPlan = this.findPlanByReference(
-        planId || existingPlanId,
-        planName || existingPlanName,
-        String(next?.enterpriseId || '').trim()
+        referencePlanId,
+        referencePlanName,
+        enterpriseId
       );
       const resolvedPlanId = String(planId || existingPlanId || resolvedPlan?.id || key).trim() || key;
       const resolvedPlanName = String(planName || existingPlanName || resolvedPlan?.name || 'PLANO').trim() || 'PLANO';
       const resolvedUnitValue = this.resolvePlanUnitValue(
         resolvedPlanId,
         resolvedPlanName,
-        String(next?.enterpriseId || '').trim(),
+        enterpriseId,
         [unitValueHint, existingEntry?.unitValue, existingEntry?.planPrice]
       );
 
@@ -962,7 +1012,8 @@ export class Database {
     this.clients = this.clients.map((client) => {
       const contactNormalized = this.normalizeContactFields(client);
       const schemaNormalized = this.normalizeClientPlanBalances(contactNormalized);
-      return this.rebuildClientPlanBalancesFromTransactions(schemaNormalized);
+      const rebuilt = this.rebuildClientPlanBalancesFromTransactions(schemaNormalized);
+      return this.pruneClientPlanReferencesToActivePlans(rebuilt);
     });
     this.syncCollaboratorStudentRelationships();
   }
@@ -1035,6 +1086,8 @@ export class Database {
       orders: ensureArray(safeRaw.orders),
       ingredients: ensureArray(safeRaw.ingredients),
       errorTickets: ensureArray((safeRaw as any).errorTickets),
+      saasCashflowEntries: ensureArray((safeRaw as any).saasCashflowEntries),
+      taskReminders: ensureArray((safeRaw as any).taskReminders),
       devAssistantConfig: (safeRaw as any).devAssistantConfig && typeof (safeRaw as any).devAssistantConfig === 'object'
         ? (safeRaw as any).devAssistantConfig
         : {
@@ -1081,6 +1134,8 @@ export class Database {
     this.orders = data.orders;
     this.ingredients = data.ingredients;
     this.errorTickets = Array.isArray((data as any).errorTickets) ? (data as any).errorTickets : [];
+    this.saasCashflowEntries = Array.isArray((data as any).saasCashflowEntries) ? (data as any).saasCashflowEntries : [];
+    this.taskReminders = Array.isArray((data as any).taskReminders) ? (data as any).taskReminders : [];
     this.devAssistantConfig = {
       autoPatchEnabled: (data as any)?.devAssistantConfig?.autoPatchEnabled !== false,
       updatedAt: String((data as any)?.devAssistantConfig?.updatedAt || '').trim(),
@@ -1108,6 +1163,8 @@ export class Database {
       orders: this.orders,
       ingredients: this.ingredients,
       errorTickets: this.errorTickets,
+      saasCashflowEntries: this.saasCashflowEntries,
+      taskReminders: this.taskReminders,
       devAssistantConfig: this.devAssistantConfig,
       menus: this.menus,
       schoolCalendars: this.schoolCalendars,
@@ -1220,7 +1277,149 @@ export class Database {
       orders: this.orders.length,
       transactions: this.transactions.length,
       errorTickets: this.errorTickets.length,
+      saasCashflowEntries: this.saasCashflowEntries.length,
+      taskReminders: this.taskReminders.length,
     };
+  }
+
+  // ===== TASK REMINDERS =====
+  getTaskReminders() {
+    return [...this.taskReminders].sort((a: any, b: any) => {
+      const aTs = new Date(String(a?.reminderDate || a?.dueDate || a?.createdAt || '')).getTime();
+      const bTs = new Date(String(b?.reminderDate || b?.dueDate || b?.createdAt || '')).getTime();
+      return (Number.isFinite(aTs) ? aTs : 0) - (Number.isFinite(bTs) ? bTs : 0);
+    });
+  }
+
+  createTaskReminder(data: any) {
+    const nowIso = new Date().toISOString();
+    const next = {
+      id: String(data?.id || this.generateEntityId('task')),
+      title: String(data?.title || '').trim(),
+      description: String(data?.description || '').trim(),
+      dueDate: String(data?.dueDate || '').trim(),
+      reminderDate: String(data?.reminderDate || '').trim(),
+      relatedData: String(data?.relatedData || '').trim(),
+      status: String(data?.status || 'PENDING').trim().toUpperCase() === 'DONE' ? 'DONE' : 'PENDING',
+      createdAt: String(data?.createdAt || nowIso),
+      updatedAt: nowIso,
+      completedAt: String(data?.completedAt || '').trim(),
+      createdByUserId: String(data?.createdByUserId || '').trim(),
+      createdByName: String(data?.createdByName || '').trim(),
+    };
+
+    this.taskReminders.push(next);
+    this.saveData();
+    return next;
+  }
+
+  updateTaskReminder(id: string, data: any) {
+    const index = this.taskReminders.findIndex((item: any) => String(item?.id || '') === String(id || ''));
+    if (index === -1) return null;
+
+    const current = this.taskReminders[index] || {};
+    const nextStatus = data?.status !== undefined
+      ? (String(data?.status || '').trim().toUpperCase() === 'DONE' ? 'DONE' : 'PENDING')
+      : String(current?.status || 'PENDING').trim().toUpperCase();
+
+    const next = {
+      ...current,
+      ...data,
+      status: nextStatus,
+      completedAt: nextStatus === 'DONE'
+        ? String(data?.completedAt || current?.completedAt || new Date().toISOString()).trim()
+        : '',
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.taskReminders[index] = next;
+    this.saveData();
+    return next;
+  }
+
+  deleteTaskReminder(id: string) {
+    const index = this.taskReminders.findIndex((item: any) => String(item?.id || '') === String(id || ''));
+    if (index === -1) return false;
+    this.taskReminders.splice(index, 1);
+    this.saveData();
+    return true;
+  }
+
+  // ===== SAAS FINANCIAL (CASHFLOW) =====
+  getSaasCashflowEntries() {
+    return [...this.saasCashflowEntries].sort((a: any, b: any) => {
+      const aTs = new Date(String(a?.createdAt || '')).getTime();
+      const bTs = new Date(String(b?.createdAt || '')).getTime();
+      return (Number.isFinite(bTs) ? bTs : 0) - (Number.isFinite(aTs) ? aTs : 0);
+    });
+  }
+
+  createSaasCashflowEntry(data: any) {
+    const nowIso = new Date().toISOString();
+    const normalizedType = String(data?.type || '').trim().toUpperCase();
+    const normalizedStatus = String(data?.status || 'ABERTO').trim().toUpperCase();
+    const normalizedAccountType = String(data?.accountType || '').trim().toUpperCase();
+    const amount = this.roundValue(this.toFiniteNumber(data?.amount, 0), 2);
+
+    const next = {
+      id: String(data?.id || this.generateEntityId('cf')),
+      type: normalizedType === 'DESPESA' ? 'DESPESA' : 'RECEITA',
+      title: String(data?.title || '').trim(),
+      amount: amount > 0 ? amount : 0,
+      dueDate: String(data?.dueDate || '').trim(),
+      createdAt: String(data?.createdAt || nowIso),
+      status: normalizedStatus === 'PAGO' ? 'PAGO' : 'ABERTO',
+      accountType: normalizedAccountType === 'CONTAS_A_PAGAR' ? 'CONTAS_A_PAGAR' : 'CONTAS_A_RECEBER',
+      paymentType: String(data?.paymentType || '').trim(),
+      paymentMethod: String(data?.paymentMethod || '').trim(),
+      recurrenceType: String(data?.recurrenceType || '').trim().toUpperCase() || undefined,
+      reminderDaysBefore: Math.max(0, Math.trunc(this.toFiniteNumber(data?.reminderDaysBefore, 0))),
+      notes: String(data?.notes || '').trim(),
+      paidAt: String(data?.paidAt || '').trim() || undefined,
+      updatedAt: nowIso,
+    };
+
+    this.saasCashflowEntries.push(next);
+    this.saveData();
+    return next;
+  }
+
+  updateSaasCashflowEntry(id: string, data: any) {
+    const index = this.saasCashflowEntries.findIndex((entry: any) => String(entry?.id || '') === String(id || ''));
+    if (index === -1) return null;
+
+    const current = this.saasCashflowEntries[index] || {};
+    const normalizedStatus = data?.status !== undefined
+      ? (String(data?.status || '').trim().toUpperCase() === 'PAGO' ? 'PAGO' : 'ABERTO')
+      : String(current?.status || 'ABERTO').trim().toUpperCase();
+
+    const next = {
+      ...current,
+      ...data,
+      amount: data?.amount !== undefined
+        ? this.roundValue(this.toFiniteNumber(data?.amount, this.toFiniteNumber(current?.amount, 0)), 2)
+        : this.roundValue(this.toFiniteNumber(current?.amount, 0), 2),
+      status: normalizedStatus,
+      paidAt: normalizedStatus === 'PAGO'
+        ? String(data?.paidAt || current?.paidAt || new Date().toISOString()).trim()
+        : '',
+      reminderDaysBefore: data?.reminderDaysBefore !== undefined
+        ? Math.max(0, Math.trunc(this.toFiniteNumber(data?.reminderDaysBefore, this.toFiniteNumber(current?.reminderDaysBefore, 0))))
+        : Math.max(0, Math.trunc(this.toFiniteNumber(current?.reminderDaysBefore, 0))),
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.saasCashflowEntries[index] = next;
+    this.saveData();
+    return next;
+  }
+
+  deleteSaasCashflowEntry(id: string) {
+    const index = this.saasCashflowEntries.findIndex((entry: any) => String(entry?.id || '') === String(id || ''));
+    if (index === -1) return false;
+    this.saasCashflowEntries.splice(index, 1);
+    this.saveData();
+    return true;
   }
 
   getDevAssistantConfig() {
@@ -1284,8 +1483,13 @@ export class Database {
       status: allowedStatus.includes(normalizedStatus) ? normalizedStatus : 'OPEN',
       enterpriseId: String(data?.enterpriseId || '').trim(),
       enterpriseName: String(data?.enterpriseName || '').trim(),
+      ownerClientName: String(data?.ownerClientName || '').trim(),
+      ownerClientEmail: String(data?.ownerClientEmail || '').trim(),
+      ownerClientPhone: String(data?.ownerClientPhone || '').trim(),
       userId: String(data?.userId || '').trim(),
       userName: String(data?.userName || '').trim(),
+      userEmail: String(data?.userEmail || '').trim(),
+      userPhone: String(data?.userPhone || '').trim(),
       userRole: String(data?.userRole || '').trim(),
       patchAppliedByAi: Boolean(data?.patchAppliedByAi),
       aiPatch: data?.aiPatch && typeof data.aiPatch === 'object'
@@ -2071,7 +2275,43 @@ export class Database {
   deletePlan(id: string) {
     const index = this.plans.findIndex(p => p.id === id);
     if (index > -1) {
+      const removedPlan = this.plans[index] || {};
+      const removedPlanId = String(removedPlan?.id || '').trim();
+      const removedPlanName = this.normalizeToken(removedPlan?.name || '');
+      const removedEnterpriseId = String(removedPlan?.enterpriseId || '').trim();
+
       this.plans.splice(index, 1);
+
+      this.clients = this.clients.map((client: any) => {
+        if (String(client?.enterpriseId || '').trim() !== removedEnterpriseId) return client;
+
+        const next = { ...(client || {}) };
+        const selectedConfigs = Array.isArray(next?.selectedPlansConfig) ? next.selectedPlansConfig : [];
+        next.selectedPlansConfig = selectedConfigs.filter((cfg: any) => {
+          const cfgPlanId = String(cfg?.planId || '').trim();
+          const cfgPlanName = this.normalizeToken(cfg?.planName || cfg?.name || '');
+          if (removedPlanId && cfgPlanId && cfgPlanId === removedPlanId) return false;
+          if (removedPlanName && cfgPlanName && cfgPlanName === removedPlanName) return false;
+          return true;
+        });
+
+        const balances = next?.planCreditBalances && typeof next.planCreditBalances === 'object' && !Array.isArray(next.planCreditBalances)
+          ? next.planCreditBalances
+          : {};
+        const cleanedBalances: Record<string, any> = {};
+        Object.entries(balances).forEach(([key, value]) => {
+          const entry = value && typeof value === 'object' ? value : {};
+          const entryPlanId = String((entry as any)?.planId || '').trim() || (String(key || '').startsWith('plan_') ? String(key).trim() : '');
+          const entryPlanName = this.normalizeToken((entry as any)?.planName || '');
+          if (removedPlanId && entryPlanId && entryPlanId === removedPlanId) return;
+          if (removedPlanName && entryPlanName && entryPlanName === removedPlanName) return;
+          cleanedBalances[key] = value;
+        });
+        next.planCreditBalances = cleanedBalances;
+
+        return next;
+      });
+
       this.saveData();
       return true;
     }
@@ -2080,10 +2320,18 @@ export class Database {
 
   // ===== SUPPLIERS =====
   getSuppliers(enterpriseId?: string) {
-    if (enterpriseId) {
-      return this.suppliers.filter(s => s.enterpriseId === enterpriseId);
+    const normalizedEnterpriseId = String(enterpriseId || '').trim();
+    if (!normalizedEnterpriseId) {
+      return this.suppliers;
     }
-    return this.suppliers;
+
+    return this.suppliers.filter((supplier: any) => {
+      const supplierEnterpriseId = String(supplier?.enterpriseId || '').trim();
+      const visibleEnterpriseIds = Array.isArray(supplier?.visibleEnterpriseIds)
+        ? supplier.visibleEnterpriseIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+        : [];
+      return supplierEnterpriseId === normalizedEnterpriseId || visibleEnterpriseIds.includes(normalizedEnterpriseId);
+    });
   }
 
   getSupplier(id: string) {
@@ -2091,7 +2339,29 @@ export class Database {
   }
 
   createSupplier(data: any) {
-    const newSupplier = this.normalizeContactFields({ ...data, id: 's_' + Date.now() });
+    const normalizedPrimaryEnterpriseId = String(data?.enterpriseId || '').trim();
+    const normalizedVisibleEnterpriseIds = Array.isArray(data?.visibleEnterpriseIds)
+      ? data.visibleEnterpriseIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : [];
+
+    const visibleEnterpriseIds = normalizedVisibleEnterpriseIds.includes(normalizedPrimaryEnterpriseId)
+      ? normalizedVisibleEnterpriseIds
+      : [normalizedPrimaryEnterpriseId, ...normalizedVisibleEnterpriseIds].filter(Boolean);
+
+    const newSupplier = this.normalizeContactFields({
+      ...data,
+      id: 's_' + Date.now(),
+      enterpriseId: normalizedPrimaryEnterpriseId,
+      visibleEnterpriseIds,
+      paymentMethods: Array.isArray(data?.paymentMethods)
+        ? data.paymentMethods.map((item: unknown) => String(item || '').trim()).filter(Boolean)
+        : [],
+      paymentTerms: Array.isArray(data?.paymentTerms)
+        ? data.paymentTerms.map((item: unknown) => String(item || '').trim()).filter(Boolean)
+        : [],
+      paymentDeadlineDays: Math.max(0, Math.trunc(this.toFiniteNumber(data?.paymentDeadlineDays, 0))),
+      autoCreateProductsInUnits: data?.autoCreateProductsInUnits !== false,
+    });
     this.suppliers.push(newSupplier);
     this.saveData();
     return newSupplier;
@@ -2100,7 +2370,24 @@ export class Database {
   updateSupplier(id: string, data: any) {
     const index = this.suppliers.findIndex(s => s.id === id);
     if (index > -1) {
-      this.suppliers[index] = this.normalizeContactFields({ ...this.suppliers[index], ...data });
+      const merged = { ...this.suppliers[index], ...data };
+      const normalizedPrimaryEnterpriseId = String(merged?.enterpriseId || '').trim();
+      const normalizedVisibleEnterpriseIds = Array.isArray(merged?.visibleEnterpriseIds)
+        ? merged.visibleEnterpriseIds.map((item: unknown) => String(item || '').trim()).filter(Boolean)
+        : [];
+      merged.visibleEnterpriseIds = normalizedVisibleEnterpriseIds.includes(normalizedPrimaryEnterpriseId)
+        ? normalizedVisibleEnterpriseIds
+        : [normalizedPrimaryEnterpriseId, ...normalizedVisibleEnterpriseIds].filter(Boolean);
+      merged.paymentMethods = Array.isArray(merged?.paymentMethods)
+        ? merged.paymentMethods.map((item: unknown) => String(item || '').trim()).filter(Boolean)
+        : [];
+      merged.paymentTerms = Array.isArray(merged?.paymentTerms)
+        ? merged.paymentTerms.map((item: unknown) => String(item || '').trim()).filter(Boolean)
+        : [];
+      merged.paymentDeadlineDays = Math.max(0, Math.trunc(this.toFiniteNumber(merged?.paymentDeadlineDays, 0)));
+      merged.autoCreateProductsInUnits = merged?.autoCreateProductsInUnits !== false;
+
+      this.suppliers[index] = this.normalizeContactFields(merged);
       this.saveData();
       return this.suppliers[index];
     }
@@ -2446,8 +2733,9 @@ export class Database {
 
   // ===== ORDERS =====
   getOrders(enterpriseId?: string) {
-    if (enterpriseId) {
-      return this.orders.filter(o => o.enterpriseId === enterpriseId);
+    const normalizedEnterpriseId = String(enterpriseId || '').trim();
+    if (normalizedEnterpriseId) {
+      return this.orders.filter((o: any) => String(o?.enterpriseId || '').trim() === normalizedEnterpriseId);
     }
     return this.orders;
   }
@@ -2457,7 +2745,24 @@ export class Database {
   }
 
   createOrder(data: any) {
-    const newOrder = { ...data, id: 'ord_' + Date.now() };
+    const nowIso = new Date().toISOString();
+    const normalizedStatus = String(data?.status || 'ABERTO').trim().toUpperCase();
+    const status = ['AGUARDANDO_APROVACAO_OWNER', 'ABERTO', 'ENTREGUE', 'CANCELADO'].includes(normalizedStatus)
+      ? normalizedStatus
+      : 'ABERTO';
+    const newOrder = {
+      ...data,
+      id: 'ord_' + Date.now(),
+      enterpriseId: String(data?.enterpriseId || '').trim(),
+      enterpriseName: String(data?.enterpriseName || '').trim(),
+      status,
+      createdBy: String(data?.createdBy || '').trim(),
+      approvedAt: String(data?.approvedAt || '').trim(),
+      approvedBy: String(data?.approvedBy || '').trim(),
+      trackingNote: String(data?.trackingNote || '').trim(),
+      createdAt: String(data?.createdAt || nowIso),
+      updatedAt: nowIso,
+    };
     this.orders.push(newOrder);
     this.saveData();
     return newOrder;
@@ -2466,7 +2771,18 @@ export class Database {
   updateOrder(id: string, data: any) {
     const index = this.orders.findIndex(o => o.id === id);
     if (index > -1) {
-      this.orders[index] = { ...this.orders[index], ...data };
+      const normalizedStatus = String((data?.status ?? this.orders[index]?.status) || 'ABERTO').trim().toUpperCase();
+      const status = ['AGUARDANDO_APROVACAO_OWNER', 'ABERTO', 'ENTREGUE', 'CANCELADO'].includes(normalizedStatus)
+        ? normalizedStatus
+        : 'ABERTO';
+      this.orders[index] = {
+        ...this.orders[index],
+        ...data,
+        enterpriseId: String((data?.enterpriseId ?? this.orders[index]?.enterpriseId) || '').trim(),
+        enterpriseName: String((data?.enterpriseName ?? this.orders[index]?.enterpriseName) || '').trim(),
+        status,
+        updatedAt: new Date().toISOString(),
+      };
       this.saveData();
       return this.orders[index];
     }
