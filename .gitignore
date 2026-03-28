@@ -9,6 +9,7 @@ backend/data/**
 backend/.env
 backend/.env.*
 !backend/.env.example
+vite.config.ts
 
 # Database / runtime data
 backend/data/database.json
