@@ -4,7 +4,7 @@ import {
   Plus, Trash2, Save,
   Info, Calendar,
   UtensilsCrossed, X, CheckCircle2,
-  Building, ChevronDown, RefreshCw, Utensils,
+  Building, ChevronDown, RefreshCw, Utensils, Copy, Check,
   Edit3, Clock, AlertCircle, CalendarDays, AlertTriangle
 } from 'lucide-react';
 import { MenuDay, MenuItem, Ingredient, User, Enterprise, Role, Plan } from '../types';
@@ -176,6 +176,7 @@ interface MenuManagementPageProps {
 const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUser, activeEnterprise }) => {
   const [selectedUnitId, setSelectedUnitId] = useState<string>(activeEnterprise?.id || '');
   const [isLoading, setIsLoading] = useState(false);
+  const [isMenuLinkCopied, setIsMenuLinkCopied] = useState(false);
   const [ingredientsCatalog, setIngredientsCatalog] = useState<Ingredient[]>([]);
   const [plansCatalog, setPlansCatalog] = useState<Plan[]>([]);
   const [enterprises, setEnterprises] = useState<Enterprise[]>([]);
@@ -839,6 +840,25 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
   };
 
   const selectedEnterpriseName = selectedEnterprise?.name || 'Unidade';
+
+  const copyMenuLinkToClipboard = async () => {
+    const enterpriseId = String(selectedUnitId || activeEnterprise?.id || '').trim();
+    if (!enterpriseId) {
+      notificationService.alerta('Unidade não selecionada', 'Selecione uma unidade antes de copiar o link do cardápio.');
+      return;
+    }
+
+    const url = `${window.location.origin}${window.location.pathname}#/menu-calendar?enterprise=${enterpriseId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setIsMenuLinkCopied(true);
+      notificationService.informativo('Copiado!', 'Link do cardápio copiado para a área de transferência.');
+      window.setTimeout(() => setIsMenuLinkCopied(false), 2200);
+    } catch {
+      notificationService.alerta('Falha ao copiar', 'Não foi possível copiar automaticamente. Copie manualmente o link exibido.');
+      window.prompt('Copie o link do cardápio:', url);
+    }
+  };
 
   const getOpenCalendarSlots = (monthKey: string): CalendarSlot[] => {
     const slots: CalendarSlot[] = [];
@@ -1832,6 +1852,13 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
               className="px-3 py-2 bg-white dark:bg-zinc-900 border border-indigo-200 dark:border-zinc-700 text-indigo-700 dark:text-indigo-300 rounded-lg font-black text-[9px] uppercase tracking-[0.12em] shadow-sm hover:bg-indigo-50 dark:hover:bg-zinc-800 transition-all flex items-center justify-center gap-1.5"
             >
               <Calendar size={12} /> Baixar Calendario PDF
+            </button>
+            <button
+              onClick={copyMenuLinkToClipboard}
+              className="px-3 py-2 bg-white dark:bg-zinc-900 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 rounded-lg font-black text-[9px] uppercase tracking-[0.12em] shadow-sm hover:bg-blue-50 dark:hover:bg-blue-950/35 transition-all flex items-center justify-center gap-1.5"
+            >
+              {isMenuLinkCopied ? <Check size={12} /> : <Copy size={12} />}
+              {isMenuLinkCopied ? 'Link Copiado' : 'Copiar Link Cardapio'}
             </button>
           </div>
           {isOwner && (

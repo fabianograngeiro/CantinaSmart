@@ -34,6 +34,7 @@ import ClientPortalPage from './pages/ClientPortalPage';
 import ClientPortalPageDesktop from './pages/ClientPortalPage_Desktop';
 import CollaboratorPortalPage from './pages/CollaboratorPortalPage';
 import MenuManagementPage from './pages/MenuManagementPage';
+import MenuCalendarPage from './pages/MenuCalendarPage';
 import SchoolCalendarPage from './pages/SchoolCalendarPage';
 import OrdersPage from './pages/OrdersPage';
 import RegistrationPage from './pages/RegistrationPage';
@@ -529,6 +530,7 @@ const AppContent: React.FC<any> = (props) => {
         {!isAuthenticated ? (
           <div className="flex-1">
              <Routes>
+               <Route path="/menu-calendar" element={<MenuCalendarPage />} />
                <Route path="/portal" element={<ClientPortalPage />} />
                <Route path="/register" element={<RegistrationPage />} />
                <Route path="*" element={<LoginPage onLogin={handleLogin} />} />
@@ -716,6 +718,7 @@ const AppContent: React.FC<any> = (props) => {
 
               <div className="flex-1 min-w-0 overflow-auto bg-gray-50 dark:bg-zinc-900/50">
                 <Routes>
+                  <Route path="/menu-calendar" element={<MenuCalendarPage activeEnterprise={activeEnterprise} currentUser={currentUser} />} />
                   <Route path="/" element={<DashboardPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
                   <Route path="/pos" element={resolvedPermissions.canAccessPOS ? (isRestaurant ? <RestaurantPOSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <POSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} />) : <Navigate to="/" />} />
                   <Route path="/clients" element={resolvedPermissions.canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="ALUNOS" /> : <Navigate to="/" />} />
