@@ -26,6 +26,8 @@ import aiRoutes from './routes/ai.js';
 import systemRoutes from './routes/system.js';
 import whatsappRoutes from './routes/whatsapp.js';
 import errorTicketsRoutes from './routes/errorTickets.js';
+import saasFinancialRoutes from './routes/saasFinancial.js';
+import taskRemindersRoutes from './routes/taskReminders.js';
 import { authMiddleware } from './middleware/auth.js';
 import { whatsappSession } from './utils/whatsappSession.js';
 
@@ -75,6 +77,8 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/error-tickets', errorTicketsRoutes);
+app.use('/api/saas-financial', saasFinancialRoutes);
+app.use('/api/task-reminders', taskRemindersRoutes);
 app.use('/products_photos', express.static(path.join(__dirname, 'products_photos')));
 app.use('/clients_photos', express.static(path.join(__dirname, 'clients_photos')));
 

@@ -1,0 +1,690 @@
+{
+  "fileInfos" : [ {
+    "path" : "App.tsx",
+    "modificationInfo" : {
+      "contentHash" : -1946154852,
+      "lastModified" : 1774665227914
+    },
+    "linesOfCode" : 900
+  }, {
+    "path" : "backend/data/nutritionalBaseSeed.ts",
+    "modificationInfo" : {
+      "contentHash" : 718086660,
+      "lastModified" : 1774492589207
+    },
+    "linesOfCode" : 1
+  }, {
+    "path" : "backend/database.ts",
+    "modificationInfo" : {
+      "contentHash" : 264530764,
+      "lastModified" : 1774664256623
+    },
+    "linesOfCode" : 2894
+  }, {
+    "path" : "backend/middleware/auth.ts",
+    "modificationInfo" : {
+      "contentHash" : 1512236794,
+      "lastModified" : 1774571526157
+    },
+    "linesOfCode" : 74
+  }, {
+    "path" : "backend/qrcode.d.ts",
+    "modificationInfo" : {
+      "contentHash" : 116799487,
+      "lastModified" : 1774315427226
+    },
+    "linesOfCode" : 1
+  }, {
+    "path" : "backend/routes/ai.ts",
+    "modificationInfo" : {
+      "contentHash" : 1867902703,
+      "lastModified" : 1774315427227
+    },
+    "linesOfCode" : 367
+  }, {
+    "path" : "backend/routes/auth.ts",
+    "modificationInfo" : {
+      "contentHash" : 1512906974,
+      "lastModified" : 1774657910454
+    },
+    "linesOfCode" : 581
+  }, {
+    "path" : "backend/routes/categories.ts",
+    "modificationInfo" : {
+      "contentHash" : 600902101,
+      "lastModified" : 1774571526157
+    },
+    "linesOfCode" : 86
+  }, {
+    "path" : "backend/routes/clients.ts",
+    "modificationInfo" : {
+      "contentHash" : -200071074,
+      "lastModified" : 1774579628696
+    },
+    "linesOfCode" : 236
+  }, {
+    "path" : "backend/routes/enterprises.ts",
+    "modificationInfo" : {
+      "contentHash" : 1149070442,
+      "lastModified" : 1774571526157
+    },
+    "linesOfCode" : 219
+  }, {
+    "path" : "backend/routes/errorTickets.ts",
+    "modificationInfo" : {
+      "contentHash" : 28895721,
+      "lastModified" : 1774659698483
+    },
+    "linesOfCode" : 223
+  }, {
+    "path" : "backend/routes/ingredients.ts",
+    "modificationInfo" : {
+      "contentHash" : -1660518545,
+      "lastModified" : 1774579628696
+    },
+    "linesOfCode" : 93
+  }, {
+    "path" : "backend/routes/menus.ts",
+    "modificationInfo" : {
+      "contentHash" : -490352483,
+      "lastModified" : 1774571526157
+    },
+    "linesOfCode" : 80
+  }, {
+    "path" : "backend/routes/orders.ts",
+    "modificationInfo" : {
+      "contentHash" : -1428091873,
+      "lastModified" : 1774571526157
+    },
+    "linesOfCode" : 92
+  }, {
+    "path" : "backend/routes/plans.ts",
+    "modificationInfo" : {
+      "contentHash" : 1508519525,
+      "lastModified" : 1774571526157
+    },
+    "linesOfCode" : 92
+  }, {
+    "path" : "backend/routes/products.ts",
+    "modificationInfo" : {
+      "contentHash" : -118098061,
+      "lastModified" : 1774581647906
+    },
+    "linesOfCode" : 255
+  }, {
+    "path" : "backend/routes/saasFinancial.ts",
+    "modificationInfo" : {
+      "contentHash" : 804975602,
+      "lastModified" : 1774658198146
+    },
+    "linesOfCode" : 73
+  }, {
+    "path" : "backend/routes/schoolCalendar.ts",
+    "modificationInfo" : {
+      "contentHash" : -1670517376,
+      "lastModified" : 1774571526158
+    },
+    "linesOfCode" : 76
+  }, {
+    "path" : "backend/routes/suppliers.ts",
+    "modificationInfo" : {
+      "contentHash" : -1046851646,
+      "lastModified" : 1774661765402
+    },
+    "linesOfCode" : 192
+  }, {
+    "path" : "backend/routes/system.ts",
+    "modificationInfo" : {
+      "contentHash" : -1052780850,
+      "lastModified" : 1774571526158
+    },
+    "linesOfCode" : 466
+  }, {
+    "path" : "backend/routes/taskReminders.ts",
+    "modificationInfo" : {
+      "contentHash" : 1176545421,
+      "lastModified" : 1774658790600
+    },
+    "linesOfCode" : 63
+  }, {
+    "path" : "backend/routes/transactions.ts",
+    "modificationInfo" : {
+      "contentHash" : -490973529,
+      "lastModified" : 1774571526158
+    },
+    "linesOfCode" : 110
+  }, {
+    "path" : "backend/routes/whatsapp.ts",
+    "modificationInfo" : {
+      "contentHash" : 1325763275,
+      "lastModified" : 1774315427229
+    },
+    "linesOfCode" : 754
+  }, {
+    "path" : "backend/scripts/migrate-passwords.ts",
+    "modificationInfo" : {
+      "contentHash" : 1628750253,
+      "lastModified" : 1774315427230
+    },
+    "linesOfCode" : 87
+  }, {
+    "path" : "backend/server.ts",
+    "modificationInfo" : {
+      "contentHash" : -267472963,
+      "lastModified" : 1774658795874
+    },
+    "linesOfCode" : 101
+  }, {
+    "path" : "backend/services/dispatchAudienceService.ts",
+    "modificationInfo" : {
+      "contentHash" : -896271225,
+      "lastModified" : 1774315427231
+    },
+    "linesOfCode" : 732
+  }, {
+    "path" : "backend/utils/enterpriseAccess.ts",
+    "modificationInfo" : {
+      "contentHash" : -1505023325,
+      "lastModified" : 1774571526158
+    },
+    "linesOfCode" : 35
+  }, {
+    "path" : "backend/utils/security.ts",
+    "modificationInfo" : {
+      "contentHash" : -1661742641,
+      "lastModified" : 1774315427231
+    },
+    "linesOfCode" : 73
+  }, {
+    "path" : "backend/utils/validation.ts",
+    "modificationInfo" : {
+      "contentHash" : -1029235048,
+      "lastModified" : 1774492589206
+    },
+    "linesOfCode" : 129
+  }, {
+    "path" : "backend/utils/whatsappSession.ts",
+    "modificationInfo" : {
+      "contentHash" : -2025360725,
+      "lastModified" : 1774315427236
+    },
+    "linesOfCode" : 6882
+  }, {
+    "path" : "components/NotificationCenter.tsx",
+    "modificationInfo" : {
+      "contentHash" : -413727954,
+      "lastModified" : 1774315427237
+    },
+    "linesOfCode" : 114
+  }, {
+    "path" : "components/ThemeProvider.tsx",
+    "modificationInfo" : {
+      "contentHash" : -674535080,
+      "lastModified" : 1774399908184
+    },
+    "linesOfCode" : 110
+  }, {
+    "path" : "components/WhatsAppQrConnector.tsx",
+    "modificationInfo" : {
+      "contentHash" : -527484992,
+      "lastModified" : 1774315427238
+    },
+    "linesOfCode" : 783
+  }, {
+    "path" : "components/whatsapp-disparos/CentralDisparos.tsx",
+    "modificationInfo" : {
+      "contentHash" : -1549131134,
+      "lastModified" : 1774315427238
+    },
+    "linesOfCode" : 50
+  }, {
+    "path" : "components/whatsapp-disparos/DisparoEmMassa.tsx",
+    "modificationInfo" : {
+      "contentHash" : 784997763,
+      "lastModified" : 1774315427239
+    },
+    "linesOfCode" : 1860
+  }, {
+    "path" : "components/whatsapp-disparos/DisparoUnico.tsx",
+    "modificationInfo" : {
+      "contentHash" : -1981442837,
+      "lastModified" : 1774315427240
+    },
+    "linesOfCode" : 260
+  }, {
+    "path" : "components/whatsapp-disparos/DisparoUnicoForm.tsx",
+    "modificationInfo" : {
+      "contentHash" : 644423406,
+      "lastModified" : 1774399908201
+    },
+    "linesOfCode" : 447
+  }, {
+    "path" : "components/whatsapp-disparos/WhatsAppPreview.tsx",
+    "modificationInfo" : {
+      "contentHash" : -217094987,
+      "lastModified" : 1774315427240
+    },
+    "linesOfCode" : 44
+  }, {
+    "path" : "components/whatsapp-disparos/types.ts",
+    "modificationInfo" : {
+      "contentHash" : 1288544767,
+      "lastModified" : 1774315427240
+    },
+    "linesOfCode" : 18
+  }, {
+    "path" : "components/whatsapp-disparos/useDisparoUnico.ts",
+    "modificationInfo" : {
+      "contentHash" : 1364969630,
+      "lastModified" : 1774315427241
+    },
+    "linesOfCode" : 224
+  }, {
+    "path" : "constants.ts",
+    "modificationInfo" : {
+      "contentHash" : 491192035,
+      "lastModified" : 1774315427241
+    },
+    "linesOfCode" : 4
+  }, {
+    "path" : "index.tsx",
+    "modificationInfo" : {
+      "contentHash" : 182556875,
+      "lastModified" : 1774315427241
+    },
+    "linesOfCode" : 20
+  }, {
+    "path" : "pages/ClientPortalPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -2086994095,
+      "lastModified" : 1774315427244
+    },
+    "linesOfCode" : 1267
+  }, {
+    "path" : "pages/ClientPortalPage_Desktop.tsx",
+    "modificationInfo" : {
+      "contentHash" : -936166446,
+      "lastModified" : 1774492589207
+    },
+    "linesOfCode" : 887
+  }, {
+    "path" : "pages/ClientsPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -339457767,
+      "lastModified" : 1774492589204
+    },
+    "linesOfCode" : 4547
+  }, {
+    "path" : "pages/CollaboratorPortalPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 1360729731,
+      "lastModified" : 1774492589207
+    },
+    "linesOfCode" : 621
+  }, {
+    "path" : "pages/ConfigPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -1719353982,
+      "lastModified" : 1774315427248
+    },
+    "linesOfCode" : 117
+  }, {
+    "path" : "pages/DailyDeliveryPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 1518742299,
+      "lastModified" : 1774315427249
+    },
+    "linesOfCode" : 1570
+  }, {
+    "path" : "pages/DashboardPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 1078495603,
+      "lastModified" : 1774663951192
+    },
+    "linesOfCode" : 1597
+  }, {
+    "path" : "pages/EnterprisesPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 298762471,
+      "lastModified" : 1774576177133
+    },
+    "linesOfCode" : 859
+  }, {
+    "path" : "pages/ErrorTicketsPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -855385311,
+      "lastModified" : 1774659733126
+    },
+    "linesOfCode" : 388
+  }, {
+    "path" : "pages/FinancialPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -2125349459,
+      "lastModified" : 1774663639842
+    },
+    "linesOfCode" : 1365
+  }, {
+    "path" : "pages/InventoryPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 1922127547,
+      "lastModified" : 1774399908202
+    },
+    "linesOfCode" : 344
+  }, {
+    "path" : "pages/LoginPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -1790750108,
+      "lastModified" : 1774499429265
+    },
+    "linesOfCode" : 294
+  }, {
+    "path" : "pages/MenuCalendarPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 1044987351,
+      "lastModified" : 1774666544286
+    },
+    "linesOfCode" : 617
+  }, {
+    "path" : "pages/MenuManagementPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 662174250,
+      "lastModified" : 1774492589189
+    },
+    "linesOfCode" : 2595
+  }, {
+    "path" : "pages/NutritionalInfoPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -948127135,
+      "lastModified" : 1774492589196
+    },
+    "linesOfCode" : 1118
+  }, {
+    "path" : "pages/OrdersPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 1931569713,
+      "lastModified" : 1774661957818
+    },
+    "linesOfCode" : 599
+  }, {
+    "path" : "pages/OwnerDashboardPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -795443547,
+      "lastModified" : 1774576177133
+    },
+    "linesOfCode" : 423
+  }, {
+    "path" : "pages/OwnerProfilePage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -1903505762,
+      "lastModified" : 1774579628696
+    },
+    "linesOfCode" : 387
+  }, {
+    "path" : "pages/POSPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 474079055,
+      "lastModified" : 1774659715766
+    },
+    "linesOfCode" : 4345
+  }, {
+    "path" : "pages/PlansPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -756199731,
+      "lastModified" : 1774315427255
+    },
+    "linesOfCode" : 598
+  }, {
+    "path" : "pages/ProductCategoriesPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 2133760068,
+      "lastModified" : 1774315427256
+    },
+    "linesOfCode" : 915
+  }, {
+    "path" : "pages/ProductsPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -1663711359,
+      "lastModified" : 1774492589206
+    },
+    "linesOfCode" : 757
+  }, {
+    "path" : "pages/RegistrationPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -1041235477,
+      "lastModified" : 1774315427256
+    },
+    "linesOfCode" : 410
+  }, {
+    "path" : "pages/ReportsPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 791129746,
+      "lastModified" : 1774315427257
+    },
+    "linesOfCode" : 462
+  }, {
+    "path" : "pages/ResetPasswordPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 1970084286,
+      "lastModified" : 1774579628696
+    },
+    "linesOfCode" : 192
+  }, {
+    "path" : "pages/RestaurantPOSPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -619895125,
+      "lastModified" : 1774315427257
+    },
+    "linesOfCode" : 488
+  }, {
+    "path" : "pages/SaasAuditPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -1898473930,
+      "lastModified" : 1774315427257
+    },
+    "linesOfCode" : 234
+  }, {
+    "path" : "pages/SaasBillingPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -1770574860,
+      "lastModified" : 1774499429266
+    },
+    "linesOfCode" : 532
+  }, {
+    "path" : "pages/SaasClientsPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -1297142588,
+      "lastModified" : 1774489705296
+    },
+    "linesOfCode" : 452
+  }, {
+    "path" : "pages/SaasFinancialPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 1958141529,
+      "lastModified" : 1774658405369
+    },
+    "linesOfCode" : 668
+  }, {
+    "path" : "pages/SaasPlanosPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 14181480,
+      "lastModified" : 1774499429266
+    },
+    "linesOfCode" : 246
+  }, {
+    "path" : "pages/SaasPlansPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 1046044872,
+      "lastModified" : 1774582084864
+    },
+    "linesOfCode" : 1469
+  }, {
+    "path" : "pages/SaasWhatsAppPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -1167398758,
+      "lastModified" : 1774315427258
+    },
+    "linesOfCode" : 721
+  }, {
+    "path" : "pages/SchoolCalendarPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -1378473737,
+      "lastModified" : 1774492589201
+    },
+    "linesOfCode" : 1383
+  }, {
+    "path" : "pages/SettingsPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -743946798,
+      "lastModified" : 1774315427258
+    },
+    "linesOfCode" : 873
+  }, {
+    "path" : "pages/SetupPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -117836040,
+      "lastModified" : 1774315427258
+    },
+    "linesOfCode" : 293
+  }, {
+    "path" : "pages/StaffPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 871806180,
+      "lastModified" : 1774315427260
+    },
+    "linesOfCode" : 270
+  }, {
+    "path" : "pages/SuperAdminProfilePage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 1033137065,
+      "lastModified" : 1774583510999
+    },
+    "linesOfCode" : 196
+  }, {
+    "path" : "pages/SuppliersPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 1578248415,
+      "lastModified" : 1774661597630
+    },
+    "linesOfCode" : 602
+  }, {
+    "path" : "pages/SystemSettingsPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -1809820334,
+      "lastModified" : 1774399849982
+    },
+    "linesOfCode" : 565
+  }, {
+    "path" : "pages/SystemStaffPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -420003929,
+      "lastModified" : 1774658010508
+    },
+    "linesOfCode" : 468
+  }, {
+    "path" : "pages/TaskRemindersDashboardPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -249136552,
+      "lastModified" : 1774658858023
+    },
+    "linesOfCode" : 328
+  }, {
+    "path" : "pages/TodaySalesPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -1970404799,
+      "lastModified" : 1774315427260
+    },
+    "linesOfCode" : 182
+  }, {
+    "path" : "pages/UnitSalesTransactionsPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : 55072680,
+      "lastModified" : 1774492589202
+    },
+    "linesOfCode" : 3299
+  }, {
+    "path" : "pages/UserManagementPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -1978828412,
+      "lastModified" : 1774579628699
+    },
+    "linesOfCode" : 800
+  }, {
+    "path" : "pages/WhatsAppPage.tsx",
+    "modificationInfo" : {
+      "contentHash" : -69480720,
+      "lastModified" : 1774315427264
+    },
+    "linesOfCode" : 8615
+  }, {
+    "path" : "postcss.config.js",
+    "modificationInfo" : {
+      "contentHash" : -193026574,
+      "lastModified" : 1774315427264
+    },
+    "linesOfCode" : 5
+  }, {
+    "path" : "services/api.ts",
+    "modificationInfo" : {
+      "contentHash" : -1303846236,
+      "lastModified" : 1774659703662
+    },
+    "linesOfCode" : 1489
+  }, {
+    "path" : "services/notificationService.ts",
+    "modificationInfo" : {
+      "contentHash" : -611885255,
+      "lastModified" : 1774315427266
+    },
+    "linesOfCode" : 50
+  }, {
+    "path" : "services/saasAuditLog.ts",
+    "modificationInfo" : {
+      "contentHash" : 744284097,
+      "lastModified" : 1774315427266
+    },
+    "linesOfCode" : 52
+  }, {
+    "path" : "tailwind.config.js",
+    "modificationInfo" : {
+      "contentHash" : -768725745,
+      "lastModified" : 1774315427266
+    },
+    "linesOfCode" : 19
+  }, {
+    "path" : "types.ts",
+    "modificationInfo" : {
+      "contentHash" : -534241203,
+      "lastModified" : 1774661913925
+    },
+    "linesOfCode" : 365
+  }, {
+    "path" : "utils/avatar.ts",
+    "modificationInfo" : {
+      "contentHash" : 1121804705,
+      "lastModified" : 1774399908204
+    },
+    "linesOfCode" : 27
+  }, {
+    "path" : "utils/phone.ts",
+    "modificationInfo" : {
+      "contentHash" : 170251308,
+      "lastModified" : 1774315427266
+    },
+    "linesOfCode" : 220
+  }, {
+    "path" : "utils/schoolCalendar.ts",
+    "modificationInfo" : {
+      "contentHash" : 233193982,
+      "lastModified" : 1774315427266
+    },
+    "linesOfCode" : 102
+  }, {
+    "path" : "vite-env.d.ts",
+    "modificationInfo" : {
+      "contentHash" : 1908583301,
+      "lastModified" : 1774581220838
+    },
+    "linesOfCode" : 1
+  } ],
+  "appVersion" : "1.3.0"
+}

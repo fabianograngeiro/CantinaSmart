@@ -14,7 +14,8 @@ import {
   X,
   Pencil,
   CheckCircle2,
-  Trash2
+  Trash2,
+  CreditCard
 } from 'lucide-react';
 import { Client, Enterprise } from '../types';
 import { ApiService } from '../services/api';
@@ -23,6 +24,7 @@ import { formatPhoneWithFlag } from '../utils/phone';
 type TimeFilter = 'TODAY' | 'MONTH' | 'YEAR' | 'DATE';
 type EntryType = 'RECEITA' | 'DESPESA';
 type FinancialSectionTab = 'PENDING' | 'REMINDERS' | 'LAUNCHES';
+type PaymentMethodViewFilter = 'ALL' | 'CORE';
 
 type FinancialTx = {
   id: string;
@@ -83,6 +85,27 @@ const normalizeUpper = (value?: string) =>
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase();
+
+const normalizePaymentLabel = (value?: string) => {
+  const normalized = normalizeUpper(value);
+  if (!normalized) return 'OUTROS';
+  if (normalized.includes('PIX')) return 'PIX';
+  if (normalized.includes('DINHEIRO')) return 'DINHEIRO';
+  if (normalized.includes('DEBITO')) return 'CARTAO DEBITO';
+  if (normalized.includes('CREDITO')) return 'CARTAO CREDITO';
+  if (normalized.includes('TICKET')) return 'TICKET';
+  if (normalized.includes('MANUAL')) return 'MANUAL';
+  if (normalized.includes('SALDO')) return 'SALDO CARTEIRA';
+  return normalized;
+};
+
+const splitPaymentMethods = (raw?: string) => {
+  const tokens = String(raw || '')
+    .split(/[+,/|]/g)
+    .map((item) => normalizePaymentLabel(item))
+    .filter(Boolean);
+  return tokens.length > 0 ? tokens : ['OUTROS'];
+};
 
 const filterTransactionsByPeriod = (
   items: FinancialTx[],
@@ -210,6 +233,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
   const [launchTypeFilter, setLaunchTypeFilter] = useState<'ALL' | 'RECEITA' | 'DESPESA'>('ALL');
   const [launchSearch, setLaunchSearch] = useState('');
   const [activeSectionTab, setActiveSectionTab] = useState<FinancialSectionTab>('PENDING');
+  const [paymentMethodViewFilter, setPaymentMethodViewFilter] = useState<PaymentMethodViewFilter>('ALL');
   const [selectedPendingClientIds, setSelectedPendingClientIds] = useState<string[]>([]);
   const [transactions, setTransactions] = useState<FinancialTx[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -306,6 +330,50 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
   }, [summaryTransactions]);
 
   const netProfit = useMemo(() => totalRevenue - totalExpense, [totalRevenue, totalExpense]);
+
+  const paymentMethodReport = useMemo(() => {
+    const totals = new Map<string, number>();
+
+    summaryTransactions
+      .filter((tx) => tx.type === 'RECEITA')
+      .forEach((tx) => {
+        const methods = splitPaymentMethods(tx.method);
+        const divisor = methods.length || 1;
+        const amountPerMethod = Number((tx.amount / divisor).toFixed(2));
+        methods.forEach((method) => {
+          const current = totals.get(method) || 0;
+          totals.set(method, Number((current + amountPerMethod).toFixed(2)));
+        });
+      });
+
+    const rows = Array.from(totals.entries())
+      .map(([method, total]) => ({ method, total }))
+      .sort((a, b) => b.total - a.total);
+
+    const totalReceived = rows.reduce((sum, row) => sum + row.total, 0);
+
+    return {
+      rows: rows.map((row) => ({
+        ...row,
+        percentage: totalReceived > 0 ? (row.total / totalReceived) * 100 : 0,
+      })),
+      totalReceived,
+    };
+  }, [summaryTransactions]);
+
+  const paymentMethodVisibleReport = useMemo(() => {
+    const coreMethods = new Set(['PIX', 'DINHEIRO', 'CARTAO DEBITO', 'CARTAO CREDITO']);
+    const rows = paymentMethodViewFilter === 'CORE'
+      ? paymentMethodReport.rows.filter((row) => coreMethods.has(row.method))
+      : paymentMethodReport.rows;
+
+    const totalReceived = rows.reduce((sum, row) => sum + row.total, 0);
+
+    return {
+      rows,
+      totalReceived,
+    };
+  }, [paymentMethodReport, paymentMethodViewFilter]);
 
   const pendingClients = useMemo(() => {
     return clients
@@ -667,6 +735,20 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
       styles: { fontSize: 8, cellPadding: 2 }
     });
 
+    const nextStartY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 6 : 42;
+    autoTable(doc, {
+      startY: nextStartY,
+      head: [['Forma de Pagamento', 'Total Recebido', 'Participação']],
+      body: paymentMethodVisibleReport.rows.map((row) => [
+        row.method,
+        `R$ ${row.total.toFixed(2)}`,
+        `${row.percentage.toFixed(1)}%`
+      ]),
+      theme: 'striped',
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [16, 185, 129] }
+    });
+
     doc.save(`financeiro_${Date.now()}.pdf`);
   };
 
@@ -734,6 +816,62 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
         <MetricCard label="Receita" value={totalRevenue} sub="Crédito plano/cantina e venda avulsa PDV" icon={<TrendingUp size={16} />} color="bg-emerald-600" />
         <MetricCard label="Despesa" value={totalExpense} sub="Saídas operacionais e administrativas" icon={<TrendingDown size={16} />} color="bg-red-600" />
         <MetricCard label="Lucro" value={netProfit} sub="Receita - Despesa" icon={<DollarSign size={16} />} color={netProfit >= 0 ? 'bg-slate-900' : 'bg-amber-700'} />
+      </div>
+
+      <div className="dash-panel p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <h3 className="text-xs font-black uppercase tracking-[0.12em] text-gray-700 flex items-center gap-2">
+            <CreditCard size={14} className="text-indigo-500" /> Relatório de Formas de Pagamento (Recebido)
+          </h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setPaymentMethodViewFilter('ALL')}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${
+                paymentMethodViewFilter === 'ALL'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Todos
+            </button>
+            <button
+              onClick={() => setPaymentMethodViewFilter('CORE')}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${
+                paymentMethodViewFilter === 'CORE'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Pix/Dinheiro/Cartão
+            </button>
+            <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg">
+              Total recebido: R$ {paymentMethodVisibleReport.totalReceived.toFixed(2)}
+            </span>
+          </div>
+        </div>
+
+        {paymentMethodVisibleReport.rows.length === 0 ? (
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-[0.12em] py-4 text-center border border-dashed rounded-xl">
+            Sem recebimentos no período selecionado.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {paymentMethodVisibleReport.rows.map((row) => (
+              <div key={`payment-method-${row.method}`} className="bg-white border rounded-xl p-2.5">
+                <div className="flex items-center justify-between text-xs font-black text-gray-800 mb-1.5">
+                  <span>{row.method}</span>
+                  <span>R$ {row.total.toFixed(2)} ({row.percentage.toFixed(1)}%)</span>
+                </div>
+                <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                  <div
+                    className="h-full bg-indigo-500"
+                    style={{ width: `${Math.min(100, Math.max(0, row.percentage))}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="dash-panel p-1.5">

@@ -230,10 +230,11 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
 
     try {
       setIsLoadingDashboardMetrics(true);
-      const [transactions, products, clients] = await Promise.all([
+      const [transactions, products, clients, plansData] = await Promise.all([
         ApiService.getTransactions({ enterpriseId: activeEnterprise.id }),
         ApiService.getProducts(activeEnterprise.id),
         ApiService.getClients(activeEnterprise.id),
+        ApiService.getPlans(activeEnterprise.id),
       ]);
 
       const today = new Date();
@@ -254,6 +255,18 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
           .toUpperCase();
 
       const blockedPlanNames = new Set(['PREPAGO', 'PRE-PAGO', 'PRÉ-PAGO', 'CANTINA', 'CREDITO CANTINA', 'CRÉDITO CANTINA']);
+
+      const resolvedActivePlans = (Array.isArray(plansData) ? plansData : []).filter((plan: any) => plan?.isActive !== false);
+      const activePlanIds = new Set(
+        resolvedActivePlans
+          .map((plan: any) => String(plan?.id || '').trim())
+          .filter(Boolean)
+      );
+      const activePlanNames = new Set(
+        resolvedActivePlans
+          .map((plan: any) => normalize(plan?.name))
+          .filter(Boolean)
+      );
 
       const clientsData = Array.isArray(clients) ? clients : [];
       const toIsoDate = (date: Date) => {
@@ -283,9 +296,11 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
           ? Object.values(client.planCreditBalances)
           : [];
         return balances.some((entry: any) => {
+          const planId = String(entry?.planId || '').trim();
           const planName = normalize(entry?.planName);
           const balance = Number(entry?.balance || 0);
-          return balance > 0 && !blockedPlanNames.has(planName);
+          const isKnownActivePlan = (planId && activePlanIds.has(planId)) || activePlanNames.has(planName);
+          return balance > 0 && !blockedPlanNames.has(planName) && isKnownActivePlan;
         });
       }).length;
 
@@ -305,9 +320,11 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
           : [];
 
         balances.forEach((entry: any) => {
+          const planId = String(entry?.planId || '').trim();
           const normalizedPlanName = normalize(entry?.planName);
           const balance = Number(entry?.balance || 0);
-          if (!normalizedPlanName || balance <= 0 || blockedPlanNames.has(normalizedPlanName)) return;
+          const isKnownActivePlan = (planId && activePlanIds.has(planId)) || activePlanNames.has(normalizedPlanName);
+          if (!normalizedPlanName || balance <= 0 || blockedPlanNames.has(normalizedPlanName) || !isKnownActivePlan) return;
 
           const displayPlanName = String(entry?.planName || normalizedPlanName)
             .replace(/_/g, ' ')
@@ -391,8 +408,10 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
             if (!hasWeekDayMatch && !hasSelectedDateMatch) return;
 
             const rawPlanName = String(config?.planName || config?.name || '').trim();
+            const rawPlanId = String(config?.planId || '').trim();
             const normalizedPlanName = normalize(rawPlanName);
-            if (!normalizedPlanName || blockedPlanNames.has(normalizedPlanName)) return;
+            const isKnownActivePlan = (rawPlanId && activePlanIds.has(rawPlanId)) || activePlanNames.has(normalizedPlanName);
+            if (!normalizedPlanName || blockedPlanNames.has(normalizedPlanName) || !isKnownActivePlan) return;
             const displayPlanName = rawPlanName.replace(/_/g, ' ').toUpperCase();
             dayPlanMap.set(displayPlanName, (dayPlanMap.get(displayPlanName) || 0) + shiftsMultiplier);
           });

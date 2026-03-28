@@ -19,7 +19,12 @@ type ErrorTicket = {
   status: TicketStatus;
   enterpriseName?: string;
   enterpriseId?: string;
+  ownerClientName?: string;
+  ownerClientEmail?: string;
+  ownerClientPhone?: string;
   userName?: string;
+  userEmail?: string;
+  userPhone?: string;
   userRole?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -199,12 +204,14 @@ const ErrorTicketsPage: React.FC<ErrorTicketsPageProps> = ({ currentUser }) => {
 
       <section className="bg-white dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-700 overflow-hidden">
         <div className="overflow-auto">
-          <table className="w-full min-w-[1200px] text-xs">
+          <table className="w-full min-w-[1400px] text-xs">
             <thead className="bg-slate-50 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 uppercase tracking-wider text-[10px]">
               <tr>
                 <th className="px-3 py-2 text-left">Data</th>
                 <th className="px-3 py-2 text-left">Erro</th>
                 <th className="px-3 py-2 text-left">Usuário</th>
+                <th className="px-3 py-2 text-left">Contato Usuário</th>
+                <th className="px-3 py-2 text-left">Cliente (Dono de Rede)</th>
                 <th className="px-3 py-2 text-left">Unidade</th>
                 <th className="px-3 py-2 text-center">Status</th>
                 <th className="px-3 py-2 text-center">Patch IA</th>
@@ -240,6 +247,15 @@ const ErrorTicketsPage: React.FC<ErrorTicketsPageProps> = ({ currentUser }) => {
                       <p className="font-black text-slate-800 dark:text-zinc-100">{ticket.userName || '-'}</p>
                       <p className="font-bold text-[10px] text-slate-500 dark:text-zinc-400">{ticket.userRole || '-'}</p>
                       <p className="font-bold text-[10px] text-slate-500 dark:text-zinc-400 mt-1">Origem: {ticket.source || '-'}</p>
+                    </td>
+                    <td className="px-3 py-3">
+                      <p className="font-bold text-slate-700 dark:text-zinc-200">{ticket.userEmail || '-'}</p>
+                      <p className="font-bold text-[10px] text-slate-500 dark:text-zinc-400 mt-1">{ticket.userPhone || '-'}</p>
+                    </td>
+                    <td className="px-3 py-3">
+                      <p className="font-black text-slate-800 dark:text-zinc-100">{ticket.ownerClientName || '-'}</p>
+                      <p className="font-bold text-[10px] text-slate-500 dark:text-zinc-400 mt-1">{ticket.ownerClientEmail || '-'}</p>
+                      <p className="font-bold text-[10px] text-slate-500 dark:text-zinc-400 mt-1">{ticket.ownerClientPhone || '-'}</p>
                     </td>
                     <td className="px-3 py-3 font-bold text-slate-700 dark:text-zinc-200">{ticket.enterpriseName || ticket.enterpriseId || '-'}</td>
                     <td className="px-3 py-3 text-center">
@@ -310,7 +326,7 @@ const ErrorTicketsPage: React.FC<ErrorTicketsPageProps> = ({ currentUser }) => {
 
               {!loading && tickets.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-3 py-10 text-center text-xs font-bold text-slate-500 dark:text-zinc-400">
+                  <td colSpan={9} className="px-3 py-10 text-center text-xs font-bold text-slate-500 dark:text-zinc-400">
                     Nenhum ticket encontrado para o filtro selecionado.
                   </td>
                 </tr>
@@ -318,7 +334,7 @@ const ErrorTicketsPage: React.FC<ErrorTicketsPageProps> = ({ currentUser }) => {
 
               {loading && (
                 <tr>
-                  <td colSpan={7} className="px-3 py-10 text-center text-xs font-bold text-slate-500 dark:text-zinc-400">
+                  <td colSpan={9} className="px-3 py-10 text-center text-xs font-bold text-slate-500 dark:text-zinc-400">
                     Carregando tickets...
                   </td>
                 </tr>

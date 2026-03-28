@@ -2344,8 +2344,11 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     page: '/pos',
     enterpriseId: activeEnterpriseId,
     enterpriseName: activeEnterprise?.name,
+    ownerClientName: activeEnterprise?.ownerName,
     userId: currentUser?.id,
     userName: currentUser?.name,
+    userEmail: currentUser?.email,
+    userPhone: currentUser?.phone,
     userRole: currentUser?.role,
     context: {
       saleReference,

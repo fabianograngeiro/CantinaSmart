@@ -376,9 +376,15 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   console.log('📝 User data:', { ...req.body, password: '****' });
   
   const { role = 'USER', ...rest } = req.body;
+  const requesterRole = normalizeRole(req.userRole);
+  const requestedRole = normalizeRole(role);
   const email = normalizeEmail(req.body?.email);
   const password = String(req.body?.password ?? '');
   const name = String(req.body?.name ?? '');
+
+  if (requestedRole === 'ADMIN_SISTEMA' && requesterRole !== 'SUPERADMIN') {
+    return res.status(403).json({ error: 'Somente SUPERADMIN pode criar usuário do sistema.' });
+  }
 
   // Validate inputs
   if (!email || !isValidEmail(email)) {
@@ -404,7 +410,6 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   }
 
   if (!canAccessAllEnterprises(req.userRole)) {
-    const requesterRole = normalizeRole(req.userRole);
     const allowedEnterpriseIds = getRequesterEnterpriseIds(req);
     const requestedEnterpriseIds = Array.isArray(rest?.enterpriseIds)
       ? rest.enterpriseIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
@@ -446,12 +451,25 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     return res.status(404).json({ error: 'Usuário não encontrado' });
   }
 
+  const requesterRole = normalizeRole(req.userRole);
+  const requesterId = String(req.userId || '').trim();
+  const targetUserRole = normalizeRole(String(existingUser?.role || ''));
+  const targetUserId = String(existingUser?.id || '').trim();
+
+  if (targetUserRole === 'SUPERADMIN' && !(requesterRole === 'SUPERADMIN' && requesterId === targetUserId)) {
+    return res.status(403).json({ error: 'Conta SUPERADMIN não pode ser editada por este usuário.' });
+  }
+
+  if (normalizeRole(normalizedUpdateData?.role) === 'SUPERADMIN' && requesterRole !== 'SUPERADMIN') {
+    return res.status(403).json({ error: 'Somente SUPERADMIN pode definir este perfil.' });
+  }
+
+  if (normalizeRole(normalizedUpdateData?.role) === 'ADMIN_SISTEMA' && requesterRole !== 'SUPERADMIN') {
+    return res.status(403).json({ error: 'Somente SUPERADMIN pode definir usuário do sistema.' });
+  }
+
   if (!canAccessAllEnterprises(req.userRole)) {
-    const requesterId = String(req.userId || '').trim();
-    const requesterRole = normalizeRole(req.userRole);
-    const targetUserRole = normalizeRole(String(existingUser?.role || ''));
     const allowedEnterpriseIds = getRequesterEnterpriseIds(req);
-    const targetUserId = String(existingUser?.id || '').trim();
 
     const canEditSelf = targetUserId === requesterId;
     const canEditScopedUser = targetUserRole !== 'OWNER'
@@ -524,18 +542,28 @@ router.delete('/:id', (req: AuthRequest, res: Response) => {
     return res.status(404).json({ error: 'Usuário não encontrado' });
   }
 
-  if (!canAccessAllEnterprises(req.userRole)) {
-    const requesterId = String(req.userId || '').trim();
-    const targetUserId = String(targetUser?.id || '').trim();
-    if (targetUserId === requesterId) {
-      return res.status(400).json({ error: 'Não é possível excluir o próprio usuário.' });
-    }
+  const requesterRole = normalizeRole(req.userRole);
+  const requesterId = String(req.userId || '').trim();
+  const targetUserRole = normalizeRole(String(targetUser?.role || ''));
+  const targetUserId = String(targetUser?.id || '').trim();
 
-    const targetRole = normalizeRole(String(targetUser?.role || ''));
+  if (targetUserRole === 'SUPERADMIN') {
+    return res.status(403).json({ error: 'Conta SUPERADMIN não pode ser excluída.' });
+  }
+
+  if (targetUserRole === 'ADMIN_SISTEMA' && requesterRole !== 'SUPERADMIN') {
+    return res.status(403).json({ error: 'Somente SUPERADMIN pode excluir usuário do sistema.' });
+  }
+
+  if (targetUserId === requesterId) {
+    return res.status(400).json({ error: 'Não é possível excluir o próprio usuário.' });
+  }
+
+  if (!canAccessAllEnterprises(req.userRole)) {
     const allowedEnterpriseIds = getRequesterEnterpriseIds(req);
-    const canDeleteScopedUser = targetRole !== 'OWNER'
-      && targetRole !== 'SUPERADMIN'
-      && targetRole !== 'ADMIN_SISTEMA'
+    const canDeleteScopedUser = targetUserRole !== 'OWNER'
+      && targetUserRole !== 'SUPERADMIN'
+      && targetUserRole !== 'ADMIN_SISTEMA'
       && hasEnterpriseOverlap(targetUser?.enterpriseIds, allowedEnterpriseIds);
 
     if (!canDeleteScopedUser) {

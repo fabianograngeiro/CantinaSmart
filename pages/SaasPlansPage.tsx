@@ -3,6 +3,7 @@ import {
   Users, Edit, Trash2, Power, PowerOff, RotateCcw,
   X, Clock, CheckCircle2, AlertTriangle, Mail, Phone,
   Calendar, Settings2, Building2, Save, RefreshCw,
+  Link as LinkIcon, Copy,
 } from 'lucide-react';
 import ApiService from '../services/api';
 import { Enterprise, Role, User } from '../types';
@@ -264,6 +265,10 @@ const SaasPlansPage: React.FC<SaasPlansPageProps> = ({ currentUser }) => {
   const [clientModal, setClientModal] = useState<{ open: boolean; user: User | null }>({ open: false, user: null });
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const [clientSearch, setClientSearch] = useState('');
+  const [resetLinkTarget, setResetLinkTarget] = useState<User | null>(null);
+  const [resetLinkData, setResetLinkData] = useState<{ resetLink: string; expiresAt: string } | null>(null);
+  const [isResetLinkModalOpen, setIsResetLinkModalOpen] = useState(false);
+  const [isGeneratingResetLink, setIsGeneratingResetLink] = useState(false);
 
   const getUserEnterprises = (user: User) => {
     const userKeys = userIdentitySet(user);
@@ -488,6 +493,47 @@ const SaasPlansPage: React.FC<SaasPlansPageProps> = ({ currentUser }) => {
     }
   };
 
+  const handleGenerateResetLink = async (user: User) => {
+    setIsGeneratingResetLink(true);
+    setResetLinkTarget(user);
+    setIsResetLinkModalOpen(true);
+    setResetLinkData(null);
+
+    try {
+      const response = await ApiService.generatePasswordResetLink(user.id);
+      setResetLinkData({
+        resetLink: String(response?.resetLink || ''),
+        expiresAt: String(response?.expiresAt || ''),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Nao foi possivel gerar o link temporario de redefinicao.';
+      setResetLinkData({
+        resetLink: '',
+        expiresAt: '',
+      });
+      alert(message);
+    } finally {
+      setIsGeneratingResetLink(false);
+    }
+  };
+
+  const handleCopyResetLink = async () => {
+    if (!resetLinkData?.resetLink) return;
+    try {
+      await navigator.clipboard.writeText(resetLinkData.resetLink);
+      alert('Link copiado para a area de transferencia.');
+    } catch {
+      alert('Nao foi possivel copiar automaticamente. Copie manualmente o link exibido.');
+    }
+  };
+
+  const handleCloseResetLinkModal = () => {
+    setIsResetLinkModalOpen(false);
+    setResetLinkTarget(null);
+    setResetLinkData(null);
+    setIsGeneratingResetLink(false);
+  };
+
   const filteredOwnerUsers = useMemo(() => {
     if (!clientSearch.trim()) return ownerUsers;
     const q = clientSearch.toLowerCase();
@@ -702,6 +748,13 @@ const SaasPlansPage: React.FC<SaasPlansPageProps> = ({ currentUser }) => {
                             <RotateCcw size={13} />
                           </button>
                           <button
+                            title="Gerar link temporario de redefinicao de senha"
+                            onClick={() => handleGenerateResetLink(user)}
+                            className="p-1.5 rounded-lg text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors"
+                          >
+                            <LinkIcon size={13} />
+                          </button>
+                          <button
                             title="Excluir"
                             onClick={() => setDeleteTarget(user)}
                             className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-900/30 transition-colors"
@@ -740,6 +793,71 @@ const SaasPlansPage: React.FC<SaasPlansPageProps> = ({ currentUser }) => {
                 className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-bold hover:bg-red-700"
               >
                 Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isResetLinkModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-xl p-6 space-y-4 border border-slate-200 dark:border-zinc-700">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-black text-slate-800 dark:text-zinc-100 uppercase tracking-wide">Link de Redefinicao de Senha</h3>
+                <p className="text-xs font-semibold text-slate-500 dark:text-zinc-400 mt-1">
+                  Cliente: {resetLinkTarget?.name || 'Cliente'} ({resetLinkTarget?.email || 'sem e-mail'})
+                </p>
+              </div>
+              <button
+                onClick={handleCloseResetLinkModal}
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-500"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {isGeneratingResetLink ? (
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50 dark:bg-indigo-900/20 dark:border-indigo-800 p-4 text-sm font-bold text-indigo-700 dark:text-indigo-300">
+                Gerando link temporario...
+              </div>
+            ) : (
+              <>
+                {resetLinkData?.resetLink ? (
+                  <>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 dark:text-zinc-400 uppercase tracking-widest">Link temporario</label>
+                      <textarea
+                        readOnly
+                        value={resetLinkData.resetLink}
+                        className="w-full min-h-[96px] rounded-xl border border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-800 p-3 text-xs font-mono text-slate-700 dark:text-zinc-200 outline-none"
+                      />
+                    </div>
+                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+                      Expira em: {resetLinkData.expiresAt ? new Date(resetLinkData.expiresAt).toLocaleString('pt-BR') : '1 hora'}
+                    </p>
+                  </>
+                ) : (
+                  <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-800 p-3 text-xs font-bold text-red-700 dark:text-red-300">
+                    Nao foi possivel gerar o link neste momento.
+                  </div>
+                )}
+              </>
+            )}
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={handleCloseResetLinkModal}
+                className="px-4 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 text-sm font-bold text-slate-700 dark:text-zinc-200 hover:bg-slate-50"
+              >
+                Fechar
+              </button>
+              <button
+                onClick={handleCopyResetLink}
+                disabled={!resetLinkData?.resetLink || isGeneratingResetLink}
+                className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                <Copy size={14} /> Copiar link
               </button>
             </div>
           </div>

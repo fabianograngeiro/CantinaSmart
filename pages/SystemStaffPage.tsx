@@ -13,14 +13,14 @@ interface SystemStaffPageProps {
 }
 
 const DEFAULT_SYSTEM_PERMISSIONS: SystemStaffPermissions = {
-  canManageClients: false,
-  canManageEnterprises: false,
-  canManagePlans: false,
-  canViewBilling: false,
-  canViewFinancial: false,
-  canViewAudit: false,
-  canManageWhatsApp: false,
-  canViewErrorTickets: false,
+  canManageClients: true,
+  canManageEnterprises: true,
+  canManagePlans: true,
+  canViewBilling: true,
+  canViewFinancial: true,
+  canViewAudit: true,
+  canManageWhatsApp: true,
+  canViewErrorTickets: true,
 };
 
 const PERM_LABELS: { key: keyof SystemStaffPermissions; label: string; icon: React.ReactNode; desc: string }[] = [
