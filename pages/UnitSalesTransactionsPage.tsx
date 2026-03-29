@@ -22,7 +22,7 @@ interface UnitSalesTransactionsPageProps {
 }
 
 type TimeFilter = 'TODAY' | '7DAYS' | 'MONTH' | 'YEAR' | 'CUSTOM';
-type TransactionType = 'ALL' | 'CONSUMO' | 'VENDA_BALCAO' | 'CREDITO';
+type TransactionType = 'ALL' | 'CONSUMO' | 'VENDA_BALCAO' | 'CREDITO' | 'AUDITORIA_EXCLUSAO';
 type EditCartItem = {
   id: string;
   name: string;
@@ -220,6 +220,10 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   const [isClearingTransactions, setIsClearingTransactions] = useState(false);
   const [reloadTransactionsKey, setReloadTransactionsKey] = useState(0);
   const [deletingTransactionId, setDeletingTransactionId] = useState<string | null>(null);
+  const [deleteTargetTransaction, setDeleteTargetTransaction] = useState<ExtendedTransactionRecord | null>(null);
+  const [deletePromptMessage, setDeletePromptMessage] = useState('');
+  const [deleteAuditUserName, setDeleteAuditUserName] = useState('');
+  const [deleteAuditReason, setDeleteAuditReason] = useState('');
   const [reversingTransaction, setReversingTransaction] = useState<ExtendedTransactionRecord | null>(null);
   const [reverseMode, setReverseMode] = useState<'OPEN' | 'RESCHEDULE'>('OPEN');
   const [reverseDate, setReverseDate] = useState('');
@@ -316,9 +320,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
             const rawType = String(tx?.type || '').toUpperCase();
             const mappedType = rawType === 'VENDA_BALCAO'
               ? 'VENDA_BALCAO'
+              : (rawType === 'AUDITORIA_EXCLUSAO'
+                ? 'AUDITORIA_EXCLUSAO'
               : (rawType === 'DEBIT' || rawType === 'CONSUMO'
                 ? 'CONSUMO'
-                : (rawType === 'CREDIT' || rawType === 'CREDITO' ? 'CREDITO' : null));
+                : (rawType === 'CREDIT' || rawType === 'CREDITO' ? 'CREDITO' : null)));
 
             if (!mappedType) return null;
 
@@ -573,10 +579,17 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       const selectedDates = Array.isArray(row.raw?.selectedDates) ? row.raw.selectedDates : [];
       const selectedDays = Array.isArray(row.raw?.selectedDays) ? row.raw.selectedDays : [];
       const selectedCount = selectedDates.length > 0 ? selectedDates.length : selectedDays.length;
-      if (selectedCount > 0) return selectedCount;
-
       const amount = Math.abs(readAmount(row));
-      if (amount > 0 && unitValue > 0) return amount / unitValue;
+      const amountBasedUnits = amount > 0 && unitValue > 0 ? (amount / unitValue) : 0;
+
+      if (rowKind === 'CREDIT_PURCHASE') {
+        if (selectedCount > 0 || amountBasedUnits > 0) {
+          return Math.max(selectedCount, amountBasedUnits);
+        }
+      }
+
+      if (selectedCount > 0) return selectedCount;
+      if (amountBasedUnits > 0) return amountBasedUnits;
 
       const text = normalizedPlanName(`${row.raw?.description || ''} ${row.raw?.item || ''} ${row.description || ''} ${row.item || ''}`);
       if (text.includes('ENTREGA DO DIA') || text.includes('CONSUMO DE 1 UNIDADE')) return 1;
@@ -657,14 +670,9 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
             `Anterior ${previousProgress} • Saldo R$ ${previousBalanceLabel}`
           );
         }
-        // Se não há saldo ativo, abre novo ciclo; se ainda há saldo, acumula.
-        if (state.balanceUnits <= 0.000001) {
-          state.totalUnits = units;
-          state.balanceUnits = units;
-        } else {
-          state.totalUnits += units;
-          state.balanceUnits += units;
-        }
+        // Cada nova compra abre um novo ciclo independente para não somar compras distintas.
+        state.totalUnits = units;
+        state.balanceUnits = units;
       } else if (rowKind === 'REVERSAL') {
         state.balanceUnits += units;
         if (state.totalUnits < state.balanceUnits) state.totalUnits = state.balanceUnits;
@@ -714,6 +722,74 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     return String(rowCreditPreviousSummaryLookup.get(rowId) || '').trim();
   };
 
+  const resolvePreviousCarryUnitsFromSummary = (summary: string) => {
+    const text = String(summary || '').trim();
+    if (!text) return 0;
+    const match = text.match(/Anterior\s+(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)/i);
+    if (!match) return 0;
+
+    const consumed = Number(String(match[1] || '0').replace(',', '.'));
+    const total = Number(String(match[2] || '0').replace(',', '.'));
+    if (!Number.isFinite(consumed) || !Number.isFinite(total)) return 0;
+    return Math.max(0, Number((total - consumed).toFixed(4)));
+  };
+
+  const resolvePlanCreditPurchasedUnits = (row: ExtendedTransactionRecord) => {
+    const directUnits = Number(row.raw?.planUnits ?? row.raw?.units);
+    const directUnitsSafe = Number.isFinite(directUnits) && directUnits > 0 ? directUnits : 0;
+
+    const planId = String(row.raw?.planId || row.planId || '').trim();
+    const planName = String(row.raw?.plan || row.raw?.planName || row.plan || '').trim();
+    const planById = planId
+      ? editPlans.find((plan: any) => String(plan?.id || '').trim() === planId)
+      : null;
+    const planByName = !planById && planName
+      ? editPlans.find((plan: any) => normalizeSearchText(String(plan?.name || '')) === normalizeSearchText(planName))
+      : null;
+    const clientById = String(row.raw?.clientId || row.clientId || '').trim()
+      ? clients.find((client: any) => String(client?.id || '').trim() === String(row.raw?.clientId || row.clientId || '').trim())
+      : null;
+    const clientBalances = clientById?.planCreditBalances && typeof clientById.planCreditBalances === 'object'
+      ? clientById.planCreditBalances
+      : {};
+    const balanceByPlanId = planId ? clientBalances?.[planId] : null;
+    const normalizedPlanName = normalizeSearchText(planName);
+    const balanceByPlanName = !balanceByPlanId && normalizedPlanName
+      ? Object.values(clientBalances).find((entry: any) => normalizeSearchText(String(entry?.planName || '')) === normalizedPlanName)
+      : null;
+    const planUnitValue = Number(
+      row.raw?.planUnitValue
+      ?? row.raw?.unitValue
+      ?? (balanceByPlanId as any)?.unitValue
+      ?? (balanceByPlanName as any)?.unitValue
+      ?? planById?.price
+      ?? planByName?.price
+      ?? 0
+    );
+
+    const amount = Math.abs(Number(row.raw?.amount ?? row.raw?.total ?? row.total ?? row.value ?? 0));
+    const amountBasedUnits = Number.isFinite(planUnitValue) && planUnitValue > 0 && Number.isFinite(amount) && amount > 0
+      ? Number((amount / planUnitValue).toFixed(4))
+      : 0;
+
+    const selectedDatesLength = Array.isArray(row.raw?.selectedDates) ? row.raw.selectedDates.length : 0;
+    const selectedDatesSafe = selectedDatesLength > 0 ? selectedDatesLength : 0;
+
+    const fallbackQty = Number(row.raw?.quantity ?? row.quantity);
+    const fallbackQtySafe = Number.isFinite(fallbackQty) && fallbackQty > 0 ? fallbackQty : 0;
+
+    const computed = Math.max(
+      directUnitsSafe,
+      amountBasedUnits,
+      selectedDatesSafe,
+      fallbackQtySafe
+    );
+
+    if (computed > 0) return computed;
+
+    return 0;
+  };
+
   const parseTransactionDate = (row: ExtendedTransactionRecord): Date | null => {
     return parseDateOnly(row?.date);
   };
@@ -731,6 +807,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   };
 
   const openEditModal = (row: ExtendedTransactionRecord) => {
+    if (String(row.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO') {
+      alert('Registros de auditoria não podem ser editados.');
+      return;
+    }
+
     const method = String(row.raw?.method || row.raw?.paymentMethod || row.method || 'N/A');
     const existingItems = Array.isArray(row.raw?.items) ? row.raw.items : [];
     let initialCart: EditCartItem[] = [];
@@ -1073,16 +1154,66 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     }
   };
 
-  const handleDeleteTransaction = async (row: ExtendedTransactionRecord) => {
-    const confirmed = window.confirm(`Excluir a transação #${row.id}? Esta ação não pode ser desfeita.`);
-    if (!confirmed) return;
+  const openDeleteTransactionModal = (row: ExtendedTransactionRecord) => {
+    if (String(row.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO') {
+      alert('Registros de auditoria não podem ser excluídos.');
+      return;
+    }
+
+    const isCreditPlanTx = String(row.type || '').toUpperCase() === 'CREDITO'
+      && (String(row.plan || '').trim().toUpperCase() !== 'PREPAGO' || String(row.raw?.description || '').includes('Crédito plano'));
+    
+    const relatedDeliveryTxs = isCreditPlanTx
+      ? sourceTransactions.filter((tx) => {
+          const txOriginRef = String(tx.raw?.originTransactionId || '').trim();
+          return txOriginRef === row.id;
+        })
+      : [];
+
+    const deleteMessage = isCreditPlanTx && relatedDeliveryTxs.length > 0
+      ? `Excluir a transação de crédito plano #${row.id} e suas ${relatedDeliveryTxs.length} entrega(s) do dia (${relatedDeliveryTxs.length === 1 ? 'entregue' : 'entregues e/ou pendentes'})? Esta ação não pode ser desfeita.`
+      : `Excluir a transação #${row.id}? Esta ação não pode ser desfeita.`;
+
+    setDeleteTargetTransaction(row);
+    setDeletePromptMessage(deleteMessage);
+    setDeleteAuditReason('');
+  };
+
+  const closeDeleteTransactionModal = () => {
+    if (deletingTransactionId) return;
+    setDeleteTargetTransaction(null);
+    setDeletePromptMessage('');
+    setDeleteAuditReason('');
+  };
+
+  const handleConfirmDeleteTransaction = async () => {
+    const row = deleteTargetTransaction;
+    if (!row) return;
+
+    const normalizedUserName = String(deleteAuditUserName || '').trim();
+    const normalizedReason = String(deleteAuditReason || '').trim();
+
+    if (!normalizedUserName) {
+      alert('Informe o nome do usuário para registrar a exclusão.');
+      return;
+    }
+    if (!normalizedReason) {
+      alert('Informe o motivo da exclusão.');
+      return;
+    }
 
     try {
       setDeletingTransactionId(row.id);
-      await ApiService.deleteTransaction(row.id);
+
+      await ApiService.deleteTransaction(row.id, {
+        deletedByName: normalizedUserName,
+        deleteReason: normalizedReason,
+      });
+      
       if (selectedTransaction?.id === row.id) setSelectedTransaction(null);
       if (editingTransaction?.id === row.id) closeEditModal();
       setReloadTransactionsKey(prev => prev + 1);
+      closeDeleteTransactionModal();
     } catch (error) {
       console.error('Erro ao excluir transação:', error);
       alert('Erro ao excluir transação.');
@@ -1102,8 +1233,107 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     return Boolean(planId) || method.includes('PLANO');
   };
 
+  const isReversalTransaction = (row: ExtendedTransactionRecord | null) => {
+    if (!row) return false;
+    if (row.type !== 'CREDITO') return false;
+    const text = normalizeSearchText(
+      `${row.description || ''} ${row.item || ''} ${row.raw?.description || ''} ${row.raw?.item || ''}`
+    ).toUpperCase();
+    return text.includes('ESTORNO') || text.includes('REVERS');
+  };
+
+  const hasReversalForTransaction = (row: ExtendedTransactionRecord | null) => {
+    if (!row) return false;
+    const rowId = String(row.id || '').trim();
+    if (!rowId) return false;
+
+    return normalizedTransactions.some((tx) => {
+      const txId = String(tx.id || '').trim();
+      if (!txId || txId === rowId) return false;
+      if (!isReversalTransaction(tx)) return false;
+
+      const originRef = String(tx.raw?.originTransactionId || '').trim();
+      if (originRef && originRef === rowId) return true;
+
+      const descriptor = String(tx.description || tx.item || tx.raw?.description || tx.raw?.item || '').toUpperCase();
+      return descriptor.includes(`REF: ${rowId}`) || descriptor.includes(`REF ${rowId}`);
+    });
+  };
+
+  const isReversibleTransaction = (row: ExtendedTransactionRecord | null) => {
+    if (!row) return false;
+    if (isReversalTransaction(row)) return false;
+    if (hasReversalForTransaction(row)) return false;
+
+    const clientId = String(row.clientId || row.raw?.clientId || '').trim();
+    if (!clientId) return false;
+
+    return row.type === 'CONSUMO' || row.type === 'VENDA_BALCAO';
+  };
+
+  const resolveRowTimestampMs = (row: ExtendedTransactionRecord) => {
+    const rawTs = String(row.raw?.timestamp || '').trim();
+    if (rawTs) {
+      const parsed = new Date(rawTs).getTime();
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    const dateKey = String(row.date || '').trim();
+    const timeKey = String(row.time || '00:00').trim() || '00:00';
+    const fallback = new Date(`${dateKey}T${timeKey}`).getTime();
+    return Number.isFinite(fallback) ? fallback : 0;
+  };
+
+  const resolvePurchaseRefLabel = (row: ExtendedTransactionRecord) => {
+    const ownRef = String(row.raw?.purchaseRefCode || '').trim();
+    if (ownRef) return ownRef;
+
+    const originId = String(row.raw?.originTransactionId || '').trim();
+    if (originId) {
+      const originTx = sourceTransactions.find((tx) => String(tx.id || '').trim() === originId);
+      const originRef = String(originTx?.raw?.purchaseRefCode || '').trim();
+      if (originRef) return originRef;
+      if (originTx?.id) return `CP-${String(originTx.id).slice(-6).toUpperCase()}`;
+    }
+
+    const isPlanRow = row.plan !== 'Venda' && row.plan !== 'Crédito Cantina';
+    const isPlanConsumption = row.type === 'CONSUMO' && isPlanRow;
+    if (!isPlanConsumption) {
+      return row.id ? `CP-${String(row.id).slice(-6).toUpperCase()}` : '-';
+    }
+
+    const currentTs = resolveRowTimestampMs(row);
+    const currentClientId = String(row.raw?.clientId || row.clientId || '').trim();
+    const currentPlanId = String(row.raw?.planId || row.planId || '').trim();
+    const currentPlanName = normalizeSearchText(String(row.raw?.plan || row.plan || ''));
+
+    const candidateCredits = sourceTransactions.filter((tx) => {
+      if (tx.type !== 'CREDITO' || isReversalTransaction(tx)) return false;
+      const txClientId = String(tx.raw?.clientId || tx.clientId || '').trim();
+      if (currentClientId && txClientId !== currentClientId) return false;
+
+      const txPlanId = String(tx.raw?.planId || tx.planId || '').trim();
+      const txPlanName = normalizeSearchText(String(tx.raw?.plan || tx.plan || ''));
+      const samePlan = (currentPlanId && txPlanId && currentPlanId === txPlanId)
+        || (currentPlanName && txPlanName && currentPlanName === txPlanName);
+      if (!samePlan) return false;
+
+      const txTs = resolveRowTimestampMs(tx);
+      if (Number.isFinite(currentTs) && Number.isFinite(txTs)) {
+        return txTs <= currentTs;
+      }
+      return true;
+    });
+
+    if (candidateCredits.length === 0) return '-';
+    const latestCredit = [...candidateCredits].sort((a, b) => resolveRowTimestampMs(b) - resolveRowTimestampMs(a))[0];
+
+    const latestRef = String(latestCredit?.raw?.purchaseRefCode || '').trim();
+    if (latestRef) return latestRef;
+    return latestCredit?.id ? `CP-${String(latestCredit.id).slice(-6).toUpperCase()}` : '-';
+  };
+
   const openReverseModal = (row: ExtendedTransactionRecord) => {
-    if (!isPlanConsumptionTransaction(row)) return;
+    if (!isReversibleTransaction(row)) return;
     setReversingTransaction(row);
     setReverseMode('OPEN');
     setReverseDate(toLocalDateKey(new Date()));
@@ -1117,12 +1347,15 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   };
 
   const handleReversePlanConsumption = async () => {
-    if (!reversingTransaction || !isPlanConsumptionTransaction(reversingTransaction)) return;
-    if (reverseMode === 'RESCHEDULE' && !/^\d{4}-\d{2}-\d{2}$/.test(reverseDate)) {
+    if (!reversingTransaction || !isReversibleTransaction(reversingTransaction)) return;
+
+    const isPlanTransaction = isPlanConsumptionTransaction(reversingTransaction);
+
+    if (isPlanTransaction && reverseMode === 'RESCHEDULE' && !/^\d{4}-\d{2}-\d{2}$/.test(reverseDate)) {
       alert('Selecione uma nova data válida para reagendamento.');
       return;
     }
-    if (reverseMode === 'RESCHEDULE' && !isSchoolDateAllowed(reverseDate)) {
+    if (isPlanTransaction && reverseMode === 'RESCHEDULE' && !isSchoolDateAllowed(reverseDate)) {
       alert('Dia sem aula (feriado/recesso) não pode ser usado para reagendamento.');
       return;
     }
@@ -1130,6 +1363,19 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     const clientId = String(reversingTransaction.clientId || '').trim();
     if (!clientId) {
       alert('Não foi possível estornar: transação sem cliente vinculado.');
+      return;
+    }
+
+    const baseAmount = Math.abs(Number(
+      reversingTransaction.raw?.amount
+      ?? reversingTransaction.raw?.total
+      ?? reversingTransaction.total
+      ?? reversingTransaction.value
+      ?? 0
+    ));
+
+    if (!isPlanTransaction && (!Number.isFinite(baseAmount) || baseAmount <= 0)) {
+      alert('Não foi possível estornar: valor da compra inválido para crédito livre.');
       return;
     }
 
@@ -1159,87 +1405,112 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       || reversingTransaction.date
       || ''
     ).slice(0, 10);
-    const hasReschedule = reverseMode === 'RESCHEDULE' && /^\d{4}-\d{2}-\d{2}$/.test(reverseDate);
+    const hasReschedule = isPlanTransaction && reverseMode === 'RESCHEDULE' && /^\d{4}-\d{2}-\d{2}$/.test(reverseDate);
+    const planCreditAmount = unitValue > 0
+      ? Number((resolvedUnits * unitValue).toFixed(2))
+      : (Number.isFinite(baseAmount) && baseAmount > 0 ? Number(baseAmount.toFixed(2)) : 0);
 
     setIsReversingPlanCredit(true);
     try {
-      await ApiService.createTransaction({
-        enterpriseId: activeEnterprise.id,
-        clientId,
-        clientName: reversingTransaction.client,
-        type: 'CREDITO',
-        amount: 0,
-        total: 0,
-        description: hasReschedule
-          ? `Estorno consumo plano - Ref: ${reversingTransaction.id} (crédito aberto • reagendar para ${reverseDate})`
-          : `Estorno consumo plano - Ref: ${reversingTransaction.id} (crédito aberto)`,
-        item: String(reversingTransaction.item || planName || 'Plano'),
-        paymentMethod: 'PLANO',
-        method: 'PLANO',
-        status: 'CONCLUIDA',
-        executionSource: 'USUARIO',
-        plan: planName,
-        planId: planId || undefined,
-        planUnitValue: unitValue > 0 ? unitValue : undefined,
-        planUnits: resolvedUnits,
-        deliveryDate: referenceDate || undefined,
-        selectedDates: hasReschedule ? [reverseDate] : [],
-      });
-
-      const latestClient = await ApiService.getClient(clientId);
-      const selectedPlansRaw = (latestClient as any)?.selectedPlansConfig;
-      const selectedPlans = Array.isArray(selectedPlansRaw) ? [...selectedPlansRaw] : [];
-      let nextSelectedPlans = selectedPlans;
-
-      if (hasReschedule) {
-        const normalizedPlan = planName.toUpperCase();
-        let matched = false;
-
-        const updatedSelectedPlans = selectedPlans.map((config: any) => {
-          const configPlanId = String(config?.planId || '').trim();
-          const configPlanName = String(config?.planName || '').trim().toUpperCase();
-          const isSamePlan = (
-            Boolean(planId) && Boolean(configPlanId) && planId === configPlanId
-          ) || (
-            Boolean(configPlanName) && configPlanName === normalizedPlan
-          );
-          if (!isSamePlan) return config;
-          matched = true;
-          const currentDates = Array.isArray(config?.selectedDates) ? config.selectedDates : [];
-          const normalizedCurrentDates = Array.from(
-            new Set(
-              currentDates
-                .map((date: string) => String(date || '').slice(0, 10))
-                .filter((date: string) => /^\d{4}-\d{2}-\d{2}$/.test(date))
-            )
-          );
-          const withoutOld = referenceDate
-            ? normalizedCurrentDates.filter((date: string) => date !== referenceDate)
-            : normalizedCurrentDates;
-          return {
-            ...config,
-            selectedDates: Array.from(new Set([...withoutOld, reverseDate])).sort(),
+      const reversePayload = isPlanTransaction
+        ? {
+            enterpriseId: activeEnterprise.id,
+            clientId,
+            clientName: reversingTransaction.client,
+            type: 'CREDITO',
+            amount: planCreditAmount,
+            total: planCreditAmount,
+            description: hasReschedule
+              ? `Credito plano (estorno) - Ref: ${reversingTransaction.id} (crédito aberto • reagendar para ${reverseDate})`
+              : `Credito plano (estorno) - Ref: ${reversingTransaction.id} (crédito aberto)`,
+            item: `Crédito plano ${planName} (estorno)`,
+            paymentMethod: 'PLANO',
+            method: 'PLANO',
+            status: 'CONCLUIDA',
+            executionSource: 'USUARIO',
+            plan: planName,
+            planId: planId || undefined,
+            planUnitValue: unitValue > 0 ? unitValue : undefined,
+            planUnits: resolvedUnits,
+            deliveryDate: referenceDate || undefined,
+            selectedDates: hasReschedule ? [reverseDate] : [],
+            originTransactionId: reversingTransaction.id,
+          }
+        : {
+            enterpriseId: activeEnterprise.id,
+            clientId,
+            clientName: reversingTransaction.client,
+            type: 'CREDITO',
+            amount: Number(baseAmount.toFixed(2)),
+            total: Number(baseAmount.toFixed(2)),
+            description: `Estorno compra normal - Ref: ${reversingTransaction.id} (crédito livre cantina)`,
+            item: `Crédito livre cantina (estorno da compra ${reversingTransaction.id})`,
+            paymentMethod: 'CREDITO_LIVRE',
+            method: 'CREDITO_LIVRE',
+            status: 'CONCLUIDA',
+            executionSource: 'USUARIO',
+            plan: 'PREPAGO',
+            originTransactionId: reversingTransaction.id,
           };
+
+      await ApiService.createTransaction(reversePayload);
+
+      if (isPlanTransaction) {
+        const latestClient = await ApiService.getClient(clientId);
+        const selectedPlansRaw = (latestClient as any)?.selectedPlansConfig;
+        const selectedPlans = Array.isArray(selectedPlansRaw) ? [...selectedPlansRaw] : [];
+        let nextSelectedPlans = selectedPlans;
+
+        if (hasReschedule) {
+          const normalizedPlan = planName.toUpperCase();
+          let matched = false;
+
+          const updatedSelectedPlans = selectedPlans.map((config: any) => {
+            const configPlanId = String(config?.planId || '').trim();
+            const configPlanName = String(config?.planName || '').trim().toUpperCase();
+            const isSamePlan = (
+              Boolean(planId) && Boolean(configPlanId) && planId === configPlanId
+            ) || (
+              Boolean(configPlanName) && configPlanName === normalizedPlan
+            );
+            if (!isSamePlan) return config;
+            matched = true;
+            const currentDates = Array.isArray(config?.selectedDates) ? config.selectedDates : [];
+            const normalizedCurrentDates = Array.from(
+              new Set(
+                currentDates
+                  .map((date: string) => String(date || '').slice(0, 10))
+                  .filter((date: string) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+              )
+            );
+            const withoutOld = referenceDate
+              ? normalizedCurrentDates.filter((date: string) => date !== referenceDate)
+              : normalizedCurrentDates;
+            return {
+              ...config,
+              selectedDates: Array.from(new Set([...withoutOld, reverseDate])).sort(),
+            };
+          });
+
+          nextSelectedPlans = matched
+            ? updatedSelectedPlans
+            : [
+                ...updatedSelectedPlans,
+                {
+                  planId: planId || `plan_${normalizeSearchText(planName).replace(/\s+/g, '_')}`,
+                  planName,
+                  selectedDates: [reverseDate],
+                  daysOfWeek: [],
+                  deliveryShifts: [],
+                }
+              ];
+        }
+
+        const updatedClient = await ApiService.updateClient(clientId, {
+          selectedPlansConfig: nextSelectedPlans,
         });
-
-        nextSelectedPlans = matched
-          ? updatedSelectedPlans
-          : [
-              ...updatedSelectedPlans,
-              {
-                planId: planId || `plan_${normalizeSearchText(planName).replace(/\s+/g, '_')}`,
-                planName,
-                selectedDates: [reverseDate],
-                daysOfWeek: [],
-                deliveryShifts: [],
-              }
-            ];
+        setClients((prev) => prev.map((c) => String(c.id) === clientId ? updatedClient : c));
       }
-
-      const updatedClient = await ApiService.updateClient(clientId, {
-        selectedPlansConfig: nextSelectedPlans,
-      });
-      setClients((prev) => prev.map((c) => String(c.id) === clientId ? updatedClient : c));
 
       setReloadTransactionsKey((prev) => prev + 1);
       closeReverseModal(true);
@@ -1437,6 +1708,89 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     const plans = new Set(normalizedTransactions.map(t => t.plan));
     return Array.from(plans);
   }, [normalizedTransactions]);
+
+  const rowUnitsProgressByPurchaseRef = useMemo(() => {
+    const byRowId = new Map<string, string>();
+    const groups = new Map<string, ExtendedTransactionRecord[]>();
+
+    normalizedTransactions.forEach((row) => {
+      if (row.type !== 'CONSUMO') return;
+      const isPlanRow = row.plan !== 'Venda' && row.plan !== 'Crédito Cantina';
+      if (!isPlanRow) return;
+
+      const rowId = String(row.id || '').trim();
+      const clientId = String(row.clientId || row.raw?.clientId || '').trim();
+      if (!rowId || !clientId) return;
+
+      const purchaseRef = String(resolvePurchaseRefLabel(row) || '').trim();
+      if (!purchaseRef || purchaseRef === '-') return;
+
+      const planId = String(row.raw?.planId || row.planId || '').trim();
+      const planName = normalizeSearchText(String(row.raw?.plan || row.plan || ''));
+      const planKey = planId ? `ID:${planId}` : `NM:${planName}`;
+      const groupKey = `${clientId}|${planKey}|${purchaseRef}`;
+
+      const current = groups.get(groupKey) || [];
+      current.push(row);
+      groups.set(groupKey, current);
+    });
+
+    groups.forEach((rows, groupKey) => {
+      const [clientId, planKey, purchaseRef] = groupKey.split('|');
+      let totalUnits = 0;
+
+      const candidateCredits = normalizedTransactions.filter((tx) => {
+        if (tx.type !== 'CREDITO') return false;
+        if (isReversalTransaction(tx)) return false;
+
+        const txClientId = String(tx.clientId || tx.raw?.clientId || '').trim();
+        if (txClientId !== clientId) return false;
+        if (String(resolvePurchaseRefLabel(tx) || '').trim() !== purchaseRef) return false;
+
+        const txPlanId = String(tx.raw?.planId || tx.planId || '').trim();
+        const txPlanName = normalizeSearchText(String(tx.raw?.plan || tx.plan || ''));
+        const txPlanKey = txPlanId ? `ID:${txPlanId}` : `NM:${txPlanName}`;
+        return txPlanKey === planKey;
+      });
+
+      if (candidateCredits.length > 0) {
+        const baseCredit = [...candidateCredits].sort((a, b) => resolveRowTimestampMs(b) - resolveRowTimestampMs(a))[0];
+        const purchasedUnits = resolvePlanCreditPurchasedUnits(baseCredit);
+        const previousSummary = resolveRowCreditPreviousSummary(baseCredit);
+        const previousCarryUnits = resolvePreviousCarryUnitsFromSummary(previousSummary);
+        totalUnits = Number((Math.max(0, purchasedUnits) + Math.max(0, previousCarryUnits)).toFixed(4));
+      }
+
+      if (!Number.isFinite(totalUnits) || totalUnits <= 0) {
+        totalUnits = rows.length;
+      }
+
+      const orderedRows = [...rows].sort((a, b) => {
+        const aRef = parseDateOnly(a.referenceDate) || parseDateOnly(a.raw?.deliveryDate);
+        const bRef = parseDateOnly(b.referenceDate) || parseDateOnly(b.raw?.deliveryDate);
+        const aRefTs = aRef ? aRef.getTime() : 0;
+        const bRefTs = bRef ? bRef.getTime() : 0;
+        if (aRefTs !== bRefTs) return aRefTs - bRefTs;
+
+        const aTs = resolveRowTimestampMs(a);
+        const bTs = resolveRowTimestampMs(b);
+        if (aTs !== bTs) return aTs - bTs;
+        return String(a.id || '').localeCompare(String(b.id || ''));
+      });
+
+      orderedRows.forEach((row, index) => {
+        const rowId = String(row.id || '').trim();
+        if (!rowId) return;
+        const consumedUnits = index + 1;
+        byRowId.set(
+          rowId,
+          `${formatUnitsProgressValue(consumedUnits)}/${formatUnitsProgressValue(totalUnits)}`
+        );
+      });
+    });
+
+    return byRowId;
+  }, [normalizedTransactions, sourceTransactions, clients, editPlans]);
 
   const exportToCSV = () => {
     const reportClientIds = new Set(
@@ -1800,7 +2154,9 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
         ? 'Crédito'
         : typeFilter === 'CONSUMO'
           ? 'Consumo'
-          : 'Venda balcão';
+          : typeFilter === 'AUDITORIA_EXCLUSAO'
+            ? 'Auditoria de exclusão'
+            : 'Venda balcão';
     const planFilterLabel = planFilter === 'ALL' ? 'Todos' : String(planFilter || '').replace(/_/g, ' ');
 
     const reportClientIds = new Set(
@@ -2433,6 +2789,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                      <option value="CREDITO">Crédito</option>
                      <option value="CONSUMO">Consumo de Planos</option>
                      <option value="VENDA_BALCAO">Venda Direta (Balcão)</option>
+                    <option value="AUDITORIA_EXCLUSAO">Auditoria de Exclusão</option>
                   </select>
                   <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
                </div>
@@ -2508,13 +2865,14 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
         </div>
 
         <div className="overflow-x-auto">
-           <table className="w-full text-left table-fixed min-w-[1060px]">
+            <table className="w-full text-left table-fixed min-w-[1160px]">
               <thead className="bg-gray-50 text-[8px] sm:text-[9px] font-black text-gray-400 uppercase tracking-[0.12em] border-b">
                  <tr>
                     <th className="px-3 py-3.5 w-[6%] text-center">Data</th>
-                    <th className="px-3 py-3.5 w-[7%] text-center">REF.</th>
                     <th className="px-3 py-3.5 w-[12%] text-center">Cliente</th>
                     <th className="px-3 py-3.5 w-[8%] text-center">Plano / Origem</th>
+                    <th className="px-3 py-3.5 w-[7%] text-center">Entregue em &gt;</th>
+                    <th className="px-3 py-3.5 w-[7%] text-center">Ref.Compra &gt;</th>
                     <th className="px-3 py-3.5 w-[20%] text-center">Itens</th>
                     <th className="px-3 py-3.5 w-[6%] text-center">FLUXO</th>
                     <th className="px-3 py-3.5 w-[8%] text-center">Valor Final</th>
@@ -2525,40 +2883,85 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
               <tbody className="divide-y divide-gray-50 text-xs">
                  {filteredTransactions.length === 0 ? (
                    <tr>
-                     <td colSpan={9} className="px-8 py-20 text-center text-gray-300 font-black uppercase text-xs tracking-widest">Nenhum registro corresponde aos filtros</td>
+                     <td colSpan={10} className="px-8 py-20 text-center text-gray-300 font-black uppercase text-xs tracking-widest">Nenhum registro corresponde aos filtros</td>
                    </tr>
                  ) : filteredTransactions.map(row => {
                    const rowUnitsProgress = resolveRowUnitsProgress(row);
                    const isPlanRow = row.plan !== 'Venda' && row.plan !== 'Crédito Cantina';
-                   const planLabel = rowUnitsProgress && isPlanRow
-                     ? `${row.plan} • ${rowUnitsProgress}`
-                     : row.plan;
+                   const rowMarkedAsReversed = hasReversalForTransaction(row);
+                   const baixaDateLabel = formatDateBr(row.date) || formatDateBr(String(row.raw?.timestamp || '').slice(0, 10));
+                   const baixaTimeLabel = (() => {
+                     const explicit = String(row.time || '').trim();
+                     if (explicit) return explicit;
+                     const rawTimestamp = String(row.raw?.timestamp || '').trim();
+                     if (!rawTimestamp) return '--:--';
+                     const parsed = new Date(rawTimestamp);
+                     if (!Number.isFinite(parsed.getTime())) return '--:--';
+                     return parsed.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                   })();
+                   const purchaseRefLabel = resolvePurchaseRefLabel(row);
+                   const rowUnitsProgressByRef = String(rowUnitsProgressByPurchaseRef.get(String(row.id || '').trim()) || '').trim();
+                   const displayProgress = (row.type === 'CONSUMO' && isPlanRow && rowUnitsProgressByRef)
+                     ? rowUnitsProgressByRef
+                     : rowUnitsProgress;
+                   const isPlanCreditPurchase = row.type === 'CREDITO' && isPlanRow && !isReversalTransaction(row);
+                   const purchasedUnits = isPlanCreditPurchase ? resolvePlanCreditPurchasedUnits(row) : 0;
                    const creditPreviousSummary = resolveRowCreditPreviousSummary(row);
+                   const previousCarryUnits = isPlanCreditPurchase
+                     ? resolvePreviousCarryUnitsFromSummary(creditPreviousSummary)
+                     : 0;
+                   const displayUnitsTotal = isPlanCreditPurchase
+                     ? Number((Math.max(0, purchasedUnits) + Math.max(0, previousCarryUnits)).toFixed(4))
+                     : 0;
+                   const purchasedUnitsLabel = displayUnitsTotal > 0
+                     ? `0/${formatUnitsProgressValue(displayUnitsTotal)}`
+                     : (purchasedUnits > 0 ? `0/${formatUnitsProgressValue(purchasedUnits)}` : '');
+                   const purchasedUnitsBreakdownLabel = isPlanCreditPurchase && previousCarryUnits > 0 && purchasedUnits > 0
+                     ? `(${formatUnitsProgressValue(purchasedUnits)} NOVA + ${formatUnitsProgressValue(previousCarryUnits)} ANTERIOR)`
+                     : '';
+                   const planLabel = isPlanCreditPurchase && purchasedUnitsLabel
+                     ? `${row.plan} • ${purchasedUnitsLabel}`
+                     : (displayProgress && isPlanRow
+                         ? `${row.plan} • ${displayProgress}`
+                         : row.plan);
                    const hasEmbeddedPreviousSummary = String(row.item || '').toUpperCase().includes('ANTERIOR');
-                   const itemLabel = rowUnitsProgress && isPlanRow && row.type === 'CONSUMO'
-                     ? row.plan
+                   const planConsumptionWeekday = (() => {
+                     if (!(displayProgress && isPlanRow && row.type === 'CONSUMO')) return '';
+                     const refDate = parseDateOnly(row.referenceDate) || parseDateOnly(row.date);
+                     if (!refDate) return '';
+                     const weekdays = ['DOMINGO', 'SEGUNDA', 'TERÇA', 'QUARTA', 'QUINTA', 'SEXTA', 'SÁBADO'];
+                     return weekdays[refDate.getDay()] ?? '';
+                   })();
+                   const itemLabel = displayProgress && isPlanRow && row.type === 'CONSUMO'
+                     ? `1X ${row.plan} ENTREGUE${planConsumptionWeekday ? ` ${planConsumptionWeekday}` : ''}`
                      : (
-                       row.type === 'CREDITO' && isPlanRow && creditPreviousSummary && !hasEmbeddedPreviousSummary
-                         ? `${row.item} • ${creditPreviousSummary}`
-                         : row.item
+                       isPlanCreditPurchase && purchasedUnits > 0
+                         ? `${formatUnitsProgressValue(displayUnitsTotal > 0 ? displayUnitsTotal : purchasedUnits)}X UND. ${String(row.item || '').replace(/\s*[•\-]\s*ANTERIOR\s+\d+(?:[.,]\d+)?\s*\/\s*\d+(?:[.,]\d+)?\s*.*$/i, '').trim()}${purchasedUnitsBreakdownLabel ? ` • ${purchasedUnitsBreakdownLabel}` : ''}`
+                         : (
+                           row.type === 'CREDITO' && isPlanRow && creditPreviousSummary && !hasEmbeddedPreviousSummary
+                             ? `${row.item} • ${creditPreviousSummary}`
+                             : row.item
+                         )
                      );
+                   const isAuditDeleteRow = row.type === 'AUDITORIA_EXCLUSAO';
+                   const auditActionDisabledClass = 'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-gray-400';
                    return (
-                   <tr key={row.id} className="hover:bg-indigo-50/30 transition-colors group">
+                   <tr
+                     key={row.id}
+                     className={isAuditDeleteRow
+                       ? 'bg-amber-50/40 hover:bg-amber-50 transition-colors group border-y border-amber-100/70'
+                       : 'hover:bg-indigo-50/30 transition-colors group'}
+                   >
                       <td className="px-3 py-3.5 align-top">
                         <span className="text-[9px] font-bold text-gray-400 flex items-center gap-1 uppercase tracking-tighter">
                           <Calendar size={10}/>
-                          {formatDateBr(row.date)}
-                          {String(row.method || '').toUpperCase() !== 'PLANO' ? ` • ${row.time}` : ''}
+                          {baixaDateLabel}
+                          {` • ${baixaTimeLabel}`}
                         </span>
-                      </td>
-                      <td className="px-3 py-3.5 align-top text-center">
-                         <span className="text-[11px] font-black text-gray-700 uppercase tracking-tight">
-                           {formatDateBr(row.referenceDate) || '-'}
-                         </span>
                       </td>
                       <td className="px-3 py-3.5 align-top">
                          <div className="flex items-center gap-3">
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${row.client === 'Consumidor Final' ? 'bg-gray-100 text-gray-400' : 'bg-indigo-50 text-indigo-600'}`}>
+                             <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isAuditDeleteRow ? 'bg-amber-100 text-amber-700' : (row.client === 'Consumidor Final' ? 'bg-gray-100 text-gray-400' : 'bg-indigo-50 text-indigo-600')}`}>
                                <User size={14}/>
                             </div>
                             <p className="font-black text-indigo-900 uppercase tracking-tight break-words leading-tight text-[11px]">{row.client}</p>
@@ -2566,7 +2969,9 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                       </td>
                       <td className="px-3 py-3.5 align-top text-center">
                          <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-tight shadow-sm border ${
-                           row.plan === 'Venda'
+                           isAuditDeleteRow
+                             ? 'bg-amber-100 text-amber-800 border-amber-200'
+                             : row.plan === 'Venda'
                              ? 'bg-gray-50 text-gray-500 border-gray-100'
                              : row.plan === 'Crédito Cantina'
                                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
@@ -2576,55 +2981,72 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                          </span>
                       </td>
                       <td className="px-3 py-3.5 align-top text-center">
+                         <span className="text-[11px] font-black text-gray-700 uppercase tracking-tight">
+                           {formatDateBr(row.referenceDate) || '-'}
+                         </span>
+                      </td>
+                      <td className="px-3 py-3.5 align-top text-center">
+                         <span className="text-[11px] font-black text-gray-700 uppercase tracking-tight">
+                           {purchaseRefLabel}
+                         </span>
+                      </td>
+                      <td className="px-3 py-3.5 align-top text-center">
                          <p className="font-bold text-gray-700 uppercase text-[10px] leading-tight whitespace-normal break-words text-left">
                            {itemLabel}
                          </p>
                       </td>
                       <td className="px-3 py-3.5 align-top text-center">
                          <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-md border ${
-                           row.type === 'CREDITO'
+                           isAuditDeleteRow
+                             ? 'bg-amber-100 text-amber-800 border-amber-300'
+                             : row.type === 'CREDITO'
                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                              : 'bg-red-50 text-red-700 border-red-200'
                          }`}>
-                           {row.type === 'CREDITO' ? 'ENTRADA' : 'SAÍDA'}
+                           {isAuditDeleteRow ? 'AUDITORIA' : (row.type === 'CREDITO' ? 'ENTRADA' : 'SAÍDA')}
                          </span>
                       </td>
                       <td className="px-3 py-3.5 text-center align-top">
                          <div className="flex flex-col items-center">
-                            <p className={`font-black ${(row.value || row.total) > 0 ? 'text-sm text-indigo-900' : 'text-[10px] text-gray-500'} uppercase tracking-tight`}>
-                               { (row.value || row.total) > 0 ? `R$ ${(row.value || row.total).toFixed(2)}` : 'BAIXA' }
+                             <p className={`font-black ${(row.value || row.total) > 0 ? 'text-sm text-indigo-900' : (isAuditDeleteRow ? 'text-[10px] text-amber-700' : 'text-[10px] text-gray-500')} uppercase tracking-tight`}>
+                               { (row.value || row.total) > 0 ? `R$ ${(row.value || row.total).toFixed(2)}` : (isAuditDeleteRow ? 'REGISTRO' : 'BAIXA') }
                             </p>
                             <span className="text-[8px] font-black text-gray-400 uppercase tracking-tighter">{row.method}</span>
                          </div>
                       </td>
                       <td className="px-3 py-3.5 text-center align-top">
                          <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase border ${
-                           row.status === 'SISTEMA'
-                             ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
-                             : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                            isAuditDeleteRow
+                              ? 'bg-amber-100 text-amber-800 border-amber-300'
+                              : rowMarkedAsReversed
+                             ? 'bg-rose-50 text-rose-700 border-rose-200'
+                             : row.status === 'SISTEMA'
+                               ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
+                               : 'bg-emerald-50 text-emerald-700 border-emerald-100'
                          }`}>
-                            {row.status}
+                             {isAuditDeleteRow ? 'AUDITORIA' : (rowMarkedAsReversed ? 'ESTORNADO' : row.status)}
                          </span>
                       </td>
                       <td className="px-3 py-3.5 text-right align-top">
                          <div className="flex justify-end items-center gap-1 flex-nowrap">
-                           {isPlanConsumptionTransaction(row) && (
+                           {isReversibleTransaction(row) && (
                              <button
                                onClick={() => openReverseModal(row)}
                                className="p-1.5 bg-white border text-rose-400 rounded-lg hover:text-rose-600 hover:bg-rose-50 transition-all shadow-sm flex items-center gap-1"
-                               title="Estornar consumo do plano"
-                               aria-label="Estornar consumo do plano"
+                               title={isPlanConsumptionTransaction(row) ? 'Estornar consumo do plano' : 'Estornar compra normal (crédito livre)'}
+                               aria-label={isPlanConsumptionTransaction(row) ? 'Estornar consumo do plano' : 'Estornar compra normal (crédito livre)'}
                             >
                                <Undo2 size={13} />
                              </button>
                            )}
-                           {!isPlanConsumptionTransaction(row) && (
+                           {!isReversibleTransaction(row) && (
                              <span className="w-[30px] h-[30px] inline-block" aria-hidden="true"></span>
                            )}
                            <button
                              onClick={() => openEditModal(row)}
-                             className="p-1.5 bg-white border text-gray-400 rounded-lg hover:text-amber-600 hover:bg-amber-50 transition-all shadow-sm flex items-center gap-1"
-                             title="Editar Transação"
+                             disabled={isAuditDeleteRow}
+                             className={`p-1.5 bg-white border text-gray-400 rounded-lg hover:text-amber-600 hover:bg-amber-50 transition-all shadow-sm flex items-center gap-1 ${auditActionDisabledClass}`}
+                             title={isAuditDeleteRow ? 'Registro de auditoria (somente leitura)' : 'Editar Transação'}
                            >
                               <Pencil size={13} />
                            </button>
@@ -2636,10 +3058,10 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                               <Eye size={13} />
                            </button>
                            <button
-                             onClick={() => handleDeleteTransaction(row)}
-                             disabled={deletingTransactionId === row.id}
-                             className="p-1.5 bg-white border text-red-400 rounded-lg hover:text-red-600 hover:bg-red-50 transition-all shadow-sm flex items-center gap-1 disabled:opacity-50"
-                             title="Excluir Transação"
+                             onClick={() => openDeleteTransactionModal(row)}
+                             disabled={deletingTransactionId === row.id || isAuditDeleteRow}
+                             className={`p-1.5 bg-white border text-red-400 rounded-lg hover:text-red-600 hover:bg-red-50 transition-all shadow-sm flex items-center gap-1 disabled:opacity-50 ${auditActionDisabledClass}`}
+                             title={isAuditDeleteRow ? 'Registro de auditoria (somente leitura)' : 'Excluir Transação'}
                            >
                               <Trash2 size={13} />
                             </button>
@@ -2659,6 +3081,75 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
          <QuickSummaryCard label="Ticket Médio Mês" value={`R$ ${monthlyTicketAverage.toFixed(2)}`} sub="Vendas do mês (balcão)" icon={<DollarSign />} color="bg-slate-900" />
       </div>
 
+      {deleteTargetTransaction && (
+        <div className="fixed inset-0 z-[1150] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="absolute inset-0 bg-indigo-950/80 backdrop-blur-md" onClick={closeDeleteTransactionModal}></div>
+          <div className="relative w-full max-w-lg bg-white rounded-[28px] shadow-2xl overflow-hidden animate-in zoom-in-95">
+            <div className="bg-rose-600 p-5 text-white flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-black uppercase tracking-widest">Excluir Transação</h2>
+                <p className="text-[10px] font-bold text-rose-100 uppercase tracking-wider mt-1">Auditoria obrigatória da exclusão</p>
+              </div>
+              <button
+                onClick={closeDeleteTransactionModal}
+                className="p-2 hover:bg-white/10 rounded-full transition-colors"
+                disabled={Boolean(deletingTransactionId)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="rounded-xl border border-rose-100 bg-rose-50 p-3">
+                <p className="text-[11px] font-black text-rose-700 uppercase tracking-wider">{deletePromptMessage}</p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nome do usuário *</label>
+                <input
+                  type="text"
+                  value={deleteAuditUserName}
+                  onChange={(e) => setDeleteAuditUserName(e.target.value)}
+                  placeholder="Digite o nome do responsável"
+                  className="w-full px-3 py-2.5 bg-gray-50 border-2 border-transparent focus:border-rose-500 rounded-xl outline-none text-xs font-bold"
+                  disabled={Boolean(deletingTransactionId)}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Motivo da exclusão *</label>
+                <textarea
+                  value={deleteAuditReason}
+                  onChange={(e) => setDeleteAuditReason(e.target.value)}
+                  placeholder="Descreva o motivo da exclusão"
+                  rows={4}
+                  className="w-full px-3 py-2.5 bg-gray-50 border-2 border-transparent focus:border-rose-500 rounded-xl outline-none text-xs font-bold resize-none"
+                  disabled={Boolean(deletingTransactionId)}
+                />
+              </div>
+            </div>
+
+            <div className="p-5 bg-gray-50 border-t flex justify-end gap-2">
+              <button
+                onClick={closeDeleteTransactionModal}
+                disabled={Boolean(deletingTransactionId)}
+                className="px-4 py-2.5 bg-white border rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-500 disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmDeleteTransaction}
+                disabled={Boolean(deletingTransactionId)}
+                className="px-4 py-2.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-700 disabled:opacity-60 inline-flex items-center gap-2"
+              >
+                {deletingTransactionId ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                {deletingTransactionId ? 'Excluindo...' : 'Confirmar Exclusão'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL DE DETALHES DA VENDA */}
       {selectedTransaction && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 animate-in fade-in">
@@ -2668,7 +3159,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                  <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center"><ShoppingBag size={24} /></div>
                     <div>
-                       <h2 className="text-lg font-black uppercase tracking-tight">Detalhes da Venda</h2>
+                        <h2 className="text-lg font-black uppercase tracking-tight">
+                         {String(selectedTransaction.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO'
+                          ? 'Detalhes da Auditoria'
+                          : 'Detalhes da Venda'}
+                        </h2>
                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">ID: #{selectedTransaction.id}</p>
                     </div>
                  </div>
@@ -2678,8 +3173,14 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
               <div className="p-8 space-y-8">
                  <div className="flex items-center justify-between pb-6 border-b border-gray-100">
                     <div>
-                       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Cliente</p>
-                       <p className="text-lg font-black text-indigo-900 uppercase">{selectedTransaction.client}</p>
+                       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
+                         {String(selectedTransaction.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO' ? 'Usuário responsável' : 'Cliente'}
+                       </p>
+                       <p className="text-lg font-black text-indigo-900 uppercase">
+                         {String(selectedTransaction.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO'
+                           ? (String(selectedTransaction.raw?.deletedByName || '').trim() || selectedTransaction.client || '-')
+                           : selectedTransaction.client}
+                       </p>
                     </div>
                     <div className="text-right">
                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Data / Hora</p>
@@ -2687,12 +3188,46 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                     </div>
                  </div>
 
+                 {String(selectedTransaction.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO' && (
+                   <div className="bg-amber-50 p-5 rounded-[24px] border border-amber-100 space-y-3">
+                     <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Motivo da exclusão</p>
+                     <p className="text-xs font-black text-amber-900 uppercase leading-relaxed">
+                       {String(selectedTransaction.raw?.deleteReason || '').trim() || 'NÃO INFORMADO'}
+                     </p>
+
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                       <div className="bg-white border border-amber-100 rounded-xl p-3">
+                         <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest">Registros removidos</p>
+                         <p className="text-sm font-black text-amber-900 mt-1">
+                           {Number(selectedTransaction.raw?.deletedTransactionCount || 0) || (Array.isArray(selectedTransaction.raw?.deletedTransactionIds) ? selectedTransaction.raw.deletedTransactionIds.length : 0)}
+                         </p>
+                       </div>
+                       <div className="bg-white border border-amber-100 rounded-xl p-3">
+                         <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest">Transação origem</p>
+                         <p className="text-[11px] font-black text-amber-900 mt-1 break-all">
+                           {String(selectedTransaction.raw?.deletedTransactionId || '').trim() || '-'}
+                         </p>
+                       </div>
+                     </div>
+
+                     <div className="bg-white border border-amber-100 rounded-xl p-3">
+                       <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest">IDs removidos</p>
+                       <p className="text-[10px] font-bold text-amber-900 mt-1 leading-relaxed break-all">
+                         {Array.isArray(selectedTransaction.raw?.deletedTransactionIds) && selectedTransaction.raw.deletedTransactionIds.length > 0
+                           ? selectedTransaction.raw.deletedTransactionIds.map((id: any) => String(id || '').trim()).filter(Boolean).join(', ')
+                           : '-'}
+                       </p>
+                     </div>
+                   </div>
+                 )}
+
                  <div className="space-y-4">
                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                       <Layers size={14} className="text-indigo-600" /> Itens Comprados
+                       <Layers size={14} className="text-indigo-600" />
+                       {String(selectedTransaction.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO' ? 'Descrição do Registro' : 'Itens Comprados'}
                     </p>
                     <div className="space-y-2">
-                       {getTransactionItemDetails(selectedTransaction).length > 0 ? (
+                       {String(selectedTransaction.type || '').toUpperCase() !== 'AUDITORIA_EXCLUSAO' && getTransactionItemDetails(selectedTransaction).length > 0 ? (
                          getTransactionItemDetails(selectedTransaction).map((item, idx) => (
                             <div key={`${item.name}-${idx}`} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
                                <div>
@@ -2714,12 +3249,18 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
                  <div className="bg-indigo-50 p-6 rounded-[32px] border border-indigo-100 flex items-center justify-between">
                     <div>
-                       <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Total Pago</p>
+                       <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">
+                         {String(selectedTransaction.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO' ? 'Valor do Registro' : 'Total Pago'}
+                       </p>
                        <p className="text-3xl font-black text-indigo-900 tracking-tighter">R$ {(selectedTransaction.total || 0).toFixed(2)}</p>
                     </div>
                     <div className="text-right">
-                       <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Método</p>
-                       <p className="text-xs font-black text-indigo-600 uppercase bg-white px-3 py-1 rounded-full border border-indigo-100 shadow-sm">{selectedTransaction.method}</p>
+                       <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">
+                         {String(selectedTransaction.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO' ? 'Tipo' : 'Método'}
+                       </p>
+                       <p className="text-xs font-black text-indigo-600 uppercase bg-white px-3 py-1 rounded-full border border-indigo-100 shadow-sm">
+                         {String(selectedTransaction.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO' ? 'AUDITORIA' : selectedTransaction.method}
+                       </p>
                     </div>
                  </div>
               </div>
@@ -2737,7 +3278,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
           <div className="relative w-full max-w-lg bg-white rounded-[28px] shadow-2xl overflow-hidden animate-in zoom-in-95">
             <div className="bg-rose-600 p-5 text-white flex items-center justify-between">
               <div>
-                <h2 className="text-sm font-black uppercase tracking-widest">Estornar Consumo do Plano</h2>
+                <h2 className="text-sm font-black uppercase tracking-widest">
+                  {isPlanConsumptionTransaction(reversingTransaction)
+                    ? 'Estornar Consumo do Plano'
+                    : 'Estornar Compra Normal'}
+                </h2>
                 <p className="text-[10px] font-bold text-rose-100 uppercase tracking-wider mt-1">
                   Ref: {reversingTransaction.id}
                 </p>
@@ -2750,59 +3295,67 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
             <div className="p-5 space-y-4">
               <div className="rounded-xl border border-amber-100 bg-amber-50 p-3">
                 <p className="text-[11px] font-black text-amber-700 uppercase tracking-wider">
-                  O estorno devolve unidade ao plano como crédito aberto.
+                  {isPlanConsumptionTransaction(reversingTransaction)
+                    ? 'O estorno devolve unidade ao plano como crédito aberto.'
+                    : 'O estorno devolve crédito livre em dinheiro para a carteira do cliente.'}
                 </p>
                 <p className="text-[10px] font-bold text-amber-700 mt-1">
-                  Esse crédito pode ser aplicado depois em novos consumos.
+                  {isPlanConsumptionTransaction(reversingTransaction)
+                    ? 'Esse crédito pode ser aplicado depois em novos consumos.'
+                    : 'Esse crédito pode ser usado em compras normais posteriores.'}
                 </p>
               </div>
 
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-gray-600">
-                  <input
-                    type="radio"
-                    name="tx-reverse-mode"
-                    checked={reverseMode === 'OPEN'}
-                    onChange={() => setReverseMode('OPEN')}
-                    disabled={isReversingPlanCredit}
-                  />
-                  Deixar crédito aberto (sem data)
-                </label>
-                <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-gray-600">
-                  <input
-                    type="radio"
-                    name="tx-reverse-mode"
-                    checked={reverseMode === 'RESCHEDULE'}
-                    onChange={() => setReverseMode('RESCHEDULE')}
-                    disabled={isReversingPlanCredit}
-                  />
-                  Reagendar para nova data
-                </label>
-              </div>
+              {isPlanConsumptionTransaction(reversingTransaction) && (
+                <>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-gray-600">
+                      <input
+                        type="radio"
+                        name="tx-reverse-mode"
+                        checked={reverseMode === 'OPEN'}
+                        onChange={() => setReverseMode('OPEN')}
+                        disabled={isReversingPlanCredit}
+                      />
+                      Deixar crédito aberto (sem data)
+                    </label>
+                    <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-gray-600">
+                      <input
+                        type="radio"
+                        name="tx-reverse-mode"
+                        checked={reverseMode === 'RESCHEDULE'}
+                        onChange={() => setReverseMode('RESCHEDULE')}
+                        disabled={isReversingPlanCredit}
+                      />
+                      Reagendar para nova data
+                    </label>
+                  </div>
 
-              <div>
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nova Data</label>
-                <input
-                  type="date"
-                  value={reverseDate}
-                  onChange={(e) => {
-                    const nextDate = e.target.value;
-                    if (nextDate && !isSchoolDateAllowed(nextDate)) {
-                      alert('Dia sem aula (feriado/recesso) não está disponível para reagendar.');
-                      return;
-                    }
-                    setReverseDate(nextDate);
-                  }}
-                  disabled={reverseMode !== 'RESCHEDULE' || isReversingPlanCredit}
-                  min={toLocalDateKey(new Date())}
-                  className="w-full mt-1 px-3 py-2.5 bg-gray-50 border-2 border-transparent focus:border-rose-500 rounded-xl outline-none text-xs font-black"
-                />
-                {isReverseDateBlocked && (
-                  <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-rose-600">
-                    Dia não letivo: selecione um dia com aula
-                  </p>
-                )}
-              </div>
+                  <div>
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nova Data</label>
+                    <input
+                      type="date"
+                      value={reverseDate}
+                      onChange={(e) => {
+                        const nextDate = e.target.value;
+                        if (nextDate && !isSchoolDateAllowed(nextDate)) {
+                          alert('Dia sem aula (feriado/recesso) não está disponível para reagendar.');
+                          return;
+                        }
+                        setReverseDate(nextDate);
+                      }}
+                      disabled={reverseMode !== 'RESCHEDULE' || isReversingPlanCredit}
+                      min={toLocalDateKey(new Date())}
+                      className="w-full mt-1 px-3 py-2.5 bg-gray-50 border-2 border-transparent focus:border-rose-500 rounded-xl outline-none text-xs font-black"
+                    />
+                    {isReverseDateBlocked && (
+                      <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-rose-600">
+                        Dia não letivo: selecione um dia com aula
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="px-5 py-4 bg-gray-50 border-t flex items-center justify-end gap-2">

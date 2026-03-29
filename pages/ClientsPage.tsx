@@ -8,7 +8,7 @@ import {
   ShieldCheck, ArrowRight, CheckCircle2, DollarSign,
   Check, Copy, FileText, Building2,
   ChevronDown, UserPlus, ChevronLeft, Eye, ShieldAlert,
-  Phone, GraduationCap, AlertTriangle, Trash2,
+  Phone, GraduationCap, AlertTriangle, Trash2, Sparkles,
   Beef, HeartPulse, CreditCard, Landmark, Edit, ShoppingCart, Layers, Upload, Download, FileSpreadsheet, Printer
 } from 'lucide-react';
 import { Client, ClientPlanType, User, Enterprise, Role, Plan, TransactionRecord } from '../types';
@@ -231,17 +231,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const navigate = useNavigate();
   const restoreClientsInputRef = useRef<HTMLInputElement | null>(null);
   const [openingWhatsAppKey, setOpeningWhatsAppKey] = useState<string | null>(null);
-  // Guard clause: se não houver enterprise ativa, retornar carregamento
-  if (!activeEnterprise) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="text-center space-y-4">
-          <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full"></div>
-          <p className="text-gray-600 font-medium">Carregando clientes...</p>
-        </div>
-      </div>
-    );
-  }
+  const activeEnterpriseId = String(activeEnterprise?.id || '').trim();
 
   const [clients, setClients] = useState<Client[]>([]);
   const [enterprises, setEnterprises] = useState<Enterprise[]>([]);
@@ -284,6 +274,12 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const [isSavingPlanView, setIsSavingPlanView] = useState(false);
   const [isRestoringClientsBackup, setIsRestoringClientsBackup] = useState(false);
   const [planViewNotice, setPlanViewNotice] = useState<{ type: 'warning' | 'success' | 'error'; message: string } | null>(null);
+  const [isGeneratingPortalLink, setIsGeneratingPortalLink] = useState(false);
+  const [portalLinkModalOpen, setPortalLinkModalOpen] = useState(false);
+  const [portalLinkValue, setPortalLinkValue] = useState('');
+  const [portalLinkTargetName, setPortalLinkTargetName] = useState('');
+  const [isGeneratingExistingPortalLinks, setIsGeneratingExistingPortalLinks] = useState(false);
+  const [portalLinksByRowId, setPortalLinksByRowId] = useState<Record<string, string>>({});
 
   const isUnitAdmin = currentUser?.role === Role.ADMIN
     || currentUser?.role === Role.ADMIN_RESTAURANTE
@@ -300,7 +296,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   };
 
   useEffect(() => {
-    const enterpriseId = activeEnterprise?.id;
+    const enterpriseId = activeEnterpriseId;
     if (!enterpriseId) return;
 
     const loadData = async () => {
@@ -324,7 +320,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       }
     };
     loadData();
-  }, [activeEnterprise?.id]);
+  }, [activeEnterpriseId]);
 
   const schoolCalendarYearsToLoad = useMemo(() => {
     return Array.from(new Set([
@@ -434,7 +430,9 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     parentEmail: '',
     photo: ''
   });
-  const [responsibleSourceMode, setResponsibleSourceMode] = useState<'NEW' | 'COLABORADOR'>('NEW');
+  const [responsibleSourceMode, setResponsibleSourceMode] = useState<'NEW' | 'RESPONSAVEL' | 'COLABORADOR'>('NEW');
+  const [responsibleClientSearch, setResponsibleClientSearch] = useState('');
+  const [responsibleClientId, setResponsibleClientId] = useState<string | null>(null);
   const [responsibleCollaboratorSearch, setResponsibleCollaboratorSearch] = useState('');
   const [responsibleCollaboratorId, setResponsibleCollaboratorId] = useState<string | null>(null);
 
@@ -447,9 +445,31 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const collaboratorCandidates = useMemo(() => {
     return clients
       .filter((client) => String(client.type || '').toUpperCase() === 'COLABORADOR')
-      .filter((client) => !isUnitAdmin || client.enterpriseId === activeEnterprise.id)
+      .filter((client) => !isUnitAdmin || client.enterpriseId === activeEnterpriseId)
       .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' }));
-  }, [clients, isUnitAdmin, activeEnterprise.id]);
+  }, [clients, isUnitAdmin, activeEnterpriseId]);
+  const responsibleCandidates = useMemo(() => {
+    return clients
+      .filter((client) => String(client.type || '').toUpperCase() === 'RESPONSAVEL')
+      .filter((client) => !isUnitAdmin || client.enterpriseId === activeEnterpriseId)
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' }));
+  }, [clients, isUnitAdmin, activeEnterpriseId]);
+  const selectedResponsibleClient = useMemo(
+    () => responsibleCandidates.find((client) => client.id === responsibleClientId) || null,
+    [responsibleCandidates, responsibleClientId]
+  );
+  const filteredResponsibleClients = useMemo(() => {
+    const query = normalizeSearchText(responsibleClientSearch);
+    const base = responsibleCandidates;
+    if (!query) return base.slice(0, 8);
+    return base
+      .filter((client) =>
+        normalizeSearchText(client.name).includes(query)
+        || normalizeSearchText(client.registrationId).includes(query)
+        || normalizeSearchText(client.parentRelationship).includes(query)
+      )
+      .slice(0, 8);
+  }, [responsibleCandidates, responsibleClientSearch]);
   const selectedResponsibleCollaborator = useMemo(
     () => collaboratorCandidates.find((client) => client.id === responsibleCollaboratorId) || null,
     [collaboratorCandidates, responsibleCollaboratorId]
@@ -485,14 +505,14 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       
       let matchesUnit = true;
       if (isUnitAdmin) {
-        matchesUnit = c.enterpriseId === activeEnterprise.id;
+        matchesUnit = c.enterpriseId === activeEnterpriseId;
       } else {
         matchesUnit = selectedUnitId === 'ALL' || c.enterpriseId === selectedUnitId;
       }
       
       return matchesViewMode && matchesSearch && matchesUnit;
     }).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }));
-  }, [clients, searchTerm, selectedUnitId, isUnitAdmin, activeEnterprise.id, viewMode]);
+  }, [clients, searchTerm, selectedUnitId, isUnitAdmin, activeEnterpriseId, viewMode]);
 
   const resolveKinshipOrRole = (value?: string) => {
     const text = String(value || '').trim();
@@ -520,7 +540,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
     const normalizedSearch = normalizeSearchText(searchTerm);
     const matchesUnit = (client: Client) => {
-      if (isUnitAdmin) return client.enterpriseId === activeEnterprise.id;
+      if (isUnitAdmin) return client.enterpriseId === activeEnterpriseId;
       return selectedUnitId === 'ALL' || client.enterpriseId === selectedUnitId;
     };
 
@@ -570,7 +590,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
     const merged = [...rows, ...Array.from(responsibleMap.values())];
 
-    return merged
+    const filtered = merged
       .filter((row) => {
         if (!normalizedSearch) return true;
         return (
@@ -579,9 +599,24 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
           || normalizeSearchText(row.cargoParentesco).includes(normalizedSearch)
           || normalizeSearchText(row.phone).includes(normalizedSearch)
         );
-      })
+      });
+
+    const dedupedMap = new Map<string, ResponsibleOrCollaboratorRow>();
+    filtered.forEach((row) => {
+      const personKey = `${normalizeSearchText(row.name)}|${String(row.phone || '').replace(/\D/g, '')}` || String(row.id || '');
+      const existing = dedupedMap.get(personKey);
+      if (!existing) {
+        dedupedMap.set(personKey, row);
+        return;
+      }
+      if (!existing.sourceClient && row.sourceClient) {
+        dedupedMap.set(personKey, row);
+      }
+    });
+
+    return Array.from(dedupedMap.values())
       .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }));
-  }, [viewMode, clients, searchTerm, isUnitAdmin, activeEnterprise.id, selectedUnitId]);
+  }, [viewMode, clients, searchTerm, isUnitAdmin, activeEnterpriseId, selectedUnitId]);
 
   const normalizePhoneDigits = (phone?: string) => String(phone || '').replace(/\D/g, '');
 
@@ -623,12 +658,109 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     }, 2500);
   };
 
+  const handleGeneratePortalLink = async (row: ResponsibleOrCollaboratorRow) => {
+    const userId = String(row?.sourceClient?.id || '').trim();
+    if (!userId) {
+      alert('Este contato não possui cadastro próprio de responsável/colaborador. Cadastre-o como cliente para gerar o link do painel.');
+      return;
+    }
+
+    try {
+      setIsGeneratingPortalLink(true);
+      const result = await ApiService.generatePortalAccessLink(userId);
+      const link = String(result?.accessLink || '').trim();
+      if (!link) {
+        throw new Error('Link não retornado pelo servidor.');
+      }
+      const clientId = String(row?.sourceClient?.id || '').trim();
+      const directKey = clientId ? `direct:${clientId}` : '';
+      setPortalLinksByRowId((prev) => ({
+        ...prev,
+        [String(row.id || '').trim()]: link,
+        ...(directKey ? { [directKey]: link } : {}),
+      }));
+      setPortalLinkTargetName(String(row?.name || 'Cliente'));
+      setPortalLinkValue(link);
+      setPortalLinkModalOpen(true);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Falha ao gerar link do portal.');
+    } finally {
+      setIsGeneratingPortalLink(false);
+    }
+  };
+
+  const handleGenerateExistingPortalLinks = async () => {
+    try {
+      setIsGeneratingExistingPortalLinks(true);
+      const result = await ApiService.generatePortalLinksForExistingClients(activeEnterpriseId);
+      const generated = Array.isArray(result?.generated) ? result.generated : [];
+      if (generated.length === 0) {
+        alert('Nenhum link foi gerado para os cadastros existentes desta unidade.');
+        return;
+      }
+
+      setPortalLinksByRowId((prev) => {
+        const next = { ...prev };
+        generated.forEach((item: any) => {
+          const clientId = String(item?.clientId || '').trim();
+          const link = String(item?.accessLink || '').trim();
+          if (!clientId || !link) return;
+          next[`direct:${clientId}`] = link;
+        });
+        return next;
+      });
+
+      const lines = generated.map((item: any) => {
+        const name = String(item?.name || 'Cliente');
+        const link = String(item?.accessLink || '').trim();
+        return `${name}: ${link}`;
+      });
+
+      const payload = lines.join('\n');
+      await navigator.clipboard.writeText(payload);
+      alert(`Links gerados: ${generated.length}. Lista copiada para a área de transferência.`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Falha ao gerar links dos clientes existentes.');
+    } finally {
+      setIsGeneratingExistingPortalLinks(false);
+    }
+  };
+
+  const resolvePortalLinkForRow = (row: ResponsibleOrCollaboratorRow) => {
+    const rowKey = String(row?.id || '').trim();
+    const rowLink = String(portalLinksByRowId[rowKey] || '').trim();
+    if (rowLink) return rowLink;
+
+    const clientId = String(row?.sourceClient?.id || '').trim();
+    if (!clientId) return '';
+    return String(portalLinksByRowId[`direct:${clientId}`] || '').trim();
+  };
+
+  const handleCopyPortalLink = async (row: ResponsibleOrCollaboratorRow) => {
+    const link = resolvePortalLinkForRow(row);
+    if (!link) {
+      alert('Gere o link primeiro para poder copiar.');
+      return;
+    }
+    await navigator.clipboard.writeText(link);
+    alert('Link copiado!');
+  };
+
+  const handleOpenPortalLink = (row: ResponsibleOrCollaboratorRow) => {
+    const link = resolvePortalLinkForRow(row);
+    if (!link) {
+      alert('Gere o link primeiro para poder abrir.');
+      return;
+    }
+    window.open(link, '_blank', 'noopener,noreferrer');
+  };
+
   const availablePlans = useMemo(() => {
-    return plans.filter(p => p.enterpriseId === activeEnterprise.id && p.isActive !== false);
-  }, [plans, activeEnterprise.id]);
+    return plans.filter(p => p.enterpriseId === activeEnterpriseId && p.isActive !== false);
+  }, [plans, activeEnterpriseId]);
 
   const currentEnterpriseConfig = useMemo(() => {
-    return enterprises.find(ent => ent.id === activeEnterprise.id) || activeEnterprise;
+    return enterprises.find(ent => ent.id === activeEnterpriseId) || activeEnterprise;
   }, [enterprises, activeEnterprise]);
 
   const allowedServiceDayKeys = useMemo(() => {
@@ -848,6 +980,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       restrictions: [], dietaryNotes: '', parentName: '', parentRelationship: 'PAIS', parentWhatsappCountryCode: '55', parentWhatsapp: '', parentCpf: '', parentEmail: '', photo: ''
     });
     setResponsibleSourceMode('NEW');
+    setResponsibleClientSearch('');
+    setResponsibleClientId(null);
     setResponsibleCollaboratorSearch('');
     setResponsibleCollaboratorId(null);
     setClientPhotoFile(null);
@@ -856,7 +990,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   };
 
   const handleOpenCreateStudentFromDetail = () => {
-    const phoneParts = splitPhoneByCountryCode(viewingClient?.parentWhatsapp || '');
+    const phoneParts = splitPhoneByCountryCode(viewingClient?.phone || viewingClient?.parentWhatsapp || '');
+    const viewingType = String(viewingClient?.type || '').toUpperCase();
     setEditingClient(null);
     setIsStudentOnlyMode(true);
     setSelectedPlanDays({});
@@ -878,20 +1013,30 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       isBlocked: false,
       restrictions: [],
       dietaryNotes: '',
-      parentName: viewingClient?.parentName || '',
+      parentName: viewingType === 'RESPONSAVEL' || viewingType === 'COLABORADOR' ? String(viewingClient?.name || '') : String(viewingClient?.parentName || ''),
       parentRelationship: String((viewingClient as any)?.parentRelationship || 'PAIS'),
       parentWhatsappCountryCode: phoneParts.countryCode,
       parentWhatsapp: phoneParts.localPhone,
-      parentCpf: viewingClient?.parentCpf || '',
-      parentEmail: viewingClient?.parentEmail || '',
+      parentCpf: viewingType === 'RESPONSAVEL' || viewingType === 'COLABORADOR' ? String(viewingClient?.cpf || '') : String(viewingClient?.parentCpf || ''),
+      parentEmail: viewingType === 'RESPONSAVEL' || viewingType === 'COLABORADOR' ? String(viewingClient?.email || '') : String(viewingClient?.parentEmail || ''),
       photo: ''
     });
     if (String(viewingClient?.type || '').toUpperCase() === 'COLABORADOR' && viewingClient?.id) {
       setResponsibleSourceMode('COLABORADOR');
       setResponsibleCollaboratorId(viewingClient.id);
       setResponsibleCollaboratorSearch(String(viewingClient.name || ''));
+      setResponsibleClientSearch('');
+      setResponsibleClientId(null);
+    } else if (String(viewingClient?.type || '').toUpperCase() === 'RESPONSAVEL' && viewingClient?.id) {
+      setResponsibleSourceMode('RESPONSAVEL');
+      setResponsibleClientId(viewingClient.id);
+      setResponsibleClientSearch(String(viewingClient.name || ''));
+      setResponsibleCollaboratorSearch('');
+      setResponsibleCollaboratorId(null);
     } else {
       setResponsibleSourceMode('NEW');
+      setResponsibleClientSearch('');
+      setResponsibleClientId(null);
       setResponsibleCollaboratorSearch('');
       setResponsibleCollaboratorId(null);
     }
@@ -973,18 +1118,42 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     });
     const matchedCollaborator = clients.find((candidate) => {
       if (String(candidate.type || '').toUpperCase() !== 'COLABORADOR') return false;
-      const sameEnterprise = !isUnitAdmin || candidate.enterpriseId === activeEnterprise.id;
+      const sameEnterprise = !isUnitAdmin || candidate.enterpriseId === activeEnterpriseId;
       if (!sameEnterprise) return false;
       const sameName = normalizeSearchText(candidate.name) === normalizeSearchText(client.parentName || '');
       const samePhone = normalizePhoneDigits(candidate.phone || '') && normalizePhoneDigits(candidate.phone || '') === normalizePhoneDigits(client.parentWhatsapp || '');
       return sameName || samePhone;
     });
+    const matchedResponsible = clients.find((candidate) => {
+      if (String(candidate.type || '').toUpperCase() !== 'RESPONSAVEL') return false;
+      const sameEnterprise = !isUnitAdmin || candidate.enterpriseId === activeEnterpriseId;
+      if (!sameEnterprise) return false;
+      if (String((client as any)?.responsibleClientId || '').trim() && String(candidate.id || '').trim() === String((client as any)?.responsibleClientId || '').trim()) {
+        return true;
+      }
+      const sameName = normalizeSearchText(candidate.name) === normalizeSearchText(client.parentName || '');
+      const samePhone = normalizePhoneDigits(candidate.phone || candidate.parentWhatsapp || '')
+        && normalizePhoneDigits(candidate.phone || candidate.parentWhatsapp || '') === normalizePhoneDigits(client.parentWhatsapp || '');
+      const sameEmail = normalizeSearchText(candidate.email || candidate.parentEmail || '')
+        && normalizeSearchText(candidate.email || candidate.parentEmail || '') === normalizeSearchText(client.parentEmail || '');
+      return sameName || samePhone || sameEmail;
+    });
     if (client.type === 'ALUNO' && matchedCollaborator?.id) {
       setResponsibleSourceMode('COLABORADOR');
       setResponsibleCollaboratorId(matchedCollaborator.id);
       setResponsibleCollaboratorSearch(String(matchedCollaborator.name || ''));
+      setResponsibleClientSearch('');
+      setResponsibleClientId(null);
+    } else if (client.type === 'ALUNO' && matchedResponsible?.id) {
+      setResponsibleSourceMode('RESPONSAVEL');
+      setResponsibleClientId(matchedResponsible.id);
+      setResponsibleClientSearch(String(matchedResponsible.name || ''));
+      setResponsibleCollaboratorSearch('');
+      setResponsibleCollaboratorId(null);
     } else {
       setResponsibleSourceMode('NEW');
+      setResponsibleClientSearch('');
+      setResponsibleClientId(null);
       setResponsibleCollaboratorSearch('');
       setResponsibleCollaboratorId(null);
     }
@@ -1289,7 +1458,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         const createdTx = await ApiService.createTransaction({
           clientId: viewingClient.id,
           clientName: viewingClient.name,
-          enterpriseId: activeEnterprise.id,
+          enterpriseId: activeEnterpriseId,
           type: 'CREDIT',
           amount: 0,
           total: 0,
@@ -1492,10 +1661,70 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     return result;
   }, [viewingClient, activePlansInView, transactions]);
 
+  const reversedRechargeDateKeysByPlanId = useMemo(() => {
+    const result = new Map<string, Set<string>>();
+    if (!viewingClient) return result;
+
+    const normalizeTxDateKey = (raw: any) => {
+      const value = String(raw || '').trim();
+      if (!value) return '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+      const br4 = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (br4) return `${br4[3]}-${br4[2]}-${br4[1]}`;
+      const br2 = value.match(/^(\d{2})\/(\d{2})\/(\d{2})$/);
+      if (br2) return `20${br2[3]}-${br2[2]}-${br2[1]}`;
+      const parsed = new Date(value);
+      if (Number.isFinite(parsed.getTime())) return toDateKey(parsed);
+      return '';
+    };
+
+    transactions.forEach((tx: any) => {
+      if (!isTransactionFromClient(tx, viewingClient)) return;
+      if (String(tx?.type || '').toUpperCase() !== 'CREDITO') return;
+
+      const originRef = String(tx?.originTransactionId || '').trim();
+      if (!originRef) return;
+
+      const text = `${String(tx?.description || '')} ${String(tx?.item || '')}`.toUpperCase();
+      if (!text.includes('ESTORNO')) return;
+
+      const dateKey = normalizeTxDateKey(tx?.deliveryDate || tx?.scheduledDate || tx?.mealDate || tx?.date || tx?.timestamp);
+      if (!dateKey) return;
+
+      const txPlanId = String(tx?.planId || tx?.originPlanId || '').trim();
+      const txPlanName = String(tx?.plan || tx?.planName || '').trim().toUpperCase();
+      const matchById = availablePlans.find((plan) => String(plan.id) === txPlanId);
+      const matchByName = availablePlans.find((plan) => String(plan.name || '').trim().toUpperCase() === txPlanName);
+      const matchedPlanId = String(matchById?.id || matchByName?.id || '').trim();
+      if (!matchedPlanId) return;
+
+      const current = result.get(matchedPlanId) || new Set<string>();
+      current.add(dateKey);
+      result.set(matchedPlanId, current);
+    });
+
+    return result;
+  }, [viewingClient, transactions, availablePlans]);
+
+  const getAvailableRechargePlanCreditBalance = (client: Client | null, plan: Plan | null) => {
+    if (!client || !plan) return 0;
+    const balancesRaw = ((client as any).planCreditBalances || {}) as Record<string, any>;
+    if (!balancesRaw || typeof balancesRaw !== 'object') return 0;
+
+    const byId = balancesRaw[plan.id];
+    if (byId) return Math.max(0, Number(byId.balance || 0));
+
+    const byNameKey = Object.keys(balancesRaw).find((key) =>
+      String(balancesRaw[key]?.planName || '').trim().toUpperCase() === String(plan.name || '').trim().toUpperCase()
+    );
+    if (!byNameKey) return 0;
+    return Math.max(0, Number(balancesRaw[byNameKey]?.balance || 0));
+  };
+
   const rechargeSelectedPlanSummary = useMemo(() => {
     if (!rechargeSelectedPlanId) return null;
 
-    const plan = plans.find(p => p.id === rechargeSelectedPlanId && p.enterpriseId === activeEnterprise.id);
+    const plan = plans.find(p => p.id === rechargeSelectedPlanId && p.enterpriseId === activeEnterpriseId);
     if (!plan) return null;
 
     const daysOfWeek = rechargePlanDays[rechargeSelectedPlanId] || [];
@@ -1511,7 +1740,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       selectedCount,
       subtotal,
     };
-  }, [rechargeSelectedPlanId, rechargePlanDays, rechargePlanDates, plans, activeEnterprise.id]);
+  }, [rechargeSelectedPlanId, rechargePlanDays, rechargePlanDates, plans, activeEnterpriseId]);
 
   const handleFinishRegistration = async () => {
     const classValue = formData.type === 'ALUNO'
@@ -1556,9 +1785,19 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     const collaboratorCountryCode = collaboratorPhoneParts.countryCode || '55';
     const collaboratorParentEmail = String(selectedResponsibleCollaborator?.email || '').trim();
     const collaboratorParentCpf = String((selectedResponsibleCollaborator as any)?.cpf || '').trim();
+    const responsibleClientPhoneParts = splitPhoneByCountryCode(selectedResponsibleClient?.phone || selectedResponsibleClient?.parentWhatsapp || '');
+    const responsibleClientPhone = responsibleClientPhoneParts.localPhone || normalizePhoneDigits(selectedResponsibleClient?.phone || selectedResponsibleClient?.parentWhatsapp || '');
+    const responsibleClientCountryCode = responsibleClientPhoneParts.countryCode || String((selectedResponsibleClient as any)?.parentWhatsappCountryCode || '55');
+    const responsibleClientEmail = String(selectedResponsibleClient?.email || selectedResponsibleClient?.parentEmail || '').trim();
+    const responsibleClientCpf = String((selectedResponsibleClient?.cpf || selectedResponsibleClient?.parentCpf || '')).trim();
     const isStudentUsingCollaborator = formData.type === 'ALUNO' && responsibleSourceMode === 'COLABORADOR' && Boolean(selectedResponsibleCollaborator);
+    const isStudentUsingResponsible = formData.type === 'ALUNO' && responsibleSourceMode === 'RESPONSAVEL' && Boolean(selectedResponsibleClient);
     if (formData.type === 'ALUNO' && responsibleSourceMode === 'COLABORADOR' && !selectedResponsibleCollaborator) {
       alert('Selecione um colaborador para vincular como responsável.');
+      return;
+    }
+    if (formData.type === 'ALUNO' && responsibleSourceMode === 'RESPONSAVEL' && !selectedResponsibleClient) {
+      alert('Selecione um responsável já cadastrado para vincular ao aluno.');
       return;
     }
     const fallbackParentName = normalizedStudentName
@@ -1567,20 +1806,30 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     const parentNameToPersist = formData.type === 'ALUNO'
       ? (isStudentUsingCollaborator
         ? String(selectedResponsibleCollaborator?.name || normalizedParentName || fallbackParentName).trim()
+        : isStudentUsingResponsible
+          ? String(selectedResponsibleClient?.name || normalizedParentName || fallbackParentName).trim()
         : (normalizedParentName || fallbackParentName))
       : formData.parentName;
     const parentWhatsappCountryCodeToPersist = isStudentUsingCollaborator
       ? collaboratorCountryCode
-      : formData.parentWhatsappCountryCode;
+      : isStudentUsingResponsible
+        ? responsibleClientCountryCode
+        : formData.parentWhatsappCountryCode;
     const parentWhatsappToPersist = isStudentUsingCollaborator
       ? collaboratorPhone
-      : formData.parentWhatsapp;
+      : isStudentUsingResponsible
+        ? responsibleClientPhone
+        : formData.parentWhatsapp;
     const parentEmailToPersist = isStudentUsingCollaborator
       ? (collaboratorParentEmail || formData.parentEmail)
-      : formData.parentEmail;
+      : isStudentUsingResponsible
+        ? (responsibleClientEmail || formData.parentEmail)
+        : formData.parentEmail;
     const parentCpfToPersist = isStudentUsingCollaborator
       ? (collaboratorParentCpf || formData.parentCpf)
-      : formData.parentCpf;
+      : isStudentUsingResponsible
+        ? (responsibleClientCpf || formData.parentCpf)
+        : formData.parentCpf;
     
     let finalPhoto = formData.photo || editingClient?.photo || `https://api.dicebear.com/7.x/avataaars/svg?seed=${formData.name}`;
 
@@ -1616,7 +1865,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       restrictions: formData.restrictions,
       dietaryNotes: formData.dietaryNotes,
       photo: finalPhoto,
-      enterpriseId: editingClient?.enterpriseId || activeEnterprise.id,
+      enterpriseId: editingClient?.enterpriseId || activeEnterpriseId,
       parentName: parentNameToPersist,
       parentRelationship: formData.type === 'ALUNO' ? normalizedParentRelationship : '',
       phone: joinPhoneWithCountryCode(parentWhatsappCountryCodeToPersist, parentWhatsappToPersist),
@@ -1626,7 +1875,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       parentWhatsapp: joinPhoneWithCountryCode(parentWhatsappCountryCodeToPersist, parentWhatsappToPersist),
       parentCpf: parentCpfToPersist,
       parentEmail: parentEmailToPersist,
-      responsibleCollaboratorId: isStudentUsingCollaborator ? String(selectedResponsibleCollaborator?.id || '') : ''
+      responsibleCollaboratorId: isStudentUsingCollaborator ? String(selectedResponsibleCollaborator?.id || '') : '',
+      responsibleClientId: isStudentUsingResponsible ? String(selectedResponsibleClient?.id || '') : ''
     };
 
     try {
@@ -2132,7 +2382,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
           return ApiService.createTransaction({
             clientId: viewingClient.id,
             clientName: viewingClient.name,
-            enterpriseId: activeEnterprise.id,
+            enterpriseId: activeEnterpriseId,
             type: 'CREDIT',
             amount: 0,
             total: 0,
@@ -2684,12 +2934,14 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
     enterpriseStudents.forEach((student) => {
       const responsibleCollaboratorId = String((student as any)?.responsibleCollaboratorId || '').trim();
+      const responsibleClientId = String((student as any)?.responsibleClientId || '').trim();
       const parentNameKey = normalizeSearchText(student.parentName || student.guardianName);
       const parentPhoneDigits = normalizePhoneDigits(student.parentWhatsapp || student.guardianPhone || student.phone);
       const parentEmailKey = normalizeSearchText(student.parentEmail || student.guardianEmail || student.email);
 
       const isRelated =
         (responsibleCollaboratorId && responsibleIds.has(responsibleCollaboratorId))
+        || (responsibleClientId && responsibleIds.has(responsibleClientId))
         || (parentNameKey && responsibleNameKeys.has(parentNameKey))
         || (parentPhoneDigits && responsiblePhones.has(parentPhoneDigits))
         || (parentEmailKey && responsibleEmails.has(parentEmailKey));
@@ -2706,6 +2958,48 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       studentsCount: relatedStudentsMap.size,
     };
   }, [clients, activeEnterprise?.id]);
+
+  const viewingClientRelatedStudents = useMemo(() => {
+    if (!viewingClient) return [] as Client[];
+    const viewingType = String(viewingClient.type || '').toUpperCase();
+    if (viewingType !== 'RESPONSAVEL' && viewingType !== 'COLABORADOR') return [] as Client[];
+
+    const enterpriseStudents = clients.filter((client) => {
+      return String(client.type || '').toUpperCase() === 'ALUNO'
+        && String(client.enterpriseId || '').trim() === String(viewingClient.enterpriseId || '').trim();
+    });
+
+    const relatedMap = new Map<string, Client>();
+    const directIds = [
+      ...(Array.isArray((viewingClient as any).relatedStudentIds) ? (viewingClient as any).relatedStudentIds : []),
+      String((viewingClient as any)?.relatedStudent?.studentId || '').trim(),
+    ]
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+
+    directIds.forEach((studentId) => {
+      const found = enterpriseStudents.find((student) => String(student.id || '').trim() === studentId);
+      if (found) relatedMap.set(String(found.id), found);
+    });
+
+    const viewingNameKey = normalizeSearchText(viewingClient.name);
+    const viewingPhoneDigits = normalizePhoneDigits(viewingClient.phone || viewingClient.parentWhatsapp);
+    const viewingEmailKey = normalizeSearchText(viewingClient.email || viewingClient.parentEmail);
+
+    enterpriseStudents.forEach((student) => {
+      const sameResponsibleId = viewingType === 'RESPONSAVEL' && String((student as any)?.responsibleClientId || '').trim() === String(viewingClient.id || '').trim();
+      const sameCollaboratorId = viewingType === 'COLABORADOR' && String((student as any)?.responsibleCollaboratorId || '').trim() === String(viewingClient.id || '').trim();
+      const sameName = viewingNameKey && normalizeSearchText(student.parentName || student.guardianName) === viewingNameKey;
+      const samePhone = viewingPhoneDigits && normalizePhoneDigits(student.parentWhatsapp || student.guardianPhone || student.phone) === viewingPhoneDigits;
+      const sameEmail = viewingEmailKey && normalizeSearchText(student.parentEmail || student.guardianEmail || student.email) === viewingEmailKey;
+
+      if (sameResponsibleId || sameCollaboratorId || sameName || samePhone || sameEmail) {
+        relatedMap.set(String(student.id), student);
+      }
+    });
+
+    return Array.from(relatedMap.values()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' }));
+  }, [viewingClient, clients]);
 
   const handleBackupResponsibleClients = () => {
     const now = new Date();
@@ -2955,6 +3249,17 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     printWindow.print();
   };
 
+  if (!activeEnterpriseId) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center space-y-4">
+          <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full"></div>
+          <p className="text-gray-600 font-medium">Carregando clientes...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="dash-shell clients-shell animate-in fade-in duration-500 w-full max-w-none">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -2974,6 +3279,13 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
           </button>
           {viewMode === 'CLIENTES_RESPONSAVEIS' && (
             <>
+              <button
+                onClick={handleGenerateExistingPortalLinks}
+                disabled={isGeneratingExistingPortalLinks}
+                className="bg-cyan-50 border border-cyan-200 text-cyan-700 px-3 py-2 rounded-xl font-black uppercase tracking-[0.12em] text-[9px] hover:bg-cyan-100 transition-all flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Copy size={12} /> {isGeneratingExistingPortalLinks ? 'Gerando links...' : 'Gerar links existentes'}
+              </button>
               <button
                 onClick={handleBackupResponsibleClients}
                 className="bg-white border border-emerald-200 text-emerald-700 px-3 py-2 rounded-xl font-black uppercase tracking-[0.12em] text-[9px] hover:bg-emerald-50 transition-all flex items-center gap-1.5"
@@ -3040,7 +3352,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
       <div className="bg-white rounded-[24px] sm:rounded-[32px] shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto scrollbar-thin">
-          <table className={`w-full text-left ${viewMode === 'ALUNOS' ? 'min-w-[1060px] lg:min-w-[1160px]' : 'min-w-[860px] lg:min-w-[940px]'}`}>
+          <table className={`w-full text-left ${viewMode === 'ALUNOS' ? 'min-w-[1060px] lg:min-w-[1160px]' : 'min-w-[980px] lg:min-w-[1080px]'}`}>
             <thead className="bg-gray-50 text-[8px] sm:text-[9px] font-black text-gray-500 uppercase tracking-[0.14em] border-b">
               <tr>
                 <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">ID</th>
@@ -3058,6 +3370,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                     <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">Tipo</th>
                     <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">Vínculo</th>
                     <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">Telefone</th>
+                    <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">Link do Painel</th>
                   </>
                 )}
                 <th className="px-2.5 sm:px-4 py-2.5 sm:py-3 text-right whitespace-nowrap">Ações</th>
@@ -3066,7 +3379,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
             <tbody className="divide-y divide-gray-100">
               {(viewMode === 'ALUNOS' ? filteredClients.length : responsibleOrCollaboratorRows.length) === 0 ? (
                 <tr>
-                  <td colSpan={viewMode === 'ALUNOS' ? 8 : 6} className="px-4 sm:px-6 py-20 text-center text-gray-400 font-bold uppercase text-xs tracking-widest opacity-40">
+                  <td colSpan={viewMode === 'ALUNOS' ? 8 : 7} className="px-4 sm:px-6 py-20 text-center text-gray-400 font-bold uppercase text-xs tracking-widest opacity-40">
                     {viewMode === 'ALUNOS' ? 'Nenhum aluno na base' : 'Nenhum responsável ou colaborador na base'}
                   </td>
                 </tr>
@@ -3192,6 +3505,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                 );
               }) : responsibleOrCollaboratorRows.map((row) => {
                 const phoneDigits = normalizePhoneDigits(row.phone);
+                const portalLink = resolvePortalLinkForRow(row);
                 const whatsappStatusLabel = !phoneDigits
                   ? 'Sem número'
                   : openingWhatsAppKey === row.id
@@ -3252,26 +3566,55 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                         </button>
                       </div>
                     </td>
+                    <td className="px-2.5 sm:px-4 py-2.5 sm:py-3">
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleGeneratePortalLink(row)}
+                          disabled={isGeneratingPortalLink}
+                          className="p-1.5 sm:p-2 bg-white border text-cyan-500 rounded-lg hover:text-cyan-700 hover:bg-cyan-50 transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                          title={row.sourceClient ? 'Gerar link do painel' : 'Sem cadastro próprio para gerar link'}
+                        >
+                          <Sparkles size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyPortalLink(row)}
+                          disabled={!portalLink}
+                          className="p-1.5 sm:p-2 bg-white border text-indigo-500 rounded-lg hover:text-indigo-700 hover:bg-indigo-50 transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                          title={portalLink ? 'Copiar link do painel' : 'Gere o link primeiro'}
+                        >
+                          <Copy size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenPortalLink(row)}
+                          disabled={!portalLink}
+                          className="p-1.5 sm:p-2 bg-white border text-emerald-500 rounded-lg hover:text-emerald-700 hover:bg-emerald-50 transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                          title={portalLink ? 'Abrir link do painel' : 'Gere o link primeiro'}
+                        >
+                          <ArrowRight size={12} />
+                        </button>
+                      </div>
+                    </td>
                     <td className="px-2.5 sm:px-4 py-2.5 sm:py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        {row.sourceClient && (
-                          <>
-                            <button
-                              onClick={() => handleOpenEditModal(row.sourceClient as Client)}
-                              className="p-1.5 sm:p-2 bg-white border text-indigo-500 rounded-lg hover:text-indigo-700 hover:bg-indigo-50 transition-all shadow-sm"
-                              title="Editar"
-                            >
-                              <Edit size={12} />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteClient(row.sourceClient as Client)}
-                              className="p-1.5 sm:p-2 bg-white border text-red-400 rounded-lg hover:text-red-600 hover:bg-red-50 transition-all shadow-sm"
-                              title="Excluir"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </>
-                        )}
+                        <button
+                          onClick={() => row.sourceClient && handleOpenEditModal(row.sourceClient as Client)}
+                          disabled={!row.sourceClient}
+                          className="p-1.5 sm:p-2 bg-white border text-indigo-500 rounded-lg hover:text-indigo-700 hover:bg-indigo-50 transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                          title={row.sourceClient ? 'Editar' : 'Sem cadastro próprio para editar'}
+                        >
+                          <Edit size={12} />
+                        </button>
+                        <button
+                          onClick={() => row.sourceClient && handleDeleteClient(row.sourceClient as Client)}
+                          disabled={!row.sourceClient}
+                          className="p-1.5 sm:p-2 bg-white border text-red-400 rounded-lg hover:text-red-600 hover:bg-red-50 transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                          title={row.sourceClient ? 'Excluir' : 'Sem cadastro próprio para excluir'}
+                        >
+                          <Trash2 size={12} />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -3281,6 +3624,38 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
           </table>
         </div>
       </div>
+
+      {portalLinkModalOpen && (
+        <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setPortalLinkModalOpen(false)}></div>
+          <div className="relative bg-white rounded-3xl p-6 max-w-2xl w-full shadow-2xl">
+            <h3 className="text-lg font-black text-gray-900">Link do painel</h3>
+            <p className="text-xs font-semibold text-gray-500 mt-1">Cliente: {portalLinkTargetName}</p>
+
+            <div className="mt-4 p-3 rounded-xl border bg-gray-50 text-xs font-mono break-all">
+              {portalLinkValue}
+            </div>
+
+            <div className="mt-4 flex gap-2 justify-end">
+              <button
+                onClick={() => setPortalLinkModalOpen(false)}
+                className="px-4 py-2 rounded-xl border text-sm font-bold text-gray-600"
+              >
+                Fechar
+              </button>
+              <button
+                onClick={async () => {
+                  await navigator.clipboard.writeText(portalLinkValue);
+                  alert('Link copiado!');
+                }}
+                className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold"
+              >
+                Copiar link
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL DE DETALHES DO CLIENTE */}
       {isDetailModalOpen && viewingClient && (
@@ -3770,6 +4145,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                 onClick={() => {
                                   setFormData({ ...formData, type: 'RESPONSAVEL' });
                                   setResponsibleSourceMode('NEW');
+                                  setResponsibleClientSearch('');
+                                  setResponsibleClientId(null);
                                   setResponsibleCollaboratorSearch('');
                                   setResponsibleCollaboratorId(null);
                                 }}
@@ -3786,6 +4163,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                 onClick={() => {
                                   setFormData({ ...formData, type: 'COLABORADOR' });
                                   setResponsibleSourceMode('NEW');
+                                  setResponsibleClientSearch('');
+                                  setResponsibleClientId(null);
                                   setResponsibleCollaboratorSearch('');
                                   setResponsibleCollaboratorId(null);
                                 }}
@@ -3809,6 +4188,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                 setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
                                 if (newType !== 'ALUNO') {
                                   setResponsibleSourceMode('NEW');
+                                  setResponsibleClientSearch('');
+                                  setResponsibleClientId(null);
                                   setResponsibleCollaboratorSearch('');
                                   setResponsibleCollaboratorId(null);
                                 }
@@ -3916,10 +4297,14 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                         {formData.type === 'ALUNO' && (
                           <div className="md:col-span-2 space-y-2">
                             <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Origem do responsável</label>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                               <button
                                 type="button"
-                                onClick={() => setResponsibleSourceMode('NEW')}
+                                onClick={() => {
+                                  setResponsibleSourceMode('NEW');
+                                  setResponsibleClientId(null);
+                                  setResponsibleCollaboratorId(null);
+                                }}
                                 className={`px-4 py-3 rounded-2xl border text-[11px] font-black uppercase tracking-widest transition-all ${
                                   responsibleSourceMode === 'NEW'
                                     ? 'bg-emerald-600 border-emerald-600 text-white'
@@ -3930,7 +4315,24 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                               </button>
                               <button
                                 type="button"
-                                onClick={() => setResponsibleSourceMode('COLABORADOR')}
+                                onClick={() => {
+                                  setResponsibleSourceMode('RESPONSAVEL');
+                                  setResponsibleCollaboratorId(null);
+                                }}
+                                className={`px-4 py-3 rounded-2xl border text-[11px] font-black uppercase tracking-widest transition-all ${
+                                  responsibleSourceMode === 'RESPONSAVEL'
+                                    ? 'bg-cyan-600 border-cyan-600 text-white'
+                                    : 'bg-white border-slate-200 text-slate-600 hover:border-cyan-300'
+                                }`}
+                              >
+                                Usar Responsável
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setResponsibleSourceMode('COLABORADOR');
+                                  setResponsibleClientId(null);
+                                }}
                                 className={`px-4 py-3 rounded-2xl border text-[11px] font-black uppercase tracking-widest transition-all ${
                                   responsibleSourceMode === 'COLABORADOR'
                                     ? 'bg-indigo-600 border-indigo-600 text-white'
@@ -4007,6 +4409,84 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                 value={formData.parentRelationship}
                                 onChange={e => setFormData({ ...formData, parentRelationship: e.target.value })}
                                 className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                              >
+                                {RESPONSIBLE_RELATION_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </>
+                        ) : formData.type === 'ALUNO' && responsibleSourceMode === 'RESPONSAVEL' ? (
+                          <>
+                            <div className="md:col-span-2 space-y-1.5">
+                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Buscar responsável cadastrado</label>
+                              <input
+                                value={responsibleClientSearch}
+                                onChange={(e) => {
+                                  setResponsibleClientSearch(e.target.value);
+                                  setResponsibleClientId(null);
+                                }}
+                                className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                placeholder="Digite nome, matrícula ou parentesco do responsável"
+                              />
+                            </div>
+                            <div className="md:col-span-2 max-h-44 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50">
+                              {filteredResponsibleClients.length === 0 ? (
+                                <p className="px-4 py-3 text-xs font-semibold text-slate-500">Nenhum responsável encontrado.</p>
+                              ) : (
+                                filteredResponsibleClients.map((responsible) => {
+                                  const phoneParts = splitPhoneByCountryCode(responsible.phone || responsible.parentWhatsapp || '');
+                                  const isSelected = responsibleClientId === responsible.id;
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={responsible.id}
+                                      onClick={() => {
+                                        setResponsibleClientId(responsible.id);
+                                        setResponsibleClientSearch(String(responsible.name || ''));
+                                        setFormData((prev) => ({
+                                          ...prev,
+                                          parentName: String(responsible.name || ''),
+                                          parentWhatsappCountryCode: phoneParts.countryCode || String((responsible as any)?.parentWhatsappCountryCode || '55'),
+                                          parentWhatsapp: phoneParts.localPhone || normalizePhoneDigits(responsible.phone || responsible.parentWhatsapp || ''),
+                                          parentEmail: String(responsible.email || responsible.parentEmail || ''),
+                                          parentCpf: String(responsible.cpf || responsible.parentCpf || ''),
+                                          parentRelationship: String(
+                                            (responsible as any)?.parentRelationship
+                                              || RESPONSIBLE_RELATION_OPTIONS.find((option) => normalizeSearchText(option.label) === normalizeSearchText(responsible.class || ''))?.value
+                                              || prev.parentRelationship
+                                              || 'PAIS'
+                                          ),
+                                        }));
+                                      }}
+                                      className={`w-full px-4 py-3 text-left border-b border-slate-200 last:border-b-0 transition-colors ${
+                                        isSelected ? 'bg-cyan-100/70' : 'hover:bg-cyan-50'
+                                      }`}
+                                    >
+                                      <p className="text-sm font-black text-slate-800">{responsible.name}</p>
+                                      <p className="text-[11px] font-semibold text-slate-500">
+                                        {responsible.registrationId ? `#${responsible.registrationId}` : 'Sem matrícula'} • {responsible.class || 'Sem parentesco'} • {formatPhoneNumber(responsible.phone || responsible.parentWhatsapp || '')}
+                                      </p>
+                                    </button>
+                                  );
+                                })
+                              )}
+                            </div>
+                            {selectedResponsibleClient && (
+                              <div className="md:col-span-2 rounded-2xl border border-cyan-100 bg-cyan-50 px-4 py-3">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-cyan-700">Responsável selecionado</p>
+                                <p className="text-sm font-black text-slate-800 mt-1">{selectedResponsibleClient.name}</p>
+                                <p className="text-xs font-semibold text-slate-600">
+                                  {formatPhoneNumber(selectedResponsibleClient.phone || selectedResponsibleClient.parentWhatsapp || '')} • {selectedResponsibleClient.email || selectedResponsibleClient.parentEmail || 'Sem e-mail'}
+                                </p>
+                              </div>
+                            )}
+                            <div className="space-y-1.5">
+                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Tipo de Responsável</label>
+                              <select
+                                value={formData.parentRelationship}
+                                onChange={e => setFormData({ ...formData, parentRelationship: e.target.value })}
+                                className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 rounded-2xl outline-none font-semibold text-sm transition-all"
                               >
                                 {RESPONSIBLE_RELATION_OPTIONS.map((option) => (
                                   <option key={option.value} value={option.value}>{option.label}</option>
@@ -4133,22 +4613,38 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                  {/* SEÇÃO PRÉ-PAGO CANTINA */}
                  <div className="space-y-4">
                     <div className="flex items-center gap-2 border-b pb-2">
-                       <ShoppingCart size={16} className="text-emerald-600" />
+                       <ShieldCheck size={16} className="text-indigo-600" /> {String(viewingClient.type || '').toUpperCase() === 'ALUNO' ? 'Responsáveis' : 'Vínculos'}
                        <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Pré-pago Cantina (Saldo Livre)</h3>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                       {[20, 50, 100, 200].map(amount => (
-                          <button 
-                             key={amount}
-                             onClick={() => handleQuickRecharge(amount)}
-                             className="py-4 bg-gray-50 border-2 border-gray-100 rounded-2xl font-black text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200 transition-all active:scale-95"
-                          >
-                             R$ {amount.toFixed(2)}
-                          </button>
-                       ))}
-                    </div>
-                    <div className="relative">
-                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-black">R$</span>
+                        <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">
+                          {String(viewingClient.type || '').toUpperCase() === 'ALUNO' ? 'Responsáveis cadastrados' : 'Alunos vinculados'}
+                        </p>
+                        {String(viewingClient.type || '').toUpperCase() === 'ALUNO' ? (
+                          Array.isArray(viewingClient.guardians) && viewingClient.guardians.length > 0 ? viewingClient.guardians.map((g, idx) => (
+                            <div key={idx} className="flex items-center gap-3 bg-white p-3 rounded-xl border border-indigo-100">
+                              <div className="w-9 h-9 bg-indigo-600 text-white rounded-lg flex items-center justify-center font-black">{g.charAt(0)}</div>
+                              <div>
+                                <p className="text-xs font-black text-gray-800 uppercase">{g}</p>
+                                <p className="text-[9px] font-bold text-indigo-400 uppercase">Responsável</p>
+                              </div>
+                            </div>
+                          )) : (
+                            <p className="text-[10px] font-black text-gray-400 uppercase">Nenhum responsável vinculado</p>
+                          )
+                        ) : viewingClientRelatedStudents.length > 0 ? (
+                          viewingClientRelatedStudents.map((student) => (
+                            <div key={student.id} className="flex items-center gap-3 bg-white p-3 rounded-xl border border-indigo-100">
+                              <div className="w-9 h-9 bg-indigo-600 text-white rounded-lg flex items-center justify-center font-black">{String(student.name || '?').charAt(0)}</div>
+                              <div>
+                                <p className="text-xs font-black text-gray-800 uppercase">{student.name}</p>
+                                <p className="text-[9px] font-bold text-indigo-400 uppercase">{student.class || 'Aluno vinculado'}</p>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-[10px] font-black text-gray-400 uppercase">Nenhum aluno vinculado</p>
+                        )}
                        <input 
                           type="number" 
                           placeholder="Outro valor para saldo livre..." 
@@ -4192,7 +4688,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                       </div>
                     )}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                       {plans.filter(p => p.enterpriseId === activeEnterprise.id).map(plan => {
+                       {plans.filter(p => p.enterpriseId === activeEnterpriseId).map(plan => {
                          const isSelected = rechargeSelectedPlanId === plan.id;
                          const isCalendarOpen = rechargeOpenCalendarId === plan.id;
                          const selectedDaysCount = rechargePlanDays[plan.id]?.length || 0;
@@ -4239,6 +4735,15 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                  <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">
                                    {selectedDatesCount} un do mês selecionada(s) • Subtotal: R$ {subtotal.toFixed(2)}
                                  </p>
+                                 {(() => {
+                                   const availableBalance = getAvailableRechargePlanCreditBalance(viewingClient, plan);
+                                   const discountedSubtotal = Math.max(0, subtotal - availableBalance);
+                                   return (availableBalance > 0.01 && (
+                                     <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mt-1">
+                                       Saldo disponível: R$ {availableBalance.toFixed(2)} • Líquido: R$ {discountedSubtotal.toFixed(2)}
+                                     </p>
+                                   ));
+                                 })()}
                                  <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-1">
                                    {selectedDaysCount} un por dia da semana marcado(s)
                                  </p>
@@ -4341,6 +4846,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                        const isSchoolBlockedDate = isSchoolCalendarBlockedDate(dateCell);
                                        const dateKey = toDateKey(dateCell);
                                        const isSelectedDate = (rechargePlanDates[plan.id] || []).includes(dateKey);
+                                       const reversedDatesForPlan = reversedRechargeDateKeysByPlanId.get(plan.id) || new Set<string>();
+                                       const isReversedDate = reversedDatesForPlan.has(dateKey);
                                        return (
                                          <button
                                            type="button"
@@ -4357,17 +4864,28 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                                ? 'h-9 bg-gray-100 border-gray-200 text-gray-300 cursor-not-allowed'
                                                : isSelectedDate
                                                  ? 'h-9 bg-indigo-600 border-indigo-600 text-white'
-                                                 : 'h-9 bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300'
+                                                 : (isReversedDate && !isSelectedDate ? 'h-9 bg-rose-50 border-rose-200 text-rose-700 hover:border-rose-300' : 'h-9 bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300')
                                            }`}
+                                           title={isSchoolBlockedDate ? (getSchoolEventTitle(dateCell) || 'Dia sem aula') : (isReversedDate && !isSelectedDate ? 'Estornado' : undefined)}
                                          >
                                              {isSchoolBlockedDate ? (
                                                <span className="flex flex-col items-center justify-center gap-0.5 w-full px-0.5">
                                                  <span className="font-black text-rose-500 text-[10px] leading-none">{dateCell.getDate()}</span>
                                                  <span className="text-[7px] font-black text-rose-400 leading-tight text-center line-clamp-2 w-full">{getSchoolEventTitle(dateCell) || 'Sem aula'}</span>
                                                </span>
+                                             ) : isReversedDate && !isSelectedDate ? (
+                                               <span className="flex flex-col items-center justify-center gap-0 w-full">
+                                                 <span className="font-black text-[10px] leading-none">{dateCell.getDate()}</span>
+                                                 <span className="text-[7px] font-black uppercase tracking-wider">Estornado</span>
+                                               </span>
                                              ) : (
                                                <span className="inline-flex items-center justify-center relative w-full h-full">
                                                  {dateCell.getDate()}
+                                               </span>
+                                             )}
+                                             {isReversedDate && !isSelectedDate && !isSchoolBlockedDate && (
+                                               <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] leading-none flex items-center justify-center">
+                                                 !
                                                </span>
                                              )}
                                          </button>

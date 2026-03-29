@@ -58,7 +58,7 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
   const [children, setChildren] = useState<Client[]>([]);
 
   const [activeChildIndex, setActiveChildIndex] = useState(0);
-  const [activeTab, setActiveTab] = useState<'HOME' | 'PLANO' | 'MENU' | 'SETTINGS'>('HOME');
+  const [activeTab, setActiveTab] = useState<'DASHBOARD' | 'EXTRATOS' | 'ALUNOS' | 'CONFIGURACOES'>('DASHBOARD');
   const [isAddChildModalOpen, setIsAddChildModalOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [newChildForm, setNewChildForm] = useState({
@@ -390,7 +390,7 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'HOME':
+      case 'DASHBOARD':
         return (
           <div className="space-y-6 pb-40 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-y-auto">
             {/* CARD DE SALDO MASTER */}
@@ -421,10 +421,26 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
               <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/10 rounded-full -mr-32 -mt-32 blur-3xl"></div>
             </div>
 
+            {/* CARDS DE RESUMO */}
+            <div className="grid grid-cols-3 gap-3 mx-1">
+              <div className="bg-white rounded-[28px] p-4 border border-gray-100 shadow-sm">
+                <p className="text-[9px] font-black text-gray-400 uppercase tracking-[3px]">Limite</p>
+                <p className="text-lg font-black text-gray-900 mt-2">R$ {(activeChild?.dailyLimit || 0).toFixed(2)}</p>
+              </div>
+              <div className="bg-white rounded-[28px] p-4 border border-gray-100 shadow-sm">
+                <p className="text-[9px] font-black text-gray-400 uppercase tracking-[3px]">Gasto Hoje</p>
+                <p className="text-lg font-black text-gray-900 mt-2">R$ {(activeChild?.spentToday || 0).toFixed(2)}</p>
+              </div>
+              <div className="bg-white rounded-[28px] p-4 border border-gray-100 shadow-sm">
+                <p className="text-[9px] font-black text-gray-400 uppercase tracking-[3px]">Planos</p>
+                <p className="text-lg font-black text-gray-900 mt-2">{(activeChild.servicePlans || []).filter(p => p !== 'PREPAGO').length}</p>
+              </div>
+            </div>
+
             {/* ATALHOS RÁPIDOS */}
             <div className="grid grid-cols-2 gap-4 mx-1">
-               <ShortcutCard onClick={() => setActiveTab('MENU')} icon={<UtensilsCrossed size={24} className="text-indigo-600" />} label="Cardápio Unidade" desc="Ver o que tem hoje" color="bg-white" />
-               <ShortcutCard onClick={() => setActiveTab('PLANO')} icon={<Star size={24} className="text-indigo-600" />} label="Gerir Planos" desc="Datas e Alergias" color="bg-white" />
+               <ShortcutCard onClick={() => setActiveTab('EXTRATOS')} icon={<History size={24} className="text-indigo-600" />} label="Extratos" desc="Ver movimentações" color="bg-white" />
+               <ShortcutCard onClick={() => setActiveTab('ALUNOS')} icon={<User size={24} className="text-indigo-600" />} label="Alunos" desc="Planos e saúde" color="bg-white" />
             </div>
 
             {/* MEUS PLANOS ATIVOS */}
@@ -507,7 +523,7 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
           </div>
         );
 
-      case 'PLANO':
+      case 'ALUNOS':
         return (
           <div className="space-y-10 pb-40 animate-in slide-in-from-right-4 duration-500 px-1 overflow-y-auto">
              
@@ -567,7 +583,7 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
                 <div className="flex items-center gap-3">
                    <div className="p-3 bg-indigo-100 text-indigo-600 rounded-2xl shadow-sm"><CalendarIcon size={24} /></div>
                    <div>
-                      <h2 className="text-xl font-black text-gray-800 uppercase tracking-tight">Planos de Unidade</h2>
+                      <h2 className="text-xl font-black text-gray-800 uppercase tracking-tight">Planos do Aluno</h2>
                       <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Agendamento de refeições fixas</p>
                    </div>
                 </div>
@@ -663,45 +679,71 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
           </div>
         );
 
-      case 'MENU':
+      case 'EXTRATOS':
         return (
           <div className="space-y-6 pb-40 animate-in fade-in duration-500 px-1 overflow-y-auto">
              <div className="bg-white p-8 rounded-[40px] border border-gray-100 flex items-center justify-between shadow-sm">
                 <div>
-                   <h2 className="text-2xl font-black text-gray-800 uppercase tracking-tight leading-none">Cardápio da Unidade</h2>
-                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Dados Sincronizados com a Escola</p>
+                   <h2 className="text-2xl font-black text-gray-800 uppercase tracking-tight leading-none">Extrato Financeiro</h2>
+                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Movimentações do aluno por link</p>
                 </div>
-                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl"><CalendarIcon size={24} /></div>
+                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl"><History size={24} /></div>
              </div>
              
-             <div className="space-y-6">
-                {filteredMenu.map(day => (
-                  <div key={day.id} className="bg-indigo-50 p-8 rounded-[48px] border-2 border-indigo-100 shadow-inner">
-                     <h3 className="text-lg font-black text-indigo-900 uppercase tracking-tight mb-6 flex items-center gap-2">
-                        <div className="w-2 h-6 bg-indigo-600 rounded-full"></div>
-                        HOJE • {day.dayOfWeek}
-                     </h3>
-                     <div className="space-y-4">
-                        {day.items.map(item => (
-                          <div key={item.id} className="bg-white p-6 rounded-[32px] flex justify-between items-center border border-indigo-50 shadow-sm hover:shadow-md transition-all">
-                             <div className="flex items-center gap-4">
-                                <div className="p-4 bg-indigo-50 rounded-2xl text-indigo-600"><ShoppingCart size={20}/></div>
-                                <div>
-                                   <span className="text-[11px] font-black text-gray-800 uppercase tracking-tight">{item.name}</span>
-                                   <p className="text-[9px] text-gray-400 font-bold uppercase mt-0.5">Disponível para plano ou avulso</p>
-                                </div>
-                             </div>
-                             <span className="text-lg font-black text-emerald-600 tracking-tight">R$ {item.price.toFixed(2)}</span>
-                          </div>
-                        ))}
+             <div className="space-y-4">
+                {[...MOCK_TODAY_HISTORY, ...MOCK_TODAY_HISTORY].map((item, idx) => (
+                  <div key={`${item.id}-${idx}`} className="bg-white p-6 rounded-[32px] flex justify-between items-center border border-gray-100 shadow-sm hover:shadow-md transition-all">
+                     <div className="flex items-center gap-4">
+                        <div className={`p-4 rounded-2xl ${
+                          item.type === 'RECHARGE'
+                            ? 'bg-emerald-50 text-emerald-600'
+                            : item.type === 'PLAN_USE'
+                            ? 'bg-blue-50 text-blue-600'
+                            : 'bg-orange-50 text-orange-600'
+                        }`}>
+                          {item.type === 'RECHARGE' ? <Plus size={20} /> : item.type === 'PLAN_USE' ? <Check size={20} /> : <ShoppingCart size={20} />}
+                        </div>
+                        <div>
+                           <span className="text-[11px] font-black text-gray-800 uppercase tracking-tight">{item.item}</span>
+                           <p className="text-[9px] text-gray-400 font-bold uppercase mt-0.5">{new Date().toLocaleDateString('pt-BR')} • {item.time}</p>
+                        </div>
                      </div>
+                     <span className={`text-lg font-black tracking-tight ${item.type === 'RECHARGE' ? 'text-emerald-600' : 'text-gray-900'}`}>
+                       {item.type === 'PLAN_USE' ? `-${item.value} un` : `${item.type === 'RECHARGE' ? '+' : '-'} R$ ${(item.value || 0).toFixed(2)}`}
+                     </span>
                   </div>
                 ))}
              </div>
+
+             {filteredMenu.length > 0 && (
+               <div className="bg-indigo-50 p-8 rounded-[40px] border-2 border-indigo-100 shadow-inner">
+                 <div className="flex items-center justify-between mb-5">
+                   <div>
+                     <h3 className="text-lg font-black text-indigo-900 uppercase tracking-tight">Cardápio da Unidade</h3>
+                     <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mt-1">Mantido dentro do extrato</p>
+                   </div>
+                   <CalendarIcon size={22} className="text-indigo-500" />
+                 </div>
+                 <div className="space-y-3">
+                   {filteredMenu.slice(0, 1).flatMap(day => day.items).slice(0, 3).map(item => (
+                     <div key={item.id} className="bg-white p-4 rounded-[24px] flex items-center justify-between border border-indigo-100">
+                       <div className="flex items-center gap-3">
+                         <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600"><UtensilsCrossed size={18} /></div>
+                         <div>
+                           <p className="text-[11px] font-black text-gray-800 uppercase tracking-tight">{item.name}</p>
+                           <p className="text-[9px] text-gray-400 font-bold uppercase mt-0.5">Disponível na unidade</p>
+                         </div>
+                       </div>
+                       <span className="text-sm font-black text-emerald-600">R$ {item.price.toFixed(2)}</span>
+                     </div>
+                   ))}
+                 </div>
+               </div>
+             )}
           </div>
         );
 
-      case 'SETTINGS':
+      case 'CONFIGURACOES':
         return (
           <div className="space-y-8 pb-40 animate-in slide-in-from-right-4 duration-500 px-1 overflow-y-auto">
              <div className="bg-white p-10 rounded-[48px] border border-gray-100 shadow-sm space-y-10">
@@ -722,7 +764,7 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
                       <ChevronRight size={18} className="text-gray-300" />
                    </button>
                    
-                   <button onClick={() => { localStorage.clear(); window.location.href = '/'; }} className="w-full flex items-center justify-between p-6 bg-red-50 rounded-3xl hover:bg-red-100 transition-all group border border-red-100 shadow-inner">
+                   <button onClick={() => { ApiService.clearToken(); localStorage.clear(); window.location.hash = '#/'; }} className="w-full flex items-center justify-between p-6 bg-red-50 rounded-3xl hover:bg-red-100 transition-all group border border-red-100 shadow-inner">
                       <div className="flex items-center gap-4">
                          <div className="p-3 bg-white rounded-2xl shadow-sm text-red-400 group-hover:text-red-600"><LogOut size={20}/></div>
                          <span className="text-sm font-black text-red-600 uppercase tracking-tight">Sair da Conta</span>
@@ -739,21 +781,21 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
   };
 
   return (
-    <div className="flex justify-center bg-gray-100 min-h-screen font-['Inter'] selection:bg-indigo-100 selection:text-indigo-900">
+    <div className="flex justify-center bg-gradient-to-b from-sky-100 via-slate-50 to-white min-h-screen font-['Inter'] selection:bg-indigo-100 selection:text-indigo-900">
       <div className="w-full max-w-md bg-[#F8F9FD] h-screen flex flex-col relative shadow-2xl overflow-hidden border-x border-gray-200">
         
         {/* TOP BAR - SELETOR DE PERFIL (3 ALUNOS) */}
-        <div className="bg-white border-b px-5 py-4 shrink-0">
+        <div className="bg-gradient-to-r from-sky-700 to-blue-700 text-white px-5 py-4 shrink-0">
            <div className="flex items-center justify-between mb-3">
              <div className="flex items-center gap-3">
                <img
                  src={guardianAvatar}
                  alt={currentUser?.name || 'Responsável'}
-                 className="w-9 h-9 rounded-full object-cover border-2 border-white shadow-sm"
+                 className="w-9 h-9 rounded-full object-cover border-2 border-white/80 shadow-sm"
                />
                <div>
-                 <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Portal do Responsável</p>
-                 <p className="text-xs font-black text-gray-900">{currentUser?.name || currentUser?.email || 'Usuário'}</p>
+                 <p className="text-[9px] font-black text-sky-100 uppercase tracking-widest">Portal do Responsável</p>
+                 <p className="text-xs font-black text-white">{currentUser?.name || currentUser?.email || 'Usuário'}</p>
                </div>
              </div>
            </div>
@@ -761,9 +803,9 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
              {children.map((child, idx) => (
                <div key={child.id} className="relative">
                  <button 
-                  onClick={() => { setActiveChildIndex(idx); setActiveTab('HOME'); }}
+                  onClick={() => { setActiveChildIndex(idx); setActiveTab('DASHBOARD'); }}
                   className={`flex items-center gap-2 px-4 py-3 rounded-full transition-all whitespace-nowrap border-2 ${
-                    activeChildIndex === idx ? 'bg-indigo-600 border-indigo-600 text-white shadow-xl' : 'bg-white border-gray-100 text-gray-400'
+                    activeChildIndex === idx ? 'bg-white text-blue-700 border-white shadow-xl' : 'bg-white/10 border-white/15 text-white'
                   }`}
                  >
                    <img src={child.photo} className="w-6 h-6 rounded-full object-cover" />
@@ -795,10 +837,10 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
 
         {/* Tab Bar Inferior Fixa */}
         <div className="h-28 bg-white/95 backdrop-blur-2xl border-t border-gray-100 flex items-center justify-around px-6 fixed bottom-0 max-w-md w-full rounded-t-[56px] shadow-[0_-20px_50px_rgba(0,0,0,0.1)] z-[100]">
-          <TabItem icon={<Home size={26} />} active={activeTab === 'HOME'} onClick={() => setActiveTab('HOME')} label="Início" />
-          <TabItem icon={<Star size={26} />} active={activeTab === 'PLANO'} onClick={() => setActiveTab('PLANO')} label="Plano" />
-          <TabItem icon={<Apple size={26} />} active={activeTab === 'MENU'} onClick={() => setActiveTab('MENU')} label="Menu" />
-          <TabItem icon={<Settings size={26} />} active={activeTab === 'SETTINGS'} onClick={() => setActiveTab('SETTINGS')} label="Ajustes" />
+          <TabItem icon={<Home size={26} />} active={activeTab === 'DASHBOARD'} onClick={() => setActiveTab('DASHBOARD')} label="Dashboard" />
+          <TabItem icon={<History size={26} />} active={activeTab === 'EXTRATOS'} onClick={() => setActiveTab('EXTRATOS')} label="Extratos" />
+          <TabItem icon={<User size={26} />} active={activeTab === 'ALUNOS'} onClick={() => setActiveTab('ALUNOS')} label="Alunos" />
+          <TabItem icon={<Settings size={26} />} active={activeTab === 'CONFIGURACOES'} onClick={() => setActiveTab('CONFIGURACOES')} label="Config." />
         </div>
 
         {/* MODAL DE PAGAMENTO UNIFICADO (RECARGA+) */}
@@ -905,7 +947,7 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
                        {!rechargingPlan && (
                          <div className="space-y-4">
                             <p className="text-[9px] font-black text-gray-400 uppercase tracking-[4px] text-center">Ou Assine Planos Escolares</p>
-                            <button onClick={() => { setActiveTab('PLANO'); setIsPlanModalOpen(false); }} className="w-full p-6 bg-amber-50 rounded-[32px] border-2 border-amber-200 text-left group hover:shadow-xl transition-all flex items-center justify-between">
+                            <button onClick={() => { setActiveTab('ALUNOS'); setIsPlanModalOpen(false); }} className="w-full p-6 bg-amber-50 rounded-[32px] border-2 border-amber-200 text-left group hover:shadow-xl transition-all flex items-center justify-between">
                                <div className="flex items-center gap-4">
                                   <div className="p-4 bg-white rounded-2xl text-amber-500 shadow-sm"><UtensilsCrossed size={22}/></div>
                                   <div>
@@ -916,7 +958,7 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
                                <ChevronRight size={20} className="text-amber-300" />
                             </button>
 
-                            <button onClick={() => { setActiveTab('PLANO'); setIsPlanModalOpen(false); }} className="w-full p-6 bg-orange-50 rounded-[32px] border-2 border-orange-200 text-left group hover:shadow-xl transition-all flex items-center justify-between">
+                            <button onClick={() => { setActiveTab('ALUNOS'); setIsPlanModalOpen(false); }} className="w-full p-6 bg-orange-50 rounded-[32px] border-2 border-orange-200 text-left group hover:shadow-xl transition-all flex items-center justify-between">
                                <div className="flex items-center gap-4">
                                   <div className="p-4 bg-white rounded-2xl text-orange-500 shadow-sm"><Beef size={22}/></div>
                                   <div>

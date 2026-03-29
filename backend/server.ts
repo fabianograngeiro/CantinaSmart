@@ -28,11 +28,24 @@ import whatsappRoutes from './routes/whatsapp.js';
 import errorTicketsRoutes from './routes/errorTickets.js';
 import saasFinancialRoutes from './routes/saasFinancial.js';
 import taskRemindersRoutes from './routes/taskReminders.js';
+import { startWhatsAppDispatchScheduler } from './services/dispatchSchedulerService.js';
 import { authMiddleware } from './middleware/auth.js';
 import { whatsappSession } from './utils/whatsappSession.js';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3001;
+
+const resolveFrontendDistPath = () => {
+  const currentDir = path.basename(__dirname);
+  if (currentDir === 'dist') {
+    // Running from backend/dist/server.js in production build
+    return path.resolve(__dirname, '../../dist');
+  }
+  // Running from backend/server.ts in dev
+  return path.resolve(__dirname, '../dist');
+};
+
+const frontendDistPath = resolveFrontendDistPath();
 
 // Middleware
 app.use(cors({
@@ -83,19 +96,28 @@ app.use('/products_photos', express.static(path.join(__dirname, 'products_photos
 app.use('/clients_photos', express.static(path.join(__dirname, 'clients_photos')));
 
 // Serve static files (optional)
-app.use(express.static(path.join(__dirname, '../dist')));
+app.use(express.static(frontendDistPath));
+
+// SPA fallback (except API and static media routes)
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/')) return next();
+  if (req.path.startsWith('/products_photos')) return next();
+  if (req.path.startsWith('/clients_photos')) return next();
+  return res.sendFile(path.join(frontendDistPath, 'index.html'));
+});
 
 // Start server
 app.listen(PORT, () => {
+  startWhatsAppDispatchScheduler();
+  whatsappSession.initializeOnBoot().catch((err: unknown) => {
+    console.error('[SERVER] Falha na inicialização automática do WhatsApp:', err);
+  });
   console.log('\n' + '='.repeat(50));
   console.log('🚀 [SERVER] CantinaSmart Backend iniciado');
   console.log(`🌐 Servidor rodando em http://localhost:${PORT}`);
   console.log(`🔗 API URL: http://localhost:${PORT}/api`);
+  console.log('📲 [SERVER] WhatsApp inicializando automaticamente (WHATSAPP_AUTO_START=true por padrão).');
   console.log('='.repeat(50) + '\n');
-
-  whatsappSession.initializeOnBoot().catch((err) => {
-    console.error('❌ [SERVER] Falha ao inicializar integração WhatsApp no boot:', err);
-  });
 });
 
 export default app;

@@ -10,6 +10,20 @@ import { db } from '../database.js';
 
 const router = Router();
 
+const normalizeDispatchProfileList = (raw: unknown) => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item) => item && typeof item === 'object')
+    .map((item: any) => ({
+      ...item,
+      id: String(item.id || `auto_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
+      nome_perfil: String(item.nome_perfil || 'Automação sem nome').trim(),
+      paused: Boolean(item.paused),
+      createdAt: String(item.createdAt || item.updatedAt || new Date().toISOString()),
+      updatedAt: String(item.updatedAt || new Date().toISOString()),
+    }));
+};
+
 router.get('/dispatch/audience', async (req: Request, res: Response) => {
   try {
     const enterpriseId = String(req.query.enterpriseId || '').trim();
@@ -89,16 +103,39 @@ router.put('/dispatch/config', async (req: Request, res: Response) => {
 
     const store = db.getWhatsAppStore();
     const currentConfigs = (store as any)?.dispatchAutomationsByEnterprise || {};
+    const currentProfilesByEnterprise = (store as any)?.dispatchAutomationProfilesByEnterprise || {};
+    const currentProfiles = normalizeDispatchProfileList(currentProfilesByEnterprise[enterpriseId]);
     const nextConfig = {
       ...incomingConfig,
       enterpriseId,
+      createdAt: String((incomingConfig as any)?.createdAt || new Date().toISOString()),
+      paused: Boolean((incomingConfig as any)?.paused),
       updatedAt: new Date().toISOString(),
     };
+
+    const existingIndex = currentProfiles.findIndex((item: any) => item.id === nextConfig.id);
+    const nextProfiles = [...currentProfiles];
+    if (existingIndex >= 0) {
+      nextProfiles[existingIndex] = {
+        ...nextProfiles[existingIndex],
+        ...nextConfig,
+        updatedAt: new Date().toISOString(),
+      };
+    } else {
+      nextProfiles.unshift({
+        ...nextConfig,
+        createdAt: String((nextConfig as any)?.createdAt || new Date().toISOString()),
+      });
+    }
 
     db.updateWhatsAppStore({
       dispatchAutomationsByEnterprise: {
         ...currentConfigs,
         [enterpriseId]: nextConfig,
+      },
+      dispatchAutomationProfilesByEnterprise: {
+        ...currentProfilesByEnterprise,
+        [enterpriseId]: nextProfiles.slice(0, 200),
       },
     });
 
@@ -110,6 +147,232 @@ router.put('/dispatch/config', async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       message: err instanceof Error ? err.message : 'Falha ao salvar configuração de disparo.',
+    });
+  }
+});
+
+router.get('/dispatch/profiles', async (req: Request, res: Response) => {
+  try {
+    const enterpriseId = String(req.query.enterpriseId || '').trim();
+    if (!enterpriseId) {
+      return res.status(400).json({
+        success: false,
+        message: 'enterpriseId é obrigatório.',
+      });
+    }
+
+    const store = db.getWhatsAppStore();
+    const profilesByEnterprise = (store as any)?.dispatchAutomationProfilesByEnterprise || {};
+    const profiles = normalizeDispatchProfileList(profilesByEnterprise[enterpriseId]);
+
+    return res.json({
+      success: true,
+      profiles,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao carregar perfis de disparo.',
+    });
+  }
+});
+
+router.put('/dispatch/profiles', async (req: Request, res: Response) => {
+  try {
+    const enterpriseId = String(req.body?.enterpriseId || '').trim();
+    if (!enterpriseId) {
+      return res.status(400).json({
+        success: false,
+        message: 'enterpriseId é obrigatório.',
+      });
+    }
+
+    const incomingProfile = req.body?.profile && typeof req.body.profile === 'object' ? req.body.profile : null;
+    if (!incomingProfile) {
+      return res.status(400).json({
+        success: false,
+        message: 'profile é obrigatório.',
+      });
+    }
+
+    const profileId = String(incomingProfile.id || `auto_${Date.now()}`).trim();
+    if (!profileId) {
+      return res.status(400).json({
+        success: false,
+        message: 'id do profile é obrigatório.',
+      });
+    }
+
+    const store = db.getWhatsAppStore();
+    const profilesByEnterprise = (store as any)?.dispatchAutomationProfilesByEnterprise || {};
+    const currentConfigs = (store as any)?.dispatchAutomationsByEnterprise || {};
+    const currentProfiles = normalizeDispatchProfileList(profilesByEnterprise[enterpriseId]);
+
+    const nowIso = new Date().toISOString();
+    const existing = currentProfiles.find((item: any) => item.id === profileId);
+    const nextProfile = {
+      ...incomingProfile,
+      id: profileId,
+      enterpriseId,
+      nome_perfil: String((incomingProfile as any).nome_perfil || 'Automação sem nome').trim(),
+      paused: Boolean((incomingProfile as any).paused),
+      createdAt: String((incomingProfile as any).createdAt || existing?.createdAt || nowIso),
+      updatedAt: nowIso,
+    };
+
+    const index = currentProfiles.findIndex((item: any) => item.id === profileId);
+    const nextProfiles = [...currentProfiles];
+    if (index >= 0) {
+      nextProfiles[index] = {
+        ...nextProfiles[index],
+        ...nextProfile,
+      };
+    } else {
+      nextProfiles.unshift(nextProfile);
+    }
+
+    db.updateWhatsAppStore({
+      dispatchAutomationProfilesByEnterprise: {
+        ...profilesByEnterprise,
+        [enterpriseId]: nextProfiles.slice(0, 200),
+      },
+      dispatchAutomationsByEnterprise: {
+        ...currentConfigs,
+        [enterpriseId]: nextProfile,
+      },
+    });
+
+    return res.json({
+      success: true,
+      profile: nextProfile,
+      profiles: nextProfiles.slice(0, 200),
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao salvar perfil de disparo.',
+    });
+  }
+});
+
+router.patch('/dispatch/profiles/:id/status', async (req: Request, res: Response) => {
+  try {
+    const enterpriseId = String(req.body?.enterpriseId || '').trim();
+    const profileId = String(req.params.id || '').trim();
+    if (!enterpriseId) {
+      return res.status(400).json({
+        success: false,
+        message: 'enterpriseId é obrigatório.',
+      });
+    }
+    if (!profileId) {
+      return res.status(400).json({
+        success: false,
+        message: 'id do perfil é obrigatório.',
+      });
+    }
+
+    const paused = Boolean(req.body?.paused);
+    const store = db.getWhatsAppStore();
+    const profilesByEnterprise = (store as any)?.dispatchAutomationProfilesByEnterprise || {};
+    const currentConfigs = (store as any)?.dispatchAutomationsByEnterprise || {};
+    const currentProfiles = normalizeDispatchProfileList(profilesByEnterprise[enterpriseId]);
+    const targetIndex = currentProfiles.findIndex((item: any) => item.id === profileId);
+
+    if (targetIndex < 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Perfil não encontrado.',
+      });
+    }
+
+    const nowIso = new Date().toISOString();
+    const updatedProfile = {
+      ...currentProfiles[targetIndex],
+      paused,
+      updatedAt: nowIso,
+    };
+    const nextProfiles = [...currentProfiles];
+    nextProfiles[targetIndex] = updatedProfile;
+
+    const currentConfig = currentConfigs[enterpriseId];
+    const nextConfig = currentConfig && currentConfig.id === profileId
+      ? {
+        ...currentConfig,
+        paused,
+        updatedAt: nowIso,
+      }
+      : currentConfig;
+
+    db.updateWhatsAppStore({
+      dispatchAutomationProfilesByEnterprise: {
+        ...profilesByEnterprise,
+        [enterpriseId]: nextProfiles,
+      },
+      dispatchAutomationsByEnterprise: {
+        ...currentConfigs,
+        [enterpriseId]: nextConfig,
+      },
+    });
+
+    return res.json({
+      success: true,
+      profile: updatedProfile,
+      profiles: nextProfiles,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao atualizar status do perfil.',
+    });
+  }
+});
+
+router.delete('/dispatch/profiles/:id', async (req: Request, res: Response) => {
+  try {
+    const enterpriseId = String(req.query.enterpriseId || '').trim();
+    const profileId = String(req.params.id || '').trim();
+    if (!enterpriseId) {
+      return res.status(400).json({
+        success: false,
+        message: 'enterpriseId é obrigatório.',
+      });
+    }
+    if (!profileId) {
+      return res.status(400).json({
+        success: false,
+        message: 'id do perfil é obrigatório.',
+      });
+    }
+
+    const store = db.getWhatsAppStore();
+    const profilesByEnterprise = (store as any)?.dispatchAutomationProfilesByEnterprise || {};
+    const currentConfigs = (store as any)?.dispatchAutomationsByEnterprise || {};
+    const currentProfiles = normalizeDispatchProfileList(profilesByEnterprise[enterpriseId]);
+    const nextProfiles = currentProfiles.filter((item: any) => item.id !== profileId);
+
+    const currentConfig = currentConfigs[enterpriseId];
+    const nextConfig = currentConfig && currentConfig.id === profileId ? null : currentConfig;
+
+    db.updateWhatsAppStore({
+      dispatchAutomationProfilesByEnterprise: {
+        ...profilesByEnterprise,
+        [enterpriseId]: nextProfiles,
+      },
+      dispatchAutomationsByEnterprise: {
+        ...currentConfigs,
+        [enterpriseId]: nextConfig,
+      },
+    });
+
+    return res.json({
+      success: true,
+      profiles: nextProfiles,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao remover perfil de disparo.',
     });
   }
 });
@@ -355,6 +618,44 @@ router.get('/ai-audit', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/sync-diagnostics', async (req: Request, res: Response) => {
+  try {
+    const limit = Number(req.query.limit || 100);
+    const reason = String(req.query.reason || '').trim();
+    const fromRaw = String(req.query.from || req.query.startDate || '').trim();
+    const toRaw = String(req.query.to || req.query.endDate || '').trim();
+
+    const parseToMs = (raw: string) => {
+      if (!raw) return null;
+      const numeric = Number(raw);
+      if (Number.isFinite(numeric) && numeric > 0) {
+        return numeric > 1_000_000_000_000 ? numeric : (numeric * 1000);
+      }
+      const parsed = Date.parse(raw);
+      if (!Number.isFinite(parsed) || parsed <= 0) return null;
+      return parsed;
+    };
+
+    const fromMs = parseToMs(fromRaw);
+    const toMs = parseToMs(toRaw);
+    const diagnostics = whatsappSession.getSyncDiagnostics({
+      limit,
+      reason,
+      fromMs: fromMs || undefined,
+      toMs: toMs || undefined,
+    });
+    res.json({
+      success: true,
+      ...diagnostics
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao carregar diagnóstico de sync.'
+    });
+  }
+});
+
 router.get('/status', async (_req: Request, res: Response) => {
   res.json({
     success: true,
@@ -388,13 +689,17 @@ router.post('/start', async (_req: Request, res: Response) => {
   const endDate = String(_req.body?.endDate || '').trim();
   const syncFullHistory = Boolean(_req.body?.syncFullHistory);
   const safeSyncMode = _req.body?.safeSyncMode !== false;
+  const syncContacts = _req.body?.syncContacts !== false;
+  const syncHistories = _req.body?.syncHistories !== false;
   const snapshot = await whatsappSession.start({
     forceNewSession,
     sessionName,
     startDate,
     endDate,
     syncFullHistory,
-    safeSyncMode
+    safeSyncMode,
+    syncContacts,
+    syncHistories
   });
   res.json({
     success: true,

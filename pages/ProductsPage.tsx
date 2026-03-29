@@ -109,6 +109,10 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
   }, [activeEnterprise.id]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | 'ALL'>('ALL');
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [isSavingCategory, setIsSavingCategory] = useState(false);
+  const [shouldSelectCreatedCategoryInForm, setShouldSelectCreatedCategoryInForm] = useState(false);
   
   // Modais
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
@@ -182,6 +186,56 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
     setProductImageFile(null);
     setProductImagePreview('');
     setIsProductModalOpen(true);
+  };
+
+  const handleOpenCategoryModal = (options?: { selectInForm?: boolean }) => {
+    setNewCategoryName('');
+    setShouldSelectCreatedCategoryInForm(Boolean(options?.selectInForm));
+    setIsCategoryModalOpen(true);
+  };
+
+  const handleCreateCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const categoryName = String(newCategoryName || '').trim();
+    if (!categoryName) {
+      notificationService.alerta('Categoria obrigatória', 'Informe o nome da categoria para continuar.');
+      return;
+    }
+
+    const alreadyExists = categories.some((category) => normalizeSearchText(category.name) === normalizeSearchText(categoryName));
+    if (alreadyExists) {
+      notificationService.alerta('Categoria existente', 'Já existe uma categoria com esse nome.');
+      return;
+    }
+
+    try {
+      setIsSavingCategory(true);
+      const createdCategory = await ApiService.createCategory({
+        name: categoryName,
+        enterpriseId: activeEnterprise.id,
+        subCategories: [],
+      });
+
+      const normalizedCreatedCategory: Category = {
+        id: String(createdCategory?.id || `cat_${Date.now()}`),
+        name: String(createdCategory?.name || categoryName),
+        enterpriseId: String(createdCategory?.enterpriseId || activeEnterprise.id),
+        subCategories: Array.isArray(createdCategory?.subCategories) ? createdCategory.subCategories : [],
+      };
+
+      setCategories((prev) => [...prev, normalizedCreatedCategory]);
+      if (shouldSelectCreatedCategoryInForm) {
+        setProductForm((prev) => ({ ...prev, categoryId: normalizedCreatedCategory.id, subCategoryId: '' }));
+      }
+      setIsCategoryModalOpen(false);
+      setNewCategoryName('');
+      notificationService.informativo('Categoria criada', 'A nova categoria foi adicionada com sucesso.');
+    } catch (err) {
+      console.error('Erro ao criar categoria:', err);
+      notificationService.critico('Erro ao criar categoria', 'Não foi possível salvar a categoria.');
+    } finally {
+      setIsSavingCategory(false);
+    }
   };
 
   const handleOpenEditProduct = (product: Product) => {
@@ -414,20 +468,30 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
   }, [productForm.categoryId, categories]);
 
   return (
+    <>
     <div className="products-shell flex flex-col h-full gap-4 p-4 animate-in fade-in duration-500 overflow-hidden">
       <div className="flex-1 flex flex-col space-y-4 overflow-hidden">
         
         <header className="bg-white p-4 rounded-2xl border shadow-sm flex flex-col lg:flex-row items-center justify-between gap-3 shrink-0">
           <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-3 flex-1">
-            <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-            <input 
-              type="text" 
-              placeholder="Pesquisar por nome ou Código EAN..." 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-bold text-xs transition-all"
-            />
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+              <input 
+                type="text" 
+                placeholder="Pesquisar por nome ou Código EAN..." 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-bold text-xs transition-all"
+              />
+              </div>
+              <button
+                type="button"
+                onClick={() => handleOpenCategoryModal()}
+                className="shrink-0 px-3 py-2.5 bg-white text-indigo-700 rounded-xl font-black uppercase tracking-widest text-[10px] border border-indigo-200 hover:bg-indigo-50 transition-all flex items-center gap-1.5"
+              >
+                <Plus size={12} /> Add categoria
+              </button>
             </div>
             <select
               value={selectedCategoryId}
@@ -650,12 +714,22 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Categoria *</label>
-                       <select required value={productForm.categoryId} onChange={e => setProductForm({...productForm, categoryId: e.target.value, subCategoryId: ''})} className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-bold text-gray-800 appearance-none">
-                          <option value="">Selecione...</option>
-                          {activeCategories.map(c => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
-                          ))}
-                       </select>
+                       <div className="flex items-center gap-2">
+                         <select required value={productForm.categoryId} onChange={e => setProductForm({...productForm, categoryId: e.target.value, subCategoryId: ''})} className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-bold text-gray-800 appearance-none">
+                            <option value="">Selecione...</option>
+                            {activeCategories.map(c => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                         </select>
+                         <button
+                           type="button"
+                           onClick={() => handleOpenCategoryModal({ selectInForm: true })}
+                           className="shrink-0 w-12 h-[56px] rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
+                           title="Adicionar categoria"
+                         >
+                           <Plus size={18} />
+                         </button>
+                       </div>
                        {activeCategories.length === 0 && (
                          <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest mt-1">
                            Cadastre categorias em "Categoria Produto".
@@ -751,6 +825,44 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
       )}
 
     </div>
+
+      {isCategoryModalOpen && (
+        <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={() => setIsCategoryModalOpen(false)}></div>
+          <form onSubmit={handleCreateCategory} className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95">
+            <div className="bg-indigo-600 p-5 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center"><Plus size={20} /></div>
+                <div>
+                  <h2 className="text-lg font-black uppercase tracking-tight">Nova Categoria</h2>
+                  <p className="text-[10px] font-bold text-indigo-100 uppercase tracking-widest mt-1">Cadastro rápido em produtos</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setIsCategoryModalOpen(false)}><X size={22} /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nome da Categoria *</label>
+                <input
+                  required
+                  autoFocus
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  className="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl outline-none font-bold text-gray-800"
+                  placeholder="Ex: Mercearia, Congelados, Padaria"
+                />
+              </div>
+            </div>
+            <div className="p-5 bg-gray-50 border-t flex gap-3">
+              <button type="button" onClick={() => setIsCategoryModalOpen(false)} className="flex-1 py-3 text-[11px] font-black text-gray-400 uppercase tracking-widest hover:text-gray-600">Cancelar</button>
+              <button type="submit" disabled={isSavingCategory} className="flex-[2] py-3 bg-indigo-600 text-white rounded-xl font-black uppercase tracking-widest text-xs shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 disabled:opacity-60">
+                <CheckCircle2 size={16} /> {isSavingCategory ? 'Salvando...' : 'Salvar Categoria'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </>
   );
 };
 

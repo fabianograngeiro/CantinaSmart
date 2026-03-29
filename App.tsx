@@ -19,6 +19,7 @@ import RestaurantPOSPage from './pages/RestaurantPOSPage';
 import DashboardPage from './pages/DashboardPage';
 import ClientsPage from './pages/ClientsPage';
 import ProductsPage from './pages/ProductsPage';
+import ProductCategoriesPage from './pages/ProductCategoriesPage';
 import InventoryPage from './pages/InventoryPage';
 import ReportsPage from './pages/ReportsPage';
 import SaasPlansPage from './pages/SaasPlansPage';
@@ -33,6 +34,7 @@ import SuppliersPage from './pages/SuppliersPage';
 import ClientPortalPage from './pages/ClientPortalPage';
 import ClientPortalPageDesktop from './pages/ClientPortalPage_Desktop';
 import CollaboratorPortalPage from './pages/CollaboratorPortalPage';
+import PortalAccessPage from './pages/PortalAccessPage';
 import MenuManagementPage from './pages/MenuManagementPage';
 import MenuCalendarPage from './pages/MenuCalendarPage';
 import SchoolCalendarPage from './pages/SchoolCalendarPage';
@@ -51,8 +53,7 @@ import FinancialPage from './pages/FinancialPage';
 import WhatsAppPage from './pages/WhatsAppPage';
 import NotificationCenter from './components/NotificationCenter';
 import { useTheme } from './components/ThemeProvider';
-
-
+import AdminContactsPage from './pages/AdminContactsPage';
 import { Enterprise, Role, User, TransactionRecord } from './types';
 import ApiService from './services/api';
 import notificationService from './services/notificationService';
@@ -87,16 +88,21 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    try {
-      const token = ApiService.getToken();
-      const rawUser = localStorage.getItem(AUTH_USER_STORAGE_KEY);
-      const rawEnterprise = localStorage.getItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
-      if (!token || !rawUser) return;
-      const parsedUser = JSON.parse(rawUser) as User;
-      if (!parsedUser?.id) return;
-      setCurrentUser(parsedUser);
-      setIsAuthenticated(true);
-      if (rawEnterprise) {
+    const restoreSession = async () => {
+      try {
+        const token = ApiService.getToken();
+        const rawUser = localStorage.getItem(AUTH_USER_STORAGE_KEY);
+        const rawEnterprise = localStorage.getItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
+        if (!token || !rawUser) return;
+
+        const parsedUser = JSON.parse(rawUser) as User;
+        if (!parsedUser?.id) return;
+
+        setCurrentUser(parsedUser);
+        setIsAuthenticated(true);
+
+        if (!rawEnterprise) return;
+
         const parsedEnterprise = JSON.parse(rawEnterprise) as Enterprise;
         const normalizedRole = String(parsedUser?.role || '').toUpperCase();
         const userEnterpriseIds = Array.isArray(parsedUser?.enterpriseIds)
@@ -106,18 +112,31 @@ const App: React.FC = () => {
           || normalizedRole === Role.ADMIN_SISTEMA
           || userEnterpriseIds.includes(String(parsedEnterprise?.id || '').trim());
 
-        if (parsedEnterprise?.id && canReuseStoredEnterprise) {
-          setActiveEnterprise(parsedEnterprise);
-        } else {
+        if (!parsedEnterprise?.id || !canReuseStoredEnterprise) {
           localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
+          return;
         }
+
+        try {
+          const freshEnterprise = await ApiService.getEnterprise(parsedEnterprise.id);
+          if (freshEnterprise?.id) {
+            setActiveEnterprise(freshEnterprise);
+            return;
+          }
+        } catch (refreshError) {
+          console.warn('Falha ao recarregar empresa ativa da API. Usando cache local.', refreshError);
+        }
+
+        setActiveEnterprise(parsedEnterprise);
+      } catch (err) {
+        console.error('Erro ao restaurar sessão:', err);
+        ApiService.clearToken();
+        localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+        localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
       }
-    } catch (err) {
-      console.error('Erro ao restaurar sessão:', err);
-      ApiService.clearToken();
-      localStorage.removeItem(AUTH_USER_STORAGE_KEY);
-      localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
-    }
+    };
+
+    restoreSession();
   }, []);
 
   useEffect(() => {
@@ -410,6 +429,7 @@ const AppContent: React.FC<any> = (props) => {
           wrapper: 'border-amber-300/80 bg-amber-50 text-amber-900',
           icon: 'text-amber-700',
         };
+  const isPortalAccessRoute = location.pathname === '/portal-access';
 
   // Verificar se está na página de enterprises
   const isOnEnterprisesPage = location.pathname === '/enterprises';
@@ -499,6 +519,10 @@ const AppContent: React.FC<any> = (props) => {
     (currentUser?.enterpriseIds || []).join(','),
   ]);
 
+  if (isPortalAccessRoute) {
+    return <PortalAccessPage />;
+  }
+
   return (
       <div className="flex h-screen bg-gray-50 dark:bg-[#0c0c0e] overflow-hidden text-gray-900 dark:text-zinc-100 font-['Inter'] relative">
         {isAuthenticated && trialBanner.show && (
@@ -532,6 +556,7 @@ const AppContent: React.FC<any> = (props) => {
              <Routes>
                <Route path="/menu-calendar" element={<MenuCalendarPage />} />
                <Route path="/portal" element={<ClientPortalPage />} />
+               <Route path="/portal-access" element={<PortalAccessPage />} />
                <Route path="/register" element={<RegistrationPage />} />
                <Route path="*" element={<LoginPage onLogin={handleLogin} />} />
              </Routes>
@@ -540,8 +565,22 @@ const AppContent: React.FC<any> = (props) => {
           // Portal users - sem sidebar, renderiza apenas portal routes
           <div className="flex-1">
              <Routes>
-               <Route path="/portal" element={<ClientPortalPageWrapper currentUser={currentUser} />} />
-               <Route path="*" element={<ClientPortalPageWrapper currentUser={currentUser} />} />
+               <Route
+                 path="/portal"
+                 element={
+                   currentUser?.role === 'COLABORADOR'
+                     ? <CollaboratorPortalPage />
+                     : <ClientPortalPageWrapper currentUser={currentUser} />
+                 }
+               />
+               <Route
+                 path="*"
+                 element={
+                   currentUser?.role === 'COLABORADOR'
+                     ? <CollaboratorPortalPage />
+                     : <ClientPortalPageWrapper currentUser={currentUser} />
+                 }
+               />
              </Routes>
           </div>
         ) : (
@@ -630,6 +669,7 @@ const AppContent: React.FC<any> = (props) => {
                     {resolvedPermissions.canAccessReports && <SidebarItem icon={<DollarSign size={20} />} label="Financeiro" to="/financial" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessReports && <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp" to="/whatsapp" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessInventory && <SidebarItem icon={<ArrowRightLeft size={20} />} label="Estoque Unidade" to="/inventory" isOpen={isSidebarOpen} />}
+                      {resolvedPermissions.canAccessReports && <SidebarItem icon={<Users size={20} />} label="Contato WPP" to="/whatsapp-contacts" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canManageStaff && <SidebarItem icon={<Settings size={20} />} label="Ajustes" to="/settings" isOpen={isSidebarOpen} />}
                     {isOwner && <SidebarItem icon={<ShieldCheck size={20} />} label="Config. Sistema" to="/system-settings" isOpen={isSidebarOpen} />}
                   </div>
@@ -651,6 +691,7 @@ const AppContent: React.FC<any> = (props) => {
                     {resolvedPermissions.canAccessClients && <SidebarItem icon={<UserCircle size={20} />} label="Cliente/Responsável" to="/clients-responsaveis" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessClients && <SidebarItem icon={<Users size={20} />} label="Alunos" to="/clients" isOpen={isSidebarOpen} />}
                     {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Package size={20} />} label="Produtos" to="/products" isOpen={isSidebarOpen} />}
+                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<ClipboardList size={20} />} label="Categorias" to="/product-categories" isOpen={isSidebarOpen} />}
                     <SidebarItem icon={<ClipboardList size={20} />} label="Suprimentos" to="/orders" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Truck size={20} />} label="Fornecedores" to="/suppliers" isOpen={isSidebarOpen} />
                   </div>
@@ -724,7 +765,7 @@ const AppContent: React.FC<any> = (props) => {
                   <Route path="/clients" element={resolvedPermissions.canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="ALUNOS" /> : <Navigate to="/" />} />
                   <Route path="/clients-responsaveis" element={resolvedPermissions.canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="CLIENTES_RESPONSAVEIS" /> : <Navigate to="/" />} />
                   <Route path="/products" element={resolvedPermissions.canAccessInventory ? <ProductsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
-                  <Route path="/product-categories" element={<Navigate to="/products" replace />} />
+                  <Route path="/product-categories" element={resolvedPermissions.canAccessInventory ? <ProductCategoriesPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/inventory" element={resolvedPermissions.canAccessInventory ? <InventoryPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/reports" element={resolvedPermissions.canAccessReports ? <ReportsPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/saas-plans" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canManagePlans) ? <SaasPlansPage currentUser={currentUser} /> : <Navigate to="/" />} />
@@ -740,6 +781,7 @@ const AppContent: React.FC<any> = (props) => {
                   <Route path="/financial" element={resolvedPermissions.canAccessReports ? <FinancialPage activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/whatsapp" element={resolvedPermissions.canAccessReports ? <WhatsAppPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/users" element={(isSuperAdmin || isOwner || resolvedPermissions.canManageStaff) ? <UserManagementPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                    <Route path="/whatsapp-contacts" element={resolvedPermissions.canAccessReports ? <AdminContactsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/system-settings" element={<SystemSettingsPage currentUser={currentUser} />} />
                   <Route path="/enterprises" element={isSuperAdmin || isOwner || (isAdminSistema && currentUser?.systemPermissions?.canManageEnterprises) ? <EnterprisesPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/suppliers" element={<SuppliersPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />

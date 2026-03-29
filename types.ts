@@ -52,6 +52,17 @@ export type OpeningHours = {
   closed: boolean;
 };
 
+export type PlanConsumptionProcessingProfile = {
+  id?: string;
+  name?: string;
+  enabled?: boolean;
+  cutoffTime?: string;
+  planIds?: string[];
+  unitId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type Enterprise = {
   id: string;
   name: string;
@@ -91,6 +102,8 @@ export type Enterprise = {
   receiptMarginHorizontal?: number;
   receiptItemGapTop?: number;
   receiptItemGapBottom?: number;
+  planConsumptionProcessingProfile?: PlanConsumptionProcessingProfile;
+  planConsumptionProcessingProfiles?: PlanConsumptionProcessingProfile[];
 };
 
 export type Transaction = {
@@ -285,8 +298,9 @@ export type Client = {
   guardianEmail?: string;
   parentName?: string;
   parentRelationship?: string;
+  responsibleClientId?: string;
   responsibleCollaboratorId?: string;
-  responsibleOriginType?: 'MANUAL' | 'COLABORADOR' | string;
+  responsibleOriginType?: 'MANUAL' | 'COLABORADOR' | 'RESPONSAVEL' | string;
   parentWhatsappCountryCode?: string;
   parentWhatsapp?: string;
   parentCpf?: string;
@@ -339,6 +353,8 @@ export type SaleItem = {
   planName?: string;
   selectedDays?: string[];
   selectedDates?: string[];
+  planUnitPrice?: number;
+  planSelectedCount?: number;
 };
 
 export type SuspendedSale = {

@@ -147,6 +147,41 @@ export class ApiService {
     return response.json();
   }
 
+  static async loginWithPortalToken(token: string) {
+    const response = await fetch(`${API_URL}/auth/portal/access`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ token: String(token || '').trim() }),
+    });
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao acessar portal por link'));
+    const data = await response.json();
+    if (data?.token) this.setToken(String(data.token));
+    return data;
+  }
+
+  static async generatePortalAccessLink(userId: string) {
+    const response = await fetch(`${API_URL}/auth/${encodeURIComponent(String(userId || '').trim())}/portal-link`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao gerar link fixo do portal'));
+    return response.json();
+  }
+
+  static async generatePortalLinksForExistingClients(enterpriseId?: string) {
+    const response = await fetch(`${API_URL}/auth/portal-links/backfill`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ enterpriseId: String(enterpriseId || '').trim() }),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao gerar links dos clientes existentes'));
+    return response.json();
+  }
+
   // ===== SAAS FINANCIAL =====
   static async getSaasCashflowEntries() {
     const response = await fetch(`${API_URL}/saas-financial/cashflow`, {
@@ -751,10 +786,14 @@ export class ApiService {
     return response.json();
   }
 
-  static async deleteTransaction(id: string) {
+  static async deleteTransaction(id: string, metadata?: { deletedByName?: string; deleteReason?: string }) {
     const response = await fetch(`${API_URL}/transactions/${id}`, {
       method: 'DELETE',
       headers: this.getHeaders(),
+      body: JSON.stringify({
+        deletedByName: String(metadata?.deletedByName || '').trim(),
+        deleteReason: String(metadata?.deleteReason || '').trim(),
+      }),
     });
     if (!response.ok) throw new Error('Falha ao excluir transação');
     return response.json();
@@ -1104,6 +1143,8 @@ export class ApiService {
     endDate?: string;
     syncFullHistory?: boolean;
     safeSyncMode?: boolean;
+    syncContacts?: boolean;
+    syncHistories?: boolean;
   } = {}) {
     const response = await fetch(`${API_URL}/whatsapp/start`, {
       method: 'POST',
@@ -1115,6 +1156,8 @@ export class ApiService {
         endDate: String(options.endDate || '').trim(),
         syncFullHistory: Boolean(options.syncFullHistory),
         safeSyncMode: options.safeSyncMode !== false,
+        syncContacts: options.syncContacts !== false,
+        syncHistories: options.syncHistories !== false,
       }),
     });
     if (!response.ok) throw new Error('Falha ao iniciar sessão do WhatsApp');
@@ -1210,6 +1253,71 @@ export class ApiService {
     return response.json();
   }
 
+  static async getWhatsAppDispatchProfiles(enterpriseId: string) {
+    const qs = new URLSearchParams({
+      enterpriseId: String(enterpriseId || ''),
+    });
+    const response = await fetch(`${API_URL}/whatsapp/dispatch/profiles?${qs.toString()}`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao carregar perfis de disparo');
+    }
+    return response.json();
+  }
+
+  static async saveWhatsAppDispatchProfile(payload: {
+    enterpriseId: string;
+    profile: any;
+  }) {
+    const response = await fetch(`${API_URL}/whatsapp/dispatch/profiles`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao salvar perfil de disparo');
+    }
+    return response.json();
+  }
+
+  static async updateWhatsAppDispatchProfileStatus(payload: {
+    enterpriseId: string;
+    profileId: string;
+    paused: boolean;
+  }) {
+    const response = await fetch(`${API_URL}/whatsapp/dispatch/profiles/${encodeURIComponent(String(payload.profileId || '').trim())}/status`, {
+      method: 'PATCH',
+      headers: this.getHeaders(),
+      body: JSON.stringify({
+        enterpriseId: payload.enterpriseId,
+        paused: payload.paused,
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao atualizar status do perfil');
+    }
+    return response.json();
+  }
+
+  static async deleteWhatsAppDispatchProfile(payload: { enterpriseId: string; profileId: string }) {
+    const qs = new URLSearchParams({
+      enterpriseId: String(payload.enterpriseId || ''),
+    });
+    const response = await fetch(`${API_URL}/whatsapp/dispatch/profiles/${encodeURIComponent(String(payload.profileId || '').trim())}?${qs.toString()}`, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao apagar perfil de disparo');
+    }
+    return response.json();
+  }
+
   static async getWhatsAppDispatchLogs(params: { enterpriseId: string; limit?: number }) {
     const qs = new URLSearchParams({
       enterpriseId: String(params.enterpriseId || ''),
@@ -1221,6 +1329,32 @@ export class ApiService {
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text || 'Falha ao carregar logs de disparo');
+    }
+    return response.json();
+  }
+
+  static async getWhatsAppSyncDiagnostics(params: {
+    limit?: number;
+    reason?: string;
+    from?: string | number;
+    to?: string | number;
+    startDate?: string;
+    endDate?: string;
+  } = {}) {
+    const qs = new URLSearchParams();
+    qs.set('limit', String(Math.max(1, Math.min(400, Number(params.limit || 100)))));
+    if (String(params.reason || '').trim()) qs.set('reason', String(params.reason || '').trim());
+    if (params.from !== undefined && String(params.from).trim()) qs.set('from', String(params.from).trim());
+    if (params.to !== undefined && String(params.to).trim()) qs.set('to', String(params.to).trim());
+    if (String(params.startDate || '').trim()) qs.set('startDate', String(params.startDate || '').trim());
+    if (String(params.endDate || '').trim()) qs.set('endDate', String(params.endDate || '').trim());
+
+    const response = await fetch(`${API_URL}/whatsapp/sync-diagnostics?${qs.toString()}`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao carregar diagnóstico de sincronização');
     }
     return response.json();
   }

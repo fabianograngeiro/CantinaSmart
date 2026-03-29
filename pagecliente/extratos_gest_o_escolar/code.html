@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+
+<html class="light" lang="pt-br"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "error-container": "#ffdad6",
+              "error": "#ba1a1a",
+              "surface": "#fbf8ff",
+              "surface-container-highest": "#e4e1ea",
+              "on-primary-fixed-variant": "#343d96",
+              "surface-container-high": "#eae7ef",
+              "on-tertiary-fixed-variant": "#7b2e12",
+              "on-primary": "#ffffff",
+              "primary-container": "#1a237e",
+              "outline-variant": "#c6c5d4",
+              "on-primary-fixed": "#000767",
+              "tertiary-fixed": "#ffdbd0",
+              "inverse-on-surface": "#f2eff8",
+              "primary": "#000666",
+              "on-secondary-fixed-variant": "#354a53",
+              "secondary-container": "#cfe6f2",
+              "surface-bright": "#fbf8ff",
+              "tertiary-container": "#5c1800",
+              "surface-container-lowest": "#ffffff",
+              "on-background": "#1b1b21",
+              "on-secondary-fixed": "#071e27",
+              "surface-dim": "#dbd9e1",
+              "surface-container": "#efecf5",
+              "outline": "#767683",
+              "inverse-primary": "#bdc2ff",
+              "on-tertiary-fixed": "#390c00",
+              "primary-fixed-dim": "#bdc2ff",
+              "on-error": "#ffffff",
+              "on-secondary-container": "#526772",
+              "on-error-container": "#93000a",
+              "on-tertiary-container": "#e17c5a",
+              "inverse-surface": "#303036",
+              "primary-fixed": "#e0e0ff",
+              "surface-variant": "#e4e1ea",
+              "tertiary": "#380b00",
+              "secondary": "#4c616c",
+              "on-surface": "#1b1b21",
+              "background": "#fbf8ff",
+              "on-primary-container": "#8690ee",
+              "on-tertiary": "#ffffff",
+              "tertiary-fixed-dim": "#ffb59d",
+              "surface-tint": "#4c56af",
+              "surface-container-low": "#f5f2fb",
+              "secondary-fixed-dim": "#b4cad6",
+              "secondary-fixed": "#cfe6f2",
+              "on-surface-variant": "#454652",
+              "on-secondary": "#ffffff"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            display: inline-block;
+            line-height: 1;
+            text-transform: none;
+            letter-spacing: normal;
+            word-wrap: normal;
+            white-space: nowrap;
+            direction: ltr;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        h1, h2, h3 { font-family: 'Manrope', sans-serif; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface">
+<div class="flex h-screen overflow-hidden">
+<!-- SideNavBar -->
+<aside class="hidden md:flex flex-col h-full py-6 bg-[#f5f2fb] dark:bg-slate-900 h-screen w-64 border-r-0 font-manrope text-sm font-medium">
+<div class="px-6 mb-10 flex items-center gap-3">
+<div class="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white">
+<span class="material-symbols-outlined" data-icon="school">school</span>
+</div>
+<div>
+<h2 class="text-lg font-black text-[#000666] dark:text-blue-400 leading-none">Gestão Escolar</h2>
+<span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Unidade Central</span>
+</div>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="text-slate-600 dark:text-slate-400 hover:text-[#000666] px-6 py-3 flex items-center gap-3 transition-all hover:bg-[#efecf5] dark:hover:bg-slate-800" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+                    Dashboard
+                </a>
+<a class="bg-white dark:bg-slate-800 text-[#000666] dark:text-blue-300 font-bold rounded-l-full ml-4 shadow-sm px-6 py-3 flex items-center gap-3" href="#">
+<span class="material-symbols-outlined" data-icon="receipt_long">receipt_long</span>
+                    Extratos
+                </a>
+<a class="text-slate-600 dark:text-slate-400 hover:text-[#000666] px-6 py-3 flex items-center gap-3 transition-all hover:bg-[#efecf5] dark:hover:bg-slate-800" href="#">
+<span class="material-symbols-outlined" data-icon="group">group</span>
+                    Alunos
+                </a>
+<a class="text-slate-600 dark:text-slate-400 hover:text-[#000666] px-6 py-3 flex items-center gap-3 transition-all hover:bg-[#efecf5] dark:hover:bg-slate-800" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+                    Configurações
+                </a>
+</nav>
+<div class="px-6 mt-auto">
+<button class="w-full bg-primary text-white font-bold py-3 rounded-full shadow-lg shadow-blue-900/20 hover:scale-[1.02] active:scale-95 transition-all mb-8 flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span>
+                    Novo Lançamento
+                </button>
+<a class="text-slate-600 dark:text-slate-400 hover:text-[#000666] py-3 flex items-center gap-3 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+                    Suporte
+                </a>
+</div>
+</aside>
+<!-- Main Content Area -->
+<div class="flex-1 flex flex-col min-w-0 overflow-hidden bg-surface">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center w-full px-6 py-4 bg-gradient-to-br from-[#000666] to-[#1a237e] docked full-width top-0 shadow-lg shadow-blue-900/10 z-10">
+<div class="flex items-center gap-4">
+<span class="text-xl font-bold text-white tracking-tight">Relatório de Consumo Escolar</span>
+</div>
+<div class="flex items-center gap-2">
+<div class="hidden md:flex items-center mr-4 gap-6">
+<button class="text-blue-200 hover:text-white transition-colors font-manrope font-bold text-sm">Visão Geral</button>
+<button class="text-white border-b-2 border-white pb-1 font-manrope font-bold text-sm">Relatórios Mensais</button>
+</div>
+<div class="flex items-center gap-1">
+<button class="p-2 text-white hover:bg-white/10 rounded-full transition-all scale-95 active:scale-90 duration-200">
+<span class="material-symbols-outlined" data-icon="picture_as_pdf">picture_as_pdf</span>
+</button>
+<button class="p-2 text-white hover:bg-white/10 rounded-full transition-all scale-95 active:scale-90 duration-200">
+<span class="material-symbols-outlined" data-icon="mail">mail</span>
+</button>
+<button class="p-2 text-white hover:bg-white/10 rounded-full transition-all scale-95 active:scale-90 duration-200">
+<span class="material-symbols-outlined" data-icon="share">share</span>
+</button>
+</div>
+<div class="ml-4 pl-4 border-l border-white/20">
+<img alt="Logo da Unidade Escolar" class="w-8 h-8 rounded-lg object-cover" data-alt="Modern geometric school crest logo with deep blue and white colors on a clean background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBnA2aBYhDQu51cJ64vBPH385WxJx5taTFrrfU9AKVzmfzRv97N4OnkPfney8flbxWIHuK70xOjluE9bGA53cSMgwOpFTq3d6K94VQibuuN8u8xLP18s12htHRg3_VPqpn0_URk-X_H_Ero6kKKK0GECughOv1lx64xhMPvh26JewuWEgzvGSQHJolt_xp-o5ohn3hoWKoDpXmpitXnHl0EF9enIKASUJKRnx8RO3jgtEf8GX6No1BcTmDi-Jqzl_6NU0p_RRwMFKE"/>
+</div>
+</div>
+</header>
+<!-- Scrollable Content -->
+<main class="flex-1 overflow-y-auto p-6 md:p-10 space-y-8">
+<!-- Page Header & Stats -->
+<div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+<div class="space-y-1">
+<span class="text-label text-xs font-bold uppercase tracking-[0.1em] text-on-surface-variant">Movimentações Financeiras</span>
+<h1 class="text-3xl font-extrabold text-primary tracking-tight">Extrato Consolidado</h1>
+</div>
+<div class="grid grid-cols-2 gap-4 w-full md:w-auto">
+<div class="bg-surface-container-low p-4 rounded-xl flex items-center gap-4 min-w-[180px]">
+<div class="w-10 h-10 bg-secondary-container text-on-secondary-container rounded-lg flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="trending_up">trending_up</span>
+</div>
+<div>
+<p class="text-[10px] font-bold uppercase text-on-surface-variant tracking-wider">Total Créditos</p>
+<p class="text-lg font-bold text-primary">R$ 12.450,00</p>
+</div>
+</div>
+<div class="bg-surface-container-low p-4 rounded-xl flex items-center gap-4 min-w-[180px]">
+<div class="w-10 h-10 bg-tertiary-fixed text-tertiary rounded-lg flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="trending_down">trending_down</span>
+</div>
+<div>
+<p class="text-[10px] font-bold uppercase text-on-surface-variant tracking-wider">Total Débitos</p>
+<p class="text-lg font-bold text-tertiary">R$ 8.120,45</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Filters Bento Section -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+<div class="lg:col-span-8 bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/20 shadow-sm flex flex-col justify-center">
+<div class="flex flex-col md:flex-row gap-6">
+<div class="flex-1 space-y-2">
+<label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider ml-1">Período</label>
+<div class="flex items-center gap-2 p-2 px-4 bg-surface-container rounded-full border border-transparent focus-within:border-primary/30 transition-all">
+<span class="material-symbols-outlined text-outline" data-icon="calendar_today">calendar_today</span>
+<input class="bg-transparent border-none focus:ring-0 text-sm font-medium w-full text-on-surface" type="text" value="01 Out 2023 - 31 Out 2023"/>
+</div>
+</div>
+<div class="flex-1 space-y-2">
+<label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider ml-1">Tipo de Operação</label>
+<div class="flex items-center gap-2 p-2 px-4 bg-surface-container rounded-full border border-transparent focus-within:border-primary/30 transition-all">
+<span class="material-symbols-outlined text-outline" data-icon="filter_list">filter_list</span>
+<select class="bg-transparent border-none focus:ring-0 text-sm font-medium w-full text-on-surface appearance-none">
+<option>Todos os lançamentos</option>
+<option>Apenas Créditos</option>
+<option>Apenas Débitos</option>
+</select>
+</div>
+</div>
+</div>
+</div>
+<div class="lg:col-span-4 bg-primary rounded-xl p-6 flex flex-col justify-between text-white relative overflow-hidden shadow-lg shadow-blue-900/20">
+<div class="relative z-10">
+<h3 class="text-sm font-bold uppercase tracking-widest opacity-80 mb-1">Saldo Atual</h3>
+<p class="text-4xl font-extrabold leading-tight">R$ 4.329,55</p>
+</div>
+<div class="relative z-10 flex justify-between items-center mt-4">
+<span class="text-xs font-medium bg-white/20 px-3 py-1 rounded-full">+12% vs mês anterior</span>
+<span class="material-symbols-outlined opacity-50 text-4xl" data-icon="account_balance_wallet">account_balance_wallet</span>
+</div>
+<!-- Abstract decoration -->
+<div class="absolute -right-10 -bottom-10 w-40 h-40 bg-white/5 rounded-full blur-3xl"></div>
+</div>
+</section>
+<!-- Data Table Section -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden shadow-sm">
+<div class="p-6 border-b border-surface-container flex justify-between items-center">
+<h2 class="text-lg font-bold text-primary flex items-center gap-2">
+<span class="material-symbols-outlined text-on-primary-fixed-variant" data-icon="history">history</span>
+                            Histórico de Transações
+                        </h2>
+<div class="flex gap-2">
+<button class="p-2 hover:bg-surface-container rounded-lg transition-all text-outline">
+<span class="material-symbols-outlined" data-icon="search">search</span>
+</button>
+<button class="p-2 hover:bg-surface-container rounded-lg transition-all text-outline">
+<span class="material-symbols-outlined" data-icon="download">download</span>
+</button>
+</div>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low">
+<th class="px-6 py-4 text-[10px] font-bold uppercase tracking-[0.1em] text-on-surface-variant">Data</th>
+<th class="px-6 py-4 text-[10px] font-bold uppercase tracking-[0.1em] text-on-surface-variant">Estudante</th>
+<th class="px-6 py-4 text-[10px] font-bold uppercase tracking-[0.1em] text-on-surface-variant">Descrição</th>
+<th class="px-6 py-4 text-[10px] font-bold uppercase tracking-[0.1em] text-on-surface-variant">Tipo</th>
+<th class="px-6 py-4 text-[10px] font-bold uppercase tracking-[0.1em] text-on-surface-variant text-right">Valor</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-container">
+<!-- Row 1 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="px-6 py-5">
+<div class="flex flex-col">
+<span class="text-sm font-semibold text-on-surface">24 Out 2023</span>
+<span class="text-[10px] text-outline">10:45 AM</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-secondary-container/30 flex items-center justify-center text-on-secondary-container font-bold text-xs">
+                                                AM
+                                            </div>
+<span class="text-sm font-medium text-on-surface">Arthur Melo</span>
+</div>
+</td>
+<td class="px-6 py-5 text-sm text-on-surface-variant">Almoço - Refeitório Central</td>
+<td class="px-6 py-5">
+<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-tertiary-fixed text-tertiary text-[10px] font-bold uppercase tracking-wider">
+<span class="w-1 h-1 rounded-full bg-tertiary"></span> Débito
+                                        </span>
+</td>
+<td class="px-6 py-5 text-sm font-bold text-tertiary text-right">- R$ 18,50</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="px-6 py-5">
+<div class="flex flex-col">
+<span class="text-sm font-semibold text-on-surface">23 Out 2023</span>
+<span class="text-[10px] text-outline">03:20 PM</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-on-primary-container/20 flex items-center justify-center text-primary font-bold text-xs">
+                                                BS
+                                            </div>
+<span class="text-sm font-medium text-on-surface">Beatriz Silva</span>
+</div>
+</td>
+<td class="px-6 py-5 text-sm text-on-surface-variant">Recarga de Créditos via PIX</td>
+<td class="px-6 py-5">
+<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-secondary-container text-on-secondary-fixed-variant text-[10px] font-bold uppercase tracking-wider">
+<span class="w-1 h-1 rounded-full bg-on-secondary-fixed-variant"></span> Crédito
+                                        </span>
+</td>
+<td class="px-6 py-5 text-sm font-bold text-on-secondary-fixed-variant text-right">+ R$ 100,00</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="px-6 py-5">
+<div class="flex flex-col">
+<span class="text-sm font-semibold text-on-surface">22 Out 2023</span>
+<span class="text-[10px] text-outline">08:15 AM</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-tertiary-fixed/30 flex items-center justify-center text-tertiary font-bold text-xs">
+                                                CS
+                                            </div>
+<span class="text-sm font-medium text-on-surface">Caio Souza</span>
+</div>
+</td>
+<td class="px-6 py-5 text-sm text-on-surface-variant">Lanche da Manhã - Cantina</td>
+<td class="px-6 py-5">
+<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-tertiary-fixed text-tertiary text-[10px] font-bold uppercase tracking-wider">
+<span class="w-1 h-1 rounded-full bg-tertiary"></span> Débito
+                                        </span>
+</td>
+<td class="px-6 py-5 text-sm font-bold text-tertiary text-right">- R$ 12,90</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="px-6 py-5">
+<div class="flex flex-col">
+<span class="text-sm font-semibold text-on-surface">21 Out 2023</span>
+<span class="text-[10px] text-outline">09:50 AM</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-on-tertiary-container/20 flex items-center justify-center text-on-tertiary-fixed-variant font-bold text-xs">
+                                                DL
+                                            </div>
+<span class="text-sm font-medium text-on-surface">Daniela Lima</span>
+</div>
+</td>
+<td class="px-6 py-5 text-sm text-on-surface-variant">Papelaria - Caderno e Canetas</td>
+<td class="px-6 py-5">
+<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-tertiary-fixed text-tertiary text-[10px] font-bold uppercase tracking-wider">
+<span class="w-1 h-1 rounded-full bg-tertiary"></span> Débito
+                                        </span>
+</td>
+<td class="px-6 py-5 text-sm font-bold text-tertiary text-right">- R$ 45,60</td>
+</tr>
+<!-- Row 5 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="px-6 py-5">
+<div class="flex flex-col">
+<span class="text-sm font-semibold text-on-surface">20 Out 2023</span>
+<span class="text-[10px] text-outline">12:30 PM</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-primary-fixed/30 flex items-center justify-center text-primary font-bold text-xs">
+                                                EF
+                                            </div>
+<span class="text-sm font-medium text-on-surface">Eduardo Ferreira</span>
+</div>
+</td>
+<td class="px-6 py-5 text-sm text-on-surface-variant">Recarga Automática Mensal</td>
+<td class="px-6 py-5">
+<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-secondary-container text-on-secondary-fixed-variant text-[10px] font-bold uppercase tracking-wider">
+<span class="w-1 h-1 rounded-full bg-on-secondary-fixed-variant"></span> Crédito
+                                        </span>
+</td>
+<td class="px-6 py-5 text-sm font-bold text-on-secondary-fixed-variant text-right">+ R$ 250,00</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination -->
+<div class="p-6 bg-surface-container-low border-t border-surface-container flex flex-col md:flex-row justify-between items-center gap-4">
+<span class="text-xs font-medium text-on-surface-variant">Mostrando 1-10 de 156 transações</span>
+<div class="flex items-center gap-1">
+<button class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-container text-outline transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="chevron_left">chevron_left</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded-lg bg-primary text-white text-xs font-bold transition-all">1</button>
+<button class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-container text-on-surface-variant text-xs font-medium transition-all">2</button>
+<button class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-container text-on-surface-variant text-xs font-medium transition-all">3</button>
+<span class="px-1 text-outline">...</span>
+<button class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-container text-on-surface-variant text-xs font-medium transition-all">16</button>
+<button class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-container text-outline transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Action FAB for quick report -->
+<button class="fixed bottom-8 right-8 bg-primary-container text-on-primary-container w-14 h-14 rounded-full flex items-center justify-center shadow-2xl hover:scale-110 active:scale-95 transition-all md:hidden">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+</button>
+</main>
+</div>
+</div>
+</body></html>

@@ -100,7 +100,24 @@ router.delete('/:id', (req: AuthRequest, res: Response) => {
     return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
 
-  const deleted = db.deleteTransaction(req.params.id);
+  const requesterUser = req.userId ? db.getUser(String(req.userId || '').trim()) : null;
+  const deletedByName = String(
+    req.body?.deletedByName
+    || requesterUser?.name
+    || requesterUser?.fullName
+    || requesterUser?.username
+    || requesterUser?.email
+    || req.userId
+    || ''
+  ).trim();
+  const deleteReason = String(req.body?.deleteReason || '').trim();
+
+  const deleted = db.deleteTransaction(req.params.id, {
+    deletedByName,
+    deleteReason,
+    requesterUserId: String(req.userId || '').trim(),
+    requesterRole: String(req.userRole || '').trim(),
+  });
   if (!deleted) {
     return res.status(404).json({ error: 'Transação não encontrada' });
   }
