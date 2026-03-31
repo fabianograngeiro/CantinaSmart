@@ -102,12 +102,6 @@ const POSPage: React.FC<POSPageProps> = ({ currentUser, activeEnterprise, onRegi
     );
   }
 
-  const isOwner = currentUser.role === Role.OWNER;
-  
-  if (isOwner) {
-    return <OwnerPOSMonitor activeEnterprise={activeEnterprise} />;
-  }
-
   return <StandardPOSInterface currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={onRegisterTransaction} />;
 };
 
@@ -1166,6 +1160,20 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     return result;
   }, [posTransactions, selectedClient, availablePlans]);
 
+  const reversedConsumptionIds = useMemo(() => {
+    const ids = new Set<string>();
+    posTransactions.forEach((tx: any) => {
+      const txType = String(tx?.type || '').toUpperCase();
+      if (txType !== 'CREDITO' && txType !== 'CREDIT') return;
+      const originRef = String(tx?.originTransactionId || '').trim();
+      if (!originRef) return;
+      const text = `${String(tx?.description || '')} ${String(tx?.item || '')}`.toUpperCase();
+      if (!text.includes('ESTORNO')) return;
+      ids.add(originRef);
+    });
+    return ids;
+  }, [posTransactions]);
+
   const getAvailablePlanCreditBalance = (client: Client | null, plan: Plan | null) => {
     if (!client || !plan) return 0;
     const balancesRaw = ((client as any).planCreditBalances || {}) as Record<string, any>;
@@ -1202,6 +1210,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
     const usedInTransactions = posTransactions.filter((tx: any) => {
       if (String(tx?.clientId || '') !== String(client.id || '')) return false;
+      const txId = String(tx?.id || '').trim();
+      if (txId && reversedConsumptionIds.has(txId)) return false;
       const rawType = String(tx?.type || '').toUpperCase();
       if (rawType !== 'CONSUMO') return false;
       const txPlan = String(tx?.plan || '').trim().toUpperCase();
@@ -2791,7 +2801,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       const key = String(plan?.id || rawPlanId || planName.toUpperCase());
       if (map.has(key)) return;
 
-      const creditValue = getCreditValueFor(plan?.id || rawPlanId, planName);
+      const planBalanceValue = getCreditValueFor(plan?.id || rawPlanId, planName);
       const unitsRemaining = plan ? getPlanUnitRemaining(selectedClient, plan) : null;
       const planKeyById = String(plan?.id || rawPlanId || '');
       const planKeyByName = planName.toUpperCase();
@@ -2805,9 +2815,10 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           ? (pendingPlanConsumptionsMap.get(planKeyById) || 0)
           : (pendingPlanConsumptionsMap.get(planKeyByName) || 0)
       );
-      const projectedCredit = Math.max(0, Number((creditValue + pendingCredit - pendingDiscount).toFixed(2)));
+      const projectedPlanBalance = Math.max(0, Number((planBalanceValue + pendingCredit - pendingDiscount).toFixed(2)));
       const unitPrice = getPlanUnitPriceForClient(selectedClient, plan, rawPlanId, rawPlanName);
       const remainingValue = Math.max(0, Number(((unitsRemaining || 0) * unitPrice).toFixed(2)));
+      const projectedExtraCredit = Math.max(0, Number((projectedPlanBalance - remainingValue).toFixed(2)));
 
       map.set(key, {
         key,
@@ -2815,7 +2826,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
         unitsRemaining,
         unitPrice,
         remainingValue,
-        creditValue: Number.isFinite(projectedCredit) ? projectedCredit : 0,
+        creditValue: Number.isFinite(projectedExtraCredit) ? projectedExtraCredit : 0,
         pendingDiscount: Number.isFinite(pendingDiscount) ? Number(pendingDiscount.toFixed(2)) : 0,
         isActive: Boolean(plan && plan.isActive !== false),
       });
@@ -2827,7 +2838,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
     return Array.from(map.values())
       .sort((a, b) => a.planName.localeCompare(b.planName, 'pt-BR'));
-  }, [selectedClient, availablePlans, posTransactions, cart]);
+  }, [selectedClient, availablePlans, posTransactions, cart, reversedConsumptionIds]);
 
   return (
     <div className="pos-shell flex flex-col lg:flex-row h-full min-h-full lg:min-h-0 gap-4 relative" onClick={initAudio}>
@@ -4208,10 +4219,10 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                           const isSelectedDate = (studentCreditPlanDates[plan.id] || []).includes(dateKey);
                                           const consumedDatesForPlan = consumedPlanDatesByPlanId.get(plan.id) || new Set<string>();
                                           const registeredDatesForPlan = registeredPlanDatesByPlanId.get(plan.id) || new Set<string>();
-                                          const isDeliveredDate = consumedDatesForPlan.has(dateKey);
-                                          const isRegisteredDate = !isDeliveredDate && registeredDatesForPlan.has(dateKey);
                                           const reversedDatesForPlan = reversedPlanDatesByPlanId.get(plan.id) || new Set<string>();
                                           const isReversedDate = reversedDatesForPlan.has(dateKey);
+                                          const isDeliveredDate = consumedDatesForPlan.has(dateKey) && !isReversedDate;
+                                          const isRegisteredDate = !isDeliveredDate && !isReversedDate && registeredDatesForPlan.has(dateKey);
                                           return (
                                             <button
                                               type="button"
@@ -4219,15 +4230,22 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                               disabled={isDeliveredDate || isRegisteredDate}
                                               onClick={() => toggleStudentCreditPlanDate(plan.id, dateCell)}
                                               className={`relative w-full h-9 rounded-lg border text-[10px] font-black transition-all flex items-center justify-center text-center ${
-                                                isDeliveredDate
+                                                isReversedDate && !isSelectedDate
+                                                  ? 'bg-rose-50 border-rose-200 text-rose-700 hover:border-rose-300'
+                                                  : isDeliveredDate
                                                   ? 'bg-emerald-50 border-emerald-200 text-emerald-700 cursor-not-allowed'
                                                   : (isRegisteredDate
                                                       ? 'bg-amber-50 border-amber-200 text-amber-700 cursor-not-allowed'
-                                                      : (isSelectedDate ? 'bg-indigo-600 border-indigo-600 text-white' : (isReversedDate ? 'bg-rose-50 border-rose-200 text-rose-700 hover:border-rose-300' : 'bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300')))
+                                                      : (isSelectedDate ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300'))
                                               }`}
-                                              title={isDeliveredDate ? 'Entregue' : (isRegisteredDate ? 'Já registrado em crédito anterior' : (isReversedDate ? 'Estornado' : ''))}
+                                              title={isReversedDate ? 'Estornado' : (isDeliveredDate ? 'Entregue' : (isRegisteredDate ? 'Já registrado em crédito anterior' : ''))}
                                             >
-                                              {isDeliveredDate ? (
+                                              {isReversedDate && !isSelectedDate ? (
+                                                <span className="flex flex-col items-center leading-none">
+                                                  <span>{dateCell.getDate()}</span>
+                                                  <span className="text-[7px] font-black uppercase tracking-wider">Estornado</span>
+                                                </span>
+                                              ) : isDeliveredDate ? (
                                                 <span className="flex flex-col items-center leading-none">
                                                   <span>{dateCell.getDate()}</span>
                                                   <span className="text-[7px] font-black uppercase tracking-wider">Entregue</span>
@@ -4236,11 +4254,6 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                                 <span className="flex flex-col items-center leading-none">
                                                   <span>{dateCell.getDate()}</span>
                                                   <span className="text-[7px] font-black uppercase tracking-wider">Agendado</span>
-                                                </span>
-                                              ) : isReversedDate && !isSelectedDate ? (
-                                                <span className="flex flex-col items-center leading-none">
-                                                  <span>{dateCell.getDate()}</span>
-                                                  <span className="text-[7px] font-black uppercase tracking-wider">Estornado</span>
                                                 </span>
                                               ) : (
                                                 dateCell.getDate()

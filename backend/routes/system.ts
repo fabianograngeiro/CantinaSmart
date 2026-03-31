@@ -463,4 +463,116 @@ router.post('/migrate-collaborator-consumption', (req: Request, res: Response) =
   }
 });
 
+// Limpa todos os dados de uma empresa específica
+router.post('/clear-enterprise-data', (req: Request, res: Response) => {
+  try {
+    const enterpriseName = String(req.body?.enterpriseName || '').trim();
+    const enterpriseId = String(req.body?.enterpriseId || '').trim();
+
+    if (!enterpriseName && !enterpriseId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Forneça empresaName ou enterpriseId'
+      });
+    }
+
+    // Encontra a empresa
+    const enterprises = db.getEnterprises();
+    const targetEnterprise = enterpriseId
+      ? enterprises.find((e: any) => e.id === enterpriseId)
+      : enterprises.find((e: any) => String(e.name || '').trim().toUpperCase() === enterpriseName.toUpperCase());
+
+    if (!targetEnterprise) {
+      return res.status(404).json({
+        success: false,
+        message: `Empresa não encontrada: ${enterpriseName || enterpriseId}`
+      });
+    }
+
+    const eId = targetEnterprise.id;
+    console.log(`🗑️  [SYSTEM] Limpando dados da empresa: ${targetEnterprise.name} (${eId})`);
+
+    // Deleta todos os clientes da empresa (transações são deletadas em cascata)
+    const clients = db.getClients();
+    const clientsInEnterprise = clients.filter((c: any) => c.enterpriseId === eId);
+    let deletedClientsCount = 0;
+    clientsInEnterprise.forEach((client: any) => {
+      if (db.deleteClient(client.id)) {
+        deletedClientsCount++;
+      }
+    });
+
+    // Deleta todos os produtos da empresa
+    const products = db.getProducts();
+    const productsInEnterprise = products.filter((p: any) => p.enterpriseId === eId);
+    let deletedProductsCount = 0;
+    productsInEnterprise.forEach((product: any) => {
+      if (db.deleteProduct(product.id)) {
+        deletedProductsCount++;
+      }
+    });
+
+    // Deleta todas as categorias da empresa
+    const categories = db.getCategories();
+    const categoriesInEnterprise = categories.filter((c: any) => c.enterpriseId === eId);
+    let deletedCategoriesCount = 0;
+    categoriesInEnterprise.forEach((category: any) => {
+      if (db.deleteCategory(category.id)) {
+        deletedCategoriesCount++;
+      }
+    });
+
+    // Deleta todos os planos da empresa
+    const plans = db.getPlans();
+    const plansInEnterprise = plans.filter((p: any) => p.enterpriseId === eId);
+    let deletedPlansCount = 0;
+    plansInEnterprise.forEach((plan: any) => {
+      if (db.deletePlan(plan.id)) {
+        deletedPlansCount++;
+      }
+    });
+
+    // Deleta todos os pedidos da empresa
+    const orders = db.getOrders();
+    const ordersInEnterprise = orders.filter((o: any) => o.enterpriseId === eId);
+    let deletedOrdersCount = 0;
+    ordersInEnterprise.forEach((order: any) => {
+      if (db.deleteOrder(order.id)) {
+        deletedOrdersCount++;
+      }
+    });
+
+    console.log(`✅ [SYSTEM] Limpeza concluída:`);
+    console.log(`   • Clientes deletados: ${deletedClientsCount}`);
+    console.log(`   • Produtos deletados: ${deletedProductsCount}`);
+    console.log(`   • Categorias deletadas: ${deletedCategoriesCount}`);
+    console.log(`   • Planos deletados: ${deletedPlansCount}`);
+    console.log(`   • Pedidos deletados: ${deletedOrdersCount}`);
+
+    res.json({
+      success: true,
+      message: `Dados da empresa "${targetEnterprise.name}" removidos com sucesso`,
+      enterprise: {
+        id: eId,
+        name: targetEnterprise.name
+      },
+      deleted: {
+        clients: deletedClientsCount,
+        products: deletedProductsCount,
+        categories: deletedCategoriesCount,
+        plans: deletedPlansCount,
+        orders: deletedOrdersCount,
+        total: deletedClientsCount + deletedProductsCount + deletedCategoriesCount + deletedPlansCount + deletedOrdersCount
+      }
+    });
+  } catch (err) {
+    console.error('❌ [SYSTEM] Erro ao limpar dados da empresa:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao limpar dados da empresa',
+      error: err instanceof Error ? err.message : 'Erro desconhecido'
+    });
+  }
+});
+
 export default router;

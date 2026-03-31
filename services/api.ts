@@ -3,6 +3,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 export class ApiService {
   private static token: string | null = null;
   private static readonly TOKEN_STORAGE_KEY = 'canteen_auth_token';
+  private static readonly ACTIVE_ENTERPRISE_STORAGE_KEY = 'canteen_active_enterprise';
   private static readonly SESSION_EXPIRED_EVENT = 'canteen:session-expired';
 
   static setToken(token: string) {
@@ -53,6 +54,26 @@ export class ApiService {
       // no-op
     }
     return fallback;
+  }
+
+  private static getActiveEnterpriseId() {
+    if (typeof window === 'undefined') return '';
+    try {
+      const raw = localStorage.getItem(this.ACTIVE_ENTERPRISE_STORAGE_KEY);
+      if (!raw) return '';
+      const parsed = JSON.parse(raw) as { id?: string } | null;
+      return String(parsed?.id || '').trim();
+    } catch {
+      return '';
+    }
+  }
+
+  private static requireActiveEnterpriseId() {
+    const enterpriseId = this.getActiveEnterpriseId();
+    if (!enterpriseId) {
+      throw new Error('Selecione uma unidade ativa para usar o WhatsApp.');
+    }
+    return enterpriseId;
   }
 
   private static buildApiUrl(
@@ -1112,7 +1133,8 @@ export class ApiService {
 
   // ===== WHATSAPP =====
   static async getWhatsAppStatus() {
-    const response = await fetch(`${API_URL}/whatsapp/status`, {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(this.buildApiUrl('/whatsapp/status', { enterpriseId }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao buscar status do WhatsApp');
@@ -1120,7 +1142,8 @@ export class ApiService {
   }
 
   static async getWhatsAppQr() {
-    const response = await fetch(`${API_URL}/whatsapp/qr`, {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(this.buildApiUrl('/whatsapp/qr', { enterpriseId }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao buscar QR Code do WhatsApp');
@@ -1128,9 +1151,11 @@ export class ApiService {
   }
 
   static async initWhatsAppSession() {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(`${API_URL}/whatsapp/init`, {
       method: 'POST',
       headers: this.getHeaders(),
+      body: JSON.stringify({ enterpriseId }),
     });
     if (!response.ok) throw new Error('Falha ao inicializar integração do WhatsApp');
     return response.json();
@@ -1146,10 +1171,12 @@ export class ApiService {
     syncContacts?: boolean;
     syncHistories?: boolean;
   } = {}) {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(`${API_URL}/whatsapp/start`, {
       method: 'POST',
       headers: this.getHeaders(),
       body: JSON.stringify({
+        enterpriseId,
         forceNewSession: Boolean(options.forceNewSession),
         sessionName: String(options.sessionName || '').trim(),
         startDate: String(options.startDate || '').trim(),
@@ -1165,19 +1192,22 @@ export class ApiService {
   }
 
   static async stopWhatsAppSession() {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(`${API_URL}/whatsapp/stop`, {
       method: 'POST',
       headers: this.getHeaders(),
+      body: JSON.stringify({ enterpriseId }),
     });
     if (!response.ok) throw new Error('Falha ao encerrar sessão do WhatsApp');
     return response.json();
   }
 
   static async sendWhatsAppMessage(phone: string, message: string) {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(`${API_URL}/whatsapp/send`, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify({ phone, message }),
+      body: JSON.stringify({ enterpriseId, phone, message }),
     });
     if (!response.ok) {
       const text = await response.text();
@@ -1187,10 +1217,11 @@ export class ApiService {
   }
 
   static async sendWhatsAppBulk(recipients: string[], message: string) {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(`${API_URL}/whatsapp/send-bulk`, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify({ recipients, message }),
+      body: JSON.stringify({ enterpriseId, recipients, message }),
     });
     if (!response.ok) {
       const text = await response.text();
@@ -1341,7 +1372,9 @@ export class ApiService {
     startDate?: string;
     endDate?: string;
   } = {}) {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const qs = new URLSearchParams();
+    qs.set('enterpriseId', enterpriseId);
     qs.set('limit', String(Math.max(1, Math.min(400, Number(params.limit || 100)))));
     if (String(params.reason || '').trim()) qs.set('reason', String(params.reason || '').trim());
     if (params.from !== undefined && String(params.from).trim()) qs.set('from', String(params.from).trim());
@@ -1388,7 +1421,8 @@ export class ApiService {
   }
 
   static async getWhatsAppChats() {
-    const response = await fetch(`${API_URL}/whatsapp/chats`, {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(this.buildApiUrl('/whatsapp/chats', { enterpriseId }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao carregar conversas do WhatsApp');
@@ -1396,8 +1430,9 @@ export class ApiService {
   }
 
   static async getWhatsAppChatMessages(chatId: string, limit = 80) {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const encoded = String(chatId || '').replace(/@/g, '__AT__');
-    const response = await fetch(`${API_URL}/whatsapp/chats/${encoded}/messages?limit=${limit}`, {
+    const response = await fetch(this.buildApiUrl(`/whatsapp/chats/${encoded}/messages`, { enterpriseId, limit }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao carregar mensagens da conversa');
@@ -1405,8 +1440,9 @@ export class ApiService {
   }
 
   static async deleteWhatsAppChat(chatId: string) {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const encoded = String(chatId || '').replace(/@/g, '__AT__');
-    const response = await fetch(`${API_URL}/whatsapp/chats/${encoded}`, {
+    const response = await fetch(this.buildApiUrl(`/whatsapp/chats/${encoded}`, { enterpriseId }), {
       method: 'DELETE',
       headers: this.getHeaders(),
     });
@@ -1418,8 +1454,9 @@ export class ApiService {
   }
 
   static async clearWhatsAppChatMessages(chatId: string) {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const encoded = String(chatId || '').replace(/@/g, '__AT__');
-    const response = await fetch(`${API_URL}/whatsapp/chats/${encoded}/messages`, {
+    const response = await fetch(this.buildApiUrl(`/whatsapp/chats/${encoded}/messages`, { enterpriseId }), {
       method: 'DELETE',
       headers: this.getHeaders(),
     });
@@ -1431,10 +1468,11 @@ export class ApiService {
   }
 
   static async sendWhatsAppMessageToChat(chatId: string, message: string) {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(`${API_URL}/whatsapp/send-to-chat`, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify({ chatId, message }),
+      body: JSON.stringify({ enterpriseId, chatId, message }),
     });
     if (!response.ok) {
       const text = await response.text();
@@ -1444,10 +1482,11 @@ export class ApiService {
   }
 
   static async improveWhatsAppTextWithAi(chatId: string, text: string) {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(`${API_URL}/whatsapp/ai/improve-text`, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify({ chatId, text }),
+      body: JSON.stringify({ enterpriseId, chatId, text }),
     });
     if (!response.ok) {
       const textErr = await response.text();
@@ -1457,8 +1496,9 @@ export class ApiService {
   }
 
   static async getWhatsAppChatAiAgentState(chatId: string) {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const encoded = String(chatId || '').replace(/@/g, '__AT__');
-    const response = await fetch(`${API_URL}/whatsapp/chats/${encoded}/ai-agent`, {
+    const response = await fetch(this.buildApiUrl(`/whatsapp/chats/${encoded}/ai-agent`, { enterpriseId }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) {
@@ -1469,11 +1509,12 @@ export class ApiService {
   }
 
   static async setWhatsAppChatAiAgentState(chatId: string, enabled: boolean) {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const encoded = String(chatId || '').replace(/@/g, '__AT__');
     const response = await fetch(`${API_URL}/whatsapp/chats/${encoded}/ai-agent`, {
       method: 'PUT',
       headers: this.getHeaders(),
-      body: JSON.stringify({ enabled: Boolean(enabled) }),
+      body: JSON.stringify({ enterpriseId, enabled: Boolean(enabled) }),
     });
     if (!response.ok) {
       const textErr = await response.text();
@@ -1483,7 +1524,8 @@ export class ApiService {
   }
 
   static async getWhatsAppAiHandoffRequests() {
-    const response = await fetch(`${API_URL}/whatsapp/ai/handoff-requests`, {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(this.buildApiUrl('/whatsapp/ai/handoff-requests', { enterpriseId }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) {
@@ -1494,10 +1536,11 @@ export class ApiService {
   }
 
   static async decideWhatsAppAiHandoffRequest(id: string, accept: boolean) {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(`${API_URL}/whatsapp/ai/handoff-requests/${encodeURIComponent(String(id || ''))}/decision`, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify({ accept: Boolean(accept) }),
+      body: JSON.stringify({ enterpriseId, accept: Boolean(accept) }),
     });
     if (!response.ok) {
       const textErr = await response.text();
@@ -1511,10 +1554,11 @@ export class ApiService {
     message: string,
     attachment: { mediaType: 'image' | 'document' | 'audio'; base64Data: string; mimeType?: string; fileName?: string }
   ) {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(`${API_URL}/whatsapp/send-media-to-chat`, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify({ chatId, message, attachment }),
+      body: JSON.stringify({ enterpriseId, chatId, message, attachment }),
     });
     if (!response.ok) {
       const text = await response.text();
@@ -1530,10 +1574,14 @@ export class ApiService {
     mimeType?: string | null;
     fileName?: string | null;
   }) {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(`${API_URL}/whatsapp/transcribe-audio`, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify(payload || {}),
+      body: JSON.stringify({
+        enterpriseId,
+        ...(payload || {}),
+      }),
     });
     if (!response.ok) {
       const text = await response.text();
@@ -1548,10 +1596,14 @@ export class ApiService {
     scheduleAt: string;
     attachment?: { mediaType: 'image' | 'document' | 'audio'; base64Data: string; mimeType?: string; fileName?: string } | null;
   }) {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(`${API_URL}/whatsapp/schedule`, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        enterpriseId,
+        ...(payload || {}),
+      }),
     });
     if (!response.ok) {
       const text = await response.text();
@@ -1561,8 +1613,12 @@ export class ApiService {
   }
 
   static async getWhatsAppSchedules(chatId?: string) {
-    const query = chatId ? `?chatId=${encodeURIComponent(chatId)}` : '';
-    const response = await fetch(`${API_URL}/whatsapp/schedule${query}`, {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const query = this.buildApiUrl('/whatsapp/schedule', {
+      enterpriseId,
+      chatId: chatId || '',
+    });
+    const response = await fetch(query, {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao carregar agendamentos');
@@ -1570,7 +1626,8 @@ export class ApiService {
   }
 
   static async cancelWhatsAppSchedule(id: string) {
-    const response = await fetch(`${API_URL}/whatsapp/schedule/${encodeURIComponent(id)}`, {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(this.buildApiUrl(`/whatsapp/schedule/${encodeURIComponent(id)}`, { enterpriseId }), {
       method: 'DELETE',
       headers: this.getHeaders(),
     });
@@ -1582,7 +1639,8 @@ export class ApiService {
   }
 
   static async getWhatsAppAiConfig() {
-    const response = await fetch(`${API_URL}/whatsapp/ai-config`, {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(this.buildApiUrl('/whatsapp/ai-config', { enterpriseId }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao carregar configuração de AI');
@@ -1590,10 +1648,14 @@ export class ApiService {
   }
 
   static async updateWhatsAppAiConfig(config: any) {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(`${API_URL}/whatsapp/ai-config`, {
       method: 'PUT',
       headers: this.getHeaders(),
-      body: JSON.stringify(config || {}),
+      body: JSON.stringify({
+        enterpriseId,
+        ...(config || {}),
+      }),
     });
     if (!response.ok) {
       const text = await response.text();
@@ -1604,7 +1666,11 @@ export class ApiService {
 
   static async getWhatsAppAiAudit(limit = 50) {
     const safeLimit = Math.max(1, Math.min(200, Number(limit || 50)));
-    const response = await fetch(`${API_URL}/whatsapp/ai-audit?limit=${encodeURIComponent(String(safeLimit))}`, {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(this.buildApiUrl('/whatsapp/ai-audit', {
+      enterpriseId,
+      limit: safeLimit,
+    }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao carregar auditoria da IA');
@@ -1612,7 +1678,8 @@ export class ApiService {
   }
 
   static async getWhatsAppAiFlowNodes() {
-    const response = await fetch(`${API_URL}/whatsapp/ai-flow-nodes`, {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(this.buildApiUrl('/whatsapp/ai-flow-nodes', { enterpriseId }), {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao gerar nodes de fluxo de AI');

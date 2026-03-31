@@ -42,6 +42,8 @@ interface DatabaseShape {
     dispatchAutomationsByEnterprise?: Record<string, any>;
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
+    sessionBoundEnterpriseId?: string;
+    sessionBoundAt?: string;
     updatedAt?: string;
   };
 }
@@ -107,6 +109,8 @@ export class Database {
     dispatchAutomationsByEnterprise?: Record<string, any>;
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
+    sessionBoundEnterpriseId?: string;
+    sessionBoundAt?: string;
     updatedAt?: string;
   } = {};
 
@@ -2031,6 +2035,8 @@ export class Database {
     dispatchAutomationsByEnterprise?: Record<string, any>;
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
+    sessionBoundEnterpriseId?: string;
+    sessionBoundAt?: string;
   }) {
     this.whatsappStore = {
       ...this.getWhatsAppStore(),
@@ -3064,6 +3070,104 @@ export class Database {
       return Boolean(txId) && idsToDelete.has(txId);
     });
 
+    const amountFromTx = (tx: any) => {
+      const n = this.resolveTransactionAmount(tx);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    const applyClientEffect = (clientRef: any, tx: any, factor: number) => {
+      const signedAmount = Number((amountFromTx(tx) * factor).toFixed(2));
+      const txType = this.normalizeToken(tx?.type);
+      const txDesc = this.normalizeToken(tx?.description || tx?.item);
+      const txMethod = this.normalizeToken(tx?.paymentMethod || tx?.method);
+      const planId = String(tx?.planId || tx?.originPlanId || '').trim();
+      const planName = String(tx?.plan || tx?.planName || '').trim();
+      const planNameNormalized = this.normalizeToken(planName);
+      const isPlanConsumption =
+        Boolean(planId)
+        || txMethod.includes('PLANO')
+        || (planNameNormalized.length > 0 && !['AVULSO', 'PREPAGO', 'GERAL'].includes(planNameNormalized));
+      const unitValue = this.resolvePlanUnitValue(planId, planName, String(clientRef?.enterpriseId || '').trim(), [
+        tx?.planUnitValue,
+        tx?.unitValue,
+        tx?.planPrice,
+      ]);
+      const signedUnits = this.roundValue(this.resolveTransactionPlanUnits(tx, unitValue > 0 ? unitValue : 1) * factor, 4);
+
+      if (txType === 'CREDIT' || txType === 'CREDITO') {
+        if (txDesc.includes('PAGAMENTO DE CONSUMO DO COLABORADOR')) {
+          const currentDue = Number(clientRef.amountDue || 0);
+          const currentMonthly = Number(clientRef.monthlyConsumption || 0);
+          clientRef.amountDue = Math.max(0, Number((currentDue - signedAmount).toFixed(2)));
+          clientRef.monthlyConsumption = Math.max(0, Number((currentMonthly - signedAmount).toFixed(2)));
+          return;
+        }
+
+        if (tx?.planId || txDesc.includes('CREDITO PLANO') || txDesc.includes('RECARGA DE PLANO')) {
+          this.applyPlanBalanceDelta(clientRef, tx, signedUnits, signedAmount);
+          return;
+        }
+
+        clientRef.balance = Number((Number(clientRef.balance || 0) + signedAmount).toFixed(2));
+        return;
+      }
+
+      if (txType === 'CONSUMO') {
+        if (isPlanConsumption) {
+          this.applyPlanBalanceDelta(clientRef, tx, -signedUnits, -signedAmount);
+        }
+      }
+    };
+
+    // Reverte os efeitos no aluno/colaborador antes de remover a transação.
+    removedTransactions.forEach((tx: any) => {
+      const clientId = String(tx?.clientId || '').trim();
+      if (!clientId) return;
+      const index = this.clients.findIndex((client: any) => String(client?.id || '').trim() === clientId);
+      if (index < 0) return;
+      const clientRef: any = { ...this.clients[index] };
+      applyClientEffect(clientRef, tx, -1);
+      this.clients[index] = clientRef;
+    });
+
+    const computeFinancialImpact = (tx: any) => {
+      const amount = Math.max(0, amountFromTx(tx));
+      if (!amount) return { revenue: 0, expense: 0 };
+
+      const financeKind = this.normalizeToken(tx?.financeKind);
+      if (financeKind === 'RECEITA') return { revenue: amount, expense: 0 };
+      if (financeKind === 'DESPESA') return { revenue: 0, expense: amount };
+
+      const description = this.normalizeToken(tx?.description || tx?.item);
+      const rawType = this.normalizeToken(tx?.type);
+      const paymentMethodRaw = this.normalizeToken(tx?.method || tx?.paymentMethod);
+      const paymentTokens = paymentMethodRaw
+        .split('+')
+        .map((token: string) => token.trim())
+        .filter(Boolean);
+      const allowedPdvMethods = new Set(['DEBITO', 'PIX', 'CREDITO', 'DINHEIRO']);
+      const hasAllowedPdvMethod = paymentTokens.some((token: string) => allowedPdvMethods.has(token));
+
+      const isCantinaCredit = description.includes('CREDITO LIVRE CANTINA');
+      const isPlanCredit = description.includes('RECARGA DE PLANO') || description.includes('CREDITO PLANO');
+      const isPdvSale = description.includes('COMPRA PDV') && hasAllowedPdvMethod;
+      const isLegacyCounterSale = rawType === 'VENDA_BALCAO' && hasAllowedPdvMethod;
+
+      if (isCantinaCredit || isPlanCredit || isPdvSale || isLegacyCounterSale) {
+        return { revenue: amount, expense: 0 };
+      }
+
+      return { revenue: 0, expense: 0 };
+    };
+
+    const removedFinancialTotals = removedTransactions.reduce((acc: { revenue: number; expense: number }, tx: any) => {
+      const impact = computeFinancialImpact(tx);
+      return {
+        revenue: Number((acc.revenue + impact.revenue).toFixed(2)),
+        expense: Number((acc.expense + impact.expense).toFixed(2)),
+      };
+    }, { revenue: 0, expense: 0 });
+
     const before = this.transactions.length;
     this.transactions = this.transactions.filter((tx: any) => {
       const txId = String(tx?.id || '').trim();
@@ -3113,9 +3217,13 @@ export class Database {
       type: 'AUDITORIA_EXCLUSAO',
       amount: 0,
       total: 0,
+      financeKind: 'RECEITA',
+      financeEntry: true,
+      financeCategory: 'AJUSTE EXCLUSAO TRANSACAO',
+      financeAdjustment: true,
       plan: targetPlanName || 'AUDITORIA',
       item: `Exclusão manual de transação${targetRef ? ` • ${targetRef}` : ''}`,
-      description: `Exclusão registrada em transações • removidas: ${removedCount}${deleteReason ? ` • motivo: ${deleteReason}` : ''}`,
+      description: `Exclusão registrada em transações • removidas: ${removedCount} • entradas subtraídas: R$ ${removedFinancialTotals.revenue.toFixed(2)} • saídas subtraídas: R$ ${removedFinancialTotals.expense.toFixed(2)}${deleteReason ? ` • motivo: ${deleteReason}` : ''}`,
       status: 'AUDITORIA',
       executionSource: 'USUARIO',
       timestamp: now.toISOString(),
@@ -3128,6 +3236,8 @@ export class Database {
       deletedTransactionId: normalizedId,
       deletedTransactionIds: removedIds,
       deletedTransactionCount: removedCount,
+      deletedRevenueAmount: removedFinancialTotals.revenue,
+      deletedExpenseAmount: removedFinancialTotals.expense,
       deletedDeliveryKeys,
       clientName: targetClientName || undefined,
       clientId: String(targetTransaction?.clientId || '').trim() || undefined,

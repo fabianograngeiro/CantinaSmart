@@ -86,6 +86,12 @@ const normalizeUpper = (value?: string) =>
     .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase();
 
+const isDeletionAdjustmentTx = (tx: FinancialTx) => {
+  const category = normalizeUpper(tx?.category);
+  const description = normalizeUpper(tx?.description);
+  return category === 'AJUSTE EXCLUSAO TRANSACAO' || description.includes('EXCLUSAO REGISTRADA EM TRANSACOES');
+};
+
 const normalizePaymentLabel = (value?: string) => {
   const normalized = normalizeUpper(value);
   if (!normalized) return 'OUTROS';
@@ -172,6 +178,29 @@ const mapRawTransactionToFinancial = (tx: any): FinancialTx | null => {
 
   const financeKind = normalizeUpper(tx?.financeKind);
   const isManualFinance = Boolean(tx?.financeEntry);
+
+  if (normalizeUpper(tx?.type) === 'AUDITORIA_EXCLUSAO') {
+    const deletedRevenue = Number(tx?.deletedRevenueAmount || 0);
+    const deletedExpense = Number(tx?.deletedExpenseAmount || 0);
+    const safeDeletedRevenue = Number.isFinite(deletedRevenue) ? Math.max(0, deletedRevenue) : 0;
+    const safeDeletedExpense = Number.isFinite(deletedExpense) ? Math.max(0, deletedExpense) : 0;
+    const auditDetails = `Entradas subtraídas: R$ ${safeDeletedRevenue.toFixed(2)} • Saídas subtraídas: R$ ${safeDeletedExpense.toFixed(2)}`;
+
+    return {
+      id: String(tx?.id || `tx_${Date.now()}`),
+      date,
+      time,
+      client: String(tx?.deletedByName || tx?.clientName || tx?.client || 'Administração'),
+      description: `${String(tx?.description || 'Exclusão registrada em transações')} • ${auditDetails}`,
+      type: 'RECEITA',
+      amount: 0,
+      method: 'AJUSTE',
+      category: 'AJUSTE EXCLUSAO TRANSACAO',
+      quantity: Number(tx?.deletedTransactionCount || 1),
+      unitPrice: 0,
+      isManual: false,
+    };
+  }
 
   if (financeKind === 'RECEITA' || financeKind === 'DESPESA') {
     return {
@@ -877,6 +906,16 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
       <div className="dash-panel p-1.5">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
           <button
+            onClick={() => setActiveSectionTab('LAUNCHES')}
+            className={`px-3 py-2.5 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] transition-all ${
+              activeSectionTab === 'LAUNCHES'
+                ? 'bg-indigo-600 text-white shadow'
+                : 'bg-white dark:bg-zinc-900 text-gray-500 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800 border border-transparent dark:border-white/10'
+            }`}
+          >
+            Lançamentos Financeiros
+          </button>
+          <button
             onClick={() => setActiveSectionTab('PENDING')}
             className={`px-3 py-2 rounded-lg text-[8px] font-black uppercase tracking-[0.1em] transition-all ${
               activeSectionTab === 'PENDING'
@@ -895,16 +934,6 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
             }`}
           >
             Lembretes de Despesas
-          </button>
-          <button
-            onClick={() => setActiveSectionTab('LAUNCHES')}
-            className={`px-3 py-2.5 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] transition-all ${
-              activeSectionTab === 'LAUNCHES'
-                ? 'bg-indigo-600 text-white shadow'
-                : 'bg-white dark:bg-zinc-900 text-gray-500 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800 border border-transparent dark:border-white/10'
-            }`}
-          >
-            Lançamentos Financeiros
           </button>
         </div>
       </div>
@@ -1157,15 +1186,26 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-gray-400 font-bold uppercase text-xs">Sem lançamentos no período</td>
                 </tr>
-              ) : filteredLaunchTransactions.map((tx) => (
-                <tr key={tx.id}>
+              ) : filteredLaunchTransactions.map((tx) => {
+                const isDeletionAdjustment = isDeletionAdjustmentTx(tx);
+                return (
+                <tr key={tx.id} className={isDeletionAdjustment ? 'bg-amber-50/40' : undefined}>
                   <td className="px-3 py-2.5 font-bold text-gray-700">{formatDateBr(tx.date)} {tx.time}</td>
                   <td className="px-3 py-2.5">
                     <span className={`text-[10px] font-black uppercase px-2 py-1 rounded ${tx.type === 'RECEITA' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
                       {tx.type}
                     </span>
                   </td>
-                  <td className="px-3 py-2.5 text-gray-700 font-bold">{tx.category}</td>
+                  <td className="px-3 py-2.5 text-gray-700 font-bold">
+                    <div className="flex items-center gap-2">
+                      <span>{tx.category}</span>
+                      {isDeletionAdjustment && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-200">
+                          Ajuste por Exclusao
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-3 py-2.5 text-gray-800 font-bold">{tx.description}</td>
                   <td className="px-3 py-2.5 text-right font-bold">{tx.quantity}</td>
                   <td className="px-3 py-2.5 text-right font-bold">R$ {tx.unitPrice.toFixed(2)}</td>
@@ -1174,7 +1214,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
                   </td>
                   <td className="px-3 py-2.5 text-gray-600 font-bold">{tx.dueDate ? formatDateBr(tx.dueDate) : '-'}</td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>

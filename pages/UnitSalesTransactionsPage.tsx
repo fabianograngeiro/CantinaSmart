@@ -222,7 +222,6 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   const [deletingTransactionId, setDeletingTransactionId] = useState<string | null>(null);
   const [deleteTargetTransaction, setDeleteTargetTransaction] = useState<ExtendedTransactionRecord | null>(null);
   const [deletePromptMessage, setDeletePromptMessage] = useState('');
-  const [deleteAuditUserName, setDeleteAuditUserName] = useState('');
   const [deleteAuditReason, setDeleteAuditReason] = useState('');
   const [reversingTransaction, setReversingTransaction] = useState<ExtendedTransactionRecord | null>(null);
   const [reverseMode, setReverseMode] = useState<'OPEN' | 'RESCHEDULE'>('OPEN');
@@ -343,7 +342,9 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
               id: String(tx?.id || `tx_${Date.now()}`),
               date,
               time,
-              client: String(tx?.client || tx?.clientName || 'Consumidor Final'),
+              client: mappedType === 'AUDITORIA_EXCLUSAO'
+                ? String(tx?.deletedByName || tx?.deletedByEmail || tx?.deletedByUserId || tx?.client || tx?.clientName || 'Usuário do sistema')
+                : String(tx?.client || tx?.clientName || 'Consumidor Final'),
               plan: String(tx?.plan || (tx?.clientId ? 'PLANO' : 'AVULSO')),
               item: String(tx?.item || tx?.description || 'Sem itens'),
               type: mappedType,
@@ -1190,13 +1191,8 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     const row = deleteTargetTransaction;
     if (!row) return;
 
-    const normalizedUserName = String(deleteAuditUserName || '').trim();
     const normalizedReason = String(deleteAuditReason || '').trim();
 
-    if (!normalizedUserName) {
-      alert('Informe o nome do usuário para registrar a exclusão.');
-      return;
-    }
     if (!normalizedReason) {
       alert('Informe o motivo da exclusão.');
       return;
@@ -1206,7 +1202,6 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       setDeletingTransactionId(row.id);
 
       await ApiService.deleteTransaction(row.id, {
-        deletedByName: normalizedUserName,
         deleteReason: normalizedReason,
       });
       
@@ -1405,6 +1400,8 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       || reversingTransaction.date
       || ''
     ).slice(0, 10);
+    const referenceDateLabel = formatDateBr(referenceDate) || referenceDate || '-';
+    const planPurchaseReference = String(resolvePurchaseRefLabel(reversingTransaction) || '').trim() || '-';
     const hasReschedule = isPlanTransaction && reverseMode === 'RESCHEDULE' && /^\d{4}-\d{2}-\d{2}$/.test(reverseDate);
     const planCreditAmount = unitValue > 0
       ? Number((resolvedUnits * unitValue).toFixed(2))
@@ -1421,15 +1418,16 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
             amount: planCreditAmount,
             total: planCreditAmount,
             description: hasReschedule
-              ? `Credito plano (estorno) - Ref: ${reversingTransaction.id} (crédito aberto • reagendar para ${reverseDate})`
-              : `Credito plano (estorno) - Ref: ${reversingTransaction.id} (crédito aberto)`,
-            item: `Crédito plano ${planName} (estorno)`,
+              ? `CRÉDITO REFERENTE AO ESTORNO • Data entregue: ${referenceDateLabel} • Ref.compra plano: ${planPurchaseReference} • Ref.transação: ${reversingTransaction.id} • Reagendado para ${formatDateBr(reverseDate) || reverseDate}`
+              : `CRÉDITO REFERENTE AO ESTORNO • Data entregue: ${referenceDateLabel} • Ref.compra plano: ${planPurchaseReference} • Ref.transação: ${reversingTransaction.id}`,
+            item: `Crédito referente ao estorno do plano ${planName}`,
             paymentMethod: 'PLANO',
             method: 'PLANO',
             status: 'CONCLUIDA',
             executionSource: 'USUARIO',
             plan: planName,
             planId: planId || undefined,
+            purchaseRefCode: planPurchaseReference !== '-' ? planPurchaseReference : undefined,
             planUnitValue: unitValue > 0 ? unitValue : undefined,
             planUnits: resolvedUnits,
             deliveryDate: referenceDate || undefined,
@@ -2944,12 +2942,17 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                          )
                      );
                    const isAuditDeleteRow = row.type === 'AUDITORIA_EXCLUSAO';
+                   const auditDeletedBy = String(row.raw?.deletedByEmail || row.raw?.deletedByName || row.client || '').trim();
+                   const auditDeleteReason = String(row.raw?.deleteReason || '').trim();
+                   const auditSummaryLabel = isAuditDeleteRow
+                     ? `${auditDeleteReason ? `Motivo: ${auditDeleteReason}` : 'Motivo: NÃO INFORMADO'}${auditDeletedBy ? ` • Excluído por: ${auditDeletedBy}` : ''}`
+                     : '';
                    const auditActionDisabledClass = 'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-gray-400';
                    return (
                    <tr
                      key={row.id}
                      className={isAuditDeleteRow
-                       ? 'bg-amber-50/40 hover:bg-amber-50 transition-colors group border-y border-amber-100/70'
+                       ? 'bg-slate-100/80 hover:bg-slate-100 transition-colors group border-y border-slate-200'
                        : 'hover:bg-indigo-50/30 transition-colors group'}
                    >
                       <td className="px-3 py-3.5 align-top">
@@ -2970,7 +2973,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                       <td className="px-3 py-3.5 align-top text-center">
                          <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-tight shadow-sm border ${
                            isAuditDeleteRow
-                             ? 'bg-amber-100 text-amber-800 border-amber-200'
+                             ? 'bg-slate-200 text-slate-700 border-slate-300'
                              : row.plan === 'Venda'
                              ? 'bg-gray-50 text-gray-500 border-gray-100'
                              : row.plan === 'Crédito Cantina'
@@ -2992,13 +2995,13 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                       </td>
                       <td className="px-3 py-3.5 align-top text-center">
                          <p className="font-bold text-gray-700 uppercase text-[10px] leading-tight whitespace-normal break-words text-left">
-                           {itemLabel}
+                           {isAuditDeleteRow ? auditSummaryLabel : itemLabel}
                          </p>
                       </td>
                       <td className="px-3 py-3.5 align-top text-center">
                          <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-md border ${
                            isAuditDeleteRow
-                             ? 'bg-amber-100 text-amber-800 border-amber-300'
+                             ? 'bg-slate-200 text-slate-700 border-slate-300'
                              : row.type === 'CREDITO'
                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                              : 'bg-red-50 text-red-700 border-red-200'
@@ -3008,7 +3011,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                       </td>
                       <td className="px-3 py-3.5 text-center align-top">
                          <div className="flex flex-col items-center">
-                             <p className={`font-black ${(row.value || row.total) > 0 ? 'text-sm text-indigo-900' : (isAuditDeleteRow ? 'text-[10px] text-amber-700' : 'text-[10px] text-gray-500')} uppercase tracking-tight`}>
+                            <p className={`font-black ${(row.value || row.total) > 0 ? 'text-sm text-indigo-900' : (isAuditDeleteRow ? 'text-[10px] text-slate-600' : 'text-[10px] text-gray-500')} uppercase tracking-tight`}>
                                { (row.value || row.total) > 0 ? `R$ ${(row.value || row.total).toFixed(2)}` : (isAuditDeleteRow ? 'REGISTRO' : 'BAIXA') }
                             </p>
                             <span className="text-[8px] font-black text-gray-400 uppercase tracking-tighter">{row.method}</span>
@@ -3017,7 +3020,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                       <td className="px-3 py-3.5 text-center align-top">
                          <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase border ${
                             isAuditDeleteRow
-                              ? 'bg-amber-100 text-amber-800 border-amber-300'
+                            ? 'bg-slate-200 text-slate-700 border-slate-300'
                               : rowMarkedAsReversed
                              ? 'bg-rose-50 text-rose-700 border-rose-200'
                              : row.status === 'SISTEMA'
@@ -3102,18 +3105,6 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
             <div className="p-5 space-y-4">
               <div className="rounded-xl border border-rose-100 bg-rose-50 p-3">
                 <p className="text-[11px] font-black text-rose-700 uppercase tracking-wider">{deletePromptMessage}</p>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nome do usuário *</label>
-                <input
-                  type="text"
-                  value={deleteAuditUserName}
-                  onChange={(e) => setDeleteAuditUserName(e.target.value)}
-                  placeholder="Digite o nome do responsável"
-                  className="w-full px-3 py-2.5 bg-gray-50 border-2 border-transparent focus:border-rose-500 rounded-xl outline-none text-xs font-bold"
-                  disabled={Boolean(deletingTransactionId)}
-                />
               </div>
 
               <div className="space-y-1.5">

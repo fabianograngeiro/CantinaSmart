@@ -78,10 +78,14 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
     loadEnterprises();
   }, []);
 
+  const PORTAL_ROLES: Role[] = [Role.COLABORADOR, Role.RESPONSAVEL, Role.CLIENTE];
+
   const loadUsers = async () => {
     try {
       const data = await ApiService.getUsers();
       const visible = data.filter((user: User) => {
+        // Exclui usuários de portal (clientes da escola) — não são funcionários do sistema
+        if (PORTAL_ROLES.includes(user.role)) return false;
         if (!isOwner) return true;
         if (user.role === Role.SUPERADMIN) return false;
         if (user.role === Role.OWNER) return false;

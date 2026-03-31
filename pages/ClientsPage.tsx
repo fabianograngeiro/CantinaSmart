@@ -435,6 +435,15 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const [responsibleClientId, setResponsibleClientId] = useState<string | null>(null);
   const [responsibleCollaboratorSearch, setResponsibleCollaboratorSearch] = useState('');
   const [responsibleCollaboratorId, setResponsibleCollaboratorId] = useState<string | null>(null);
+  const [newCollaboratorRole, setNewCollaboratorRole] = useState('');
+  const [addDependentStudent, setAddDependentStudent] = useState(false);
+  const [dependentStudentForm, setDependentStudentForm] = useState({
+    name: '',
+    classType: '' as '' | 'INFANTIL' | 'FUNDAMENTAL' | 'MEDIO' | 'INTEGRAL',
+    classGrade: '',
+    dailyLimit: 30,
+    restrictions: '',
+  });
 
   const gradeOptions = {
     INFANTIL: ['1', '2', '3', '4', '5'],
@@ -493,8 +502,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     return clients.filter(c => {
       const normalizedType = String(c.type || '').toUpperCase();
       const isStudent = normalizedType === 'ALUNO';
-      const isResponsibleOrCollaborator = normalizedType === 'RESPONSAVEL' || normalizedType === 'COLABORADOR';
-      const matchesViewMode = viewMode === 'ALUNOS' ? isStudent : isResponsibleOrCollaborator;
+      const isCollaborator = normalizedType === 'COLABORADOR';
+      const matchesViewMode = viewMode === 'ALUNOS' ? isStudent : isCollaborator;
       if (!matchesViewMode) return false;
 
       const matchesSearch =
@@ -984,6 +993,9 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     setResponsibleClientId(null);
     setResponsibleCollaboratorSearch('');
     setResponsibleCollaboratorId(null);
+    setNewCollaboratorRole('');
+    setAddDependentStudent(false);
+    setDependentStudentForm({ name: '', classType: '', classGrade: '', dailyLimit: 30, restrictions: '' });
     setClientPhotoFile(null);
     setClientPhotoPreview('');
     setIsClientModalOpen(true);
@@ -1025,6 +1037,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       setResponsibleSourceMode('COLABORADOR');
       setResponsibleCollaboratorId(viewingClient.id);
       setResponsibleCollaboratorSearch(String(viewingClient.name || ''));
+      setNewCollaboratorRole(String(viewingClient.class || ''));
       setResponsibleClientSearch('');
       setResponsibleClientId(null);
     } else if (String(viewingClient?.type || '').toUpperCase() === 'RESPONSAVEL' && viewingClient?.id) {
@@ -1039,7 +1052,10 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       setResponsibleClientId(null);
       setResponsibleCollaboratorSearch('');
       setResponsibleCollaboratorId(null);
+      setNewCollaboratorRole('');
     }
+    setAddDependentStudent(false);
+    setDependentStudentForm({ name: '', classType: '', classGrade: '', dailyLimit: 30, restrictions: '' });
     setClientPhotoFile(null);
     setClientPhotoPreview('');
     setIsDetailModalOpen(false);
@@ -1096,7 +1112,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
     setFormData({
       name: client.name || '',
-      type: (client.type === 'COLABORADOR' ? 'COLABORADOR' : client.type === 'RESPONSAVEL' ? 'RESPONSAVEL' : 'ALUNO') as 'ALUNO' | 'RESPONSAVEL' | 'COLABORADOR',
+      type: (isResponsibleView ? 'COLABORADOR' : (client.type === 'COLABORADOR' ? 'COLABORADOR' : client.type === 'RESPONSAVEL' ? 'RESPONSAVEL' : 'ALUNO')) as 'ALUNO' | 'RESPONSAVEL' | 'COLABORADOR',
       servicePlans: (Array.isArray(client.servicePlans) ? client.servicePlans : ['PREPAGO']) as ClientPlanType[],
       class: client.type === 'COLABORADOR' ? (client.class || '') : '',
       classType: client.type === 'ALUNO' ? parsedClassType : '',
@@ -1142,21 +1158,39 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       setResponsibleSourceMode('COLABORADOR');
       setResponsibleCollaboratorId(matchedCollaborator.id);
       setResponsibleCollaboratorSearch(String(matchedCollaborator.name || ''));
+      setNewCollaboratorRole(String(client.parentRelationship || matchedCollaborator.class || ''));
       setResponsibleClientSearch('');
       setResponsibleClientId(null);
-    } else if (client.type === 'ALUNO' && matchedResponsible?.id) {
+    } else if (!isUnitAdmin && client.type === 'ALUNO' && matchedResponsible?.id) {
       setResponsibleSourceMode('RESPONSAVEL');
       setResponsibleClientId(matchedResponsible.id);
       setResponsibleClientSearch(String(matchedResponsible.name || ''));
       setResponsibleCollaboratorSearch('');
       setResponsibleCollaboratorId(null);
+      setNewCollaboratorRole('');
     } else {
       setResponsibleSourceMode('NEW');
       setResponsibleClientSearch('');
       setResponsibleClientId(null);
       setResponsibleCollaboratorSearch('');
       setResponsibleCollaboratorId(null);
+      setNewCollaboratorRole('');
     }
+    const existingRelatedStudent = (client as any)?.relatedStudent;
+    const relatedClass = String(existingRelatedStudent?.class || '').trim();
+    const relatedClassParts = relatedClass.split(' - ').map((part: string) => part.trim()).filter(Boolean);
+    const relatedClassType = ['INFANTIL', 'FUNDAMENTAL', 'MEDIO', 'INTEGRAL'].includes(relatedClassParts[0] || '')
+      ? (relatedClassParts[0] as '' | 'INFANTIL' | 'FUNDAMENTAL' | 'MEDIO' | 'INTEGRAL')
+      : '';
+    const relatedClassGrade = relatedClassType && relatedClassParts.length > 1 ? relatedClassParts.slice(1).join(' - ') : '';
+    setAddDependentStudent(Boolean(client.type === 'COLABORADOR' && existingRelatedStudent?.name));
+    setDependentStudentForm({
+      name: String(existingRelatedStudent?.name || ''),
+      classType: relatedClassType,
+      classGrade: relatedClassGrade,
+      dailyLimit: Number(existingRelatedStudent?.dailyLimit || 30),
+      restrictions: Array.isArray(existingRelatedStudent?.restrictions) ? existingRelatedStudent.restrictions.join(', ') : '',
+    });
     setClientPhotoFile(null);
     setClientPhotoPreview(resolveClientPhotoUrl(client.photo, client.name));
     setIsClientModalOpen(true);
@@ -1772,6 +1806,10 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       alert('Telefone é obrigatório para responsável e colaborador.');
       return;
     }
+    if (formData.type === 'COLABORADOR' && addDependentStudent && String(dependentStudentForm.name || '').trim().length < 2) {
+      alert('Informe o nome do aluno dependente.');
+      return;
+    }
 
     const parsedFormBalance = Number(formData.initialCredit || 0);
     const balanceToPersist = formData.type === 'ALUNO'
@@ -1780,6 +1818,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     const normalizedStudentName = String(formData.name || '').trim();
     const normalizedParentName = String(formData.parentName || '').trim();
     const normalizedParentRelationship = String(formData.parentRelationship || 'PAIS').trim().toUpperCase();
+    const normalizedCollaboratorRole = String(newCollaboratorRole || '').trim();
     const collaboratorPhoneParts = splitPhoneByCountryCode(selectedResponsibleCollaborator?.phone || '');
     const collaboratorPhone = collaboratorPhoneParts.localPhone || normalizePhoneDigits(selectedResponsibleCollaborator?.phone || '');
     const collaboratorCountryCode = collaboratorPhoneParts.countryCode || '55';
@@ -1790,10 +1829,18 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     const responsibleClientCountryCode = responsibleClientPhoneParts.countryCode || String((selectedResponsibleClient as any)?.parentWhatsappCountryCode || '55');
     const responsibleClientEmail = String(selectedResponsibleClient?.email || selectedResponsibleClient?.parentEmail || '').trim();
     const responsibleClientCpf = String((selectedResponsibleClient?.cpf || selectedResponsibleClient?.parentCpf || '')).trim();
-    const isStudentUsingCollaborator = formData.type === 'ALUNO' && responsibleSourceMode === 'COLABORADOR' && Boolean(selectedResponsibleCollaborator);
+    const isStudentUsingCollaborator = formData.type === 'ALUNO' && responsibleSourceMode === 'COLABORADOR';
     const isStudentUsingResponsible = formData.type === 'ALUNO' && responsibleSourceMode === 'RESPONSAVEL' && Boolean(selectedResponsibleClient);
-    if (formData.type === 'ALUNO' && responsibleSourceMode === 'COLABORADOR' && !selectedResponsibleCollaborator) {
-      alert('Selecione um colaborador para vincular como responsável.');
+    if (formData.type === 'ALUNO' && responsibleSourceMode === 'COLABORADOR' && String(formData.parentName || '').trim().length < 2) {
+      alert('Nome do colaborador é obrigatório.');
+      return;
+    }
+    if (formData.type === 'ALUNO' && responsibleSourceMode === 'COLABORADOR' && normalizedParentPhoneDigits.length < 10) {
+      alert('Telefone do colaborador é obrigatório.');
+      return;
+    }
+    if (formData.type === 'ALUNO' && responsibleSourceMode === 'COLABORADOR' && normalizedCollaboratorRole.length < 2) {
+      alert('Cargo do colaborador é obrigatório.');
       return;
     }
     if (formData.type === 'ALUNO' && responsibleSourceMode === 'RESPONSAVEL' && !selectedResponsibleClient) {
@@ -1809,24 +1856,24 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         : isStudentUsingResponsible
           ? String(selectedResponsibleClient?.name || normalizedParentName || fallbackParentName).trim()
         : (normalizedParentName || fallbackParentName))
-      : formData.parentName;
+      : normalizedClientName;
     const parentWhatsappCountryCodeToPersist = isStudentUsingCollaborator
-      ? collaboratorCountryCode
+      ? (selectedResponsibleCollaborator ? collaboratorCountryCode : formData.parentWhatsappCountryCode)
       : isStudentUsingResponsible
         ? responsibleClientCountryCode
         : formData.parentWhatsappCountryCode;
     const parentWhatsappToPersist = isStudentUsingCollaborator
-      ? collaboratorPhone
+      ? (selectedResponsibleCollaborator ? collaboratorPhone : formData.parentWhatsapp)
       : isStudentUsingResponsible
         ? responsibleClientPhone
         : formData.parentWhatsapp;
     const parentEmailToPersist = isStudentUsingCollaborator
-      ? (collaboratorParentEmail || formData.parentEmail)
+      ? (selectedResponsibleCollaborator ? (collaboratorParentEmail || formData.parentEmail) : formData.parentEmail)
       : isStudentUsingResponsible
         ? (responsibleClientEmail || formData.parentEmail)
         : formData.parentEmail;
     const parentCpfToPersist = isStudentUsingCollaborator
-      ? (collaboratorParentCpf || formData.parentCpf)
+      ? (selectedResponsibleCollaborator ? (collaboratorParentCpf || formData.parentCpf) : formData.parentCpf)
       : isStudentUsingResponsible
         ? (responsibleClientCpf || formData.parentCpf)
         : formData.parentCpf;
@@ -1867,7 +1914,9 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       photo: finalPhoto,
       enterpriseId: editingClient?.enterpriseId || activeEnterpriseId,
       parentName: parentNameToPersist,
-      parentRelationship: formData.type === 'ALUNO' ? normalizedParentRelationship : '',
+      parentRelationship: formData.type === 'ALUNO'
+        ? (isStudentUsingCollaborator ? normalizedCollaboratorRole : normalizedParentRelationship)
+        : '',
       phone: joinPhoneWithCountryCode(parentWhatsappCountryCodeToPersist, parentWhatsappToPersist),
       email: parentEmailToPersist,
       cpf: parentCpfToPersist,
@@ -1876,7 +1925,21 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       parentCpf: parentCpfToPersist,
       parentEmail: parentEmailToPersist,
       responsibleCollaboratorId: isStudentUsingCollaborator ? String(selectedResponsibleCollaborator?.id || '') : '',
-      responsibleClientId: isStudentUsingResponsible ? String(selectedResponsibleClient?.id || '') : ''
+      responsibleClientId: isStudentUsingResponsible ? String(selectedResponsibleClient?.id || '') : '',
+      relatedStudent: formData.type === 'COLABORADOR' && addDependentStudent && String(dependentStudentForm.name || '').trim()
+        ? {
+            name: String(dependentStudentForm.name || '').trim(),
+            classType: dependentStudentForm.classType,
+            classGrade: dependentStudentForm.classGrade,
+            class: [dependentStudentForm.classType, dependentStudentForm.classGrade].filter(Boolean).join(' - '),
+            dailyLimit: Number(dependentStudentForm.dailyLimit || 30),
+            restrictions: String(dependentStudentForm.restrictions || '')
+              .split(',')
+              .map((item) => item.trim())
+              .filter(Boolean),
+            responsibleType: 'COLABORADOR',
+          }
+        : null
     };
 
     try {
@@ -4075,7 +4138,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                           <div>
                             <h3 className="text-sm font-black text-slate-800 uppercase tracking-wide">Dados Cadastrais</h3>
                             <p className="text-[11px] font-semibold text-slate-400">
-                              {isResponsibleView ? 'Informações principais do responsável/colaborador' : 'Informações principais do aluno/colaborador'}
+                              {isResponsibleView ? 'Informações principais do colaborador' : 'Informações principais do aluno/colaborador'}
                             </p>
                           </div>
                         </div>
@@ -4139,43 +4202,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                               Aluno
                             </div>
                           ) : isResponsibleView ? (
-                            <div className="grid grid-cols-2 gap-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setFormData({ ...formData, type: 'RESPONSAVEL' });
-                                  setResponsibleSourceMode('NEW');
-                                  setResponsibleClientSearch('');
-                                  setResponsibleClientId(null);
-                                  setResponsibleCollaboratorSearch('');
-                                  setResponsibleCollaboratorId(null);
-                                }}
-                                className={`w-full px-4 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest border transition-all ${
-                                  formData.type === 'RESPONSAVEL'
-                                    ? 'bg-emerald-600 border-emerald-600 text-white'
-                                    : 'bg-white border-slate-200 text-slate-600 hover:border-emerald-300'
-                                }`}
-                              >
-                                Responsável
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setFormData({ ...formData, type: 'COLABORADOR' });
-                                  setResponsibleSourceMode('NEW');
-                                  setResponsibleClientSearch('');
-                                  setResponsibleClientId(null);
-                                  setResponsibleCollaboratorSearch('');
-                                  setResponsibleCollaboratorId(null);
-                                }}
-                                className={`w-full px-4 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest border transition-all ${
-                                  formData.type === 'COLABORADOR'
-                                    ? 'bg-blue-600 border-blue-600 text-white'
-                                    : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300'
-                                }`}
-                              >
-                                Colaborador
-                              </button>
+                            <div className="w-full px-5 py-3.5 bg-blue-50 border border-blue-200 rounded-2xl font-black text-sm text-blue-700 uppercase tracking-widest">
+                              Colaborador
                             </div>
                           ) : (
                             <select
@@ -4199,7 +4227,6 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                             >
                               <option value="ALUNO">Aluno</option>
                               <option value="COLABORADOR">Colaborador</option>
-                              <option value="RESPONSAVEL">Responsável</option>
                             </select>
                           )}
                         </div>
@@ -4238,14 +4265,12 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                           </>
                         ) : (
                           <div className="space-y-1.5 md:col-span-2">
-                            <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">
-                              {formData.type === 'RESPONSAVEL' ? 'Vínculo / Parentesco' : 'Departamento / Área'}
-                            </label>
+                            <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Cargo / Departamento</label>
                             <input
                               value={formData.class}
                               onChange={e => setFormData({ ...formData, class: e.target.value })}
                               className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
-                              placeholder={formData.type === 'RESPONSAVEL' ? 'Ex.: Pais, Avós, Tios, Tutor legal' : 'Ex.: Cozinha, Limpeza, Administrativo'}
+                              placeholder="Ex.: Cozinha, Limpeza, Administrativo"
                             />
                           </div>
                         )}
@@ -4287,9 +4312,11 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                         </div>
                         <div>
                           <h3 className="text-sm font-black text-slate-800 uppercase tracking-wide">
-                            {formData.type === 'ALUNO' ? 'Dados do Responsável' : (formData.type === 'RESPONSAVEL' ? 'Dados do Responsável' : 'Dados do Colaborador')}
+                            {formData.type === 'ALUNO' ? 'Dados do Responsável' : (formData.type === 'RESPONSAVEL' ? 'Contato do Responsável' : 'Contato do Colaborador')}
                           </h3>
-                          <p className="text-[11px] font-semibold text-slate-400">Contato principal para comunicação e cobrança</p>
+                          <p className="text-[11px] font-semibold text-slate-400">
+                            {formData.type === 'ALUNO' ? 'Contato principal para comunicação e cobrança' : 'Telefone, CPF e e-mail para contato principal'}
+                          </p>
                         </div>
                       </div>
 
@@ -4297,13 +4324,14 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                         {formData.type === 'ALUNO' && (
                           <div className="md:col-span-2 space-y-2">
                             <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Origem do responsável</label>
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <div className={`grid grid-cols-1 ${isUnitAdmin ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-2`}>
                               <button
                                 type="button"
                                 onClick={() => {
                                   setResponsibleSourceMode('NEW');
                                   setResponsibleClientId(null);
                                   setResponsibleCollaboratorId(null);
+                                  setNewCollaboratorRole('');
                                 }}
                                 className={`px-4 py-3 rounded-2xl border text-[11px] font-black uppercase tracking-widest transition-all ${
                                   responsibleSourceMode === 'NEW'
@@ -4313,25 +4341,29 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                               >
                                 Cadastrar Novo Responsável
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setResponsibleSourceMode('RESPONSAVEL');
-                                  setResponsibleCollaboratorId(null);
-                                }}
-                                className={`px-4 py-3 rounded-2xl border text-[11px] font-black uppercase tracking-widest transition-all ${
-                                  responsibleSourceMode === 'RESPONSAVEL'
-                                    ? 'bg-cyan-600 border-cyan-600 text-white'
-                                    : 'bg-white border-slate-200 text-slate-600 hover:border-cyan-300'
-                                }`}
-                              >
-                                Usar Responsável
-                              </button>
+                              {!isUnitAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setResponsibleSourceMode('RESPONSAVEL');
+                                    setResponsibleCollaboratorId(null);
+                                    setNewCollaboratorRole('');
+                                  }}
+                                  className={`px-4 py-3 rounded-2xl border text-[11px] font-black uppercase tracking-widest transition-all ${
+                                    responsibleSourceMode === 'RESPONSAVEL'
+                                      ? 'bg-cyan-600 border-cyan-600 text-white'
+                                      : 'bg-white border-slate-200 text-slate-600 hover:border-cyan-300'
+                                  }`}
+                                >
+                                  Usar Responsável
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => {
                                   setResponsibleSourceMode('COLABORADOR');
                                   setResponsibleClientId(null);
+                                  setNewCollaboratorRole(String(formData.parentRelationship || ''));
                                 }}
                                 className={`px-4 py-3 rounded-2xl border text-[11px] font-black uppercase tracking-widest transition-all ${
                                   responsibleSourceMode === 'COLABORADOR'
@@ -4339,7 +4371,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                     : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300'
                                 }`}
                               >
-                                Inserir Colaborador
+                                Cadastrar Novo Colaborador
                               </button>
                             </div>
                           </div>
@@ -4373,6 +4405,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                       onClick={() => {
                                         setResponsibleCollaboratorId(collaborator.id);
                                         setResponsibleCollaboratorSearch(String(collaborator.name || ''));
+                                        setNewCollaboratorRole(String(collaborator.class || ''));
                                         setFormData((prev) => ({
                                           ...prev,
                                           parentName: String(collaborator.name || ''),
@@ -4404,16 +4437,13 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                               </div>
                             )}
                             <div className="space-y-1.5">
-                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Tipo de Responsável</label>
-                              <select
-                                value={formData.parentRelationship}
-                                onChange={e => setFormData({ ...formData, parentRelationship: e.target.value })}
+                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Cargo do Colaborador</label>
+                              <input
+                                value={newCollaboratorRole}
+                                onChange={e => setNewCollaboratorRole(e.target.value)}
                                 className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
-                              >
-                                {RESPONSIBLE_RELATION_OPTIONS.map((option) => (
-                                  <option key={option.value} value={option.value}>{option.label}</option>
-                                ))}
-                              </select>
+                                placeholder="Ex.: Auxiliar de Cozinha"
+                              />
                             </div>
                           </>
                         ) : formData.type === 'ALUNO' && responsibleSourceMode === 'RESPONSAVEL' ? (
@@ -4496,15 +4526,17 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                           </>
                         ) : (
                           <>
-                            <div className="space-y-1.5 md:col-span-2">
-                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">{formData.type === 'ALUNO' ? 'Nome do Pai/Responsável' : (formData.type === 'RESPONSAVEL' ? 'Nome do Responsável' : 'Nome do Colaborador')}</label>
-                              <input
-                                value={formData.parentName}
-                                onChange={e => setFormData({ ...formData, parentName: e.target.value })}
-                                className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
-                                placeholder={formData.type === 'ALUNO' ? 'Nome completo do responsável' : (formData.type === 'RESPONSAVEL' ? 'Nome completo do responsável' : 'Nome completo do colaborador')}
-                              />
-                            </div>
+                            {formData.type === 'ALUNO' && (
+                              <div className="space-y-1.5 md:col-span-2">
+                                <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Nome do Pai/Responsável</label>
+                                <input
+                                  value={formData.parentName}
+                                  onChange={e => setFormData({ ...formData, parentName: e.target.value })}
+                                  className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                  placeholder="Nome completo do responsável"
+                                />
+                              </div>
+                            )}
 
                             {formData.type === 'ALUNO' && (
                               <div className="space-y-1.5">
@@ -4567,6 +4599,94 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                           </>
                         )}
                       </div>
+
+                      {formData.type === 'COLABORADOR' && (
+                        <div className="mt-6 rounded-2xl border-2 border-indigo-200 bg-indigo-50/60 p-4 space-y-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-black text-indigo-800 uppercase tracking-wide">Adicionar aluno como seu dependente para consumo na cantina?</p>
+                              <p className="text-xs font-semibold text-indigo-700/80">Ative para incluir o cadastro do aluno dependente junto com o colaborador.</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setAddDependentStudent((prev) => !prev)}
+                              className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors ${addDependentStudent ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                              aria-label="Ativar cadastro de dependente"
+                            >
+                              <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${addDependentStudent ? 'translate-x-7' : 'translate-x-1'}`} />
+                            </button>
+                          </div>
+
+                          {addDependentStudent && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in">
+                              <div className="md:col-span-2 space-y-1.5">
+                                <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Nome do Aluno Dependente</label>
+                                <input
+                                  value={dependentStudentForm.name}
+                                  onChange={(e) => setDependentStudentForm((prev) => ({ ...prev, name: e.target.value }))}
+                                  className="w-full px-5 py-3.5 bg-white border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                  placeholder="Nome completo do aluno"
+                                />
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Nível de Ensino</label>
+                                <select
+                                  value={dependentStudentForm.classType}
+                                  onChange={(e) => setDependentStudentForm((prev) => ({
+                                    ...prev,
+                                    classType: e.target.value as '' | 'INFANTIL' | 'FUNDAMENTAL' | 'MEDIO' | 'INTEGRAL',
+                                    classGrade: '',
+                                  }))}
+                                  className="w-full px-5 py-3.5 bg-white border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                >
+                                  <option value="">Selecione o nível...</option>
+                                  <option value="INFANTIL">Educação Infantil</option>
+                                  <option value="FUNDAMENTAL">Ensino Fundamental</option>
+                                  <option value="MEDIO">Ensino Médio</option>
+                                  <option value="INTEGRAL">Integral</option>
+                                </select>
+                              </div>
+
+                              {dependentStudentForm.classType && dependentStudentForm.classType !== 'INTEGRAL' && (
+                                <div className="space-y-1.5">
+                                  <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Série / Ano</label>
+                                  <select
+                                    value={dependentStudentForm.classGrade}
+                                    onChange={(e) => setDependentStudentForm((prev) => ({ ...prev, classGrade: e.target.value }))}
+                                    className="w-full px-5 py-3.5 bg-white border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                  >
+                                    <option value="">Selecione a série...</option>
+                                    {gradeOptions[dependentStudentForm.classType as keyof typeof gradeOptions].map((grade) => (
+                                      <option key={grade} value={grade}>{grade}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+
+                              <div className="space-y-1.5">
+                                <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Limite Diário (R$)</label>
+                                <input
+                                  type="number"
+                                  value={dependentStudentForm.dailyLimit}
+                                  onChange={(e) => setDependentStudentForm((prev) => ({ ...prev, dailyLimit: Number(e.target.value || 0) }))}
+                                  className="w-full px-5 py-3.5 bg-white border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                />
+                              </div>
+
+                              <div className="space-y-1.5 md:col-span-2">
+                                <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Restrições Alimentares</label>
+                                <input
+                                  value={dependentStudentForm.restrictions}
+                                  onChange={(e) => setDependentStudentForm((prev) => ({ ...prev, restrictions: e.target.value }))}
+                                  className="w-full px-5 py-3.5 bg-white border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                  placeholder="Ex.: Lactose, Glúten, Amendoim"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </section>
                  </div>
               </div>
