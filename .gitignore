@@ -6,6 +6,8 @@ backend/data/**
 .env
 .env.*
 !.env.example
+.envrc
+.envrc.*
 backend/.env
 backend/.env.*
 !backend/.env.example
