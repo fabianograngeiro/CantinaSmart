@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { randomBytes, createHash } from 'crypto';
 import { NUTRITIONAL_BASE_SEED } from './data/nutritionalBaseSeed.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -37,8 +38,12 @@ interface DatabaseShape {
     history?: any;
     schedules?: any;
     aiConfig?: any;
+    syncDiagnostics?: any;
     dispatchAutomationsByEnterprise?: Record<string, any>;
+    dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
+    sessionBoundEnterpriseId?: string;
+    sessionBoundAt?: string;
     updatedAt?: string;
   };
 }
@@ -100,14 +105,202 @@ export class Database {
     history?: any;
     schedules?: any;
     aiConfig?: any;
+    syncDiagnostics?: any;
     dispatchAutomationsByEnterprise?: Record<string, any>;
+    dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
+    sessionBoundEnterpriseId?: string;
+    sessionBoundAt?: string;
     updatedAt?: string;
   } = {};
 
   private normalizeBrazilPhone(value: any) {
     const digits = String(value ?? '').replace(/\D/g, '');
     return digits;
+  }
+
+  private buildPortalAccessTokenHash(token: string) {
+    return createHash('sha256').update(String(token || '')).digest('hex');
+  }
+
+  private generatePortalRawToken() {
+    return randomBytes(48).toString('hex');
+  }
+
+  private generatePortalPlaceholderPassword() {
+    return `Cs!${randomBytes(8).toString('hex')}A1`;
+  }
+
+  private normalizePortalClientType(value: any) {
+    const normalized = String(value || '').trim().toUpperCase();
+    if (normalized === 'RESPONSAVEL' || normalized === 'COLABORADOR') return normalized;
+    return '';
+  }
+
+  private buildFallbackPortalEmail(client: any) {
+    const base = String(client?.id || this.generateEntityId('c')).replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || `portal${Date.now()}`;
+    return `portal_${base}@cantinasmart.local`;
+  }
+
+  private sanitizeEmail(value: any) {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  private ensureUniquePortalEmail(preferredEmail: string, fallbackEmail: string, ignoreUserId?: string) {
+    const normalizedPreferred = this.sanitizeEmail(preferredEmail);
+    const normalizedFallback = this.sanitizeEmail(fallbackEmail);
+
+    const exists = (candidate: string) => this.users.some((user: any) => {
+      const sameUser = ignoreUserId && String(user?.id || '').trim() === String(ignoreUserId || '').trim();
+      if (sameUser) return false;
+      return this.sanitizeEmail(user?.email) === candidate;
+    });
+
+    if (normalizedPreferred && !exists(normalizedPreferred)) return normalizedPreferred;
+    if (!normalizedFallback) return normalizedPreferred || `portal_${Date.now()}@cantinasmart.local`;
+    if (!exists(normalizedFallback)) return normalizedFallback;
+
+    const [local, domainRaw] = normalizedFallback.split('@');
+    const domain = domainRaw || 'cantinasmart.local';
+    const baseLocal = local || `portal_${Date.now()}`;
+    let attempt = 1;
+    while (attempt < 10000) {
+      const candidate = `${baseLocal}_${attempt}@${domain}`;
+      if (!exists(candidate)) return candidate;
+      attempt += 1;
+    }
+
+    return `${baseLocal}_${Date.now()}@${domain}`;
+  }
+
+  private getPortalUserByLinkedClientId(clientId: string) {
+    const normalizedClientId = String(clientId || '').trim();
+    if (!normalizedClientId) return null;
+    return this.users.find((user: any) => String(user?.linkedClientId || '').trim() === normalizedClientId) || null;
+  }
+
+  private ensurePortalUserForClient(client: any, options?: { regenerateToken?: boolean; ensureToken?: boolean }) {
+    const type = this.normalizePortalClientType(client?.type);
+    if (!type) return null;
+
+    const clientId = String(client?.id || '').trim();
+    if (!clientId) return null;
+
+    const normalizedClientEmail = this.sanitizeEmail(client?.email || client?.parentEmail || '');
+    const normalizedClientCpf = String(client?.cpf || client?.parentCpf || '').replace(/\D/g, '');
+
+    let user = this.getPortalUserByLinkedClientId(clientId);
+
+    if (!user && normalizedClientEmail) {
+      user = this.users.find((entry: any) => {
+        const role = String(entry?.role || '').trim().toUpperCase();
+        if (role !== 'RESPONSAVEL' && role !== 'COLABORADOR') return false;
+        return this.sanitizeEmail(entry?.email) === normalizedClientEmail;
+      }) || null;
+    }
+
+    if (!user && normalizedClientCpf) {
+      user = this.users.find((entry: any) => {
+        const role = String(entry?.role || '').trim().toUpperCase();
+        if (role !== 'RESPONSAVEL' && role !== 'COLABORADOR') return false;
+        return String(entry?.document || '').replace(/\D/g, '') === normalizedClientCpf;
+      }) || null;
+    }
+
+    const fallbackEmail = this.buildFallbackPortalEmail(client);
+    const enterpriseId = String(client?.enterpriseId || '').trim();
+    const phone = this.normalizeBrazilPhone(client?.phone || client?.parentWhatsapp || '');
+    let rawToken = '';
+
+    if (!user) {
+      const email = this.ensureUniquePortalEmail(normalizedClientEmail, fallbackEmail);
+      const token = this.generatePortalRawToken();
+      rawToken = token;
+      user = this.createUser({
+        name: String(client?.name || 'Cliente').trim() || 'Cliente',
+        email,
+        password: this.generatePortalPlaceholderPassword(),
+        role: type,
+        isActive: true,
+        linkedClientId: clientId,
+        enterpriseIds: enterpriseId ? [enterpriseId] : [],
+        enterpriseId,
+        phone,
+        document: normalizedClientCpf,
+        portalAccessEnabled: true,
+        portalAccessTokenHash: this.buildPortalAccessTokenHash(token),
+        portalAccessTokenCreatedAt: new Date().toISOString(),
+      });
+      return { user, rawToken };
+    }
+
+    const currentEnterpriseIds = Array.isArray(user?.enterpriseIds)
+      ? user.enterpriseIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+      : [];
+    const nextEnterpriseIds = enterpriseId && !currentEnterpriseIds.includes(enterpriseId)
+      ? [...currentEnterpriseIds, enterpriseId]
+      : currentEnterpriseIds;
+
+    const email = this.ensureUniquePortalEmail(
+      normalizedClientEmail || String(user?.email || '').trim(),
+      fallbackEmail,
+      String(user?.id || '').trim()
+    );
+
+    const shouldEnsureToken = options?.ensureToken !== false;
+    const shouldRegenerateToken = Boolean(options?.regenerateToken);
+    const hasTokenHash = String(user?.portalAccessTokenHash || '').trim().length > 0;
+    if (shouldEnsureToken && (shouldRegenerateToken || !hasTokenHash)) {
+      rawToken = this.generatePortalRawToken();
+    }
+
+    const updated = this.updateUser(String(user.id || '').trim(), {
+      name: String(client?.name || user?.name || 'Cliente').trim() || 'Cliente',
+      email,
+      role: type,
+      isActive: user?.isActive === false ? false : true,
+      linkedClientId: clientId,
+      enterpriseIds: nextEnterpriseIds,
+      enterpriseId,
+      phone,
+      document: normalizedClientCpf || String(user?.document || '').replace(/\D/g, ''),
+      portalAccessEnabled: true,
+      ...(rawToken
+        ? {
+            portalAccessTokenHash: this.buildPortalAccessTokenHash(rawToken),
+            portalAccessTokenCreatedAt: new Date().toISOString(),
+          }
+        : {}),
+    });
+
+    return { user: updated || user, rawToken };
+  }
+
+  private syncPortalUsersFromClients() {
+    this.clients.forEach((client: any) => {
+      const type = this.normalizePortalClientType(client?.type);
+      if (!type) return;
+      this.ensurePortalUserForClient(client, { regenerateToken: false, ensureToken: true });
+    });
+  }
+
+  ensurePortalAccessForClientId(clientId: string, options?: { regenerateToken?: boolean }) {
+    const normalizedClientId = String(clientId || '').trim();
+    if (!normalizedClientId) return null;
+    const client = this.getClient(normalizedClientId);
+    if (!client) return null;
+
+    const result = this.ensurePortalUserForClient(client, {
+      regenerateToken: Boolean(options?.regenerateToken),
+      ensureToken: true,
+    });
+
+    if (!result?.user) return null;
+    return {
+      user: result.user,
+      rawToken: String(result.rawToken || '').trim(),
+      client,
+    };
   }
 
   private generateEntityId(prefix: string) {
@@ -178,6 +371,7 @@ export class Database {
         if (inferred?.id) {
           collaboratorId = String(inferred.id).trim();
           client.responsibleCollaboratorId = collaboratorId;
+          client.responsibleClientId = '';
         }
       }
       if (!collaboratorId) return;
@@ -192,6 +386,7 @@ export class Database {
       }
 
       client.responsibleOriginType = 'COLABORADOR';
+  client.responsibleClientId = '';
       client.parentName = String(collaborator?.name || client?.parentName || '').trim();
       if (String(collaborator?.phone || '').trim()) {
         const normalizedPhone = this.normalizeBrazilPhone(collaborator.phone);
@@ -216,6 +411,82 @@ export class Database {
         existing.push(String(client.id));
       }
       collaborator.relatedStudentIds = existing;
+    });
+  }
+
+  private syncResponsibleStudentRelationships() {
+    const responsibleMap = new Map<string, any>();
+    this.clients.forEach((client: any) => {
+      if (String(client?.type || '').trim().toUpperCase() !== 'RESPONSAVEL') return;
+      const responsibleId = String(client?.id || '').trim();
+      if (!responsibleId) return;
+      client.relatedStudentIds = this.toStringArray(client.relatedStudentIds);
+      responsibleMap.set(responsibleId, client);
+    });
+
+    this.clients.forEach((client: any) => {
+      if (String(client?.type || '').trim().toUpperCase() !== 'ALUNO') return;
+      if (String(client?.responsibleCollaboratorId || '').trim()) return;
+
+      let responsibleClientId = String(client?.responsibleClientId || '').trim();
+      if (!responsibleClientId) {
+        const studentEnterpriseId = String(client?.enterpriseId || '').trim();
+        const studentResponsiblePhone = this.normalizeBrazilPhone(client?.parentWhatsapp || client?.phone || '');
+        const studentResponsibleEmail = String(client?.parentEmail || client?.email || '').trim().toLowerCase();
+        const studentResponsibleName = this.normalizeToken(client?.parentName || client?.guardianName);
+        const inferred = this.clients.find((candidate: any) => {
+          if (String(candidate?.type || '').trim().toUpperCase() !== 'RESPONSAVEL') return false;
+          if (String(candidate?.enterpriseId || '').trim() !== studentEnterpriseId) return false;
+          const candidatePhone = this.normalizeBrazilPhone(candidate?.phone || candidate?.parentWhatsapp || '');
+          const candidateEmail = String(candidate?.email || candidate?.parentEmail || '').trim().toLowerCase();
+          const candidateName = this.normalizeToken(candidate?.name);
+          if (studentResponsiblePhone && candidatePhone && studentResponsiblePhone === candidatePhone) return true;
+          if (studentResponsibleEmail && candidateEmail && studentResponsibleEmail === candidateEmail) return true;
+          if (studentResponsibleName && candidateName && studentResponsibleName === candidateName) return true;
+          return false;
+        });
+        if (inferred?.id) {
+          responsibleClientId = String(inferred.id).trim();
+          client.responsibleClientId = responsibleClientId;
+        }
+      }
+
+      if (!responsibleClientId) return;
+
+      const responsible = responsibleMap.get(responsibleClientId);
+      if (!responsible) {
+        client.responsibleClientId = '';
+        if (String(client?.responsibleOriginType || '').trim().toUpperCase() === 'RESPONSAVEL') {
+          client.responsibleOriginType = 'MANUAL';
+        }
+        return;
+      }
+
+      client.responsibleOriginType = 'RESPONSAVEL';
+      client.parentName = String(responsible?.name || client?.parentName || '').trim();
+      if (String(responsible?.phone || '').trim()) {
+        const normalizedPhone = this.normalizeBrazilPhone(responsible.phone);
+        client.parentWhatsapp = normalizedPhone;
+        client.phone = normalizedPhone;
+      }
+      if (String(responsible?.parentWhatsappCountryCode || '').trim()) {
+        client.parentWhatsappCountryCode = String(responsible.parentWhatsappCountryCode).replace(/\D/g, '') || '55';
+      }
+      if (String(responsible?.email || '').trim()) {
+        client.parentEmail = String(responsible.email).trim();
+        client.email = String(responsible.email).trim();
+      }
+      if (String(responsible?.cpf || '').trim()) {
+        const normalizedCpf = String(responsible.cpf).replace(/\D/g, '');
+        client.parentCpf = normalizedCpf;
+        client.cpf = normalizedCpf;
+      }
+
+      const existing = this.toStringArray(responsible.relatedStudentIds);
+      if (!existing.includes(String(client.id))) {
+        existing.push(String(client.id));
+      }
+      responsible.relatedStudentIds = existing;
     });
   }
 
@@ -250,10 +521,14 @@ export class Database {
     next.cpf = String(next?.cpf || '').replace(/\D/g, '');
     next.parentEmail = String(next?.parentEmail || '').trim();
     next.email = String(next?.email || '').trim();
+    next.responsibleClientId = String(next?.responsibleClientId || '').trim();
     next.responsibleCollaboratorId = String(next?.responsibleCollaboratorId || '').trim();
     next.responsibleOriginType = String(next?.responsibleOriginType || '').trim().toUpperCase();
     if (isStudent && next.responsibleCollaboratorId) {
+      next.responsibleClientId = '';
       next.responsibleOriginType = 'COLABORADOR';
+    } else if (isStudent && next.responsibleClientId) {
+      next.responsibleOriginType = 'RESPONSAVEL';
     }
     if (!isStudent && 'responsibleCollaboratorId' in next) {
       if (!isCollaborator) {
@@ -261,10 +536,14 @@ export class Database {
         if (next.responsibleOriginType === 'COLABORADOR') next.responsibleOriginType = 'MANUAL';
       }
     }
-    if (isCollaborator && !Array.isArray(next.relatedStudentIds)) {
+    if (!isStudent && 'responsibleClientId' in next) {
+      next.responsibleClientId = '';
+      if (next.responsibleOriginType === 'RESPONSAVEL') next.responsibleOriginType = 'MANUAL';
+    }
+    if ((isCollaborator || String(next?.type || '').trim().toUpperCase() === 'RESPONSAVEL') && !Array.isArray(next.relatedStudentIds)) {
       next.relatedStudentIds = [];
     }
-    if (!isCollaborator && 'relatedStudentIds' in next) {
+    if (!(isCollaborator || String(next?.type || '').trim().toUpperCase() === 'RESPONSAVEL') && 'relatedStudentIds' in next) {
       next.relatedStudentIds = this.toStringArray(next.relatedStudentIds);
     }
 
@@ -862,6 +1141,35 @@ export class Database {
     return { removed: idsToRemove.size, affectedKeys };
   }
 
+  private removeOrphanTransactionReferences() {
+    const existingIds = new Set(
+      this.transactions
+        .map((tx: any) => String(tx?.id || '').trim())
+        .filter(Boolean)
+    );
+
+    if (existingIds.size === 0) return 0;
+
+    const shouldRemove = (tx: any) => {
+      const originId = String(tx?.originTransactionId || '').trim();
+      if (!originId) return false;
+
+      const txType = this.normalizeToken(tx?.type);
+      const txDesc = this.normalizeToken(tx?.description || tx?.item);
+      const txMethod = this.normalizeToken(tx?.paymentMethod || tx?.method);
+      const isReversal = (txType === 'CREDIT' || txType === 'CREDITO')
+        && (txDesc.includes('ESTORNO') || txDesc.includes('REVERS'));
+      const isLinkedPlanFlow = this.isDeliveryPlanTransaction(tx) || txMethod.includes('PLANO');
+
+      if (!isReversal && !isLinkedPlanFlow) return false;
+      return !existingIds.has(originId);
+    };
+
+    const before = this.transactions.length;
+    this.transactions = this.transactions.filter((tx: any) => !shouldRemove(tx));
+    return Math.max(0, before - this.transactions.length);
+  }
+
   private buildConsumedPlanProgressByTransactionId(transactions: any[]) {
     const progressByTxId = new Map<string, string>();
     const unitByClientPlanId = new Map<string, number>();
@@ -1009,6 +1317,7 @@ export class Database {
     this.ingredients = this.ingredients.map((ingredient) => this.normalizeIngredientRecord(ingredient));
     this.ensureNutritionalBaseSeed();
     this.deduplicateDeliveryHistoryTransactions();
+    this.removeOrphanTransactionReferences();
     this.clients = this.clients.map((client) => {
       const contactNormalized = this.normalizeContactFields(client);
       const schemaNormalized = this.normalizeClientPlanBalances(contactNormalized);
@@ -1016,6 +1325,8 @@ export class Database {
       return this.pruneClientPlanReferencesToActivePlans(rebuilt);
     });
     this.syncCollaboratorStudentRelationships();
+    this.syncResponsibleStudentRelationships();
+    this.syncPortalUsersFromClients();
   }
 
   constructor() {
@@ -1720,8 +2031,12 @@ export class Database {
     history?: any;
     schedules?: any;
     aiConfig?: any;
+    syncDiagnostics?: any;
     dispatchAutomationsByEnterprise?: Record<string, any>;
+    dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
+    sessionBoundEnterpriseId?: string;
+    sessionBoundAt?: string;
   }) {
     this.whatsappStore = {
       ...this.getWhatsAppStore(),
@@ -2019,6 +2334,8 @@ export class Database {
     }
 
     this.syncCollaboratorStudentRelationships();
+    this.syncResponsibleStudentRelationships();
+    this.ensurePortalUserForClient(newClient, { regenerateToken: false, ensureToken: true });
     this.saveData();
     return newClient;
   }
@@ -2087,6 +2404,8 @@ export class Database {
         }
       }
       this.syncCollaboratorStudentRelationships();
+      this.syncResponsibleStudentRelationships();
+      this.ensurePortalUserForClient(updatedClient, { regenerateToken: false, ensureToken: true });
       this.saveData();
       return this.clients[index];
     }
@@ -2108,9 +2427,20 @@ export class Database {
             responsibleOriginType: 'MANUAL',
           };
         });
+      } else if (deletingType === 'RESPONSAVEL') {
+        this.clients = this.clients.map((client: any) => {
+          if (String(client?.type || '').trim().toUpperCase() !== 'ALUNO') return client;
+          if (String(client?.responsibleClientId || '').trim() !== String(id).trim()) return client;
+          return {
+            ...client,
+            responsibleClientId: '',
+            responsibleOriginType: 'MANUAL',
+          };
+        });
       } else if (deletingType === 'ALUNO') {
         this.clients = this.clients.map((client: any) => {
-          if (String(client?.type || '').trim().toUpperCase() !== 'COLABORADOR') return client;
+          const normalizedType = String(client?.type || '').trim().toUpperCase();
+          if (normalizedType !== 'COLABORADOR' && normalizedType !== 'RESPONSAVEL') return client;
           return {
             ...client,
             relatedStudentIds: this.toStringArray(client?.relatedStudentIds).filter((studentId) => String(studentId) !== String(id)),
@@ -2119,6 +2449,7 @@ export class Database {
       }
       this.clients.splice(index, 1);
       this.syncCollaboratorStudentRelationships();
+      this.syncResponsibleStudentRelationships();
       this.saveData();
       return true;
     }
@@ -2467,6 +2798,31 @@ export class Database {
       time: data?.time || time,
     };
 
+    const normalizedType = this.normalizeToken(newTransaction?.type);
+    const normalizedDesc = this.normalizeToken(newTransaction?.description || newTransaction?.item);
+    const originTransactionId = String(newTransaction?.originTransactionId || '').trim();
+    const isReversalCredit = (normalizedType === 'CREDIT' || normalizedType === 'CREDITO')
+      && (normalizedDesc.includes('ESTORNO') || normalizedDesc.includes('REVERS'));
+
+    if (originTransactionId) {
+      newTransaction.originTransactionId = originTransactionId;
+    }
+
+    if (isReversalCredit && originTransactionId) {
+      const existingReversal = this.transactions.find((tx: any) => {
+        const txOrigin = String(tx?.originTransactionId || '').trim();
+        if (!txOrigin || txOrigin !== originTransactionId) return false;
+        const txType = this.normalizeToken(tx?.type);
+        const txDesc = this.normalizeToken(tx?.description || tx?.item);
+        return (txType === 'CREDIT' || txType === 'CREDITO')
+          && (txDesc.includes('ESTORNO') || txDesc.includes('REVERS'));
+      });
+
+      if (existingReversal) {
+        return existingReversal;
+      }
+    }
+
     if (this.isDeliveryPlanTransaction(newTransaction)) {
       const deliveryKey = this.resolveDeliveryPlanTransactionKey(newTransaction);
       const txType = this.normalizeToken(newTransaction?.type);
@@ -2619,114 +2975,291 @@ export class Database {
     return null;
   }
 
-  deleteTransaction(id: string) {
-    const index = this.transactions.findIndex(t => t.id === id);
-    if (index > -1) {
-      const txToDelete: any = this.transactions[index];
+  deleteTransaction(id: string, audit?: { deletedByName?: string; deleteReason?: string; requesterUserId?: string; requesterRole?: string }) {
+    const normalizedId = String(id || '').trim();
+    if (!normalizedId) return false;
 
-      const amountFromTx = (tx: any) => {
-        const n = Math.abs(this.resolveTransactionAmount(tx));
-        return Number.isFinite(n) ? n : 0;
+    const targetTransaction = this.transactions.find((t: any) => String(t?.id || '').trim() === normalizedId) as any;
+    if (!targetTransaction) return false;
+
+    // Remove a transação solicitada e toda a cadeia vinculada por originTransactionId.
+    const idsToDelete = new Set<string>([normalizedId]);
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      this.transactions.forEach((tx: any) => {
+        const txId = String(tx?.id || '').trim();
+        const originId = String(tx?.originTransactionId || '').trim();
+        if (!txId || !originId) return;
+        if (idsToDelete.has(originId) && !idsToDelete.has(txId)) {
+          idsToDelete.add(txId);
+          expanded = true;
+        }
+      });
+    }
+
+    const isPlanCreditTarget = (() => {
+      const txType = this.normalizeToken(targetTransaction?.type);
+      if (txType !== 'CREDIT' && txType !== 'CREDITO') return false;
+      const txDesc = this.normalizeToken(targetTransaction?.description || targetTransaction?.item);
+      if (txDesc.includes('ESTORNO') || txDesc.includes('REVERS')) return false;
+      const txMethod = this.normalizeToken(targetTransaction?.paymentMethod || targetTransaction?.method);
+      const txPlanId = String(targetTransaction?.planId || targetTransaction?.originPlanId || '').trim();
+      const txPlan = this.normalizeToken(targetTransaction?.plan || targetTransaction?.planName || '');
+      return Boolean(txPlanId) || txMethod.includes('PLANO') || (txPlan.length > 0 && !['AVULSO', 'PREPAGO', 'GERAL', 'VENDA'].includes(txPlan));
+    })();
+
+    if (isPlanCreditTarget) {
+      const targetClientId = String(targetTransaction?.clientId || '').trim();
+      const targetPlanId = String(targetTransaction?.planId || targetTransaction?.originPlanId || '').trim();
+      const targetPlanName = this.normalizeToken(targetTransaction?.plan || targetTransaction?.planName || '');
+      const targetTimestamp = (() => {
+        const raw = String(targetTransaction?.timestamp || '').trim();
+        if (raw) {
+          const parsed = new Date(raw).getTime();
+          if (Number.isFinite(parsed)) return parsed;
+        }
+        const fallback = new Date(`${String(targetTransaction?.date || '').trim()}T${String(targetTransaction?.time || '00:00').trim() || '00:00'}`).getTime();
+        return Number.isFinite(fallback) ? fallback : 0;
+      })();
+
+      const isAutoDeliveryConsumption = (tx: any) => {
+        const desc = this.normalizeToken(tx?.description || tx?.item);
+        return desc.includes('BAIXA RETROATIVA AUTOMATICA DO PLANO') || desc.includes('ENTREGA DO DIA');
       };
 
-      const applyEffect = (clientRef: any, tx: any, factor: number) => {
-        const signedAmount = Number((amountFromTx(tx) * factor).toFixed(2));
+      this.transactions.forEach((tx: any) => {
+        const txId = String(tx?.id || '').trim();
+        if (!txId || idsToDelete.has(txId)) return;
+
         const txType = this.normalizeToken(tx?.type);
-        const txDesc = this.normalizeToken(tx?.description || tx?.item);
-        const txMethod = this.normalizeToken(tx?.paymentMethod || tx?.method);
-        const isSaldoMethod = txMethod.includes('SALDO') || txMethod.includes('CARTEIRA');
-        const isCollaboratorCreditMethod = txMethod.includes('CREDITO_COLABORADOR');
-        const planNameNormalized = this.normalizeToken(tx?.plan);
-        const isPlanConsumption =
-          Boolean(tx?.planId)
-          || txMethod.includes('PLANO')
-          || (planNameNormalized.length > 0 && !['AVULSO', 'PREPAGO', 'GERAL'].includes(planNameNormalized));
-        const planId = String(tx?.planId || tx?.originPlanId || '').trim();
-        const planName = String(tx?.plan || tx?.planName || '').trim();
-        const unitValue = this.resolvePlanUnitValue(planId, planName, String(clientRef?.enterpriseId || '').trim(), [
-          tx?.planUnitValue,
-          tx?.unitValue,
-          tx?.planPrice,
-        ]);
-        const signedUnits = this.roundValue(this.resolveTransactionPlanUnits(tx, unitValue > 0 ? unitValue : 1) * factor, 4);
+        if (txType !== 'CONSUMO') return;
+        if (!isAutoDeliveryConsumption(tx)) return;
 
-        if (txType === 'CREDIT' || txType === 'CREDITO') {
-          if (txDesc.includes('PAGAMENTO DE CONSUMO DO COLABORADOR')) {
-            const currentDue = Number(clientRef.amountDue || 0);
-            const currentMonthly = Number(clientRef.monthlyConsumption || 0);
-            clientRef.amountDue = Math.max(0, Number((currentDue - signedAmount).toFixed(2)));
-            clientRef.monthlyConsumption = Math.max(0, Number((currentMonthly - signedAmount).toFixed(2)));
-            return;
+        const txClientId = String(tx?.clientId || '').trim();
+        if (!targetClientId || txClientId !== targetClientId) return;
+
+        const txPlanId = String(tx?.planId || tx?.originPlanId || '').trim();
+        const txPlanName = this.normalizeToken(tx?.plan || tx?.planName || '');
+        const samePlan = (targetPlanId && txPlanId && targetPlanId === txPlanId)
+          || (targetPlanName && txPlanName && targetPlanName === txPlanName);
+        if (!samePlan) return;
+
+        const txTs = (() => {
+          const raw = String(tx?.timestamp || '').trim();
+          if (raw) {
+            const parsed = new Date(raw).getTime();
+            if (Number.isFinite(parsed)) return parsed;
           }
+          const fallback = new Date(`${String(tx?.date || '').trim()}T${String(tx?.time || '00:00').trim() || '00:00'}`).getTime();
+          return Number.isFinite(fallback) ? fallback : 0;
+        })();
 
-          if (tx?.planId || txDesc.includes('CREDITO PLANO') || txDesc.includes('RECARGA DE PLANO')) {
-            this.applyPlanBalanceDelta(clientRef, tx, signedUnits, signedAmount);
-            return;
+        // Consumos automáticos dessa compra são gravados próximos ao timestamp da recarga.
+        if (targetTimestamp > 0 && txTs > 0) {
+          const delta = Math.abs(txTs - targetTimestamp);
+          if (delta <= (10 * 60 * 1000)) {
+            idsToDelete.add(txId);
           }
+        }
+      });
+    }
 
-          clientRef.balance = Number((Number(clientRef.balance || 0) + signedAmount).toFixed(2));
+    const removedTransactions = this.transactions.filter((tx: any) => {
+      const txId = String(tx?.id || '').trim();
+      return Boolean(txId) && idsToDelete.has(txId);
+    });
+
+    const amountFromTx = (tx: any) => {
+      const n = this.resolveTransactionAmount(tx);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    const applyClientEffect = (clientRef: any, tx: any, factor: number) => {
+      const signedAmount = Number((amountFromTx(tx) * factor).toFixed(2));
+      const txType = this.normalizeToken(tx?.type);
+      const txDesc = this.normalizeToken(tx?.description || tx?.item);
+      const txMethod = this.normalizeToken(tx?.paymentMethod || tx?.method);
+      const planId = String(tx?.planId || tx?.originPlanId || '').trim();
+      const planName = String(tx?.plan || tx?.planName || '').trim();
+      const planNameNormalized = this.normalizeToken(planName);
+      const isPlanConsumption =
+        Boolean(planId)
+        || txMethod.includes('PLANO')
+        || (planNameNormalized.length > 0 && !['AVULSO', 'PREPAGO', 'GERAL'].includes(planNameNormalized));
+      const unitValue = this.resolvePlanUnitValue(planId, planName, String(clientRef?.enterpriseId || '').trim(), [
+        tx?.planUnitValue,
+        tx?.unitValue,
+        tx?.planPrice,
+      ]);
+      const signedUnits = this.roundValue(this.resolveTransactionPlanUnits(tx, unitValue > 0 ? unitValue : 1) * factor, 4);
+
+      if (txType === 'CREDIT' || txType === 'CREDITO') {
+        if (txDesc.includes('PAGAMENTO DE CONSUMO DO COLABORADOR')) {
+          const currentDue = Number(clientRef.amountDue || 0);
+          const currentMonthly = Number(clientRef.monthlyConsumption || 0);
+          clientRef.amountDue = Math.max(0, Number((currentDue - signedAmount).toFixed(2)));
+          clientRef.monthlyConsumption = Math.max(0, Number((currentMonthly - signedAmount).toFixed(2)));
           return;
         }
 
-        if (txType === 'CONSUMO') {
-          if (isPlanConsumption) {
-            this.applyPlanBalanceDelta(clientRef, tx, -signedUnits, -signedAmount);
-            return;
-          }
-          if (isSaldoMethod) {
-            clientRef.balance = Number((Number(clientRef.balance || 0) - signedAmount).toFixed(2));
-            return;
-          }
-          if (isCollaboratorCreditMethod) {
-            const currentDue = Number(clientRef.amountDue || 0);
-            const currentMonthly = Number(clientRef.monthlyConsumption || 0);
-            clientRef.amountDue = Math.max(0, Number((currentDue + signedAmount).toFixed(2)));
-            clientRef.monthlyConsumption = Math.max(0, Number((currentMonthly + signedAmount).toFixed(2)));
-            return;
-          }
+        if (tx?.planId || txDesc.includes('CREDITO PLANO') || txDesc.includes('RECARGA DE PLANO')) {
+          this.applyPlanBalanceDelta(clientRef, tx, signedUnits, signedAmount);
+          return;
         }
 
-        if (txType === 'DEBIT' || txType === 'VENDA_BALCAO') {
-          if (isSaldoMethod) {
-            clientRef.balance = Number((Number(clientRef.balance || 0) - signedAmount).toFixed(2));
-          }
-          if (isCollaboratorCreditMethod) {
-            const currentDue = Number(clientRef.amountDue || 0);
-            const currentMonthly = Number(clientRef.monthlyConsumption || 0);
-            clientRef.amountDue = Math.max(0, Number((currentDue + signedAmount).toFixed(2)));
-            clientRef.monthlyConsumption = Math.max(0, Number((currentMonthly + signedAmount).toFixed(2)));
-          }
+        clientRef.balance = Number((Number(clientRef.balance || 0) + signedAmount).toFixed(2));
+        return;
+      }
+
+      if (txType === 'CONSUMO') {
+        if (isPlanConsumption) {
+          this.applyPlanBalanceDelta(clientRef, tx, -signedUnits, -signedAmount);
         }
+      }
+    };
+
+    // Reverte os efeitos no aluno/colaborador antes de remover a transação.
+    removedTransactions.forEach((tx: any) => {
+      const clientId = String(tx?.clientId || '').trim();
+      if (!clientId) return;
+      const index = this.clients.findIndex((client: any) => String(client?.id || '').trim() === clientId);
+      if (index < 0) return;
+      const clientRef: any = { ...this.clients[index] };
+      applyClientEffect(clientRef, tx, -1);
+      this.clients[index] = clientRef;
+    });
+
+    const computeFinancialImpact = (tx: any) => {
+      const amount = Math.max(0, amountFromTx(tx));
+      if (!amount) return { revenue: 0, expense: 0 };
+
+      const financeKind = this.normalizeToken(tx?.financeKind);
+      if (financeKind === 'RECEITA') return { revenue: amount, expense: 0 };
+      if (financeKind === 'DESPESA') return { revenue: 0, expense: amount };
+
+      const description = this.normalizeToken(tx?.description || tx?.item);
+      const rawType = this.normalizeToken(tx?.type);
+      const paymentMethodRaw = this.normalizeToken(tx?.method || tx?.paymentMethod);
+      const paymentTokens = paymentMethodRaw
+        .split('+')
+        .map((token: string) => token.trim())
+        .filter(Boolean);
+      const allowedPdvMethods = new Set(['DEBITO', 'PIX', 'CREDITO', 'DINHEIRO']);
+      const hasAllowedPdvMethod = paymentTokens.some((token: string) => allowedPdvMethods.has(token));
+
+      const isCantinaCredit = description.includes('CREDITO LIVRE CANTINA');
+      const isPlanCredit = description.includes('RECARGA DE PLANO') || description.includes('CREDITO PLANO');
+      const isPdvSale = description.includes('COMPRA PDV') && hasAllowedPdvMethod;
+      const isLegacyCounterSale = rawType === 'VENDA_BALCAO' && hasAllowedPdvMethod;
+
+      if (isCantinaCredit || isPlanCredit || isPdvSale || isLegacyCounterSale) {
+        return { revenue: amount, expense: 0 };
+      }
+
+      return { revenue: 0, expense: 0 };
+    };
+
+    const removedFinancialTotals = removedTransactions.reduce((acc: { revenue: number; expense: number }, tx: any) => {
+      const impact = computeFinancialImpact(tx);
+      return {
+        revenue: Number((acc.revenue + impact.revenue).toFixed(2)),
+        expense: Number((acc.expense + impact.expense).toFixed(2)),
       };
+    }, { revenue: 0, expense: 0 });
 
-      const clientId = String(txToDelete?.clientId || '').trim();
-      let clientIndex = -1;
-      if (clientId) {
-        clientIndex = this.clients.findIndex(c => String(c.id) === clientId);
-      } else {
-        const txClientName = this.normalizeToken(txToDelete?.clientName || txToDelete?.client);
-        if (txClientName && txClientName !== 'CONSUMIDOR FINAL') {
-          clientIndex = this.clients.findIndex(c => this.normalizeToken(c.name) === txClientName);
-        }
-      }
+    const before = this.transactions.length;
+    this.transactions = this.transactions.filter((tx: any) => {
+      const txId = String(tx?.id || '').trim();
+      return !txId || !idsToDelete.has(txId);
+    });
 
-      if (clientIndex > -1) {
-        const clientRef: any = { ...this.clients[clientIndex] };
-        // Reverte os efeitos desta transação no cadastro do cliente.
-        applyEffect(clientRef, txToDelete, -1);
-        this.clients[clientIndex] = clientRef;
-      }
+    if (this.transactions.length === before) return false;
 
-      this.transactions.splice(index, 1);
-      this.saveData();
-      return true;
-    }
-    return false;
+    // Limpa resíduos já órfãos de exclusões antigas.
+    this.removeOrphanTransactionReferences();
+
+    this.clients = this.clients.map((client) => {
+      const normalized = this.normalizeClientPlanBalances(client);
+      const rebuilt = this.rebuildClientPlanBalancesFromTransactions(normalized);
+      return this.pruneClientPlanReferencesToActivePlans(rebuilt);
+    });
+
+    const now = new Date();
+    const deleteReason = String(audit?.deleteReason || '').trim();
+    const deletedByName = String(audit?.deletedByName || '').trim();
+    const requesterUserId = String(audit?.requesterUserId || '').trim();
+    const requesterRole = String(audit?.requesterRole || '').trim();
+
+    const removedIds = Array.from(idsToDelete.values());
+    const removedCount = removedIds.length;
+    const deletedDeliveryKeys = Array.from(new Set(
+      removedTransactions
+        .map((tx: any) => {
+          const clientId = String(tx?.clientId || '').trim();
+          const planName = this.normalizeToken(tx?.plan || tx?.planName || tx?.item || '');
+          const deliveryDate = String(tx?.deliveryDate || tx?.scheduledDate || tx?.mealDate || tx?.date || '').slice(0, 10);
+          const description = this.normalizeToken(tx?.description || tx?.item || '');
+          const looksLikeDelivery = description.includes('ENTREGA DO DIA') || /^\d{4}-\d{2}-\d{2}$/.test(deliveryDate);
+          if (!looksLikeDelivery) return '';
+          if (!clientId || !planName || !/^\d{4}-\d{2}-\d{2}$/.test(deliveryDate)) return '';
+          return `${clientId}|${planName}|${deliveryDate}`;
+        })
+        .filter(Boolean)
+    ));
+    const targetClientName = String(targetTransaction?.clientName || targetTransaction?.client || '').trim();
+    const targetPlanName = String(targetTransaction?.plan || targetTransaction?.planName || '').trim();
+    const targetRef = String(targetTransaction?.purchaseRefCode || '').trim();
+
+    const auditTransaction = {
+      id: `t_audit_delete_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      enterpriseId: String(targetTransaction?.enterpriseId || '').trim(),
+      type: 'AUDITORIA_EXCLUSAO',
+      amount: 0,
+      total: 0,
+      financeKind: 'RECEITA',
+      financeEntry: true,
+      financeCategory: 'AJUSTE EXCLUSAO TRANSACAO',
+      financeAdjustment: true,
+      plan: targetPlanName || 'AUDITORIA',
+      item: `Exclusão manual de transação${targetRef ? ` • ${targetRef}` : ''}`,
+      description: `Exclusão registrada em transações • removidas: ${removedCount} • entradas subtraídas: R$ ${removedFinancialTotals.revenue.toFixed(2)} • saídas subtraídas: R$ ${removedFinancialTotals.expense.toFixed(2)}${deleteReason ? ` • motivo: ${deleteReason}` : ''}`,
+      status: 'AUDITORIA',
+      executionSource: 'USUARIO',
+      timestamp: now.toISOString(),
+      date: now.toISOString().split('T')[0],
+      time: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      deletedByName,
+      deletedByUserId: requesterUserId,
+      deletedByRole: requesterRole,
+      deleteReason,
+      deletedTransactionId: normalizedId,
+      deletedTransactionIds: removedIds,
+      deletedTransactionCount: removedCount,
+      deletedRevenueAmount: removedFinancialTotals.revenue,
+      deletedExpenseAmount: removedFinancialTotals.expense,
+      deletedDeliveryKeys,
+      clientName: targetClientName || undefined,
+      clientId: String(targetTransaction?.clientId || '').trim() || undefined,
+      purchaseRefCode: targetRef || undefined,
+      applyClientEffects: false,
+    };
+
+    this.transactions.push(auditTransaction as any);
+    this.saveData();
+    return true;
   }
 
   clearTransactions() {
     const removedCount = this.transactions.length;
     this.transactions = [];
+
+    this.clients = this.clients.map((client) => {
+      const normalized = this.normalizeClientPlanBalances(client);
+      const rebuilt = this.rebuildClientPlanBalancesFromTransactions(normalized);
+      return this.pruneClientPlanReferencesToActivePlans(rebuilt);
+    });
+
     this.saveData();
     return removedCount;
   }

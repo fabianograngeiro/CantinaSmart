@@ -102,12 +102,6 @@ const POSPage: React.FC<POSPageProps> = ({ currentUser, activeEnterprise, onRegi
     );
   }
 
-  const isOwner = currentUser.role === Role.OWNER;
-  
-  if (isOwner) {
-    return <OwnerPOSMonitor activeEnterprise={activeEnterprise} />;
-  }
-
   return <StandardPOSInterface currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={onRegisterTransaction} />;
 };
 
@@ -1051,6 +1045,150 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     return result;
   }, [posTransactions, selectedClient, availablePlans]);
 
+  const registeredPlanDatesByPlanId = useMemo(() => {
+    const result = new Map<string, Set<string>>();
+    if (!selectedClient) return result;
+
+    const normalizeTxDateKey = (raw: any) => {
+      const value = String(raw || '').trim();
+      if (!value) return '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+      const br4 = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (br4) return `${br4[3]}-${br4[2]}-${br4[1]}`;
+      const br2 = value.match(/^(\d{2})\/(\d{2})\/(\d{2})$/);
+      if (br2) return `20${br2[3]}-${br2[2]}-${br2[1]}`;
+      const parsed = new Date(value);
+      if (Number.isFinite(parsed.getTime())) return toDateKey(parsed);
+      return '';
+    };
+
+    const registerDate = (planIdRaw: string, planNameRaw: string, dateKeyRaw: string) => {
+      const dateKey = normalizeTxDateKey(dateKeyRaw);
+      if (!dateKey) return;
+
+      const txPlanId = String(planIdRaw || '').trim();
+      const txPlanName = String(planNameRaw || '').trim().toUpperCase();
+      const matchById = availablePlans.find((plan) => String(plan.id) === txPlanId);
+      const matchByName = availablePlans.find((plan) => String(plan.name || '').trim().toUpperCase() === txPlanName);
+      const matchedPlanId = String(matchById?.id || matchByName?.id || '').trim();
+      if (!matchedPlanId) return;
+
+      const current = result.get(matchedPlanId) || new Set<string>();
+      current.add(dateKey);
+      result.set(matchedPlanId, current);
+    };
+
+    const selectedConfigs = Array.isArray((selectedClient as any)?.selectedPlansConfig)
+      ? ((selectedClient as any).selectedPlansConfig as Array<any>)
+      : [];
+
+    selectedConfigs.forEach((cfg: any) => {
+      const cfgPlanId = String(cfg?.planId || '').trim();
+      const cfgPlanName = String(cfg?.planName || cfg?.name || '').trim();
+      const cfgDates = Array.isArray(cfg?.selectedDates) ? cfg.selectedDates : [];
+      cfgDates.forEach((date: string) => registerDate(cfgPlanId, cfgPlanName, date));
+    });
+
+    posTransactions.forEach((tx: any) => {
+      if (String(tx?.clientId || '') !== String(selectedClient.id || '')) return;
+      if (String(tx?.type || '').toUpperCase() !== 'CREDITO') return;
+
+      const descRaw = `${String(tx?.description || '')} ${String(tx?.item || '')}`.toUpperCase();
+      if (descRaw.includes('ESTORNO')) return;
+
+      const txPlanId = String(tx?.planId || tx?.originPlanId || '').trim();
+      const txPlanName = String(tx?.plan || tx?.planName || '').trim();
+      if (!txPlanId && !txPlanName) return;
+
+      const selectedDates = Array.isArray(tx?.selectedDates) ? tx.selectedDates : [];
+      if (selectedDates.length > 0) {
+        selectedDates.forEach((date: string) => registerDate(txPlanId, txPlanName, date));
+        return;
+      }
+
+      const fallbackDateKey = normalizeTxDateKey(tx?.deliveryDate || tx?.scheduledDate || tx?.mealDate || tx?.referenceDate || tx?.date || tx?.timestamp);
+      if (fallbackDateKey) {
+        registerDate(txPlanId, txPlanName, fallbackDateKey);
+      }
+    });
+
+    return result;
+  }, [posTransactions, selectedClient, availablePlans]);
+
+  const reversedPlanDatesByPlanId = useMemo(() => {
+    const result = new Map<string, Set<string>>();
+    if (!selectedClient) return result;
+
+    const normalizeTxDateKey = (raw: any) => {
+      const value = String(raw || '').trim();
+      if (!value) return '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+      const br4 = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (br4) return `${br4[3]}-${br4[2]}-${br4[1]}`;
+      const br2 = value.match(/^(\d{2})\/(\d{2})\/(\d{2})$/);
+      if (br2) return `20${br2[3]}-${br2[2]}-${br2[1]}`;
+      const parsed = new Date(value);
+      if (Number.isFinite(parsed.getTime())) return toDateKey(parsed);
+      return '';
+    };
+
+    posTransactions.forEach((tx: any) => {
+      if (String(tx?.clientId || '') !== String(selectedClient.id || '')) return;
+      if (String(tx?.type || '').toUpperCase() !== 'CREDITO') return;
+
+      const originRef = String(tx?.originTransactionId || '').trim();
+      if (!originRef) return;
+
+      const text = `${String(tx?.description || '')} ${String(tx?.item || '')}`.toUpperCase();
+      if (!text.includes('ESTORNO')) return;
+
+      const dateKey = normalizeTxDateKey(tx?.deliveryDate || tx?.scheduledDate || tx?.mealDate || tx?.date || tx?.timestamp);
+      if (!dateKey) return;
+
+      const txPlanId = String(tx?.planId || tx?.originPlanId || '').trim();
+      const txPlanName = String(tx?.plan || tx?.planName || '').trim().toUpperCase();
+      const matchById = availablePlans.find((plan) => String(plan.id) === txPlanId);
+      const matchByName = availablePlans.find((plan) => String(plan.name || '').trim().toUpperCase() === txPlanName);
+      const matchedPlanId = String(matchById?.id || matchByName?.id || '').trim();
+      if (!matchedPlanId) return;
+
+      const current = result.get(matchedPlanId) || new Set<string>();
+      current.add(dateKey);
+      result.set(matchedPlanId, current);
+    });
+
+    return result;
+  }, [posTransactions, selectedClient, availablePlans]);
+
+  const reversedConsumptionIds = useMemo(() => {
+    const ids = new Set<string>();
+    posTransactions.forEach((tx: any) => {
+      const txType = String(tx?.type || '').toUpperCase();
+      if (txType !== 'CREDITO' && txType !== 'CREDIT') return;
+      const originRef = String(tx?.originTransactionId || '').trim();
+      if (!originRef) return;
+      const text = `${String(tx?.description || '')} ${String(tx?.item || '')}`.toUpperCase();
+      if (!text.includes('ESTORNO')) return;
+      ids.add(originRef);
+    });
+    return ids;
+  }, [posTransactions]);
+
+  const getAvailablePlanCreditBalance = (client: Client | null, plan: Plan | null) => {
+    if (!client || !plan) return 0;
+    const balancesRaw = ((client as any).planCreditBalances || {}) as Record<string, any>;
+    if (!balancesRaw || typeof balancesRaw !== 'object') return 0;
+
+    const byId = balancesRaw[plan.id];
+    if (byId) return Math.max(0, Number(byId.balance || 0));
+
+    const byNameKey = Object.keys(balancesRaw).find((key) =>
+      String(balancesRaw[key]?.planName || '').trim().toUpperCase() === String(plan.name || '').trim().toUpperCase()
+    );
+    if (!byNameKey) return 0;
+    return Math.max(0, Number(balancesRaw[byNameKey]?.balance || 0));
+  };
+
   const getPlanUnitRemaining = (client: Client | null, plan: Plan) => {
     if (!client) return 0;
     const selectedConfigs = Array.isArray((client as any).selectedPlansConfig)
@@ -1072,6 +1210,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
     const usedInTransactions = posTransactions.filter((tx: any) => {
       if (String(tx?.clientId || '') !== String(client.id || '')) return false;
+      const txId = String(tx?.id || '').trim();
+      if (txId && reversedConsumptionIds.has(txId)) return false;
       const rawType = String(tx?.type || '').toUpperCase();
       if (rawType !== 'CONSUMO') return false;
       const txPlan = String(tx?.plan || '').trim().toUpperCase();
@@ -1363,7 +1503,9 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       setStudentCreditPlanDates(prevDates => {
         const currentDates = new Set(prevDates[planId] || []);
         const consumedDates = consumedPlanDatesByPlanId.get(planId) || new Set<string>();
-        const weekdayDates = getDateKeysForWeekdayInStudentCreditMonth(dayKey, consumedDates);
+        const registeredDates = registeredPlanDatesByPlanId.get(planId) || new Set<string>();
+        const blockedDates = new Set<string>([...consumedDates, ...registeredDates]);
+        const weekdayDates = getDateKeysForWeekdayInStudentCreditMonth(dayKey, blockedDates);
 
         if (hasDay) {
           weekdayDates.forEach(dateKey => currentDates.delete(dateKey));
@@ -1387,7 +1529,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   const toggleStudentCreditPlanDate = (planId: string, date: Date) => {
     const dateKey = toDateKey(date);
     const consumedDates = consumedPlanDatesByPlanId.get(planId) || new Set<string>();
-    if (consumedDates.has(dateKey)) return;
+    const registeredDates = registeredPlanDatesByPlanId.get(planId) || new Set<string>();
+    if (consumedDates.has(dateKey) || registeredDates.has(dateKey)) return;
     setStudentCreditPlanDates(prev => {
       const current = prev[planId] || [];
       const exists = current.includes(dateKey);
@@ -1443,7 +1586,9 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           const selectedCount = selectedDates.length > 0 ? selectedDates.length : selectedDays.length;
           const planSubtotal = Number((selectedPlan.price * selectedCount).toFixed(2));
           if (selectedCount <= 0 || planSubtotal <= 0) return null;
-          return { selectedPlan, selectedDays, selectedDates, selectedCount, planSubtotal };
+          const availableBalance = getAvailablePlanCreditBalance(selectedClient, selectedPlan);
+          const discountedSubtotal = Number(Math.max(0, planSubtotal - availableBalance).toFixed(2));
+          return { selectedPlan, selectedDays, selectedDates, selectedCount, planSubtotal, availableBalance, discountedSubtotal };
         })
         .filter(Boolean) as Array<{
           selectedPlan: Plan;
@@ -1451,6 +1596,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           selectedDates: string[];
           selectedCount: number;
           planSubtotal: number;
+          availableBalance: number;
+          discountedSubtotal: number;
         }>;
 
       if (validFreeAmount <= 0 && selectedPlanCredits.length === 0) {
@@ -1467,17 +1614,19 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
         );
       }
 
-      selectedPlanCredits.forEach(({ selectedPlan, selectedDays, selectedDates, selectedCount, planSubtotal }) => {
+      selectedPlanCredits.forEach(({ selectedPlan, selectedDays, selectedDates, selectedCount, discountedSubtotal }) => {
         addServiceItemToCart(
           `SERVICE_CREDIT_STUDENT_PLAN_${selectedPlan.id}_${Date.now()}`,
           `Crédito plano ${selectedPlan.name} (${selectedCount} dia(s)): ${selectedClient.name}`,
-          planSubtotal,
+          discountedSubtotal,
           {
             serviceAction: 'CREDIT_STUDENT_PLAN',
             planId: selectedPlan.id,
             planName: selectedPlan.name,
             selectedDays: [...selectedDays],
-            selectedDates: [...selectedDates]
+            selectedDates: [...selectedDates],
+            planUnitPrice: selectedPlan.price,
+            planSelectedCount: selectedCount,
           }
         );
       });
@@ -1798,13 +1947,14 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
         };
       });
       const totalPlanCredit = planCredits.reduce((sum, credit) => sum + credit.amount, 0);
+      const hasPlanCreditSelection = planCredits.length > 0;
 
       const collaboratorPayTotal = cart
         .filter(item => item.serviceAction === 'PAY_COLLAB' || item.productId.startsWith('SERVICE_PAY_COLLAB_'))
         .reduce((sum, item) => sum + (item.price * item.quantity), 0);
       const planConsumptionItems = cart.filter(item => item.serviceAction === 'PLAN_CONSUMPTION');
 
-      if (selectedClient && (freeCantinaCreditTotal > 0 || totalPlanCredit > 0) && selectedClient.type !== 'COLABORADOR') {
+      if (selectedClient && (freeCantinaCreditTotal > 0 || totalPlanCredit > 0 || hasPlanCreditSelection) && selectedClient.type !== 'COLABORADOR') {
         const clientData = (updatedSelectedClient || selectedClient) as any;
         const existingSelectedPlans = Array.isArray(clientData.selectedPlansConfig) ? [...clientData.selectedPlansConfig] : [];
         const existingServicePlans = Array.isArray(clientData.servicePlans) ? [...clientData.servicePlans] : [];
@@ -1829,6 +1979,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           };
         };
         const planCreditsWithPrevious = planCredits.map((planCredit) => {
+          const purchaseRefCode = `CP-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
           const byId = existingPlanCreditBalances[planCredit.planId];
           const byNameKey = Object.keys(existingPlanCreditBalances).find((key) =>
             String(existingPlanCreditBalances[key]?.planName || '').trim().toUpperCase() === String(planCredit.planName || '').trim().toUpperCase()
@@ -1895,7 +2046,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
           return {
             ...planCredit,
-            previousSummary
+            previousSummary,
+            purchaseRefCode
           };
         });
 
@@ -2001,14 +2153,15 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
         }
 
         if (planCreditsWithPrevious.length > 0) {
-          const createdPlanTx = await Promise.all(planCreditsWithPrevious.map((planCredit) => ApiService.createTransaction({
+          const planCreditsPayable = planCreditsWithPrevious.filter((planCredit) => Number(planCredit.amount || 0) > 0.0001);
+          const createdPlanTx = await Promise.all(planCreditsPayable.map((planCredit) => ApiService.createTransaction({
             clientId: selectedClient.id,
             clientName: selectedClient.name,
             enterpriseId: activeEnterpriseId,
             type: 'CREDIT',
             amount: Number(planCredit.amount.toFixed(2)),
             description: `Recarga de plano ${planCredit.planName} via PDV`,
-            item: `Crédito plano ${planCredit.planName}${planCredit.previousSummary ? ` • ${planCredit.previousSummary}` : ''}`,
+            item: `Crédito plano ${planCredit.planName}`,
             plan: planCredit.planName,
             paymentMethod: creditMethod,
             method: creditMethod,
@@ -2018,9 +2171,21 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
             status: 'CONCLUIDA',
             planId: planCredit.planId,
             selectedDates: planCredit.selectedDates,
-            selectedDays: planCredit.selectedDays
+            selectedDays: planCredit.selectedDays,
+            planUnits: planCredit.selectedDates?.length ?? 0,
+            planUnitValue: planCredit.planPrice ?? 0,
+            purchaseRefCode: String(planCredit.purchaseRefCode || '').trim()
           })));
           createdTransactions.push(...createdPlanTx);
+
+          const creditTxIdByPurchaseRef = new Map<string, string>();
+          planCreditsPayable.forEach((planCredit, index) => {
+            const purchaseRef = String(planCredit.purchaseRefCode || '').trim();
+            const txId = String(createdPlanTx[index]?.id || '').trim();
+            if (purchaseRef && txId) {
+              creditTxIdByPurchaseRef.set(purchaseRef, txId);
+            }
+          });
 
           const autoPastConsumptionTxPromises = planCreditsWithPrevious.flatMap((planCredit) => {
             if (!Array.isArray(planCredit.retroactiveConsumedDates) || planCredit.retroactiveConsumedDates.length === 0) {
@@ -2028,6 +2193,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
             }
             return planCredit.retroactiveConsumedDates.map((referenceDateKey, index) => {
               const consumeTimestamp = new Date(now.getTime() + (index + 1) * 1000);
+              const purchaseRef = String(planCredit.purchaseRefCode || '').trim();
+              const originCreditTxId = purchaseRef ? String(creditTxIdByPurchaseRef.get(purchaseRef) || '').trim() : '';
               return ApiService.createTransaction({
                 clientId: selectedClient.id,
                 clientName: selectedClient.name,
@@ -2046,7 +2213,9 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                 date: toDateKey(now),
                 deliveryDate: referenceDateKey,
                 time: consumeTimestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-                status: 'CONCLUIDA'
+                status: 'CONCLUIDA',
+                purchaseRefCode: purchaseRef,
+                originTransactionId: originCreditTxId || undefined
               });
             });
           });
@@ -2513,16 +2682,28 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       const selectedDates = studentCreditPlanDates[planId] || [];
       const selectedCount = selectedDates.length > 0 ? selectedDates.length : selectedDays.length;
       if (selectedCount <= 0) return sum;
-      return sum + Number((plan.price * selectedCount).toFixed(2));
+      const grossSubtotal = Number((plan.price * selectedCount).toFixed(2));
+      const availableBalance = getAvailablePlanCreditBalance(selectedClient, plan);
+      const netSubtotal = Number(Math.max(0, grossSubtotal - availableBalance).toFixed(2));
+      return sum + netSubtotal;
     }, 0);
-  }, [studentCreditPlanIds, availablePlans, studentCreditPlanDays, studentCreditPlanDates]);
+  }, [studentCreditPlanIds, availablePlans, studentCreditPlanDays, studentCreditPlanDates, selectedClient]);
+
+  const selectedPlanCreditCount = useMemo(() => {
+    return studentCreditPlanIds.reduce((count, planId) => {
+      const selectedDays = studentCreditPlanDays[planId] || [];
+      const selectedDates = studentCreditPlanDates[planId] || [];
+      const selectedTotal = selectedDates.length > 0 ? selectedDates.length : selectedDays.length;
+      return count + (selectedTotal > 0 ? 1 : 0);
+    }, 0);
+  }, [studentCreditPlanIds, studentCreditPlanDays, studentCreditPlanDates]);
 
   const canConfirmServiceAction = useMemo(() => {
     if (serviceActionType === 'CREDIT_STUDENT') {
-      return serviceActionAmountNumeric > 0 || selectedPlanCreditSubtotal > 0;
+      return serviceActionAmountNumeric > 0 || selectedPlanCreditCount > 0;
     }
     return serviceActionAmountNumeric > 0;
-  }, [serviceActionType, serviceActionAmountNumeric, selectedPlanCreditSubtotal]);
+  }, [serviceActionType, serviceActionAmountNumeric, selectedPlanCreditCount]);
 
   const pendingCantinaDiscount = useMemo(() => {
     if (!selectedClient || selectedClient.type === 'COLABORADOR') return 0;
@@ -2620,7 +2801,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       const key = String(plan?.id || rawPlanId || planName.toUpperCase());
       if (map.has(key)) return;
 
-      const creditValue = getCreditValueFor(plan?.id || rawPlanId, planName);
+      const planBalanceValue = getCreditValueFor(plan?.id || rawPlanId, planName);
       const unitsRemaining = plan ? getPlanUnitRemaining(selectedClient, plan) : null;
       const planKeyById = String(plan?.id || rawPlanId || '');
       const planKeyByName = planName.toUpperCase();
@@ -2634,9 +2815,10 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           ? (pendingPlanConsumptionsMap.get(planKeyById) || 0)
           : (pendingPlanConsumptionsMap.get(planKeyByName) || 0)
       );
-      const projectedCredit = Math.max(0, Number((creditValue + pendingCredit - pendingDiscount).toFixed(2)));
+      const projectedPlanBalance = Math.max(0, Number((planBalanceValue + pendingCredit - pendingDiscount).toFixed(2)));
       const unitPrice = getPlanUnitPriceForClient(selectedClient, plan, rawPlanId, rawPlanName);
       const remainingValue = Math.max(0, Number(((unitsRemaining || 0) * unitPrice).toFixed(2)));
+      const projectedExtraCredit = Math.max(0, Number((projectedPlanBalance - remainingValue).toFixed(2)));
 
       map.set(key, {
         key,
@@ -2644,7 +2826,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
         unitsRemaining,
         unitPrice,
         remainingValue,
-        creditValue: Number.isFinite(projectedCredit) ? projectedCredit : 0,
+        creditValue: Number.isFinite(projectedExtraCredit) ? projectedExtraCredit : 0,
         pendingDiscount: Number.isFinite(pendingDiscount) ? Number(pendingDiscount.toFixed(2)) : 0,
         isActive: Boolean(plan && plan.isActive !== false),
       });
@@ -2656,7 +2838,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
     return Array.from(map.values())
       .sort((a, b) => a.planName.localeCompare(b.planName, 'pt-BR'));
-  }, [selectedClient, availablePlans, posTransactions, cart]);
+  }, [selectedClient, availablePlans, posTransactions, cart, reversedConsumptionIds]);
 
   return (
     <div className="pos-shell flex flex-col lg:flex-row h-full min-h-full lg:min-h-0 gap-4 relative" onClick={initAudio}>
@@ -3029,7 +3211,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                             )}
                             {item.serviceAction === 'CREDIT_STUDENT_PLAN' && (
                               <p className="text-[9px] text-gray-400 font-bold">
-                                {(item.selectedDates?.length || 0)} data(s) • {(item.selectedDays?.length || 0)} dia(s) da semana
+                                {(item.selectedDays?.length || 0)} dia(s) da semana
                               </p>
                             )}
 
@@ -3052,6 +3234,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                 </button>
                                 <span className="text-xs font-black text-emerald-600 ml-1">R$ {item.price.toFixed(2)}</span>
                               </div>
+                            ) : item.serviceAction === 'CREDIT_STUDENT_PLAN' && item.planUnitPrice ? (
+                              <p className="text-xs font-black mt-1">
+                                <span className="text-indigo-600">{item.planSelectedCount ?? item.quantity}x</span>
+                                <span className="text-gray-400 mx-1">•</span>
+                                <span className="text-emerald-600">R$ {Number(item.planUnitPrice).toFixed(2)}</span>
+                              </p>
                             ) : (
                               <p className="text-xs font-black mt-1">
                                 <span className="text-indigo-600">{item.quantity}x</span>
@@ -3895,6 +4083,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                             const selectedDatesCount = studentCreditPlanDates[plan.id]?.length || 0;
                             const selectedCount = selectedDatesCount > 0 ? selectedDatesCount : selectedDaysCount;
                             const subtotal = plan.price * selectedCount;
+                            const availableBalance = getAvailablePlanCreditBalance(selectedClient, plan);
+                            const discountedSubtotal = Math.max(0, subtotal - availableBalance);
 
                             return (
                               <div
@@ -3936,6 +4126,9 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                     <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">
                                       {selectedDatesCount} dia(s) do mês selecionado(s) • Subtotal: R$ {subtotal.toFixed(2)}
                                     </p>
+                                    <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mt-1">
+                                      Saldo disponível: R$ {availableBalance.toFixed(2)} • Líquido: R$ {discountedSubtotal.toFixed(2)}
+                                    </p>
                                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-1">
                                       {selectedDaysCount} dia(s) da semana marcado(s)
                                     </p>
@@ -3951,7 +4144,9 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                       {WEEK_DAY_OPTIONS.map(day => {
                                         const active = studentCreditPlanDays[plan.id]?.includes(day.key);
                                         const consumedDatesForPlan = consumedPlanDatesByPlanId.get(plan.id) || new Set<string>();
-                                        const selectableWeekdayDates = getDateKeysForWeekdayInStudentCreditMonth(day.key, consumedDatesForPlan);
+                                        const registeredDatesForPlan = registeredPlanDatesByPlanId.get(plan.id) || new Set<string>();
+                                        const blockedDatesForPlan = new Set<string>([...consumedDatesForPlan, ...registeredDatesForPlan]);
+                                        const selectableWeekdayDates = getDateKeysForWeekdayInStudentCreditMonth(day.key, blockedDatesForPlan);
                                         const isWeekdayDisabled = selectableWeekdayDates.length === 0;
                                         return (
                                           <button
@@ -3964,7 +4159,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                                 ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
                                                 : (active ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-indigo-100 text-indigo-500 hover:border-indigo-300')
                                             }`}
-                                            title={isWeekdayDisabled ? 'Todos os dias deste período já estão entregues' : ''}
+                                            title={isWeekdayDisabled ? 'Todos os dias deste período já estão registrados (entregues ou agendados)' : ''}
                                           >
                                             {day.label}
                                           </button>
@@ -4023,24 +4218,42 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                           const dateKey = toDateKey(dateCell);
                                           const isSelectedDate = (studentCreditPlanDates[plan.id] || []).includes(dateKey);
                                           const consumedDatesForPlan = consumedPlanDatesByPlanId.get(plan.id) || new Set<string>();
-                                          const isDeliveredDate = consumedDatesForPlan.has(dateKey);
+                                          const registeredDatesForPlan = registeredPlanDatesByPlanId.get(plan.id) || new Set<string>();
+                                          const reversedDatesForPlan = reversedPlanDatesByPlanId.get(plan.id) || new Set<string>();
+                                          const isReversedDate = reversedDatesForPlan.has(dateKey);
+                                          const isDeliveredDate = consumedDatesForPlan.has(dateKey) && !isReversedDate;
+                                          const isRegisteredDate = !isDeliveredDate && !isReversedDate && registeredDatesForPlan.has(dateKey);
                                           return (
                                             <button
                                               type="button"
                                               key={`${plan.id}-pdv-${dateKey}`}
-                                              disabled={isDeliveredDate}
+                                              disabled={isDeliveredDate || isRegisteredDate}
                                               onClick={() => toggleStudentCreditPlanDate(plan.id, dateCell)}
                                               className={`relative w-full h-9 rounded-lg border text-[10px] font-black transition-all flex items-center justify-center text-center ${
-                                                isDeliveredDate
+                                                isReversedDate && !isSelectedDate
+                                                  ? 'bg-rose-50 border-rose-200 text-rose-700 hover:border-rose-300'
+                                                  : isDeliveredDate
                                                   ? 'bg-emerald-50 border-emerald-200 text-emerald-700 cursor-not-allowed'
-                                                  : (isSelectedDate ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300')
+                                                  : (isRegisteredDate
+                                                      ? 'bg-amber-50 border-amber-200 text-amber-700 cursor-not-allowed'
+                                                      : (isSelectedDate ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300'))
                                               }`}
-                                              title={isDeliveredDate ? 'Entregue' : ''}
+                                              title={isReversedDate ? 'Estornado' : (isDeliveredDate ? 'Entregue' : (isRegisteredDate ? 'Já registrado em crédito anterior' : ''))}
                                             >
-                                              {isDeliveredDate ? (
+                                              {isReversedDate && !isSelectedDate ? (
+                                                <span className="flex flex-col items-center leading-none">
+                                                  <span>{dateCell.getDate()}</span>
+                                                  <span className="text-[7px] font-black uppercase tracking-wider">Estornado</span>
+                                                </span>
+                                              ) : isDeliveredDate ? (
                                                 <span className="flex flex-col items-center leading-none">
                                                   <span>{dateCell.getDate()}</span>
                                                   <span className="text-[7px] font-black uppercase tracking-wider">Entregue</span>
+                                                </span>
+                                              ) : isRegisteredDate ? (
+                                                <span className="flex flex-col items-center leading-none">
+                                                  <span>{dateCell.getDate()}</span>
+                                                  <span className="text-[7px] font-black uppercase tracking-wider">Agendado</span>
                                                 </span>
                                               ) : (
                                                 dateCell.getDate()
@@ -4048,6 +4261,16 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                               {isDeliveredDate && (
                                                 <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 text-white text-[9px] leading-none flex items-center justify-center">
                                                   ✓
+                                                </span>
+                                              )}
+                                              {isRegisteredDate && (
+                                                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-white text-[9px] leading-none flex items-center justify-center">
+                                                  •
+                                                </span>
+                                              )}
+                                              {!isDeliveredDate && isReversedDate && !isSelectedDate && (
+                                                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] leading-none flex items-center justify-center">
+                                                  !
                                                 </span>
                                               )}
                                             </button>

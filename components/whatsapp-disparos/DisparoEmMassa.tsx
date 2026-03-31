@@ -4,17 +4,17 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import ApiService from '../../services/api';
 import { Enterprise } from '../../types';
+import {
+  DispatchAudienceFilter,
+  DispatchAutomationConfig,
+  DispatchPeriodMode,
+  DispatchProfileType,
+  DispatchSendMode,
+  DispatchWeekday,
+} from './types';
 
-type AudienceFilter =
-  | 'TODOS'
-  | 'RESPONSAVEIS'
-  | 'COLABORADORES'
-  | 'SALDO_BAIXO'
-  | 'PLANO_A_VENCER'
-  | 'RELATORIO_ENTREGA';
-
-type ReportProfileType = 'RESPONSAVEL_PARENTESCO' | 'COLABORADOR';
-type DispatchPeriodMode = 'SEMANAL' | 'QUINZENAL' | 'MENSAL' | 'DESTA_SEMANA';
+type AudienceFilter = DispatchAudienceFilter;
+type ReportProfileType = DispatchProfileType;
 
 type AudienceReportRow = {
   alunoNome: string;
@@ -83,28 +83,6 @@ type ProgressState = {
   erros: number;
 };
 
-type DispatchAutomationConfig = {
-  id: string;
-  nome_perfil: string;
-  tipo_destinatario: 'responsavel' | 'colaborador';
-  campos: string[];
-  frequencia: 'semanal' | 'quinzenal' | 'mensal';
-  agendamento: {
-    hora: string;
-    dias_expediente_apenas: boolean;
-  };
-  layout_estilo: 'escolar_premium' | 'corporativo_sobrio';
-  filter: AudienceFilter;
-  profileType: ReportProfileType;
-  periodMode: DispatchPeriodMode;
-  template: string;
-  delayMin: number;
-  delayMax: number;
-  batchLimit: number;
-  isSimulation: boolean;
-  updatedAt: string;
-};
-
 const periodModeHumanLabel = (periodMode: DispatchPeriodMode) => {
   if (periodMode === 'QUINZENAL') return 'quinzenal';
   if (periodMode === 'MENSAL') return 'mensal';
@@ -148,6 +126,51 @@ const ALLOWED_FILTERS: AudienceFilter[] = [
 ];
 const ALLOWED_PERIOD_MODES: DispatchPeriodMode[] = ['SEMANAL', 'QUINZENAL', 'MENSAL', 'DESTA_SEMANA'];
 const ALLOWED_PROFILE_TYPES: ReportProfileType[] = ['RESPONSAVEL_PARENTESCO', 'COLABORADOR'];
+const DISPATCH_WEEKDAYS: DispatchWeekday[] = ['DOMINGO', 'SEGUNDA', 'TERCA', 'QUARTA', 'QUINTA', 'SEXTA', 'SABADO'];
+const DEFAULT_WEEKLY_DAY: DispatchWeekday = 'SEGUNDA';
+const DEFAULT_WEEKLY_TIME = '17:00';
+
+const WEEKDAY_META: Array<{
+  key: DispatchWeekday;
+  label: string;
+  aliases: string[];
+}> = [
+  { key: 'DOMINGO', label: 'Domingo', aliases: ['DOMINGO', 'domingo', 'SUNDAY', 'sunday'] },
+  { key: 'SEGUNDA', label: 'Segunda-feira', aliases: ['SEGUNDA', 'segunda', 'MONDAY', 'monday'] },
+  { key: 'TERCA', label: 'Terça-feira', aliases: ['TERCA', 'terca', 'terça', 'TUESDAY', 'tuesday'] },
+  { key: 'QUARTA', label: 'Quarta-feira', aliases: ['QUARTA', 'quarta', 'WEDNESDAY', 'wednesday'] },
+  { key: 'QUINTA', label: 'Quinta-feira', aliases: ['QUINTA', 'quinta', 'THURSDAY', 'thursday'] },
+  { key: 'SEXTA', label: 'Sexta-feira', aliases: ['SEXTA', 'sexta', 'FRIDAY', 'friday'] },
+  { key: 'SABADO', label: 'Sábado', aliases: ['SABADO', 'sabado', 'sábado', 'SATURDAY', 'saturday'] },
+];
+
+const normalizeDayToken = (value: unknown) =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .trim();
+
+const toDispatchWeekday = (value: unknown): DispatchWeekday | null => {
+  const token = normalizeDayToken(value);
+  if (!token) return null;
+  return DISPATCH_WEEKDAYS.find((day) => day === token) || null;
+};
+
+const isValidTimeValue = (value: unknown) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(String(value || '').trim());
+
+const getActiveDispatchDaysFromOpeningHours = (openingHours?: Enterprise['openingHours']) => {
+  const fallback = WEEKDAY_META.filter(({ key }) => ['SEGUNDA', 'TERCA', 'QUARTA', 'QUINTA', 'SEXTA'].includes(key));
+  if (!openingHours || typeof openingHours !== 'object') return fallback;
+
+  const activeDays = WEEKDAY_META.filter(({ aliases }) => {
+    const aliasMatch = aliases.find((alias) => Object.prototype.hasOwnProperty.call(openingHours, alias));
+    if (!aliasMatch) return false;
+    return openingHours[aliasMatch]?.closed !== true;
+  });
+
+  return activeDays.length > 0 ? activeDays : fallback;
+};
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -240,6 +263,146 @@ const fileToBase64 = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
+const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+};
+
+const normalizeFileToken = (value: string) =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48)
+    .toLowerCase() || 'contato';
+
+const parseCurrencyNumber = (value: unknown) => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const raw = String(value || '').trim();
+  if (!raw) return 0;
+  const normalized = raw.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const buildRecipientReportPdfAttachment = (input: {
+  recipient: AudienceRecipient;
+  enterpriseName?: string;
+  schoolName?: string;
+  fallbackPeriodLabel?: string;
+}) => {
+  const { recipient, enterpriseName, schoolName, fallbackPeriodLabel } = input;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 40;
+  const period = String(recipient.report?.periodLabel || fallbackPeriodLabel || '-').trim() || '-';
+  const contactType = recipient.tipo === 'COLABORADOR' ? 'COLABORADOR' : 'ALUNO';
+  const rows = Array.isArray(recipient.report?.rows) ? recipient.report.rows : [];
+
+  const isConsumption = (row: AudienceReportRow) => String(row?.tipo || '').toUpperCase() === 'CONSUMO';
+  const isCredit = (row: AudienceReportRow) => {
+    const type = String(row?.tipo || '').toUpperCase();
+    return type === 'CREDITO' || type === 'ESTORNO';
+  };
+  const totalEstornos = rows
+    .filter((row) => String(row?.tipo || '').toUpperCase() === 'ESTORNO')
+    .reduce((acc, row) => acc + Math.abs(parseCurrencyNumber(row.valor)), 0);
+  const totalConsumption = rows.filter(isConsumption).reduce((acc, row) => acc + Math.abs(parseCurrencyNumber(row.valor)), 0);
+  const totalCredits = rows.filter(isCredit).reduce((acc, row) => acc + Math.abs(parseCurrencyNumber(row.valor)), 0);
+  const netPeriod = Number((totalCredits - totalConsumption).toFixed(2));
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  doc.text('Relatório de Movimentações - WhatsApp', marginX, 36);
+
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Empresa: ${String(enterpriseName || '-').trim() || '-'}`, marginX, 56);
+  doc.text(`Escola: ${String(schoolName || '-').trim() || '-'}`, marginX, 72);
+  doc.text(`Contato: ${String(recipient.nome || '-').trim() || '-'}`, marginX, 88);
+  doc.text(`Tipo: ${contactType}`, marginX, 104);
+  doc.text(`Período: ${period}`, marginX, 120);
+
+  const perfilLabel = recipient.tipo === 'RESPONSAVEL' ? 'Responsável' : 'Colaborador';
+
+  doc.text(`Telefone: ${String(recipient.telefone || '-').trim() || '-'}`, 320, 88);
+  doc.text(`Perfil: ${perfilLabel}`, 320, 104);
+  doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 320, 120);
+
+  const bodyRows = rows.map((row) => [
+    row.data || '-',
+    row.alunoNome || '-',
+    String(row.tipo || '-').toUpperCase(),
+    row.item || '-',
+    `R$ ${Math.abs(parseCurrencyNumber(row.valor)).toFixed(2)}`,
+  ]);
+
+  autoTable(doc, {
+    startY: 146,
+    head: [['Data/Hora', 'Aluno/Colaborador', 'Tipo', 'Descrição', 'Valor']],
+    body: bodyRows.length > 0 ? bodyRows : [['-', '-', '-', 'Sem movimentações no período selecionado', 'R$ 0,00']],
+    styles: { fontSize: 8.5, cellPadding: 5 },
+    headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
+    columnStyles: {
+      0: { cellWidth: 100 },
+      1: { cellWidth: 120 },
+      2: { cellWidth: 75 },
+      3: { cellWidth: 165 },
+      4: { cellWidth: 85, halign: 'right' },
+    },
+    margin: { left: marginX, right: marginX }
+  });
+
+  const finalY = (doc as any).lastAutoTable?.finalY || 170;
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Rodapé de Totais e Saldos', marginX, finalY + 24);
+  doc.setFont('helvetica', 'normal');
+
+  const footerLines = [
+    `Total de movimentações: ${rows.length}`,
+    `Total créditos: R$ ${totalCredits.toFixed(2)}`,
+    `Total estornos: R$ ${totalEstornos.toFixed(2)}`,
+    `Total consumo: R$ ${totalConsumption.toFixed(2)}`,
+    `Saldo líquido do período: R$ ${netPeriod.toFixed(2)}`,
+  ];
+
+  const currentBalance = String(recipient.variables?.saldo || '').trim();
+  if (currentBalance) {
+    footerLines.push(`Saldo atual: ${currentBalance}`);
+  }
+
+  footerLines.forEach((line, index) => {
+    doc.text(`- ${line}`, marginX, finalY + 42 + (index * 14));
+  });
+
+  doc.setFontSize(8);
+  doc.text(
+    `Gerado em ${new Date().toLocaleString('pt-BR')} por ${String(enterpriseName || 'Cantina Smart').trim() || 'Cantina Smart'}`,
+    pageWidth - marginX,
+    doc.internal.pageSize.getHeight() - 18,
+    { align: 'right' }
+  );
+
+  const pdfArrayBuffer = doc.output('arraybuffer');
+  const base64Data = arrayBufferToBase64(pdfArrayBuffer);
+  const nameToken = normalizeFileToken(recipient.nome);
+  const dateToken = new Date().toISOString().slice(0, 10);
+  return {
+    mediaType: 'document' as const,
+    base64Data,
+    mimeType: 'application/pdf',
+    fileName: `relatorio_${nameToken}_${dateToken}.pdf`,
+  };
+};
+
 const parseMassLogFromApi = (entry: any): MassLog | null => {
   if (!entry || typeof entry !== 'object') return null;
   const id = String(entry.id || '').trim();
@@ -307,19 +470,28 @@ const WhatsAppMassPreview: React.FC<{
 
 type DisparoEmMassaProps = {
   activeEnterprise: Enterprise | null;
+  profileToEdit?: DispatchAutomationConfig | null;
+  onProfileLoaded?: () => void;
 };
 
-const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => {
+const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
+  activeEnterprise,
+  profileToEdit,
+  onProfileLoaded,
+}) => {
   const [automationId, setAutomationId] = useState('');
   const [automationName, setAutomationName] = useState('Aviso de Saldo e Consumo Pais');
   const [audienceFilter, setAudienceFilter] = useState<AudienceFilter>('TODOS');
   const [reportProfileType, setReportProfileType] = useState<ReportProfileType>('RESPONSAVEL_PARENTESCO');
   const [periodMode, setPeriodMode] = useState<DispatchPeriodMode>('SEMANAL');
-  const [dispatchTime, setDispatchTime] = useState('17:00');
+  const [weeklyDispatchDay, setWeeklyDispatchDay] = useState<DispatchWeekday>(DEFAULT_WEEKLY_DAY);
+  const [weeklyDispatchTime, setWeeklyDispatchTime] = useState(DEFAULT_WEEKLY_TIME);
   const [template, setTemplate] = useState(buildDefaultTemplate('RESPONSAVEL_PARENTESCO', 'SEMANAL'));
   const [delayMin, setDelayMin] = useState(2);
   const [delayMax, setDelayMax] = useState(6);
   const [attachment, setAttachment] = useState<File | null>(null);
+  const [uploadedPdfAttachment, setUploadedPdfAttachment] = useState<DispatchAutomationConfig['uploadPdfAttachment']>(null);
+  const [sendMode, setSendMode] = useState<DispatchSendMode>('TEXT_ONLY');
   const [isSimulation, setIsSimulation] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [feedback, setFeedback] = useState('');
@@ -338,6 +510,8 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
   const [periodInfo, setPeriodInfo] = useState('');
   const [isLoadingConfig, setIsLoadingConfig] = useState(false);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
+  const [savingConfigAction, setSavingConfigAction] = useState<'SAVE_ONLY' | 'SAVE_AND_SCHEDULE' | null>(null);
+  const [isProfilePaused, setIsProfilePaused] = useState(true);
   const [enterprisePlans, setEnterprisePlans] = useState<Array<{ id?: string; name: string; isActive?: boolean }>>([]);
   const stopSignal = useRef(false);
   const prevProfileTypeRef = useRef<ReportProfileType>(reportProfileType);
@@ -401,6 +575,18 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
     ? Math.round((progress.processados / progress.total) * 100)
     : 0;
   const isDestaSemanaMode = periodMode === 'DESTA_SEMANA';
+  const activeDispatchDays = useMemo(
+    () => getActiveDispatchDaysFromOpeningHours(activeEnterprise?.openingHours),
+    [activeEnterprise?.openingHours]
+  );
+  const selectedWeeklyDispatchMeta = useMemo(
+    () => activeDispatchDays.find((item) => item.key === weeklyDispatchDay) || activeDispatchDays[0] || null,
+    [activeDispatchDays, weeklyDispatchDay]
+  );
+  const activeDispatchDaysLabel = useMemo(
+    () => activeDispatchDays.map((item) => item.label).join(', '),
+    [activeDispatchDays]
+  );
 
   const audienceCounters = useMemo(() => {
     return recipients.reduce(
@@ -440,6 +626,32 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
       setFeedback('Logs do disparo limpos com sucesso.');
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Falha ao limpar logs.');
+    }
+  };
+
+  const handleUploadPdfSelected = async (file: File | null) => {
+    setAttachment(file);
+    if (!file) {
+      setUploadedPdfAttachment(null);
+      return;
+    }
+
+    if (String(file.type || '') !== 'application/pdf') {
+      setUploadedPdfAttachment(null);
+      setFeedback('No modo texto + PDF (upload), o arquivo deve ser PDF.');
+      return;
+    }
+
+    try {
+      const base64Data = await fileToBase64(file);
+      setUploadedPdfAttachment({
+        base64Data,
+        fileName: file.name || 'relatorio.pdf',
+        mimeType: 'application/pdf',
+      });
+    } catch (error) {
+      setUploadedPdfAttachment(null);
+      setFeedback(error instanceof Error ? error.message : 'Falha ao preparar PDF para envio.');
     }
   };
 
@@ -1044,16 +1256,23 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
     window.open(blobUrl, '_blank', 'noopener,noreferrer');
   };
 
-  const saveAutomationConfig = async () => {
-    if (!activeEnterprise?.id) {
-      setFeedback('Selecione uma unidade para salvar a configuração.');
-      return;
-    }
+  const buildAutomationConfig = (options?: {
+    paused?: boolean;
+    dispatchRuntimeStatus?: 'EM_DISPARO' | null;
+  }): DispatchAutomationConfig | null => {
+    const fallbackWeeklyDay = activeDispatchDays[0]?.key || DEFAULT_WEEKLY_DAY;
+    const safeWeeklyDay = activeDispatchDays.some((item) => item.key === weeklyDispatchDay)
+      ? weeklyDispatchDay
+      : fallbackWeeklyDay;
+    const safeWeeklyTime = isValidTimeValue(weeklyDispatchTime)
+      ? weeklyDispatchTime
+      : DEFAULT_WEEKLY_TIME;
+    const scheduleHour = safeWeeklyTime;
 
-    setIsSavingConfig(true);
-    setFeedback('');
+    if (isDestaSemanaMode && activeDispatchDays.length === 0) return null;
+
     const nextId = automationId || `auto_${Date.now()}`;
-    const config: DispatchAutomationConfig = {
+    return {
       id: nextId,
       nome_perfil: String(automationName || '').trim() || 'Automação sem nome',
       tipo_destinatario: reportProfileType === 'COLABORADOR' ? 'colaborador' : 'responsavel',
@@ -1064,33 +1283,80 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
           ? 'mensal'
           : 'semanal'),
       agendamento: {
-        hora: dispatchTime || '17:00',
+        hora: scheduleHour,
         dias_expediente_apenas: isDestaSemanaMode,
+        dia_semana: isDestaSemanaMode ? safeWeeklyDay : undefined,
+        hora_semanal: isDestaSemanaMode ? safeWeeklyTime : undefined,
       },
       layout_estilo: reportProfileType === 'COLABORADOR' ? 'corporativo_sobrio' : 'escolar_premium',
       filter: audienceFilter,
       profileType: reportProfileType,
       periodMode,
       template,
+      sendMode,
+      uploadPdfAttachment: sendMode === 'TEXT_AND_UPLOAD_PDF'
+        ? (uploadedPdfAttachment || null)
+        : null,
       delayMin: Math.max(0, Number(delayMin || 0)),
       delayMax: Math.max(0, Number(delayMax || 0)),
       batchLimit: Math.max(1, Math.min(50, Number(batchLimit || 50))),
       isSimulation: Boolean(isSimulation),
+      paused: options?.paused,
+      dispatchRuntimeStatus: options?.dispatchRuntimeStatus ?? null,
       updatedAt: new Date().toISOString(),
     };
+  };
+
+  const persistProfileStatus = async (config: DispatchAutomationConfig) => {
+    if (!activeEnterprise?.id) return;
+    await ApiService.saveWhatsAppDispatchConfig({
+      enterpriseId: activeEnterprise.id,
+      config,
+    });
+    await ApiService.saveWhatsAppDispatchProfile({
+      enterpriseId: activeEnterprise.id,
+      profile: {
+        ...config,
+        paused: Boolean(config.paused),
+        createdAt: config.createdAt || new Date().toISOString(),
+      },
+    });
+  };
+
+  const saveAutomationConfig = async (action: 'SAVE_ONLY' | 'SAVE_AND_SCHEDULE' = 'SAVE_ONLY') => {
+    if (!activeEnterprise?.id) {
+      setFeedback('Selecione uma unidade para salvar a configuração.');
+      return;
+    }
+
+    setIsSavingConfig(true);
+    setSavingConfigAction(action);
+    setFeedback('');
+    const shouldSchedule = action === 'SAVE_AND_SCHEDULE';
+    const config = buildAutomationConfig({
+      paused: !shouldSchedule,
+      dispatchRuntimeStatus: null,
+    });
+
+    if (!config) {
+      setFeedback('Nenhum dia ativo encontrado em Ajustes > Atendimento.');
+      setIsSavingConfig(false);
+      setSavingConfigAction(null);
+      return;
+    }
 
     try {
-      const response = await ApiService.saveWhatsAppDispatchConfig({
-        enterpriseId: activeEnterprise.id,
-        config,
-      });
-      const saved = (response?.config || config) as DispatchAutomationConfig;
-      setAutomationId(saved.id || nextId);
-      setFeedback('Configuração da automação salva com sucesso.');
+      await persistProfileStatus(config);
+      setAutomationId(config.id || '');
+      setIsProfilePaused(Boolean(config.paused));
+      setFeedback(shouldSchedule
+        ? 'Configuração salva e agendamento ativado com sucesso.'
+        : 'Perfil salvo sem agendamento ativo.');
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Falha ao salvar configuração.');
     } finally {
       setIsSavingConfig(false);
+      setSavingConfigAction(null);
     }
   };
 
@@ -1131,10 +1397,33 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
                   ? 'MENSAL'
                   : 'SEMANAL'));
           setPeriodMode(loadedPeriodMode);
-          setDispatchTime(String(config.agendamento?.hora || '17:00'));
+          setIsProfilePaused(Boolean(config.paused));
+          const loadedWeeklyDay = toDispatchWeekday(config.agendamento?.dia_semana) || DEFAULT_WEEKLY_DAY;
+          setWeeklyDispatchDay(loadedWeeklyDay);
+          const loadedWeeklyTimeRaw = String(config.agendamento?.hora_semanal || config.agendamento?.hora || DEFAULT_WEEKLY_TIME);
+          setWeeklyDispatchTime(isValidTimeValue(loadedWeeklyTimeRaw) ? loadedWeeklyTimeRaw : DEFAULT_WEEKLY_TIME);
           setDelayMin(Math.max(0, Number(config.delayMin || 2)));
           setDelayMax(Math.max(0, Number(config.delayMax || 6)));
           setBatchLimit(Math.max(1, Math.min(50, Number(config.batchLimit || 50))));
+          const loadedSendMode = String(config.sendMode || 'TEXT_ONLY').toUpperCase();
+          setSendMode(
+            loadedSendMode === 'TEXT_AND_REPORT_PDF' || loadedSendMode === 'TEXT_AND_UPLOAD_PDF'
+              ? (loadedSendMode as DispatchSendMode)
+              : 'TEXT_ONLY'
+          );
+          const persistedUploadPdf = config.uploadPdfAttachment && typeof config.uploadPdfAttachment === 'object'
+            ? {
+              base64Data: String((config.uploadPdfAttachment as any).base64Data || ''),
+              fileName: String((config.uploadPdfAttachment as any).fileName || 'relatorio.pdf'),
+              mimeType: String((config.uploadPdfAttachment as any).mimeType || 'application/pdf'),
+            }
+            : null;
+          setUploadedPdfAttachment(
+            persistedUploadPdf && persistedUploadPdf.base64Data
+              ? persistedUploadPdf
+              : null
+          );
+          setAttachment(null);
           setIsSimulation(Boolean(config.isSimulation ?? true));
 
           const loadedTemplate = String(config.template || '').trim();
@@ -1169,6 +1458,69 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
   }, [activeEnterprise?.id]);
 
   useEffect(() => {
+    if (!profileToEdit) return;
+
+    const loadedPeriodMode: DispatchPeriodMode = ALLOWED_PERIOD_MODES.includes(profileToEdit.periodMode as DispatchPeriodMode)
+      ? (profileToEdit.periodMode as DispatchPeriodMode)
+      : (profileToEdit.agendamento?.dias_expediente_apenas
+        ? 'DESTA_SEMANA'
+        : (profileToEdit.frequencia === 'quinzenal'
+          ? 'QUINZENAL'
+          : profileToEdit.frequencia === 'mensal'
+            ? 'MENSAL'
+            : 'SEMANAL'));
+
+    setAutomationId(String(profileToEdit.id || '').trim());
+    setAutomationName(String(profileToEdit.nome_perfil || '').trim() || 'Automação sem nome');
+    setAudienceFilter(ALLOWED_FILTERS.includes(profileToEdit.filter as AudienceFilter) ? (profileToEdit.filter as AudienceFilter) : 'TODOS');
+    setReportProfileType(
+      ALLOWED_PROFILE_TYPES.includes(profileToEdit.profileType as ReportProfileType)
+        ? (profileToEdit.profileType as ReportProfileType)
+        : (profileToEdit.tipo_destinatario === 'colaborador' ? 'COLABORADOR' : 'RESPONSAVEL_PARENTESCO')
+    );
+    setPeriodMode(loadedPeriodMode);
+    setIsProfilePaused(Boolean(profileToEdit.paused));
+    const loadedWeeklyDay = toDispatchWeekday(profileToEdit.agendamento?.dia_semana) || DEFAULT_WEEKLY_DAY;
+    setWeeklyDispatchDay(loadedWeeklyDay);
+    const loadedWeeklyTimeRaw = String(profileToEdit.agendamento?.hora_semanal || profileToEdit.agendamento?.hora || DEFAULT_WEEKLY_TIME);
+    setWeeklyDispatchTime(isValidTimeValue(loadedWeeklyTimeRaw) ? loadedWeeklyTimeRaw : DEFAULT_WEEKLY_TIME);
+    setDelayMin(Math.max(0, Number(profileToEdit.delayMin || 2)));
+    setDelayMax(Math.max(0, Number(profileToEdit.delayMax || 6)));
+    setBatchLimit(Math.max(1, Math.min(50, Number(profileToEdit.batchLimit || 50))));
+    const loadedSendMode = String(profileToEdit.sendMode || 'TEXT_ONLY').toUpperCase();
+    setSendMode(
+      loadedSendMode === 'TEXT_AND_REPORT_PDF' || loadedSendMode === 'TEXT_AND_UPLOAD_PDF'
+        ? (loadedSendMode as DispatchSendMode)
+        : 'TEXT_ONLY'
+    );
+    const persistedUploadPdf = profileToEdit.uploadPdfAttachment && typeof profileToEdit.uploadPdfAttachment === 'object'
+      ? {
+        base64Data: String((profileToEdit.uploadPdfAttachment as any).base64Data || ''),
+        fileName: String((profileToEdit.uploadPdfAttachment as any).fileName || 'relatorio.pdf'),
+        mimeType: String((profileToEdit.uploadPdfAttachment as any).mimeType || 'application/pdf'),
+      }
+      : null;
+    setUploadedPdfAttachment(
+      persistedUploadPdf && persistedUploadPdf.base64Data
+        ? persistedUploadPdf
+        : null
+    );
+    setAttachment(null);
+    setIsSimulation(Boolean(profileToEdit.isSimulation ?? true));
+
+    const loadedTemplate = String(profileToEdit.template || '').trim();
+    if (loadedTemplate) {
+      setTemplate(loadedTemplate);
+    } else {
+      const loadedProfile = profileToEdit.profileType === 'COLABORADOR' ? 'COLABORADOR' : 'RESPONSAVEL_PARENTESCO';
+      setTemplate(getDefaultTemplateByProfileAndPeriod(loadedProfile, loadedPeriodMode));
+    }
+
+    setFeedback(`Perfil "${String(profileToEdit.nome_perfil || '').trim() || 'Sem nome'}" carregado para edição.`);
+    onProfileLoaded?.();
+  }, [onProfileLoaded, profileToEdit]);
+
+  useEffect(() => {
     const previousProfile = prevProfileTypeRef.current;
     const previousPeriod = prevPeriodModeRef.current;
     const changed = previousProfile !== reportProfileType || previousPeriod !== periodMode;
@@ -1182,6 +1534,12 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
     prevProfileTypeRef.current = reportProfileType;
     prevPeriodModeRef.current = periodMode;
   }, [periodMode, reportProfileType, template]);
+
+  useEffect(() => {
+    if (activeDispatchDays.length === 0) return;
+    if (activeDispatchDays.some((item) => item.key === weeklyDispatchDay)) return;
+    setWeeklyDispatchDay(activeDispatchDays[0].key);
+  }, [activeDispatchDays, weeklyDispatchDay]);
 
   useEffect(() => {
     if (reportProfileType === 'COLABORADOR' && audienceFilter === 'RESPONSAVEIS') {
@@ -1328,19 +1686,25 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
     }
 
     try {
-      if (attachment) {
-        const base64 = await fileToBase64(attachment);
-        const mediaType: 'image' | 'audio' | 'document' = String(attachment.type || '').startsWith('image/')
-          ? 'image'
-          : String(attachment.type || '').startsWith('audio/')
-            ? 'audio'
-            : 'document';
-
+      if (sendMode === 'TEXT_AND_UPLOAD_PDF' && uploadedPdfAttachment?.base64Data) {
         await ApiService.sendWhatsAppMediaToChat(toWhatsAppChatId(usuario.telefone), message, {
-          mediaType,
-          base64Data: base64,
-          mimeType: attachment.type || undefined,
-          fileName: attachment.name || undefined,
+          mediaType: 'document',
+          base64Data: uploadedPdfAttachment.base64Data,
+          mimeType: uploadedPdfAttachment.mimeType || 'application/pdf',
+          fileName: uploadedPdfAttachment.fileName || 'relatorio.pdf',
+        });
+      } else if (sendMode === 'TEXT_AND_REPORT_PDF') {
+        const reportPdf = buildRecipientReportPdfAttachment({
+          recipient: usuario,
+          enterpriseName: activeEnterprise?.name,
+          schoolName: activeEnterprise?.attachedSchoolName,
+          fallbackPeriodLabel: periodLabel,
+        });
+        await ApiService.sendWhatsAppMediaToChat(toWhatsAppChatId(usuario.telefone), message, {
+          mediaType: 'document',
+          base64Data: reportPdf.base64Data,
+          mimeType: reportPdf.mimeType,
+          fileName: reportPdf.fileName,
         });
       } else {
         await ApiService.sendWhatsAppMessage(usuario.telefone, message);
@@ -1374,6 +1738,10 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
       setFeedback('Digite a mensagem do disparo em massa.');
       return;
     }
+    if (sendMode === 'TEXT_AND_UPLOAD_PDF' && !uploadedPdfAttachment?.base64Data) {
+      setFeedback('Selecione um PDF para enviar junto com a mensagem.');
+      return;
+    }
 
     const cappedLimit = Math.max(1, Math.min(50, Number(batchLimit || 50)));
     const targetRecipients = recipients
@@ -1391,6 +1759,20 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
     setFeedback('');
     setShowResumoModal(false);
     stopSignal.current = false;
+
+    const runtimeStartConfig = buildAutomationConfig({
+      paused: false,
+      dispatchRuntimeStatus: 'EM_DISPARO',
+    });
+    if (runtimeStartConfig) {
+      try {
+        await persistProfileStatus(runtimeStartConfig);
+        setAutomationId(runtimeStartConfig.id || '');
+      } catch {
+        // Falha de status operacional não deve bloquear o disparo imediato.
+      }
+    }
+
     setIsSending(true);
     setMensagemStatus('Iniciando disparo...');
     setProgress({ total: targetRecipients.length, processados: 0, enviados: 0, erros: 0 });
@@ -1438,6 +1820,19 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
             : `Disparo concluído para ${targetRecipients.length} destinatário(s).`)
       );
     }
+
+    const runtimeEndConfig = buildAutomationConfig({
+      paused: isProfilePaused,
+      dispatchRuntimeStatus: null,
+    });
+    if (runtimeEndConfig) {
+      try {
+        await persistProfileStatus(runtimeEndConfig);
+      } catch {
+        // Ignora para não afetar UX de conclusão.
+      }
+    }
+
     setShowResumoModal(true);
   };
 
@@ -1449,29 +1844,38 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
 
   return (
     <div className="space-y-4">
-      <section className="rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 space-y-4">
+      <section className="rounded-[24px] border border-slate-200 dark:border-zinc-700 bg-[linear-gradient(180deg,rgba(255,255,255,1),rgba(255,247,237,0.76))] dark:bg-zinc-900 p-5 space-y-4 shadow-[0_16px_38px_-28px_rgba(15,23,42,0.6)]">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h4 className="text-lg font-black text-slate-900 dark:text-zinc-100">Disparo em Massa</h4>
-            <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400">
+            <p className="text-sm font-semibold text-slate-600 dark:text-zinc-400">
               Automação por perfil dinâmico (Responsável/Parentesco ou Colaborador) com logs persistidos.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={saveAutomationConfig}
+              onClick={() => saveAutomationConfig('SAVE_ONLY')}
               disabled={isSavingConfig || isLoadingConfig || !activeEnterprise?.id}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-cyan-200 bg-cyan-50 hover:bg-cyan-100 disabled:opacity-60 text-cyan-700 text-xs font-black uppercase tracking-widest"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-60 text-slate-700 text-xs font-black uppercase tracking-widest"
             >
-              {isSavingConfig ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              {isSavingConfig && savingConfigAction === 'SAVE_ONLY' ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
               Salvar Perfil
+            </button>
+            <button
+              type="button"
+              onClick={() => saveAutomationConfig('SAVE_AND_SCHEDULE')}
+              disabled={isSavingConfig || isLoadingConfig || !activeEnterprise?.id}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-orange-200 bg-orange-50 hover:bg-orange-100 disabled:opacity-60 text-orange-700 text-xs font-black uppercase tracking-widest"
+            >
+              {isSavingConfig && savingConfigAction === 'SAVE_AND_SCHEDULE' ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              Salvar e Agendar
             </button>
             <button
               type="button"
               onClick={iniciarDisparoEmMassa}
               disabled={isSending || isLoadingRecipients || isLoadingConfig}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-black uppercase tracking-widest"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 disabled:bg-slate-300 text-white text-xs font-black uppercase tracking-widest"
             >
               {isSending ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
               {isSending ? 'Processando...' : 'Iniciar disparo'}
@@ -1489,65 +1893,124 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-slate-200 bg-white/90 p-3.5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900/70">
+              <p className="text-[11px] font-black uppercase tracking-[0.16em] text-orange-700 dark:text-orange-300">CORE CONFIGURATION</p>
               <label className="space-y-1 block">
                 <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Nome da automação</span>
                 <input
                   value={automationName}
                   onChange={(e) => setAutomationName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                  className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                   placeholder="Ex.: Aviso de Saldo e Consumo Pais"
                 />
               </label>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <label className="space-y-1 block">
+                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Tipo de perfil do relatório</span>
+                  <select
+                    value={reportProfileType}
+                    onChange={(e) => setReportProfileType(e.target.value as ReportProfileType)}
+                    className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                  >
+                    <option value="RESPONSAVEL_PARENTESCO">Responsável / Parentesco</option>
+                    <option value="COLABORADOR">Colaborador</option>
+                  </select>
+                </label>
+
+                <label className="space-y-1 block">
+                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Filtro de audiência</span>
+                  <select
+                    value={audienceFilter}
+                    onChange={(e) => setAudienceFilter(e.target.value as AudienceFilter)}
+                    className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                  >
+                    <option value="TODOS">Todos</option>
+                    <option value="RESPONSAVEIS">Apenas Responsáveis</option>
+                    <option value="COLABORADORES">Apenas Colaboradores</option>
+                    <option value="SALDO_BAIXO">Saldo baixo (&lt; R$ 10,00)</option>
+                    <option value="PLANO_A_VENCER">Plano a vencer (5 dias)</option>
+                    <option value="RELATORIO_ENTREGA">Relatório de entrega</option>
+                  </select>
+                </label>
+              </div>
+
               <label className="space-y-1 block">
-                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Hora padrão de envio</span>
-                <input
-                  type="time"
-                  value={dispatchTime}
-                  onChange={(e) => setDispatchTime(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Mensagem</span>
+                <div className="mb-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTemplate(buildDefaultTemplate(reportProfileType, periodMode))}
+                    className="px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-[11px] font-black text-emerald-700"
+                  >
+                    🧩 Modelo do período
+                  </button>
+                  {templatesRapidos.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => setTemplate(preset.text)}
+                      className="px-2.5 py-1.5 rounded-lg border border-orange-200 bg-orange-50 hover:bg-orange-100 text-[11px] font-black text-orange-700"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  rows={8}
+                  value={template}
+                  onChange={(e) => setTemplate(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-medium bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                 />
-              </label>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <label className="space-y-1 block">
-                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Tipo de perfil do relatório</span>
-                <select
-                  value={reportProfileType}
-                  onChange={(e) => setReportProfileType(e.target.value as ReportProfileType)}
-                  className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
-                >
-                  <option value="RESPONSAVEL_PARENTESCO">Responsável / Parentesco</option>
-                  <option value="COLABORADOR">Colaborador</option>
-                </select>
+                <p className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
+                  Variáveis: <span className="font-black">{'{{nome}}'}</span>, <span className="font-black">{'{{nome_pai}}'}</span>, <span className="font-black">{'{{nome_colaborador}}'}</span>, <span className="font-black">{'{{parentesco}}'}</span>, <span className="font-black">{'{{alunos}}'}</span>, <span className="font-black">{'{{saldo}}'}</span>, <span className="font-black">{'{{plano}}'}</span>, <span className="font-black">{'{{consumo_hoje}}'}</span>, <span className="font-black">{'{{status_entrega}}'}</span>, <span className="font-black">{'{{periodo_referencia}}'}</span>, <span className="font-black">{'{{periodo_nome}}'}</span>, <span className="font-black">{'{{saldo_por_aluno}}'}</span>, <span className="font-black">{'{{consumo_total_periodo}}'}</span>, <span className="font-black">{'{{consumo_total_por_aluno}}'}</span>
+                </p>
               </label>
 
               <label className="space-y-1 block">
-                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Filtro de audiência</span>
+                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Modo de envio</span>
                 <select
-                  value={audienceFilter}
-                  onChange={(e) => setAudienceFilter(e.target.value as AudienceFilter)}
-                  className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                  value={sendMode}
+                  onChange={(e) => setSendMode(e.target.value as DispatchSendMode)}
+                  className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                 >
-                  <option value="TODOS">Todos</option>
-                  <option value="RESPONSAVEIS">Apenas Responsáveis</option>
-                  <option value="COLABORADORES">Apenas Colaboradores</option>
-                  <option value="SALDO_BAIXO">Saldo baixo (&lt; R$ 10,00)</option>
-                  <option value="PLANO_A_VENCER">Plano a vencer (5 dias)</option>
-                  <option value="RELATORIO_ENTREGA">Relatório de entrega</option>
+                  <option value="TEXT_ONLY">Apenas texto</option>
+                  <option value="TEXT_AND_REPORT_PDF">Texto + relatório PDF automático</option>
+                  <option value="TEXT_AND_UPLOAD_PDF">Texto + PDF por upload</option>
                 </select>
+                <p className="text-xs font-semibold text-orange-700">
+                  Lista de opções de PDF: automático por contato ou PDF único por upload.
+                </p>
               </label>
+
+              {sendMode === 'TEXT_AND_UPLOAD_PDF' && (
+                <label className="space-y-1 block">
+                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">PDF para envio</span>
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null;
+                      handleUploadPdfSelected(file);
+                    }}
+                    className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                  />
+                  {uploadedPdfAttachment?.fileName && (
+                    <p className="text-xs font-semibold text-orange-700">PDF selecionado: {uploadedPdfAttachment.fileName}</p>
+                  )}
+                </label>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="rounded-2xl border border-slate-200 bg-white/90 p-3.5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900/70">
+              <p className="text-[11px] font-black uppercase tracking-[0.16em] text-orange-700 dark:text-orange-300">FREQUENCY</p>
               <label className="space-y-1 block">
                 <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Frequência / período</span>
                 <select
                   value={periodMode}
                   onChange={(e) => setPeriodMode(e.target.value as DispatchPeriodMode)}
-                  className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                  className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                 >
                   <option value="SEMANAL">Semanal</option>
                   <option value="QUINZENAL">Quinzenal</option>
@@ -1555,101 +2018,100 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
                   <option value="DESTA_SEMANA">Desta semana (dias ativos)</option>
                 </select>
               </label>
-              <div className="rounded-xl border border-cyan-100 bg-cyan-50 px-3 py-2">
-                <p className="text-[11px] font-black uppercase tracking-widest text-cyan-700">Regra aplicada</p>
-                <p className="text-sm font-semibold text-cyan-900">
+
+              <div className="rounded-xl border border-orange-200 bg-orange-50 px-3 py-2">
+                <p className="text-[11px] font-black uppercase tracking-widest text-orange-700">Regra aplicada</p>
+                <p className="text-sm font-semibold text-orange-900">
                   {isDestaSemanaMode
-                    ? 'Dias ativos em Ajustes > Atendimento'
+                    ? `Disparo semanal em ${selectedWeeklyDispatchMeta?.label || 'dia ativo'} às ${isValidTimeValue(weeklyDispatchTime) ? weeklyDispatchTime : DEFAULT_WEEKLY_TIME}`
                     : 'Período corrido por datas'}
                 </p>
+                {isDestaSemanaMode && (
+                  <p className="mt-1 text-xs font-semibold text-orange-700">
+                    Dias de funcionamento configurados: {activeDispatchDaysLabel || 'Nenhum dia ativo encontrado.'}
+                  </p>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-orange-200 bg-orange-50 px-3 py-2">
+                <p className="text-[11px] font-black uppercase tracking-widest text-orange-700">Período calculado</p>
+                <p className="text-sm font-semibold text-orange-800">{periodLabel || 'Aguardando carregamento...'}</p>
+                {periodInfo && (
+                  <p className="mt-1 text-xs font-semibold text-orange-700">{periodInfo}</p>
+                )}
               </div>
             </div>
 
-            <div className="rounded-xl border border-cyan-100 bg-cyan-50 px-3 py-2">
-              <p className="text-[11px] font-black uppercase tracking-widest text-cyan-700">Período calculado</p>
-              <p className="text-sm font-semibold text-cyan-800">{periodLabel || 'Aguardando carregamento...'}</p>
-              {periodInfo && (
-                <p className="mt-1 text-xs font-semibold text-cyan-700">{periodInfo}</p>
-              )}
-            </div>
+            {isDestaSemanaMode && (
+              <div className="rounded-2xl border border-slate-200 bg-white/90 p-3.5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900/70">
+                <p className="text-[11px] font-black uppercase tracking-[0.16em] text-orange-700 dark:text-orange-300">DISPATCH DAY TIME WINDOWS</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <label className="space-y-1 block">
+                    <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Dia da semana do disparo</span>
+                    <select
+                      value={weeklyDispatchDay}
+                      onChange={(e) => setWeeklyDispatchDay(e.target.value as DispatchWeekday)}
+                      className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                    >
+                      {activeDispatchDays.map((day) => (
+                        <option key={day.key} value={day.key}>{day.label}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs font-semibold text-orange-700">Dias disponíveis conforme Ajustes &gt; Atendimento.</p>
+                  </label>
 
-            <label className="space-y-1 block">
-              <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Mensagem</span>
-              <div className="mb-2 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setTemplate(buildDefaultTemplate(reportProfileType, periodMode))}
-                  className="px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-[11px] font-black text-emerald-700"
-                >
-                  🧩 Modelo do período
-                </button>
-                {templatesRapidos.map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => setTemplate(preset.text)}
-                    className="px-2.5 py-1.5 rounded-lg border border-cyan-200 bg-cyan-50 hover:bg-cyan-100 text-[11px] font-black text-cyan-700"
-                  >
-                    {preset.label}
-                  </button>
-                ))}
+                  <label className="space-y-1 block">
+                    <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Hora do disparo semanal</span>
+                    <input
+                      type="time"
+                      value={weeklyDispatchTime}
+                      onChange={(e) => setWeeklyDispatchTime(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                    />
+                    <p className="text-xs font-semibold text-orange-700">Esse dia e horário serão usados para o disparo recorrente semanal.</p>
+                  </label>
+                </div>
               </div>
-              <textarea
-                rows={8}
-                value={template}
-                onChange={(e) => setTemplate(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-medium bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
-              />
-              <p className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
-                Variáveis: <span className="font-black">{'{{nome}}'}</span>, <span className="font-black">{'{{nome_pai}}'}</span>, <span className="font-black">{'{{nome_colaborador}}'}</span>, <span className="font-black">{'{{parentesco}}'}</span>, <span className="font-black">{'{{alunos}}'}</span>, <span className="font-black">{'{{saldo}}'}</span>, <span className="font-black">{'{{plano}}'}</span>, <span className="font-black">{'{{consumo_hoje}}'}</span>, <span className="font-black">{'{{status_entrega}}'}</span>, <span className="font-black">{'{{periodo_referencia}}'}</span>, <span className="font-black">{'{{periodo_nome}}'}</span>, <span className="font-black">{'{{saldo_por_aluno}}'}</span>, <span className="font-black">{'{{consumo_total_periodo}}'}</span>, <span className="font-black">{'{{consumo_total_por_aluno}}'}</span>
-              </p>
-            </label>
+            )}
 
-            <div className="grid grid-cols-2 gap-3">
-              <label className="space-y-1 block">
-                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Delay Min (s)</span>
-                <input
-                  type="number"
-                  min={0}
-                  value={delayMin}
-                  onChange={(e) => setDelayMin(Math.max(0, Number(e.target.value) || 0))}
-                  className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
-                />
-              </label>
-              <label className="space-y-1 block">
-                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Delay Max (s)</span>
-                <input
-                  type="number"
-                  min={0}
-                  value={delayMax}
-                  onChange={(e) => setDelayMax(Math.max(0, Number(e.target.value) || 0))}
-                  className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
-                />
-              </label>
+            <div className="rounded-2xl border border-slate-200 bg-white/90 p-3.5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900/70">
+              <p className="text-[11px] font-black uppercase tracking-[0.16em] text-orange-700 dark:text-orange-300">MESSAGE DELAY BATCH LIMIT</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <label className="space-y-1 block">
+                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Min (s)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={delayMin}
+                    onChange={(e) => setDelayMin(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                  />
+                </label>
+                <label className="space-y-1 block">
+                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Max (s)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={delayMax}
+                    onChange={(e) => setDelayMax(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                  />
+                </label>
+                <label className="space-y-1 block">
+                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Per interval</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={batchLimit}
+                    onChange={(e) => setBatchLimit(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+                    className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                  />
+                </label>
+              </div>
             </div>
 
-            <label className="space-y-1 block">
-              <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Limite por lote (máx. 50)</span>
-              <input
-                type="number"
-                min={1}
-                max={50}
-                value={batchLimit}
-                onChange={(e) => setBatchLimit(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
-                className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
-              />
-            </label>
-
-            <label className="space-y-1 block">
-              <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Anexo (opcional)</span>
-              <input
-                type="file"
-                onChange={(e) => setAttachment(e.target.files?.[0] || null)}
-                className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
-              />
-            </label>
-
-            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-cyan-100 dark:border-cyan-900/40 bg-cyan-50 dark:bg-cyan-950/30 text-sm font-bold text-cyan-700 dark:text-cyan-300">
+            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-orange-200 dark:border-orange-900/40 bg-orange-50 dark:bg-orange-950/30 text-sm font-bold text-orange-700 dark:text-orange-300">
               <input
                 type="checkbox"
                 checked={isSimulation}
@@ -1669,12 +2131,12 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
                   value={previewContactSearch}
                   onChange={(e) => setPreviewContactSearch(e.target.value)}
                   placeholder="Buscar cliente por nome, telefone ou aluno..."
-                  className="mb-2 w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                  className="mb-2 w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                 />
                 <select
                   value={usuarioSelecionadoId}
                   onChange={(e) => setUsuarioSelecionadoId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                  className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                 >
                   {previewRecipients.length === 0 && <option value="">Sem destinatários</option>}
                   {previewRecipients.map((item) => (
@@ -1687,7 +2149,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
               <WhatsAppMassPreview nome={previewName} mensagem={previewText} />
             </div>
 
-            <div className="rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+            <div className="rounded-2xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
               <p className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Resumo da audiência</p>
               <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-zinc-200">
                 <Users size={14} />
@@ -1695,9 +2157,9 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
               </div>
               {!isLoadingRecipients && (
                 <div className="mt-2 grid grid-cols-2 gap-2">
-                  <div className="rounded-lg border border-cyan-100 dark:border-cyan-900/40 bg-cyan-50 dark:bg-cyan-950/30 px-2.5 py-2">
-                    <p className="text-[11px] font-black uppercase tracking-widest text-cyan-700 dark:text-cyan-300">Responsáveis</p>
-                    <p className="text-sm font-black text-cyan-900 dark:text-cyan-200">{audienceCounters.responsaveis}</p>
+                  <div className="rounded-lg border border-orange-200 dark:border-orange-900/40 bg-orange-50 dark:bg-orange-950/30 px-2.5 py-2">
+                    <p className="text-[11px] font-black uppercase tracking-widest text-orange-700 dark:text-orange-300">Responsáveis</p>
+                    <p className="text-sm font-black text-orange-900 dark:text-orange-200">{audienceCounters.responsaveis}</p>
                   </div>
                   <div className="rounded-lg border border-emerald-100 dark:border-emerald-900/40 bg-emerald-50 dark:bg-emerald-950/30 px-2.5 py-2">
                     <p className="text-[11px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">Colaboradores</p>
@@ -1713,14 +2175,14 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
             </div>
 
             {usuarioSelecionado?.report && (
-              <div className="rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+              <div className="rounded-2xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
                 <p className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Prévia do relatório</p>
                 <p className="mt-1 text-sm font-black text-slate-900 dark:text-zinc-100">{usuarioSelecionado.report.title}</p>
                 <p className="text-xs font-semibold text-slate-600 dark:text-zinc-300">{usuarioSelecionado.report.periodLabel}</p>
                 <button
                   type="button"
                   onClick={visualizarModeloPdf}
-                  className="mt-2 inline-flex items-center px-3 py-2 rounded-lg border border-cyan-200 dark:border-cyan-900/40 bg-cyan-50 dark:bg-cyan-950/30 hover:bg-cyan-100 dark:hover:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 text-[11px] font-black uppercase tracking-widest"
+                  className="mt-2 inline-flex items-center px-3 py-2 rounded-lg border border-orange-200 dark:border-orange-900/40 bg-orange-50 dark:bg-orange-950/30 hover:bg-orange-100 dark:hover:bg-orange-900/40 text-orange-700 dark:text-orange-300 text-[11px] font-black uppercase tracking-widest"
                 >
                   Visualizar modelo em PDF
                 </button>
@@ -1740,7 +2202,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
             )}
 
             {progress.total > 0 && (
-              <div className="rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+              <div className="rounded-2xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
                 <div className="flex items-center justify-between text-xs font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
                   <span>Progresso</span>
                   <span>{progress.processados}/{progress.total} ({progressPct}%)</span>
@@ -1755,18 +2217,18 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
                   <span>Enviados: {progress.enviados}</span>
                   <span>Erros: {progress.erros}</span>
                 </div>
-                <p className="mt-2 text-xs font-semibold text-cyan-700 dark:text-cyan-300">{mensagemStatus}</p>
+                <p className="mt-2 text-xs font-semibold text-orange-700 dark:text-orange-300">{mensagemStatus}</p>
               </div>
             )}
           </div>
         </div>
 
-        <p className={`text-sm font-semibold ${feedback ? 'text-cyan-700 dark:text-cyan-300' : 'text-slate-500 dark:text-zinc-400'}`}>
+        <p className={`text-sm font-semibold ${feedback ? 'text-orange-700 dark:text-orange-300' : 'text-slate-500 dark:text-zinc-400'}`}>
           {feedback || 'Configure o filtro e inicie o disparo em massa.'}
         </p>
       </section>
 
-      <section className="rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5">
+      <section className="rounded-[24px] border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 shadow-[0_16px_38px_-28px_rgba(15,23,42,0.6)]">
         <div className="flex items-center justify-between gap-2">
           <h4 className="text-lg font-black text-slate-900 dark:text-zinc-100">Painel de Logs de Disparo</h4>
           <button
@@ -1806,7 +2268,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
                         log.status === 'Sucesso'
                           ? 'bg-emerald-50 text-emerald-700'
                           : log.status === 'Simulado'
-                            ? 'bg-cyan-50 text-cyan-700'
+                            ? 'bg-orange-50 text-orange-700'
                             : log.status === 'Inválido'
                               ? 'bg-amber-50 text-amber-700'
                               : 'bg-rose-50 text-rose-700'
@@ -1826,7 +2288,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
 
       {showResumoModal && (
         <div className="fixed inset-0 z-[80] bg-slate-900/35 backdrop-blur-[1px] flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-2xl p-5">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-2xl p-5">
             <h5 className="text-lg font-black text-slate-900 dark:text-zinc-100">Resumo do Disparo</h5>
             <p className="mt-2 text-sm font-semibold text-slate-700 dark:text-zinc-200">
               {progress.enviados} mensagens enviadas com sucesso e {progress.erros} falhas.
@@ -1845,7 +2307,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({ activeEnterprise }) => 
               <button
                 type="button"
                 onClick={() => setShowResumoModal(false)}
-                className="px-3 py-2 rounded-lg border border-cyan-200 text-cyan-700 bg-cyan-50 hover:bg-cyan-100 text-xs font-black uppercase tracking-widest"
+                className="px-3 py-2 rounded-lg border border-orange-200 text-orange-700 bg-orange-50 hover:bg-orange-100 text-xs font-black uppercase tracking-widest"
               >
                 Fechar
               </button>

@@ -295,6 +295,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
         };
 
         const deliveryBalanceByKey = new Map<string, number>();
+        const manuallyDeletedDeliveryKeys = new Set<string>();
         const autoFinalizeQueue = new Map<string, {
           clientId: string;
           clientName: string;
@@ -302,15 +303,34 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
           planName: string;
           scheduledDate: string;
         }>();
+        const processingProfile = (activeEnterprise as any)?.planConsumptionProcessingProfile || {};
+        const processingEnabled = processingProfile?.enabled !== false;
+        const processingPlanIds = new Set(
+          Array.isArray(processingProfile?.planIds)
+            ? processingProfile.planIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+            : []
+        );
+        const cutoffRaw = String(processingProfile?.cutoffTime || '').trim();
+        const cutoffTime = /^([01]\d|2[0-3]):([0-5]\d)$/.test(cutoffRaw) ? cutoffRaw : '18:00';
+        const [cutoffHour, cutoffMinute] = cutoffTime.split(':').map(Number);
         const nowRuntime = new Date();
         const isPastDeliveryCutoff = (dateIso: string) => {
-          const base = new Date(`${dateIso}T18:00:00`);
+          const base = new Date(`${dateIso}T00:00:00`);
+          base.setHours(cutoffHour, cutoffMinute, 0, 0);
           if (Number.isNaN(base.getTime())) return false;
           return nowRuntime.getTime() > base.getTime();
         };
 
         transactions.forEach((tx: any) => {
           const type = String(tx?.type || '').toUpperCase();
+          if (type === 'AUDITORIA_EXCLUSAO') {
+            const deletedKeys = Array.isArray(tx?.deletedDeliveryKeys) ? tx.deletedDeliveryKeys : [];
+            deletedKeys.forEach((rawKey: any) => {
+              const normalized = String(rawKey || '').trim().toUpperCase();
+              if (normalized) manuallyDeletedDeliveryKeys.add(normalized);
+            });
+          }
+
           const description = String(tx?.description || '').toLowerCase();
           const isDelivery = description.includes('entrega do dia');
           if (!isDelivery) return;
@@ -390,7 +410,10 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                 const scheduledDay: 'TODAY' | 'TOMORROW' = scheduledDate === currentContext.todayIso ? 'TODAY' : 'TOMORROW';
                 const deliveredKey = `${client.id}|${planNameUpper}|${scheduledDate}`;
                 const deliveredForDate = Number(deliveryBalanceByKey.get(deliveredKey) || 0) > 0;
-                const shouldAutoFinalizeByCutoff = !deliveredForDate && isPastDeliveryCutoff(scheduledDate);
+                const isMarkedAsManuallyDeleted = manuallyDeletedDeliveryKeys.has(deliveredKey.toUpperCase());
+                const currentPlanId = String(plan?.id || planId || '').trim();
+                const isPlanIncludedInProfile = processingPlanIds.size === 0 || (currentPlanId && processingPlanIds.has(currentPlanId));
+                const shouldAutoFinalizeByCutoff = processingEnabled && isPlanIncludedInProfile && !deliveredForDate && !isMarkedAsManuallyDeleted && isPastDeliveryCutoff(scheduledDate);
                 if (shouldAutoFinalizeByCutoff) {
                   autoFinalizeQueue.set(deliveredKey, {
                     clientId: String(client.id),
@@ -479,7 +502,7 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
                 executionSource: 'SISTEMA',
                 plan: entry.planName,
               }).catch((error) => {
-                console.error('Erro ao auto-finalizar entrega por vencimento (18h):', error);
+                console.error(`Erro ao auto-finalizar entrega por vencimento (${cutoffTime}):`, error);
               })
             )
           );

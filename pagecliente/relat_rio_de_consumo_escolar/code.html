@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+
+<html class="light" lang="pt-BR"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Relatório de Consumo Escolar - RESTAURANTE DA TIA</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@700;800&amp;display=swap" rel="stylesheet"/>
+<!-- Icons -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-primary-fixed-variant": "#343d96",
+              "on-surface-variant": "#454652",
+              "on-surface": "#1b1b21",
+              "on-error-container": "#93000a",
+              "on-tertiary-container": "#e17c5a",
+              "surface-dim": "#dbd9e1",
+              "secondary-container": "#cfe6f2",
+              "on-background": "#1b1b21",
+              "background": "#fbf8ff",
+              "surface-container": "#efecf5",
+              "surface-bright": "#fbf8ff",
+              "secondary-fixed": "#cfe6f2",
+              "inverse-on-surface": "#f2eff8",
+              "surface-container-low": "#f5f2fb",
+              "primary-fixed-dim": "#bdc2ff",
+              "tertiary-container": "#5c1800",
+              "on-secondary-fixed": "#071e27",
+              "on-primary-fixed": "#000767",
+              "on-error": "#ffffff",
+              "inverse-primary": "#bdc2ff",
+              "on-secondary-container": "#526772",
+              "primary-container": "#1a237e",
+              "surface-container-high": "#eae7ef",
+              "on-primary-container": "#8690ee",
+              "secondary-fixed-dim": "#b4cad6",
+              "on-tertiary-fixed-variant": "#7b2e12",
+              "on-secondary-fixed-variant": "#354a53",
+              "surface-container-lowest": "#ffffff",
+              "surface-container-highest": "#e4e1ea",
+              "error": "#ba1a1a",
+              "outline": "#767683",
+              "on-tertiary": "#ffffff",
+              "surface": "#fbf8ff",
+              "error-container": "#ffdad6",
+              "on-secondary": "#ffffff",
+              "primary-fixed": "#e0e0ff",
+              "tertiary-fixed": "#ffdbd0",
+              "tertiary": "#380b00",
+              "primary": "#000666",
+              "surface-tint": "#4c56af",
+              "secondary": "#4c616c",
+              "on-tertiary-fixed": "#390c00",
+              "surface-variant": "#e4e1ea",
+              "outline-variant": "#c6c5d4",
+              "tertiary-fixed-dim": "#ffb59d",
+              "on-primary": "#ffffff",
+              "inverse-surface": "#303036"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface min-h-screen">
+<div class="flex h-screen overflow-hidden">
+<!-- SideNavBar - Execution from JSON -->
+<aside class="hidden md:flex flex-col h-full py-6 bg-[#f5f2fb] dark:bg-slate-900 h-screen w-64 border-r-0 font-manrope text-sm font-medium">
+<div class="px-6 mb-8 flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-black text-lg">G</div>
+<div>
+<h2 class="text-lg font-black text-[#000666] dark:text-blue-400 leading-tight">Gestão Escolar</h2>
+<p class="text-xs text-slate-500">Unidade Central</p>
+</div>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 bg-white dark:bg-slate-800 text-[#000666] dark:text-blue-300 font-bold rounded-l-full ml-4 shadow-sm px-6 py-3 transition-transform duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="flex items-center gap-3 text-slate-600 dark:text-slate-400 hover:text-[#000666] px-6 py-3 hover:bg-[#efecf5] dark:hover:bg-slate-800 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="receipt_long">receipt_long</span>
+<span>Extratos</span>
+</a>
+<a class="flex items-center gap-3 text-slate-600 dark:text-slate-400 hover:text-[#000666] px-6 py-3 hover:bg-[#efecf5] dark:hover:bg-slate-800 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="group">group</span>
+<span>Alunos</span>
+</a>
+<a class="flex items-center gap-3 text-slate-600 dark:text-slate-400 hover:text-[#000666] px-6 py-3 hover:bg-[#efecf5] dark:hover:bg-slate-800 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span>Configurações</span>
+</a>
+</nav>
+<div class="px-6 mt-auto">
+<button class="w-full py-3 bg-primary text-on-primary rounded-full font-bold flex items-center justify-center gap-2 shadow-lg shadow-primary/20 hover:scale-95 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span>
+                    Novo Lançamento
+                </button>
+<div class="mt-6 flex items-center gap-3 text-slate-600 hover:text-[#000666] cursor-pointer transition-colors">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+<span>Suporte</span>
+</div>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="flex-1 flex flex-col overflow-y-auto">
+<!-- TopAppBar - Execution from JSON -->
+<header class="flex justify-between items-center w-full px-6 py-4 bg-gradient-to-br from-[#000666] to-[#1a237e] docked full-width top-0 shadow-lg shadow-blue-900/10 z-10">
+<div class="flex items-center gap-4">
+<div class="bg-white p-1.5 rounded-xl shadow-inner">
+<img alt="Logo da Unidade Escolar" class="w-10 h-10 object-contain" data-alt="minimalist clean school logo with book and fork icon in deep navy on white background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBf-P0I9P4EAtCx65vZANAcfVJgkBzhDKgToXFZphjuak9PqLI465Q-ZxwFYOTAwfCgE_SP0mLa4BMzFhPMu8kShewvYhF8BWN9Isuqifz_mFmDgR5lAX4zKhtYSsepq4Yy1zRox-qkIb6FaVkQFPiNAUFuRHVBEBiUui4dzZNYbBoc7qecF0VM0O5r5QuZ5gTpVYfx7_v-6tFWa-A1cK7l71FowZ3B8GPz3YpND4wwAB_DWRIbYQ4X_tnBo8jdMZWQ-vigiUbb3fY"/>
+</div>
+<div>
+<h1 class="font-manrope font-extrabold text-xl text-white tracking-tight uppercase">RESTAURANTE DA TIA</h1>
+<p class="text-[10px] text-blue-200 uppercase tracking-[0.2em] font-medium">Relatório de Consumo Escolar • Jan 2024</p>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<button class="p-2 text-blue-200 hover:text-white hover:bg-white/10 rounded-full transition-all scale-95 active:scale-90 duration-200" title="Baixar PDF">
+<span class="material-symbols-outlined" data-icon="picture_as_pdf">picture_as_pdf</span>
+</button>
+<button class="p-2 text-blue-200 hover:text-white hover:bg-white/10 rounded-full transition-all scale-95 active:scale-90 duration-200" title="Enviar E-mail">
+<span class="material-symbols-outlined" data-icon="mail">mail</span>
+</button>
+<button class="p-2 text-blue-200 hover:text-white hover:bg-white/10 rounded-full transition-all scale-95 active:scale-90 duration-200" title="Compartilhar">
+<span class="material-symbols-outlined" data-icon="share">share</span>
+</button>
+</div>
+</header>
+<!-- Main Scrollable Area -->
+<div class="p-6 space-y-8">
+<!-- Client Info Card -->
+<section class="bg-surface-container-lowest rounded-xl p-6 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border border-outline-variant/10">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 bg-surface-container-highest rounded-full flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-3xl" data-icon="account_circle">account_circle</span>
+</div>
+<div>
+<h2 class="font-headline text-lg text-on-surface font-bold">Fabiano Araujo</h2>
+<p class="text-sm text-on-surface-variant flex items-center gap-2">
+<span class="bg-secondary-container text-on-secondary-fixed-variant px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider">Responsável</span>
+<span class="text-outline">•</span>
+<span class="font-mono text-xs">Cód: #882910</span>
+</p>
+</div>
+</div>
+<div class="flex flex-wrap gap-3">
+<button class="rounded-full px-5 py-2 bg-primary-container text-on-primary-fixed-variant text-sm font-semibold flex items-center gap-2 hover:bg-primary-fixed transition-colors">
+<span class="material-symbols-outlined text-sm" data-icon="picture_as_pdf">picture_as_pdf</span>
+                            Baixar PDF
+                        </button>
+<button class="rounded-full px-5 py-2 bg-surface-container-high text-on-surface-variant text-sm font-semibold flex items-center gap-2 hover:bg-surface-container-highest transition-colors">
+<span class="material-symbols-outlined text-sm" data-icon="mail">mail</span>
+                            E-mail
+                        </button>
+<button class="rounded-full px-5 py-2 bg-surface-container-high text-on-surface-variant text-sm font-semibold flex items-center gap-2 hover:bg-surface-container-highest transition-colors">
+<span class="material-symbols-outlined text-sm" data-icon="chat">chat</span>
+                            WhatsApp
+                        </button>
+</div>
+</section>
+<!-- Key Metrics - Bento Layout -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<!-- Credits Card -->
+<div class="bg-secondary-container/30 rounded-xl p-6 flex flex-col gap-1 border-b-4 border-secondary-container">
+<span class="text-[11px] font-bold text-on-secondary-fixed-variant uppercase tracking-widest">Total de Créditos</span>
+<div class="flex items-baseline gap-1">
+<span class="text-sm font-bold text-on-secondary-fixed-variant">R$</span>
+<span class="text-4xl font-headline font-extrabold text-on-secondary-fixed-variant tracking-tight">450,00</span>
+</div>
+<p class="text-xs text-on-secondary-container mt-2">Créditos inseridos no período</p>
+</div>
+<!-- Consumption Card -->
+<div class="bg-error-container/20 rounded-xl p-6 flex flex-col gap-1 border-b-4 border-error-container">
+<span class="text-[11px] font-bold text-on-error-container uppercase tracking-widest">Total de Consumo</span>
+<div class="flex items-baseline gap-1">
+<span class="text-sm font-bold text-on-error-container">R$</span>
+<span class="text-4xl font-headline font-extrabold text-on-error-container tracking-tight">185,50</span>
+</div>
+<p class="text-xs text-on-error-container/80 mt-2">Gastos totais processados</p>
+</div>
+<!-- Final Balance Card -->
+<div class="bg-primary-container/10 rounded-xl p-6 flex flex-col gap-1 border-b-4 border-primary">
+<span class="text-[11px] font-bold text-primary uppercase tracking-widest">Saldo Final</span>
+<div class="flex items-baseline gap-1">
+<span class="text-sm font-bold text-primary">R$</span>
+<span class="text-4xl font-headline font-extrabold text-primary tracking-tight">264,50</span>
+</div>
+<p class="text-xs text-on-primary-fixed-variant mt-2">Saldo atual disponível</p>
+</div>
+</section>
+<!-- Transactions Table -->
+<section class="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden">
+<div class="px-6 py-5 border-b border-surface-container flex justify-between items-center">
+<h3 class="font-headline font-bold text-on-surface">Lançamentos Recentes</h3>
+<span class="material-symbols-outlined text-outline cursor-pointer" data-icon="filter_list">filter_list</span>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full border-collapse">
+<thead>
+<tr class="bg-surface-container-low text-left">
+<th class="px-6 py-4 text-[10px] font-bold text-outline uppercase tracking-wider">Data</th>
+<th class="px-6 py-4 text-[10px] font-bold text-outline uppercase tracking-wider">Aluno</th>
+<th class="px-6 py-4 text-[10px] font-bold text-outline uppercase tracking-wider">Descrição</th>
+<th class="px-6 py-4 text-[10px] font-bold text-outline uppercase tracking-wider">Tipo</th>
+<th class="px-6 py-4 text-[10px] font-bold text-outline uppercase tracking-wider text-right">Valor</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-container">
+<tr class="hover:bg-surface-container-low/50 transition-colors">
+<td class="px-6 py-4 text-sm font-medium text-on-surface">15 Jan, 2024</td>
+<td class="px-6 py-4 text-sm text-on-surface">Victor Araujo</td>
+<td class="px-6 py-4 text-sm text-on-surface">Almoço Completo</td>
+<td class="px-6 py-4">
+<span class="bg-tertiary-fixed text-on-tertiary-fixed-variant px-3 py-1 rounded-md text-[11px] font-bold">Consumo</span>
+</td>
+<td class="px-6 py-4 text-sm font-bold text-error text-right">- R$ 25,00</td>
+</tr>
+<tr class="bg-surface-container-low/20 hover:bg-surface-container-low/50 transition-colors">
+<td class="px-6 py-4 text-sm font-medium text-on-surface">12 Jan, 2024</td>
+<td class="px-6 py-4 text-sm text-on-surface">Victor Araujo</td>
+<td class="px-6 py-4 text-sm text-on-surface">Crédito Livre</td>
+<td class="px-6 py-4">
+<span class="bg-secondary-container text-on-secondary-fixed-variant px-3 py-1 rounded-md text-[11px] font-bold">Crédito</span>
+</td>
+<td class="px-6 py-4 text-sm font-bold text-on-secondary-fixed-variant text-right">+ R$ 200,00</td>
+</tr>
+<tr class="hover:bg-surface-container-low/50 transition-colors">
+<td class="px-6 py-4 text-sm font-medium text-on-surface">10 Jan, 2024</td>
+<td class="px-6 py-4 text-sm text-on-surface">Victor Araujo</td>
+<td class="px-6 py-4 text-sm text-on-surface">Crédito Plano Almoço</td>
+<td class="px-6 py-4">
+<span class="bg-secondary-container text-on-secondary-fixed-variant px-3 py-1 rounded-md text-[11px] font-bold">Crédito</span>
+</td>
+<td class="px-6 py-4 text-sm font-bold text-on-secondary-fixed-variant text-right">+ R$ 250,00</td>
+</tr>
+<tr class="bg-surface-container-low/20 hover:bg-surface-container-low/50 transition-colors">
+<td class="px-6 py-4 text-sm font-medium text-on-surface">08 Jan, 2024</td>
+<td class="px-6 py-4 text-sm text-on-surface">Victor Araujo</td>
+<td class="px-6 py-4 text-sm text-on-surface">Lanche Tarde</td>
+<td class="px-6 py-4">
+<span class="bg-tertiary-fixed text-on-tertiary-fixed-variant px-3 py-1 rounded-md text-[11px] font-bold">Consumo</span>
+</td>
+<td class="px-6 py-4 text-sm font-bold text-error text-right">- R$ 12,50</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- Footer / Status Message -->
+<footer class="flex flex-col md:flex-row justify-between items-center gap-4 py-8 border-t border-outline-variant/10">
+<p class="text-xs text-outline italic">Este relatório é gerado automaticamente pelo sistema de gestão do Restaurante da Tia.</p>
+<div class="flex gap-6 text-xs font-bold text-primary uppercase tracking-tighter">
+<a class="hover:underline" href="#">Políticas de Privacidade</a>
+<a class="hover:underline" href="#">Termos de Uso</a>
+<a class="hover:underline" href="#">Suporte Financeiro</a>
+</div>
+</footer>
+</div>
+</main>
+</div>
+<!-- Mobile Navigation - Logic from JSON/Design System -->
+<nav class="md:hidden fixed bottom-0 left-0 right-0 bg-surface-container shadow-[0_-4px_16px_rgba(0,0,0,0.05)] flex justify-around items-center py-3 z-20">
+<a class="flex flex-col items-center gap-1 text-primary" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+<span class="text-[10px] font-bold">Home</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-on-surface-variant" href="#">
+<span class="material-symbols-outlined" data-icon="receipt_long">receipt_long</span>
+<span class="text-[10px] font-medium">Extrato</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-on-surface-variant" href="#">
+<span class="material-symbols-outlined" data-icon="group">group</span>
+<span class="text-[10px] font-medium">Alunos</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-on-surface-variant" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="text-[10px] font-medium">Config</span>
+</a>
+</nav>
+</body></html>

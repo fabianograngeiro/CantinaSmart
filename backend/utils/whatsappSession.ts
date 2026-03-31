@@ -38,6 +38,8 @@ type SyncProgressSnapshot = {
   etaSec: number | null;
   estimatedTotalSec: number | null;
   processedChats: number;
+  processedContacts: number;
+  restoredConversations: number;
   processedMessages: number;
   throttledFeatures: string[];
 };
@@ -95,6 +97,8 @@ type StartOptions = {
   endDate?: string;
   syncFullHistory?: boolean;
   safeSyncMode?: boolean;
+  syncContacts?: boolean;
+  syncHistories?: boolean;
 };
 
 type MediaType = 'image' | 'document' | 'audio';
@@ -133,6 +137,16 @@ type ScheduledMessage = {
   createdAt: number;
   sentAt?: number | null;
   error?: string | null;
+};
+
+type SyncDiscardedEvent = {
+  at: number;
+  reason: string;
+  chatJid: string;
+  chatId: string;
+  messageId?: string;
+  timestampSec?: number;
+  detail?: string;
 };
 
 type AiHumanHandoffRequest = {
@@ -358,6 +372,7 @@ class WhatsAppSessionManager {
   private chatLabelMap = new Map<string, Set<string>>();
   private profilePictureMap = new Map<string, string | null>();
   private lidToPhoneJidMap = new Map<string, string>();
+  private pendingLidChatMap = new Map<string, Partial<ChatSummary>>();
   private profilePictureInFlight = new Set<string>();
   private static readonly APP_STATE_PATCHES = ['critical_block', 'critical_unblock_low', 'regular_high', 'regular_low', 'regular'] as const;
   private sessionConfig: {
@@ -366,12 +381,16 @@ class WhatsAppSessionManager {
     endDate: string | null;
     syncFullHistory: boolean;
     safeSyncMode: boolean;
+    syncContacts: boolean;
+    syncHistories: boolean;
   } = {
       sessionName: null,
       startDate: null,
       endDate: null,
       syncFullHistory: false,
-      safeSyncMode: true
+      safeSyncMode: true,
+      syncContacts: true,
+      syncHistories: true
     };
   private syncProgress: SyncProgressSnapshot = {
     active: false,
@@ -385,9 +404,14 @@ class WhatsAppSessionManager {
     etaSec: null,
     estimatedTotalSec: null,
     processedChats: 0,
+    processedContacts: 0,
+    restoredConversations: 0,
     processedMessages: 0,
     throttledFeatures: [],
   };
+  private syncRestoredConversationIds = new Set<string>();
+  private syncDiscardedEvents: SyncDiscardedEvent[] = [];
+  private syncDiscardedCounters = new Map<string, number>();
   private aiConfig: AiConfig = {
     provider: 'openai',
     model: 'gpt-4.1-mini',
@@ -467,6 +491,7 @@ class WhatsAppSessionManager {
   private aiHumanHandoffAutoAcceptInFlight = false;
 
   constructor() {
+    this.loadPersistedSyncDiagnostics();
     this.loadPersistedChatHistory().catch((err) => {
       this.logWarn('Falha ao carregar histórico persistido do WhatsApp na inicialização.', err);
     });
@@ -511,6 +536,62 @@ class WhatsAppSessionManager {
     return store && typeof store === 'object' ? store : {};
   }
 
+  private loadPersistedSyncDiagnostics() {
+    try {
+      const persisted = this.getPersistedWhatsAppStore()?.syncDiagnostics || {};
+      const eventsRaw = Array.isArray(persisted?.events) ? persisted.events : [];
+      const countersRaw = persisted?.counters && typeof persisted.counters === 'object' ? persisted.counters : {};
+
+      this.syncDiscardedEvents = eventsRaw
+        .map((item: any) => ({
+          at: Number(item?.at || 0),
+          reason: String(item?.reason || '').trim(),
+          chatJid: String(item?.chatJid || '').trim(),
+          chatId: String(item?.chatId || '').trim(),
+          messageId: String(item?.messageId || '').trim() || undefined,
+          timestampSec: Number(item?.timestampSec || 0) || undefined,
+          detail: String(item?.detail || '').trim() || undefined,
+        }))
+        .filter((item: SyncDiscardedEvent) => item.at > 0 && item.reason)
+        .slice(-400);
+
+      this.syncDiscardedCounters = new Map(
+        Object.entries(countersRaw)
+          .map(([reason, total]) => [String(reason || '').trim(), Math.max(0, Number(total || 0))] as [string, number])
+          .filter(([reason]) => Boolean(reason))
+      );
+    } catch (err) {
+      this.logWarn('Falha ao carregar diagnóstico de quarentena de sync.', err instanceof Error ? err.message : err);
+      this.syncDiscardedEvents = [];
+      this.syncDiscardedCounters = new Map();
+    }
+  }
+
+  private recordSyncDiscardedEvent(reason: string, chatJid: string, meta: { messageId?: string; timestampSec?: number; detail?: string } = {}) {
+    const cleanReason = String(reason || '').trim();
+    if (!cleanReason) return;
+
+    const normalizedJid = this.stripDeviceSuffix(String(chatJid || '').trim());
+    const chatId = normalizedJid ? this.toExternalChatId(normalizedJid) : '';
+
+    const currentCount = Number(this.syncDiscardedCounters.get(cleanReason) || 0);
+    this.syncDiscardedCounters.set(cleanReason, currentCount + 1);
+
+    this.syncDiscardedEvents.push({
+      at: Date.now(),
+      reason: cleanReason,
+      chatJid: normalizedJid,
+      chatId,
+      messageId: String(meta.messageId || '').trim() || undefined,
+      timestampSec: Number(meta.timestampSec || 0) || undefined,
+      detail: String(meta.detail || '').trim() || undefined,
+    });
+
+    if (this.syncDiscardedEvents.length > 400) {
+      this.syncDiscardedEvents.splice(0, this.syncDiscardedEvents.length - 400);
+    }
+  }
+
   private async persistChatHistory() {
     const payload = {
       chats: Array.from(this.chatMap.entries()),
@@ -523,7 +604,14 @@ class WhatsAppSessionManager {
       lidMappings: Array.from(this.lidToPhoneJidMap.entries()),
       persistedAt: new Date().toISOString()
     };
-    db.updateWhatsAppStore({ history: payload });
+    db.updateWhatsAppStore({
+      history: payload,
+      syncDiagnostics: {
+        events: this.syncDiscardedEvents.slice(-400),
+        counters: Object.fromEntries(this.syncDiscardedCounters.entries()),
+        persistedAt: new Date().toISOString()
+      }
+    });
   }
 
   private async loadPersistedChatHistory() {
@@ -586,6 +674,7 @@ class WhatsAppSessionManager {
     this.chatLabelMap.clear();
     this.profilePictureMap.clear();
     this.lidToPhoneJidMap.clear();
+    this.pendingLidChatMap.clear();
     this.profilePictureInFlight.clear();
     this.aiConversationSessions.clear();
     this.processedIncomingAutoReplyIds.clear();
@@ -984,7 +1073,64 @@ class WhatsAppSessionManager {
       'processamento de agendamentos',
       'download de mídia do histórico',
       'refresh de foto de perfil',
+      'ingestão de mensagens em lote com intervalo',
     ];
+  }
+
+  private waitMs(ms: number) {
+    const delay = Math.max(0, Number(ms) || 0);
+    if (delay === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => setTimeout(() => resolve(), delay));
+  }
+
+  private async applySafeSyncThrottle(kind: 'message' | 'chat' | 'contact') {
+    if (!this.syncProgress.active || !this.sessionConfig.safeSyncMode) return;
+    const delayMs = kind === 'message' ? 22 : kind === 'contact' ? 12 : 8;
+    await this.waitMs(delayMs);
+  }
+
+  private resolveSyncPeriodWindowMs() {
+    if (!this.sessionConfig.syncFullHistory) return null;
+    const start = String(this.sessionConfig.startDate || '').trim();
+    const end = String(this.sessionConfig.endDate || '').trim();
+    if (!start || !end) return null;
+
+    const startMs = new Date(`${start}T00:00:00`).getTime();
+    const endMs = new Date(`${end}T23:59:59.999`).getTime();
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
+    return { startMs, endMs };
+  }
+
+  private shouldAcceptMessageBySyncPeriod(timestampSec: number) {
+    if (!this.syncProgress.active) return true;
+    const windowRange = this.resolveSyncPeriodWindowMs();
+    if (!windowRange) return true;
+    const timestampMs = Math.max(0, Number(timestampSec || 0)) * 1000;
+    if (!Number.isFinite(timestampMs) || timestampMs <= 0) return false;
+    return timestampMs >= windowRange.startMs && timestampMs <= windowRange.endMs;
+  }
+
+  private normalizeTimestampToMs(raw: unknown) {
+    const n = Number(raw || 0);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    // Valores de timestamp de mensagens/chats costumam vir em segundos no WhatsApp.
+    return n > 1_000_000_000_000 ? n : (n * 1000);
+  }
+
+  private isWithinConfiguredSyncWindow(rawTimestamp: unknown) {
+    const windowRange = this.resolveSyncPeriodWindowMs();
+    if (!windowRange) return true;
+    const timestampMs = this.normalizeTimestampToMs(rawTimestamp);
+    if (!timestampMs) return false;
+    return timestampMs >= windowRange.startMs && timestampMs <= windowRange.endMs;
+  }
+
+  private markConversationRestored(chatJid: string) {
+    if (!this.syncProgress.active) return;
+    const normalized = this.stripDeviceSuffix(String(chatJid || '').trim());
+    if (!normalized || this.syncRestoredConversationIds.has(normalized)) return;
+    this.syncRestoredConversationIds.add(normalized);
+    this.syncProgress.restoredConversations = this.syncRestoredConversationIds.size;
   }
 
   private stopSyncProgressHeartbeat() {
@@ -1034,9 +1180,12 @@ class WhatsAppSessionManager {
       etaSec: estimated,
       estimatedTotalSec: estimated,
       processedChats: 0,
+      processedContacts: 0,
+      restoredConversations: 0,
       processedMessages: 0,
       throttledFeatures: this.getSyncThrottledFeatures(),
     };
+    this.syncRestoredConversationIds.clear();
     this.stopSyncProgressHeartbeat();
     this.syncProgressTimer = setInterval(() => {
       this.refreshSyncRuntimeProgress();
@@ -1044,20 +1193,38 @@ class WhatsAppSessionManager {
       const quietForMs = Date.now() - this.syncLastActivityAt;
       const minElapsedSec = this.sessionConfig.syncFullHistory ? 18 : 6;
       if (this.syncProgress.phase !== 'FINALIZING' && quietForMs >= WhatsAppSessionManager.SYNC_ACTIVITY_QUIET_WINDOW_MS && this.syncProgress.elapsedSec >= minElapsedSec) {
-        this.setSyncRuntimePhase('FINALIZING', 'Finalizando sincronização e consolidando dados locais...', 96);
+        this.setSyncRuntimePhase(
+          'FINALIZING',
+          `Finalizando sincronização: ${this.syncProgress.restoredConversations} conversas restauradas.`,
+          96
+        );
       }
       if (this.syncProgress.phase === 'FINALIZING' && quietForMs >= (WhatsAppSessionManager.SYNC_ACTIVITY_QUIET_WINDOW_MS + 2000)) {
-        this.completeSyncRuntime('Sincronização concluída com sucesso.');
+        const hasRestoredMinimum =
+          this.syncProgress.restoredConversations > 0
+          || this.syncProgress.processedMessages > 0;
+        const allowFallbackByTime = this.syncProgress.elapsedSec >= (this.sessionConfig.syncFullHistory ? 90 : 25);
+        if (hasRestoredMinimum || allowFallbackByTime) {
+          this.completeSyncRuntime('Sincronização concluída. Histórico de conversas disponível na aba Conversas.');
+        } else {
+          this.setSyncRuntimePhase(
+            'FINALIZING',
+            'Aguardando restauração final do histórico de conversas para concluir 100%...',
+            96
+          );
+        }
       }
     }, WhatsAppSessionManager.SYNC_HEARTBEAT_INTERVAL_MS);
   }
 
-  private markSyncRuntimeActivity(delta: { chats?: number; messages?: number } = {}) {
+  private markSyncRuntimeActivity(delta: { chats?: number; contacts?: number; messages?: number } = {}) {
     if (!this.syncProgress.active) return;
     this.syncLastActivityAt = Date.now();
     const chatsDelta = Math.max(0, Number(delta.chats || 0));
+    const contactsDelta = Math.max(0, Number(delta.contacts || 0));
     const messagesDelta = Math.max(0, Number(delta.messages || 0));
     if (chatsDelta > 0) this.syncProgress.processedChats += chatsDelta;
+    if (contactsDelta > 0) this.syncProgress.processedContacts += contactsDelta;
     if (messagesDelta > 0) this.syncProgress.processedMessages += messagesDelta;
     if (this.syncProgress.phase === 'CONNECTING' || this.syncProgress.phase === 'BOOTSTRAP') {
       this.setSyncRuntimePhase('SYNCING_HISTORY', 'Sincronizando histórico de conversas...', 72);
@@ -1432,6 +1599,42 @@ class WhatsAppSessionManager {
     return this.aiAuditLog.slice(0, safeLimit);
   }
 
+  getSyncDiagnostics(input: number | { limit?: number; reason?: string; fromMs?: number; toMs?: number } = 100) {
+    const opts = typeof input === 'number' ? { limit: input } : (input || {});
+    const safeLimit = Math.max(1, Math.min(400, Number(opts.limit || 100)));
+    const reasonFilter = String(opts.reason || '').trim();
+    const fromMs = Number(opts.fromMs || 0);
+    const toMs = Number(opts.toMs || 0);
+    const hasFrom = Number.isFinite(fromMs) && fromMs > 0;
+    const hasTo = Number.isFinite(toMs) && toMs > 0;
+
+    const filteredEvents = this.syncDiscardedEvents.filter((item) => {
+      if (reasonFilter && item.reason !== reasonFilter) return false;
+      if (hasFrom && Number(item.at || 0) < fromMs) return false;
+      if (hasTo && Number(item.at || 0) > toMs) return false;
+      return true;
+    });
+
+    const counters = new Map<string, number>();
+    for (const item of filteredEvents) {
+      const reason = String(item.reason || '').trim();
+      if (!reason) continue;
+      counters.set(reason, Number(counters.get(reason) || 0) + 1);
+    }
+
+    return {
+      counters: Object.fromEntries(counters.entries()),
+      events: filteredEvents.slice(-safeLimit).reverse(),
+      totalEvents: filteredEvents.length,
+      appliedFilters: {
+        reason: reasonFilter || null,
+        fromMs: hasFrom ? fromMs : null,
+        toMs: hasTo ? toMs : null,
+        limit: safeLimit,
+      }
+    };
+  }
+
   async updateAiConfig(next: any) {
     this.aiConfig = this.sanitizeAiConfig(next);
     await this.persistAiConfig();
@@ -1603,7 +1806,32 @@ class WhatsAppSessionManager {
     if (!this.isClientJid(normalizedJid) || this.isSelfJid(normalizedJid)) return;
     if (this.lidToPhoneJidMap.get(lid) === normalizedJid) return;
     this.lidToPhoneJidMap.set(lid, normalizedJid);
+    const pending = this.pendingLidChatMap.get(lid);
+    if (pending) {
+      this.pendingLidChatMap.delete(lid);
+      this.upsertChat(normalizedJid, pending);
+      this.markConversationRestored(normalizedJid);
+    }
     this.schedulePersistChatHistory();
+  }
+
+  private stagePendingLidChat(lidValue: string, patch: Partial<ChatSummary>) {
+    const lid = this.normalizeLidJid(lidValue);
+    if (!lid) return;
+    const existing = this.pendingLidChatMap.get(lid) || {};
+    const mergedLastTimestamp = Math.max(
+      Number(existing.lastTimestamp || 0),
+      Number(patch.lastTimestamp || 0)
+    );
+    const mergedLastMessage = String(patch.lastMessage || '').trim() || String(existing.lastMessage || '').trim();
+
+    this.pendingLidChatMap.set(lid, {
+      ...existing,
+      ...patch,
+      lastTimestamp: mergedLastTimestamp,
+      lastMessage: mergedLastMessage || String(existing.lastMessage || '').trim(),
+      unreadCount: Math.max(Number(existing.unreadCount || 0), Number(patch.unreadCount || 0)),
+    });
   }
 
   private rememberLidPnPair(lidValue: string, pnValue: string) {
@@ -1946,6 +2174,33 @@ class WhatsAppSessionManager {
     ).trim();
   }
 
+  private isTechnicalWhatsAppNoticeBody(rawBody: string) {
+    const text = String(rawBody || '')
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+    if (!text) return false;
+
+    return (
+      text.includes('codigo de seguranca')
+      || text.includes('security code')
+      || text.includes('mudou') && text.includes('seguranca')
+      || text.includes('changed') && text.includes('security')
+      || text.includes('end-to-end encrypted')
+      || text.includes('mensagens e chamadas sao protegidas')
+      || text.includes('messages and calls are end-to-end encrypted')
+    );
+  }
+
+  private isMeaningfulChatMessage(message: ChatMessage | null | undefined) {
+    if (!message) return false;
+    if (message.mediaType || message.location) return true;
+    const body = String(message.body || '').trim();
+    if (!body) return false;
+    return !this.isTechnicalWhatsAppNoticeBody(body);
+  }
+
   private extractLocationFromMessage(msg: any) {
     const content = this.getRawMessageContent(msg);
     const locationMessage = content?.locationMessage || content?.liveLocationMessage;
@@ -1997,6 +2252,51 @@ class WhatsAppSessionManager {
     this.schedulePersistChatHistory();
   }
 
+  private hasChatMessageContent(chatJid: string) {
+    const messages = this.messageMap.get(chatJid) || [];
+    if (messages.length > 0) return true;
+    const chat = this.chatMap.get(chatJid);
+    return String(chat?.lastMessage || '').trim().length > 0;
+  }
+
+  private isLikelyPhoneLikeName(name: string, phoneDigits: string) {
+    const raw = String(name || '').trim();
+    if (!raw) return true;
+
+    const normalized = raw
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+
+    const hasLetters = /[a-z]/i.test(normalized);
+    if (!hasLetters) return true;
+
+    const rawDigits = raw.replace(/\D/g, '');
+    if (rawDigits && phoneDigits) {
+      if (rawDigits === phoneDigits) return true;
+      if (rawDigits.endsWith(phoneDigits) || phoneDigits.endsWith(rawDigits)) return true;
+    }
+
+    const blockedWords = ['whatsapp', 'contato', 'contact', 'user', 'unknown'];
+    if (blockedWords.some((token) => normalized === token)) return true;
+
+    return false;
+  }
+
+  private resolveBestChatName(incomingName: string, existingName: string, phoneDigits: string) {
+    const incoming = String(incomingName || '').trim();
+    const existing = String(existingName || '').trim();
+
+    const incomingMeaningful = incoming && !this.isLikelyPhoneLikeName(incoming, phoneDigits);
+    const existingMeaningful = existing && !this.isLikelyPhoneLikeName(existing, phoneDigits);
+
+    if (incomingMeaningful) return incoming;
+    if (existingMeaningful) return existing;
+    if (incoming) return incoming;
+    if (existing) return existing;
+    return phoneDigits;
+  }
+
   private upsertChat(chatJid: string, patch: Partial<ChatSummary>) {
     const labelIds = this.chatLabelMap.get(chatJid) || new Set<string>();
     const labels = Array.from(labelIds)
@@ -2017,11 +2317,19 @@ class WhatsAppSessionManager {
       avatarUrl: null
     };
 
+    const phoneDigits = this.getPhoneFromJid(chatJid);
+    const resolvedName = this.resolveBestChatName(
+      String(patch.name || ''),
+      String(current.name || ''),
+      phoneDigits
+    );
+
     const next: ChatSummary = {
       ...current,
       ...patch,
       chatId: this.toExternalChatId(chatJid),
-      phone: this.getPhoneFromJid(chatJid),
+      phone: phoneDigits,
+      name: resolvedName,
       labels,
       avatarUrl: patch.avatarUrl ?? this.profilePictureMap.get(chatJid) ?? current.avatarUrl ?? null
     };
@@ -5939,13 +6247,21 @@ class WhatsAppSessionManager {
     const nextSafeSyncMode = hasOwn(options, 'safeSyncMode')
       ? Boolean(options.safeSyncMode)
       : this.sessionConfig.safeSyncMode;
+    const nextSyncContacts = hasOwn(options, 'syncContacts')
+      ? Boolean(options.syncContacts)
+      : this.sessionConfig.syncContacts;
+    const nextSyncHistories = hasOwn(options, 'syncHistories')
+      ? Boolean(options.syncHistories)
+      : this.sessionConfig.syncHistories;
 
     this.sessionConfig = {
       sessionName: nextSessionName,
       startDate: nextStartDate,
       endDate: nextEndDate,
       syncFullHistory: nextSyncFullHistory,
-      safeSyncMode: nextSafeSyncMode
+      safeSyncMode: nextSafeSyncMode,
+      syncContacts: nextSyncContacts,
+      syncHistories: nextSyncHistories
     };
 
     if (this.startPromise) return this.startPromise;
@@ -5989,6 +6305,8 @@ class WhatsAppSessionManager {
       this.sock = null;
 
       if (options.forceNewSession) {
+        this.clearInMemoryChats();
+        await this.persistChatHistory();
         await this.clearPersistedSession();
       }
 
@@ -6057,7 +6375,7 @@ class WhatsAppSessionManager {
           this.setSyncRuntimePhase(
             'SYNCING_HISTORY',
             this.sessionConfig.syncFullHistory
-              ? 'Conectado. Sincronizando histórico completo em modo protegido...'
+              ? 'Conectado. Sincronizando histórico completo no período configurado...'
               : 'Conectado. Sincronizando dados essenciais da sessão...',
             this.sessionConfig.syncFullHistory ? 62 : 78
           );
@@ -6113,7 +6431,16 @@ class WhatsAppSessionManager {
           if (this.manualStop || loggedOut) {
             this.connectionFailureStreak = 0;
             this.setState('DISCONNECTED');
-            this.lastError = loggedOut ? 'Sessão desconectada (logout).' : null;
+            if (loggedOut) {
+              this.lastError = 'Sessão desconectada no aparelho celular. Faça novo pareamento por QR Code.';
+              try {
+                await this.clearPersistedSession();
+              } catch (err) {
+                this.logWarn('Falha ao remover credenciais após logout detectado no aparelho.', err);
+              }
+            } else {
+              this.lastError = null;
+            }
             if (this.syncProgress.active) {
               this.failSyncRuntime(this.lastError || 'Sessão desconectada durante sincronização.');
             }
@@ -6179,20 +6506,54 @@ class WhatsAppSessionManager {
         }
       });
 
-      sock.ev.on('messages.upsert', async (payload: any) => {
-        if (this.sock !== sock) return;
-        const msgs = Array.isArray(payload?.messages) ? payload.messages : [];
-        if (msgs.length > 0) {
-          this.markSyncRuntimeActivity({ messages: msgs.length });
+      const ingestIncomingMessages = async (
+        messages: any[],
+        upsertTypeInput: string,
+        options: { treatAsHistory?: boolean } = {}
+      ) => {
+        const msgs = Array.isArray(messages) ? messages : [];
+        if (msgs.length === 0) return;
+
+        const upsertType = String(upsertTypeInput || '').trim().toLowerCase();
+        const isHistoryUpsert = Boolean(options.treatAsHistory) || upsertType === 'append';
+        const isRealtimeUpsert = !isHistoryUpsert && upsertType === 'notify';
+
+        // Skip history restoration if syncHistories is disabled
+        if (isHistoryUpsert && !this.sessionConfig.syncHistories) {
+          return;
         }
 
+        this.markSyncRuntimeActivity({ messages: msgs.length });
+
         for (const msg of msgs) {
+          await this.applySafeSyncThrottle('message');
           const remoteJid = this.resolveIncomingChatJid(msg);
           if (!this.isClientJid(remoteJid) || this.isSelfJid(remoteJid)) continue;
 
           const fromMe = Boolean(msg?.key?.fromMe);
           const timestamp = Number(msg?.messageTimestamp || Math.floor(Date.now() / 1000));
+          if (isHistoryUpsert && !this.shouldAcceptMessageBySyncPeriod(timestamp)) {
+            this.recordSyncDiscardedEvent('outside_sync_period_message', remoteJid, {
+              messageId: String(msg?.key?.id || '').trim() || undefined,
+              timestampSec: timestamp,
+              detail: 'messages.upsert'
+            });
+            continue;
+          }
+
           const body = this.extractBody(msg);
+          const content = this.getRawMessageContent(msg);
+          const hasProtocolMessage = Boolean(content?.protocolMessage);
+          const messageStubType = Number(msg?.messageStubType);
+          const hasStubEvent = Number.isFinite(messageStubType) && messageStubType > 0;
+          const hasMediaPayload = Boolean(
+            content?.audioMessage
+            || content?.imageMessage
+            || content?.videoMessage
+            || content?.documentMessage
+            || content?.stickerMessage
+            || content?.ptvMessage
+          );
           const skipHeavyMediaDecode = this.isSyncProtectionActive() && this.syncProgress.active;
           const media = skipHeavyMediaDecode ? null : await this.extractMediaFromMessage(msg);
           const location = this.extractLocationFromMessage(msg);
@@ -6202,13 +6563,28 @@ class WhatsAppSessionManager {
             this.aiAgentEnabledChats.has(remoteJid)
             || Boolean(this.aiConfig.onlyOutsideBusinessHours)
           );
+
           let sttTranscript = '';
           if (!fromMe && !body && media?.mediaType === 'audio' && shouldProcessAiForChat) {
             sttTranscript = await this.transcribeAudioForAi(remoteJid, msgId, media);
           }
+
           const preview = body
             || (location ? '[Localização]' : '')
-            || (media?.fileName ? `[Arquivo: ${media.fileName}]` : media ? '[Arquivo]' : '');
+            || (media?.fileName ? `[Arquivo: ${media.fileName}]` : media ? '[Arquivo]' : (hasMediaPayload ? '[Arquivo]' : ''));
+
+          const isTechnicalNotice = this.isTechnicalWhatsAppNoticeBody(preview)
+            || ((hasProtocolMessage || hasStubEvent) && !preview && !media && !location);
+          if (isTechnicalNotice) {
+            if (isHistoryUpsert) {
+              this.recordSyncDiscardedEvent('technical_notice_message', remoteJid, {
+                messageId: msgId,
+                timestampSec: timestamp,
+                detail: preview ? preview.slice(0, 120) : 'protocol_or_stub_without_content'
+              });
+            }
+            continue;
+          }
 
           this.pushMessage(remoteJid, {
             id: msgId,
@@ -6221,67 +6597,147 @@ class WhatsAppSessionManager {
             mediaDataUrl: media?.mediaDataUrl || null,
             location: location || null
           });
+          this.markConversationRestored(remoteJid);
 
           const existing = this.chatMap.get(remoteJid);
+          const shouldIncreaseUnread = !fromMe && isRealtimeUpsert;
           this.upsertChat(remoteJid, {
             name: String(msg?.pushName || existing?.name || this.getPhoneFromJid(remoteJid)),
             lastMessage: preview || existing?.lastMessage || '',
             lastTimestamp: timestamp,
-            unreadCount: fromMe ? Number(existing?.unreadCount || 0) : Number(existing?.unreadCount || 0) + 1,
+            unreadCount: shouldIncreaseUnread
+              ? Number(existing?.unreadCount || 0) + 1
+              : Number(existing?.unreadCount || 0),
             initiatedByClient: fromMe ? Boolean(existing?.initiatedByClient) : true
           });
-          if (!this.isSyncProtectionActive()) {
+
+          if (!this.isSyncProtectionActive() && this.sessionConfig.syncContacts) {
             this.refreshProfilePicture(remoteJid).catch(() => {});
           }
 
-          if (fromMe && !this.isBackendSentMessageId(msgId)) {
+          if (isRealtimeUpsert && fromMe && !this.isBackendSentMessageId(msgId)) {
             this.markHumanInteraction(remoteJid, timestamp * 1000);
             this.clearAiHumanHandoffForChat(remoteJid, 'human_message_from_device');
             await this.disableAiAgentTemporarily(remoteJid, 'human_device');
           }
 
           const aiInput = String(body || sttTranscript || '').trim();
-          if (!fromMe && aiInput && shouldProcessAiForChat) {
+          if (isRealtimeUpsert && !fromMe && aiInput && shouldProcessAiForChat) {
             await this.maybeHandleIncomingAiReply(remoteJid, msgId, aiInput);
-          } else if (!fromMe && aiInput && !this.isSyncProtectionActive()) {
+          } else if (isRealtimeUpsert && !fromMe && aiInput && !this.isSyncProtectionActive()) {
             this.scheduleAiHumanHandoffReview(remoteJid, msgId, aiInput, timestamp * 1000);
           }
         }
+      };
+
+      sock.ev.on('messages.upsert', async (payload: any) => {
+        if (this.sock !== sock) return;
+        const msgs = Array.isArray(payload?.messages) ? payload.messages : [];
+        const upsertType = String(payload?.type || '').trim().toLowerCase();
+        await ingestIncomingMessages(msgs, upsertType, { treatAsHistory: false });
       });
 
-      sock.ev.on('chats.upsert', (chats: any[]) => {
+      sock.ev.on('messaging-history.set', async (payload: any) => {
+        if (this.sock !== sock) return;
+        const historyMessages = Array.isArray(payload?.messages) ? payload.messages : [];
+        await ingestIncomingMessages(historyMessages, 'append', { treatAsHistory: true });
+      });
+
+      sock.ev.on('chats.upsert', async (chats: any[]) => {
         if (this.sock !== sock) return;
         const list = Array.isArray(chats) ? chats : [];
         if (list.length > 0) this.markSyncRuntimeActivity({ chats: list.length });
         for (const chat of list) {
-          const jid = String(chat?.id || '');
+          await this.applySafeSyncThrottle('chat');
+          const rawChatId = String(chat?.id || chat?.jid || '').trim();
+          const lid = this.normalizeLidJid(rawChatId);
+          const baseTimestamp = Number(chat?.conversationTimestamp || 0);
+          if (!Number.isFinite(baseTimestamp) || baseTimestamp <= 0) {
+            // Ignora chats sem data de conversa para evitar entradas "SEM DATA".
+            this.recordSyncDiscardedEvent('chat_without_timestamp', rawChatId, {
+              detail: 'chats.upsert'
+            });
+            continue;
+          }
+          if (baseTimestamp > 0 && !this.shouldAcceptMessageBySyncPeriod(baseTimestamp)) {
+            this.recordSyncDiscardedEvent('outside_sync_period_chat', rawChatId, {
+              timestampSec: baseTimestamp,
+              detail: 'chats.upsert'
+            });
+            continue;
+          }
+          const stagedPatch: Partial<ChatSummary> = {
+            name: String(chat?.name || '').trim(),
+            unreadCount: Number(chat?.unreadCount || 0),
+            lastTimestamp: baseTimestamp,
+          };
+
+          if (lid) {
+            this.stagePendingLidChat(lid, stagedPatch);
+            const pnCandidate = String(chat?.pn || chat?.phone || '').trim();
+            if (pnCandidate) this.rememberLidPnPair(lid, pnCandidate);
+          }
+
+          const jid = this.toBaileysJid(rawChatId);
           if (!this.isClientJid(jid) || this.isSelfJid(jid)) continue;
+          this.markConversationRestored(jid);
           const existing = this.chatMap.get(jid);
           this.upsertChat(jid, {
             name: String(chat?.name || existing?.name || this.getPhoneFromJid(jid)),
             unreadCount: Number(chat?.unreadCount ?? existing?.unreadCount ?? 0),
             lastTimestamp: Number(chat?.conversationTimestamp ?? existing?.lastTimestamp ?? 0)
           });
-          if (!this.isSyncProtectionActive()) {
+          if (!this.isSyncProtectionActive() && this.sessionConfig.syncContacts) {
             this.refreshProfilePicture(jid).catch(() => {});
           }
         }
       });
 
-      sock.ev.on('chats.update', (chats: any[]) => {
+      sock.ev.on('chats.update', async (chats: any[]) => {
         if (this.sock !== sock) return;
         const list = Array.isArray(chats) ? chats : [];
         if (list.length > 0) this.markSyncRuntimeActivity({ chats: list.length });
         for (const chat of list) {
-          const jid = String(chat?.id || '');
+          await this.applySafeSyncThrottle('chat');
+          const rawChatId = String(chat?.id || chat?.jid || '').trim();
+          const lid = this.normalizeLidJid(rawChatId);
+          const baseTimestamp = Number(chat?.conversationTimestamp || 0);
+          if (!Number.isFinite(baseTimestamp) || baseTimestamp <= 0) {
+            // Ignora updates sem data de conversa para evitar entradas "SEM DATA".
+            this.recordSyncDiscardedEvent('chat_update_without_timestamp', rawChatId, {
+              detail: 'chats.update'
+            });
+            continue;
+          }
+          if (baseTimestamp > 0 && !this.shouldAcceptMessageBySyncPeriod(baseTimestamp)) {
+            this.recordSyncDiscardedEvent('outside_sync_period_chat_update', rawChatId, {
+              timestampSec: baseTimestamp,
+              detail: 'chats.update'
+            });
+            continue;
+          }
+          const stagedPatch: Partial<ChatSummary> = {
+            name: String(chat?.name || '').trim(),
+            unreadCount: Number(chat?.unreadCount || 0),
+            lastTimestamp: baseTimestamp,
+          };
+
+          if (lid) {
+            this.stagePendingLidChat(lid, stagedPatch);
+            const pnCandidate = String(chat?.pn || chat?.phone || '').trim();
+            if (pnCandidate) this.rememberLidPnPair(lid, pnCandidate);
+          }
+
+          const jid = this.toBaileysJid(rawChatId);
           if (!this.isClientJid(jid) || this.isSelfJid(jid)) continue;
+          this.markConversationRestored(jid);
           const existing = this.chatMap.get(jid);
           this.upsertChat(jid, {
             name: String(chat?.name || existing?.name || this.getPhoneFromJid(jid)),
             unreadCount: Number(chat?.unreadCount ?? existing?.unreadCount ?? 0),
             lastTimestamp: Number(chat?.conversationTimestamp ?? existing?.lastTimestamp ?? 0)
           });
-          if (!this.isSyncProtectionActive()) {
+          if (!this.isSyncProtectionActive() && this.sessionConfig.syncContacts) {
             this.refreshProfilePicture(jid).catch(() => {});
           }
         }
@@ -6297,71 +6753,98 @@ class WhatsAppSessionManager {
         this.rememberLidMapping(lid, normalizedJid);
       });
 
-      sock.ev.on('contacts.upsert', (contacts: any[]) => {
+      sock.ev.on('contacts.upsert', async (contacts: any[]) => {
         if (this.sock !== sock) return;
         const list = Array.isArray(contacts) ? contacts : [];
-        if (list.length > 0) this.markSyncRuntimeActivity({ chats: list.length });
+        if (list.length > 0) this.markSyncRuntimeActivity({ contacts: list.length });
         for (const contact of list) {
+          await this.applySafeSyncThrottle('contact');
           const lid = String(contact?.lid || '').trim();
           const directJid = this.toBaileysJid(String(contact?.jid || '').trim());
           if (lid && directJid && this.isClientJid(directJid) && !this.isSelfJid(directJid)) {
             this.rememberLidMapping(lid, directJid);
           }
 
-          const jid = directJid || this.toBaileysJid(String(contact?.id || '').trim());
-          if (!jid || !this.isClientJid(jid) || this.isSelfJid(jid)) continue;
+          if (!this.sessionConfig.syncContacts) continue;
 
-          const existing = this.chatMap.get(jid);
-          const nextName = String(
-            contact?.name
-            || contact?.notify
+          const fallbackRaw = String(contact?.phone || contact?.id || '').trim();
+          const fallbackJid = fallbackRaw ? this.toBaileysJid(fallbackRaw) : '';
+          const contactJid = directJid || fallbackJid;
+          if (!contactJid || !this.isClientJid(contactJid) || this.isSelfJid(contactJid)) continue;
+
+          const existing = this.chatMap.get(contactJid);
+          const hasConversationContent = this.hasChatMessageContent(contactJid);
+          const hasChatActivity = Number(existing?.lastTimestamp || 0) > 0;
+          if (!hasConversationContent && !hasChatActivity) {
+            // Não cria conversa vazia apenas por sincronização de contato.
+            continue;
+          }
+
+          const contactName = String(
+            contact?.notify
+            || contact?.name
             || contact?.verifiedName
             || existing?.name
-            || this.getPhoneFromJid(jid)
-          ).trim();
-          const patch: Partial<ChatSummary> = {};
-          if (nextName) patch.name = nextName;
-          this.upsertChat(jid, patch);
+            || this.getPhoneFromJid(contactJid)
+          ).trim() || this.getPhoneFromJid(contactJid);
 
-          const imgUrl = contact?.imgUrl;
-          if (typeof imgUrl === 'string' && imgUrl.trim() && imgUrl !== 'changed') {
-            this.profilePictureMap.set(jid, imgUrl.trim());
-            this.upsertChat(jid, {});
+          this.upsertChat(contactJid, {
+            name: contactName,
+            unreadCount: Number(existing?.unreadCount || 0),
+            lastMessage: String(existing?.lastMessage || '').trim(),
+            lastTimestamp: Number(existing?.lastTimestamp || 0)
+          });
+
+          if (!this.isSyncProtectionActive()) {
+            this.refreshProfilePicture(contactJid).catch(() => {});
           }
         }
       });
 
-      sock.ev.on('contacts.update', (updates: any[]) => {
+      sock.ev.on('contacts.update', async (updates: any[]) => {
         if (this.sock !== sock) return;
         const list = Array.isArray(updates) ? updates : [];
-        if (list.length > 0) this.markSyncRuntimeActivity({ chats: list.length });
+        if (list.length > 0) this.markSyncRuntimeActivity({ contacts: list.length });
         for (const update of list) {
+          await this.applySafeSyncThrottle('contact');
           const lid = String(update?.lid || '').trim();
           const directJid = this.toBaileysJid(String(update?.jid || '').trim());
           if (lid && directJid && this.isClientJid(directJid) && !this.isSelfJid(directJid)) {
             this.rememberLidMapping(lid, directJid);
           }
 
-          const jid = directJid || this.toBaileysJid(String(update?.id || ''));
-          if (!jid || !this.isClientJid(jid) || this.isSelfJid(jid)) continue;
+          if (!this.sessionConfig.syncContacts) continue;
 
-          const existing = this.chatMap.get(jid);
-          const nextName = String(
-            update?.name
-            || update?.notify
+          const fallbackRaw = String(update?.phone || update?.id || '').trim();
+          const fallbackJid = fallbackRaw ? this.toBaileysJid(fallbackRaw) : '';
+          const contactJid = directJid || fallbackJid;
+          if (!contactJid || !this.isClientJid(contactJid) || this.isSelfJid(contactJid)) continue;
+
+          const existing = this.chatMap.get(contactJid);
+          const hasConversationContent = this.hasChatMessageContent(contactJid);
+          const hasChatActivity = Number(existing?.lastTimestamp || 0) > 0;
+          if (!hasConversationContent && !hasChatActivity) {
+            // Não cria conversa vazia apenas por atualização de contato.
+            continue;
+          }
+
+          const contactName = String(
+            update?.notify
+            || update?.name
             || update?.verifiedName
             || existing?.name
-            || this.getPhoneFromJid(jid)
-          ).trim();
+            || this.getPhoneFromJid(contactJid)
+          ).trim() || this.getPhoneFromJid(contactJid);
 
-          const patch: Partial<ChatSummary> = {};
-          if (nextName) patch.name = nextName;
-          this.upsertChat(jid, patch);
+          this.upsertChat(contactJid, {
+            name: contactName,
+            unreadCount: Number(existing?.unreadCount || 0),
+            lastMessage: String(existing?.lastMessage || '').trim(),
+            lastTimestamp: Number(existing?.lastTimestamp || 0)
+          });
 
-          const imgUrl = update?.imgUrl;
-          if (typeof imgUrl === 'string' && imgUrl.trim() && imgUrl !== 'changed') {
-            this.profilePictureMap.set(jid, imgUrl.trim());
-            this.upsertChat(jid, {});
+          if (!this.isSyncProtectionActive()) {
+            this.refreshProfilePicture(contactJid).catch(() => {});
           }
         }
       });
@@ -6473,12 +6956,16 @@ class WhatsAppSessionManager {
       this.qrDataUrl = null;
       this.phoneNumber = null;
       this.lastError = null;
-      this.clearInMemoryChats();
+      try {
+        await this.clearPersistedSession();
+      } catch (err) {
+        this.logWarn('Falha ao remover credenciais da sessão durante desconexão manual.', err);
+      }
       this.setState('DISCONNECTED');
       if (this.syncProgress.active) {
         this.failSyncRuntime('Sincronização interrompida por desconexão manual.');
       }
-      this.logInfo('Sessão encerrada e estado local limpo.');
+      this.logInfo('Sessão encerrada e credenciais removidas. Histórico de conversas preservado.');
     }
     return this.getSnapshot();
   }
@@ -6524,8 +7011,60 @@ class WhatsAppSessionManager {
   async getClientChats(): Promise<ChatSummary[]> {
     this.ensureConnected();
     this.pruneSelfChatsFromCache();
+    const windowRange = this.resolveSyncPeriodWindowMs();
     return Array.from(this.chatMap.values())
       .filter((chat) => String(chat.chatId || '').endsWith('@c.us'))
+      .map((chat) => {
+        const jid = this.toBaileysJid(chat.chatId);
+        const rawMessages = jid ? (this.messageMap.get(jid) || []) : [];
+        const messages = windowRange
+          ? rawMessages.filter((item) => this.isWithinConfiguredSyncWindow(item?.timestamp))
+          : rawMessages;
+        const lastMeaningfulMessage = [...messages]
+          .reverse()
+          .find((item) => this.isMeaningfulChatMessage(item) && this.normalizeTimestampToMs(item?.timestamp) > 0) || null;
+
+        const derivedLastTimestamp = Number(lastMeaningfulMessage?.timestamp || 0) > 0
+          ? Number(lastMeaningfulMessage?.timestamp || 0)
+          : (this.isWithinConfiguredSyncWindow(chat.lastTimestamp) ? Number(chat.lastTimestamp || 0) : 0);
+
+        const derivedLastMessage = String(lastMeaningfulMessage?.body || '').trim()
+          || String(chat.lastMessage || '').trim()
+          || 'Mensagem restaurada';
+
+        return {
+          ...chat,
+          lastTimestamp: derivedLastTimestamp,
+          lastMessage: derivedLastMessage,
+          unreadCount: Number(chat.unreadCount || 0),
+        };
+      })
+      .filter((chat) => {
+        const hasValidTimestamp = this.normalizeTimestampToMs(chat.lastTimestamp) > 0;
+        if (!hasValidTimestamp) return false;
+
+        const jid = this.toBaileysJid(chat.chatId);
+        if (!jid) return false;
+        const rawMessages = this.messageMap.get(jid) || [];
+        const messages = windowRange
+          ? rawMessages.filter((item) => this.isWithinConfiguredSyncWindow(item?.timestamp))
+          : rawMessages;
+        const hasMeaningfulMessage = messages.some((item) => this.isMeaningfulChatMessage(item));
+        if (hasMeaningfulMessage) return true;
+
+        const hasClientInitiatedActivity = Boolean(chat.initiatedByClient)
+          && Number(chat.lastTimestamp || 0) > 0
+          && this.isWithinConfiguredSyncWindow(chat.lastTimestamp);
+        if (hasClientInitiatedActivity) return true;
+
+        const hasPreview = this.isMeaningfulChatMessage({
+          id: '',
+          body: String(chat.lastMessage || '').trim(),
+          fromMe: false,
+          timestamp: Number(chat.lastTimestamp || 0)
+        });
+        return hasPreview;
+      })
       .sort((a, b) => Number(b.lastTimestamp || 0) - Number(a.lastTimestamp || 0))
       .slice(0, 120);
   }
@@ -6535,7 +7074,10 @@ class WhatsAppSessionManager {
     const jid = this.toBaileysJid(chatId);
     if (!jid || !this.isClientJid(jid) || this.isSelfJid(jid)) throw new Error('Chat inválido.');
 
-    const messages = this.messageMap.get(jid) || [];
+    const rawMessages = this.messageMap.get(jid) || [];
+    const messages = this.resolveSyncPeriodWindowMs()
+      ? rawMessages.filter((item) => this.isWithinConfiguredSyncWindow(item?.timestamp))
+      : rawMessages;
     const safeLimit = Math.max(10, Math.min(200, Number(limit) || 80));
     return messages.slice(-safeLimit);
   }

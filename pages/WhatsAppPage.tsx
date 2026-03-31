@@ -16,6 +16,7 @@ import {
   FileImage,
   FileText,
   Mic,
+  Volume2,
   XCircle,
   BarChart3,
   PhoneCall,
@@ -68,6 +69,7 @@ type VisibleChat = ChatSummary & {
   registrationId: string;
   contactType: string;
   responsibleName: string;
+  isKnownClient: boolean;
   contactTypeLabel?: string;
   relationshipLabel?: string;
   isDraft?: boolean;
@@ -397,6 +399,13 @@ const resolveKinshipLabel = (value?: string) => {
 };
 
 const resolveContactLabels = (client?: Client | null): { contactTypeLabel: string; relationshipLabel: string } => {
+  if (!client) {
+    return {
+      contactTypeLabel: 'Lead',
+      relationshipLabel: 'Indefinido',
+    };
+  }
+
   const type = String(client?.type || '').toUpperCase();
   if (type === 'COLABORADOR') {
     return {
@@ -411,7 +420,7 @@ const resolveContactLabels = (client?: Client | null): { contactTypeLabel: strin
     };
   }
   return {
-    contactTypeLabel: type ? type[0] + type.slice(1).toLowerCase() : 'Contato',
+    contactTypeLabel: type ? type[0] + type.slice(1).toLowerCase() : 'Cliente',
     relationshipLabel: 'Indefinido',
   };
 };
@@ -430,11 +439,37 @@ const extractFileNameFromPlaceholder = (value?: string) => {
 const formatChatPreviewText = (value?: string) => {
   const text = String(value || '').trim();
   if (!text) return '';
-  if (text === '[Localização]') return '📍 Localização';
-  if (text === '[Arquivo]') return '📎 Arquivo';
+  if (text === '[Localização]') return 'Localização';
+  if (text === '[Arquivo]') return 'Arquivo';
   const fileName = extractFileNameFromPlaceholder(text);
-  if (fileName) return `📄 ${fileName}`;
+  if (fileName) return fileName;
   return text;
+};
+
+const detectPreviewMediaKind = (value?: string): 'audio' | 'document' | null => {
+  const text = String(value || '').trim().toLowerCase();
+  if (!text) return null;
+
+  const fileName = extractFileNameFromPlaceholder(text);
+  const source = (fileName || text).toLowerCase();
+
+  if (/(\[audio\]|\b(audio|voz|voice)\b)/.test(text)) {
+    return 'audio';
+  }
+
+  if (/\.(mp3|ogg|wav|m4a|aac|flac|opus|weba|amr|3gp)$/i.test(source)) {
+    return 'audio';
+  }
+
+  if (/\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|rtf|csv|zip|rar|7z)$/i.test(source)) {
+    return 'document';
+  }
+
+  if (text === '[arquivo]' || Boolean(fileName)) {
+    return 'document';
+  }
+
+  return null;
 };
 
 const formatMessageBodyForDisplay = (msg: ChatMessage) => {
@@ -831,6 +866,9 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const [isSendingChat, setIsSendingChat] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [isDeletingChatId, setIsDeletingChatId] = useState<string | null>(null);
+  const [isConversationSelectionMode, setIsConversationSelectionMode] = useState(false);
+  const [selectedConversationIds, setSelectedConversationIds] = useState<string[]>([]);
+  const [isBulkDeletingConversations, setIsBulkDeletingConversations] = useState(false);
   const [draftChats, setDraftChats] = useState<VisibleChat[]>([]);
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const [newChatMode, setNewChatMode] = useState<'AGENDA' | 'NEW_CONTACT'>('AGENDA');
@@ -1603,7 +1641,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
   const visibleChats = useMemo<VisibleChat[]>(() => {
     const contactNameTerm = chatSearchName.trim().toLowerCase();
-    const backendChats = chats
+    const mappedChats = chats
       .map((chat) => {
         const mappedClient = Array.from(buildPhoneVariants(chat.phone))
           .map((variant) => clientByPhone.get(variant))
@@ -1619,11 +1657,28 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           registrationId: mappedClient?.registrationId || '',
           contactType,
           responsibleName,
+          isKnownClient: Boolean(mappedClient),
           contactTypeLabel: labels.contactTypeLabel,
           relationshipLabel: labels.relationshipLabel,
           isDraft: false,
         };
+      });
+
+    const chatsWithActivity = mappedChats
+      .filter((chat) => {
+        const hasPreview = String(chat.lastMessage || '').trim().length > 0;
+        const hasTimestamp = Number(chat.lastTimestamp || 0) > 0;
+        const hasUnread = Number(chat.unreadCount || 0) > 0;
+        return hasPreview || hasTimestamp || hasUnread;
       })
+      .map((chat) => ({
+        ...chat,
+        lastMessage: String(chat.lastMessage || '').trim() || 'Mensagem restaurada'
+      }));
+
+    const backendChatsBase = chatsWithActivity;
+
+    const backendChats = backendChatsBase
       .filter((chat) => {
         const matchesName =
           !contactNameTerm
@@ -1637,9 +1692,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
         return matchesName && matchesType;
       })
-      .sort((a, b) => b.lastTimestamp - a.lastTimestamp);
+      .sort((a, b) => {
+        const timestampDiff = Number(b.lastTimestamp || 0) - Number(a.lastTimestamp || 0);
+        if (timestampDiff !== 0) return timestampDiff;
+        return String(a.displayName || '').localeCompare(String(b.displayName || ''), 'pt-BR', { sensitivity: 'base' });
+      });
 
     const filteredDrafts = draftChats
+      .filter((draft) => String(draft.lastMessage || '').trim().length > 0)
       .filter((draft) => !backendChats.some((backend) => hasPhoneVariantIntersection(backend.phone, draft.phone)))
       .filter((chat) => {
       const matchesName =
@@ -1661,8 +1721,19 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       }
     });
 
-    return merged.sort((a, b) => Number(b.lastTimestamp || 0) - Number(a.lastTimestamp || 0));
+    return merged.sort((a, b) => {
+      const timestampDiff = Number(b.lastTimestamp || 0) - Number(a.lastTimestamp || 0);
+      if (timestampDiff !== 0) return timestampDiff;
+      return String(a.displayName || '').localeCompare(String(b.displayName || ''), 'pt-BR', { sensitivity: 'base' });
+    });
   }, [chats, chatSearchName, chatContactType, clientByPhone, draftChats]);
+
+  useEffect(() => {
+    if (!selectedChatId) return;
+    const existsInVisible = visibleChats.some((chat) => chat.chatId === selectedChatId);
+    if (existsInVisible) return;
+    setSelectedChatId(visibleChats[0]?.chatId || null);
+  }, [visibleChats, selectedChatId]);
 
   useEffect(() => {
     if (!selectedChatId) return;
@@ -1859,28 +1930,11 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       return;
     }
 
+    // Sempre usa modo semanal com base nos dias de funcionamento configurados
     const now = new Date();
     const endDate = toDateOnly(now);
-    let startDate = toDateOnly(now);
-    if (reportPeriodMode === 'WEEKLY') {
-      startDate.setDate(startDate.getDate() - 6);
-    } else if (reportPeriodMode === 'BIWEEKLY') {
-      startDate.setDate(startDate.getDate() - 14);
-    } else {
-      const customStart = reportStartDate ? new Date(`${reportStartDate}T00:00:00`) : null;
-      const customEnd = reportEndDate ? new Date(`${reportEndDate}T23:59:59`) : null;
-      if (!customStart || !customEnd || !Number.isFinite(customStart.getTime()) || !Number.isFinite(customEnd.getTime())) {
-        setFeedback('Informe data inicial e final válidas para relatório.');
-        return;
-      }
-      if (customEnd.getTime() < customStart.getTime()) {
-        setFeedback('Data final deve ser maior ou igual à inicial.');
-        return;
-      }
-      startDate = toDateOnly(customStart);
-      endDate.setTime(customEnd.getTime());
-      endDate.setHours(23, 59, 59, 999);
-    }
+    const startDate = toDateOnly(now);
+    startDate.setDate(startDate.getDate() - 6);
 
     setIsSendingReport(true);
     try {
@@ -1905,7 +1959,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         const txDate = normalizeTxDate(tx);
         if (!txDate) return false;
         if (txDate.getTime() < startDate.getTime() || txDate.getTime() > endDate.getTime()) return false;
-        if (reportPeriodMode === 'WEEKLY' && workingDays.size > 0) {
+        if (workingDays.size > 0) {
           return workingDays.has(txDate.getDay());
         }
         return true;
@@ -1917,7 +1971,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         return aTs - bTs;
       });
 
-      const parseAmount = (tx: any) => Math.abs(Number(tx?.amount ?? tx?.total ?? tx?.value ?? 0) || 0);
+      const parseAmountTx = (tx: any) => Math.abs(Number(tx?.amount ?? tx?.total ?? tx?.value ?? 0) || 0);
       const isConsumption = (tx: any) => {
         const txType = String(tx?.type || '').toUpperCase();
         const marker = String(tx?.category || tx?.plan || tx?.description || '').toUpperCase();
@@ -1927,113 +1981,101 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         const txType = String(tx?.type || '').toUpperCase();
         return txType.includes('CREDIT') || txType.includes('CREDITO');
       };
+      const isReversal = (tx: any) => String(tx?.type || '').toUpperCase().includes('ESTORNO');
 
-      const totalConsumption = sorted.filter(isConsumption).reduce((acc, tx) => acc + parseAmount(tx), 0);
-      const totalCredits = sorted.filter(isCredit).reduce((acc, tx) => acc + parseAmount(tx), 0);
+      const totalConsumption = sorted.filter(isConsumption).reduce((acc, tx) => acc + parseAmountTx(tx), 0);
+      const totalCredits = sorted.filter(isCredit).reduce((acc, tx) => acc + parseAmountTx(tx), 0);
+      const totalEstornos = sorted.filter(isReversal).reduce((acc, tx) => acc + parseAmountTx(tx), 0);
       const netPeriod = Number((totalCredits - totalConsumption).toFixed(2));
+
+      const periodLabel = `${formatDatePt(startDate)} até ${formatDatePt(endDate)} (Semanal)`;
+      const clientPhone = String((reportClient as any).phone || (reportClient as any).phone1 || '-').trim() || '-';
+      const perfilLabel = contactType === 'COLABORADOR' ? 'Colaborador' : 'Aluno';
 
       const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
       const pageWidth = doc.internal.pageSize.getWidth();
-
-      const periodLabel = reportPeriodMode === 'WEEKLY'
-        ? 'Semanal'
-        : reportPeriodMode === 'BIWEEKLY'
-          ? 'Quinzenal'
-          : 'Período personalizado';
+      const marginX = 40;
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(15);
-      doc.text('Relatório de Movimentações - WhatsApp', 40, 36);
+      doc.text('Relatório de Movimentações - WhatsApp', marginX, 36);
 
       doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');
-      doc.text(`Empresa: ${activeEnterprise.name || '-'}`, 40, 56);
-      doc.text(`Escola: ${activeEnterprise.attachedSchoolName || '-'}`, 40, 72);
-      doc.text(`Contato: ${reportClient.name || '-'}`, 40, 88);
-      doc.text(`Tipo: ${contactType}`, 40, 104);
-      doc.text(`Período: ${formatDatePt(startDate)} até ${formatDatePt(endDate)} (${periodLabel})`, 40, 120);
+      doc.text(`Empresa: ${activeEnterprise.name || '-'}`, marginX, 56);
+      doc.text(`Escola: ${activeEnterprise.attachedSchoolName || '-'}`, marginX, 72);
+      doc.text(`Contato: ${reportClient.name || '-'}`, marginX, 88);
+      doc.text(`Tipo: ${contactType}`, marginX, 104);
+      doc.text(`Período: ${periodLabel}`, marginX, 120);
 
-      if (contactType === 'ALUNO') {
-        const classYear = [String(reportClient.class || '').trim(), String((reportClient as any).classGrade || '').trim()]
-          .filter(Boolean)
-          .join(' / ');
-        doc.text(`Turma/Ano: ${classYear || '-'}`, 320, 88);
-        doc.text(`Responsável: ${resolveResponsibleName(reportClient) || '-'}`, 320, 104);
-      } else {
-        doc.text(`Responsável: -`, 320, 104);
-      }
-
-      if (reportPeriodMode === 'WEEKLY' && workingDays.size > 0) {
-        const days = Array.from(workingDays).sort((a, b) => a - b).map((d) => PT_WEEKDAY_LABELS[d]).join(', ');
-        doc.text(`Dias funcionamento (semanal): ${days}`, 320, 120);
-      }
+      doc.text(`Telefone: ${clientPhone}`, 320, 88);
+      doc.text(`Perfil: ${perfilLabel}`, 320, 104);
+      doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 320, 120);
 
       const bodyRows = sorted.map((tx: any) => {
         const txDate = normalizeTxDate(tx);
         const dateLabel = txDate ? txDate.toLocaleDateString('pt-BR') : '-';
         const timeLabel = txDate ? txDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '-';
         const description = String(tx?.description || tx?.item || tx?.plan || tx?.category || 'Movimentação');
-        const txType = isConsumption(tx) ? 'CONSUMO' : isCredit(tx) ? 'CRÉDITO' : String(tx?.type || '-');
-        const method = String(tx?.paymentMethod || tx?.method || '-');
-        const amount = parseAmount(tx);
+        const txType = isConsumption(tx) ? 'CONSUMO' : isCredit(tx) ? 'CRÉDITO' : isReversal(tx) ? 'ESTORNO' : String(tx?.type || '-');
+        const rowOwner = String((tx as any)?.studentName || (tx as any)?.clientName || reportClient.name || '-');
+        const amount = parseAmountTx(tx);
         return [
           `${dateLabel} ${timeLabel}`,
-          description,
+          rowOwner,
           txType,
-          method,
+          description,
           `R$ ${amount.toFixed(2)}`
         ];
       });
 
       autoTable(doc, {
         startY: 146,
-        head: [['Data/Hora', 'Descrição', 'Tipo', 'Método', 'Valor']],
-        body: bodyRows.length > 0 ? bodyRows : [['-', 'Sem movimentações no período selecionado', '-', '-', 'R$ 0,00']],
+        head: [['Data/Hora', 'Aluno/Colaborador', 'Tipo', 'Descrição', 'Valor']],
+        body: bodyRows.length > 0 ? bodyRows : [['-', '-', '-', 'Sem movimentações no período selecionado', 'R$ 0,00']],
         styles: { fontSize: 8.5, cellPadding: 5 },
         headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
         columnStyles: {
-          0: { cellWidth: 110 },
-          1: { cellWidth: 190 },
-          2: { cellWidth: 80 },
-          3: { cellWidth: 80 },
+          0: { cellWidth: 100 },
+          1: { cellWidth: 120 },
+          2: { cellWidth: 75 },
+          3: { cellWidth: 165 },
           4: { cellWidth: 85, halign: 'right' }
-        }
+        },
+        margin: { left: marginX, right: marginX }
       });
 
       const finalY = (doc as any).lastAutoTable?.finalY || 170;
-      const planBalances = (reportClient.planCreditBalances || {}) as Record<string, any>;
-      const prepaidBalance = Number(reportClient.balance || 0);
-      const plansTotalBalance = Object.values(planBalances).reduce((acc: number, entry: any) => acc + Number(entry?.balance || 0), 0);
-      const collaboratorDue = Number(reportClient.amountDue || 0);
-      const collaboratorConsumption = Number(reportClient.monthlyConsumption || 0);
 
       doc.setFontSize(10);
       doc.setFont('helvetica', 'bold');
-      doc.text('Rodapé de Totais e Saldos', 40, finalY + 24);
+      doc.text('Rodapé de Totais e Saldos', marginX, finalY + 24);
       doc.setFont('helvetica', 'normal');
 
       const footerLines = [
         `Total de movimentações: ${sorted.length}`,
         `Total créditos: R$ ${totalCredits.toFixed(2)}`,
+        `Total estornos: R$ ${totalEstornos.toFixed(2)}`,
         `Total consumo: R$ ${totalConsumption.toFixed(2)}`,
-        `Saldo líquido do período: R$ ${netPeriod.toFixed(2)}`
+        `Saldo líquido do período: R$ ${netPeriod.toFixed(2)}`,
       ];
 
-      if (contactType === 'ALUNO') {
-        footerLines.push(`Saldo PREPAGO atual: R$ ${prepaidBalance.toFixed(2)}`);
-        footerLines.push(`Saldo total dos planos: R$ ${plansTotalBalance.toFixed(2)}`);
-      } else {
-        footerLines.push(`Consumo acumulado colaborador: R$ ${collaboratorConsumption.toFixed(2)}`);
-        footerLines.push(`Saldo/valor devido atual: R$ ${collaboratorDue.toFixed(2)}`);
+      const currentBalance = Number(reportClient.balance || 0);
+      if (currentBalance !== 0 || contactType === 'ALUNO') {
+        footerLines.push(`Saldo atual: R$ ${currentBalance.toFixed(2)}`);
       }
 
       footerLines.forEach((line, index) => {
-        doc.text(`- ${line}`, 40, finalY + 42 + (index * 14));
+        doc.text(`- ${line}`, marginX, finalY + 42 + (index * 14));
       });
 
-      const footerSignature = `Gerado em ${new Date().toLocaleString('pt-BR')} por ${activeEnterprise.name || 'Cantina Smart'}`;
       doc.setFontSize(8);
-      doc.text(footerSignature, pageWidth - 40, doc.internal.pageSize.getHeight() - 18, { align: 'right' });
+      doc.text(
+        `Gerado em ${new Date().toLocaleString('pt-BR')} por ${activeEnterprise.name || 'Cantina Smart'}`,
+        pageWidth - marginX,
+        doc.internal.pageSize.getHeight() - 18,
+        { align: 'right' }
+      );
 
       const pdfDataUri = doc.output('datauristring');
       const fileBase = String(reportClient.name || 'relatorio').trim().toLowerCase().replace(/\s+/g, '_');
@@ -3824,6 +3866,29 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     return aDate.toDateString() === bDate.toDateString();
   };
 
+  const formatConversationListTimestamp = (timestamp?: number) => {
+    const ts = normalizeTimestampMs(timestamp);
+    if (!ts) return 'Sem data';
+    const date = new Date(ts);
+    if (!Number.isFinite(date.getTime())) return 'Sem data';
+
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const timeLabel = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(date);
+
+    if (date.toDateString() === today.toDateString()) return `Hoje, ${timeLabel}`;
+    if (date.toDateString() === yesterday.toDateString()) return `Ontem, ${timeLabel}`;
+
+    return new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(date);
+  };
+
   const formatChatDayDivider = (timestamp?: number) => {
     const ts = normalizeTimestampMs(timestamp);
     if (!ts) return '';
@@ -3908,6 +3973,83 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     } finally {
       setIsDeletingChatId(null);
     }
+  };
+
+  const toggleConversationSelection = (chatId: string, checked: boolean) => {
+    setSelectedConversationIds((prev) => {
+      if (checked) return Array.from(new Set([...prev, chatId]));
+      return prev.filter((id) => id !== chatId);
+    });
+  };
+
+  const handleToggleSelectAllConversations = () => {
+    const selectableIds = crmVisibleChats.map((chat) => chat.chatId);
+    if (selectableIds.length === 0) {
+      setSelectedConversationIds([]);
+      return;
+    }
+    const allSelected = selectableIds.every((id) => selectedConversationIds.includes(id));
+    setSelectedConversationIds(allSelected ? [] : selectableIds);
+  };
+
+  const handleBulkDeleteSelectedConversations = async () => {
+    const selectedSet = new Set(selectedConversationIds);
+    const selectedChats = crmVisibleChats.filter((chat) => selectedSet.has(chat.chatId));
+    if (selectedChats.length === 0) {
+      setFeedback('Selecione ao menos uma conversa para apagar.');
+      return;
+    }
+
+    const confirmed = window.confirm(`Apagar ${selectedChats.length} conversa(s) selecionada(s)?`);
+    if (!confirmed) return;
+
+    setIsBulkDeletingConversations(true);
+    try {
+      for (const chat of selectedChats) {
+        if (!chat.isDraft) {
+          await ApiService.deleteWhatsAppChat(chat.chatId);
+        }
+      }
+
+      const selectedIdsSet = new Set(selectedChats.map((chat) => chat.chatId));
+      setChats((prev) => prev.filter((item) => !selectedIdsSet.has(item.chatId)));
+      setDraftChats((prev) => prev.filter((item) => !selectedIdsSet.has(item.chatId)));
+
+      if (selectedChatId && selectedIdsSet.has(selectedChatId)) {
+        setSelectedChatId(null);
+        setMessages([]);
+      }
+
+      setSelectedConversationIds([]);
+      setFeedback(`${selectedChats.length} conversa(s) excluída(s) com sucesso.`);
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Erro ao excluir conversas selecionadas.');
+    } finally {
+      setIsBulkDeletingConversations(false);
+    }
+  };
+
+  const handleBulkSendToDisparoUnico = () => {
+    const selectedSet = new Set(selectedConversationIds);
+    const selectedChats = crmVisibleChats.filter((chat) => selectedSet.has(chat.chatId));
+    if (selectedChats.length === 0) {
+      setFeedback('Selecione ao menos uma conversa para enviar ao disparo.');
+      return;
+    }
+
+    try {
+      const payload = selectedChats.map((chat) => ({
+        chatId: chat.chatId,
+        name: chat.displayName,
+        phone: chat.phone,
+      }));
+      localStorage.setItem('whatsapp_disparo_selected_chats', JSON.stringify(payload));
+    } catch {
+      // ignore storage failures and still redirect user to Disparos
+    }
+
+    setActiveTab('DISPAROS');
+    setFeedback(`Abrindo Disparo Único com ${selectedChats.length} conversa(s) selecionada(s).`);
   };
 
   const handleClearChatMessages = async (chat: VisibleChat, event: React.MouseEvent<HTMLButtonElement>) => {
@@ -4930,6 +5072,19 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   }, [activeTab, crmView]);
 
   useEffect(() => {
+    if (activeTab !== 'CRM' || crmView !== 'CONVERSAS') {
+      setSelectedConversationIds([]);
+      setIsConversationSelectionMode(false);
+    }
+  }, [activeTab, crmView]);
+
+  useEffect(() => {
+    if (!isConversationSelectionMode) {
+      setSelectedConversationIds([]);
+    }
+  }, [isConversationSelectionMode]);
+
+  useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
       const drag = aiFlowDragRef.current;
       if (!drag) return;
@@ -5273,7 +5428,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   );
 
   return (
-    <div className="whatsapp-shell space-y-3 p-3 rounded-[22px] bg-gradient-to-b from-cyan-50/60 via-white to-emerald-50/40 animate-in fade-in duration-500 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-900 dark:text-zinc-100">
+    <div className="whatsapp-shell space-y-4 p-4 rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(251,191,36,0.18),_transparent_45%),radial-gradient(circle_at_bottom_right,_rgba(15,23,42,0.08),_transparent_40%)] bg-white animate-in fade-in duration-500 shadow-[0_20px_45px_-30px_rgba(15,23,42,0.45)] dark:border-white/10 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-900 dark:text-zinc-100">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
         <div className="rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white px-2.5 py-1.5 shadow-sm dark:border-emerald-500/30 dark:from-zinc-900 dark:to-zinc-900 dark:shadow-none">
           <div className="flex items-center justify-between gap-2">
@@ -5303,16 +5458,16 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         </div>
       </div>
 
-      <div className="bg-white/95 rounded-[18px] border border-cyan-200 p-1.5 grid grid-cols-2 md:grid-cols-5 gap-1.5 shadow-sm dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
+      <div className="rounded-[20px] border border-slate-200/90 bg-white/95 p-2 grid grid-cols-2 md:grid-cols-5 gap-2 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.65)] dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
         <button
           onClick={() => {
             setActiveTab('CRM');
             setCrmView('CONVERSAS');
           }}
-          className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] ${
+          className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.14em] border transition-all ${
             activeTab === 'CRM' && crmView === 'CONVERSAS'
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
-              : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
+              ? 'border-transparent bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-[0_8px_20px_-12px_rgba(249,115,22,0.85)]'
+              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300'
           }`}
         >
           Conversas
@@ -5322,30 +5477,30 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
             setActiveTab('CRM');
             setCrmView('DASHBOARD');
           }}
-          className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] ${
+          className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.14em] border transition-all ${
             activeTab === 'CRM' && crmView === 'DASHBOARD'
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
-              : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
+              ? 'border-transparent bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-[0_8px_20px_-12px_rgba(249,115,22,0.85)]'
+              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300'
           }`}
         >
           Dashboard
         </button>
         <button
           onClick={() => setActiveTab('DISPAROS')}
-          className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] ${
+          className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.14em] border transition-all ${
             activeTab === 'DISPAROS'
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
-              : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
+              ? 'border-transparent bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-[0_8px_20px_-12px_rgba(249,115,22,0.85)]'
+              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300'
           }`}
         >
           Disparos
         </button>
         <button
           onClick={() => setActiveTab('SESSION_QR')}
-          className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] ${
+          className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.14em] border transition-all ${
             activeTab === 'SESSION_QR'
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
-              : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
+              ? 'border-transparent bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-[0_8px_20px_-12px_rgba(249,115,22,0.85)]'
+              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300'
           }`}
         >
           QR Code
@@ -5355,10 +5510,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
             setActiveTab('CRM');
             setCrmView('AI_CONFIG');
           }}
-          className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] ${
+          className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.14em] border transition-all ${
             activeTab === 'CRM' && crmView === 'AI_CONFIG'
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white dark:from-cyan-700 dark:to-emerald-700'
-              : 'bg-slate-50 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300'
+              ? 'border-transparent bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-[0_8px_20px_-12px_rgba(249,115,22,0.85)]'
+              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300'
           }`}
         >
           Configurações
@@ -5367,7 +5522,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
       {activeTab === 'CRM' && (
         <div className="rounded-[28px] border-2 border-cyan-200 bg-white/95 overflow-hidden shadow-md dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
-          <div className="grid grid-cols-1 min-h-[76vh]">
+          <div className="grid grid-cols-1 h-[78vh] min-h-[620px] max-h-[78vh] overflow-hidden xl:h-[calc(100vh-13rem)] xl:max-h-[calc(100vh-13rem)]">
             <aside className="hidden border-r-2 border-cyan-100 bg-gradient-to-b from-white to-cyan-50/20 p-4 flex-col">
               <div className="flex items-center gap-3 px-2 py-2">
                 <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center text-white font-black">WA</div>
@@ -5614,14 +5769,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                   <div
                     className={`flex-1 min-h-0 overflow-hidden grid grid-cols-1 ${
                       selectedChat && isContactDetailsVisible
-                        ? 'xl:grid-cols-[360px_1fr_300px]'
-                        : 'xl:grid-cols-[360px_1fr]'
+                        ? 'xl:grid-cols-[340px_1fr_320px]'
+                        : 'xl:grid-cols-[340px_1fr]'
                     }`}
                   >
-                  <section className="border-r-2 border-cyan-100 flex flex-col min-h-0 h-full overflow-hidden dark:border-white/10">
-                    <div className="p-4 border-b-2 border-cyan-100 space-y-3 bg-slate-50/70 dark:bg-zinc-900/70 dark:border-white/10">
+                  <section className="border-r border-slate-200 flex flex-col min-h-0 h-full overflow-hidden bg-[#f7f8fb] dark:bg-zinc-900 dark:border-white/10">
+                    <div className="p-4 border-b border-slate-200 space-y-3 bg-white/95 dark:bg-zinc-900/80 dark:border-white/10">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Conversas ({crmVisibleChats.length})</p>
+                        <p className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Central de Atendimento</p>
                         <button
                           onClick={() => {
                             if (!status.connected) {
@@ -5643,33 +5798,87 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             setNewChatResponsibleType('PAIS');
                             setIsNewChatModalOpen(true);
                           }}
-                          className="px-3 py-2 rounded-xl bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 flex items-center gap-1"
+                          className="px-3 py-2 rounded-xl bg-[#064e3b] text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-800 flex items-center gap-1 shadow-sm"
                         >
                           <Plus size={12} />
                           Nova
                         </button>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 space-y-2 dark:bg-zinc-900 dark:border-white/10">
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-600 dark:text-zinc-300">
+                            <input
+                              type="checkbox"
+                              checked={isConversationSelectionMode}
+                              onChange={(event) => setIsConversationSelectionMode(event.target.checked)}
+                              className="w-4 h-4 accent-emerald-600"
+                            />
+                            Selecionar
+                          </label>
+                          {isConversationSelectionMode && (
+                            <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
+                              <input
+                                type="checkbox"
+                                checked={crmVisibleChats.length > 0 && crmVisibleChats.every((chat) => selectedConversationIds.includes(chat.chatId))}
+                                onChange={handleToggleSelectAllConversations}
+                                className="w-3.5 h-3.5 accent-emerald-600"
+                              />
+                              Todos
+                            </label>
+                          )}
+                        </div>
+                        {isConversationSelectionMode && (
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handleBulkDeleteSelectedConversations}
+                              disabled={selectedConversationIds.length === 0 || isBulkDeletingConversations}
+                              className="px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-[10px] font-black uppercase tracking-widest hover:bg-rose-100 disabled:opacity-50"
+                            >
+                              {isBulkDeletingConversations ? 'Apagando...' : 'Apagar'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleBulkSendToDisparoUnico}
+                              disabled={selectedConversationIds.length === 0}
+                              className="px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-100 disabled:opacity-50"
+                            >
+                              Enviar disparo
+                            </button>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-auto">
+                              {selectedConversationIds.length} selecionada(s)
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
                         <button
                           type="button"
                           onClick={() => setCrmFilter('ALL')}
-                          className={`px-3 py-1 rounded-full text-xs font-black ${crmFilter === 'ALL' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300'}`}
+                          className={`px-3 py-1 rounded-full text-[11px] font-black ${crmFilter === 'ALL' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300'}`}
                         >
                           Todas
                         </button>
                         <button
                           type="button"
                           onClick={() => setCrmFilter('UNREAD')}
-                          className={`px-3 py-1 rounded-full text-xs font-black ${crmFilter === 'UNREAD' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300'}`}
+                          className={`px-3 py-1 rounded-full text-[11px] font-black ${crmFilter === 'UNREAD' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300'}`}
                         >
                           Não lidas
                         </button>
                         <button
                           type="button"
                           onClick={() => setCrmFilter('WAITING')}
-                          className={`px-3 py-1 rounded-full text-xs font-black ${crmFilter === 'WAITING' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300'}`}
+                          className={`px-3 py-1 rounded-full text-[11px] font-black ${crmFilter === 'WAITING' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300'}`}
                         >
                           Aguardando
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCrmFilter('ALL')}
+                          className="px-3 py-1 rounded-full text-[11px] font-black bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300"
+                        >
+                          Resolvidas
                         </button>
                       </div>
                     </div>
@@ -5715,26 +5924,39 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                       </div>
                     )}
 
-                    <div className="flex-1 min-h-0 overflow-y-auto">
+                    <div className="flex-1 min-h-0 h-0 overflow-y-auto overscroll-contain p-2">
                       {crmVisibleChats.length === 0 ? (
                         <div className="text-center text-sm font-semibold text-slate-500 dark:text-zinc-400 p-8">Nenhuma conversa encontrada.</div>
                       ) : (
                         crmVisibleChats.map((chat) => (
                           <div
                             key={chat.chatId}
-                            className={`w-full px-4 py-3 border-b border-cyan-50 transition ${
+                            className={`w-full px-3 py-3 mb-2 rounded-2xl border transition ${
                               selectedChatId === chat.chatId
-                                ? 'bg-emerald-50 border-l-4 border-l-emerald-500 dark:bg-emerald-900/20'
-                                : 'bg-white hover:bg-cyan-50/60 dark:bg-[#121214] dark:hover:bg-zinc-900'
+                                ? 'bg-white border-emerald-300 shadow-[0_8px_20px_-14px_rgba(16,185,129,0.8)] dark:bg-zinc-800'
+                                : 'bg-white border-slate-200 hover:border-emerald-200 dark:bg-[#121214] dark:border-white/10 dark:hover:bg-zinc-900'
                             }`}
                           >
                             <div className="flex items-start justify-between gap-2">
+                              {isConversationSelectionMode && (
+                                <label
+                                  className="shrink-0 mt-2"
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedConversationIds.includes(chat.chatId)}
+                                    onChange={(event) => toggleConversationSelection(chat.chatId, event.target.checked)}
+                                    className="w-4 h-4 accent-emerald-600"
+                                  />
+                                </label>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => handleSelectChat(chat.chatId)}
                                 className="min-w-0 text-left flex-1 flex items-start gap-3"
                               >
-                                <div className="w-11 h-11 rounded-xl bg-cyan-100 text-cyan-700 flex items-center justify-center shrink-0 overflow-hidden">
+                                <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 overflow-hidden">
                                   {chat.avatarUrl ? (
                                     <img src={chat.avatarUrl} alt={chat.displayName} className="w-full h-full object-cover" />
                                   ) : (
@@ -5745,8 +5967,12 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                   <div className="flex items-center gap-2 min-w-0">
                                     <p className="text-lg font-black text-slate-800 dark:text-zinc-100 truncate">{chat.displayName}</p>
                                     {chat.initiatedByClient && (
-                                      <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[9px] font-black uppercase tracking-widest shrink-0">
-                                        Cliente
+                                      <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest shrink-0 ${
+                                        chat.isKnownClient
+                                          ? 'bg-emerald-100 text-emerald-700'
+                                          : 'bg-amber-100 text-amber-700'
+                                      }`}>
+                                        {chat.isKnownClient ? 'Cliente' : 'Lead'}
                                       </span>
                                     )}
                                   </div>
@@ -5760,11 +5986,24 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                       </>
                                     )}
                                   </div>
-                                  <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400 truncate mt-1">{formatChatPreviewText(chat.lastMessage) || 'Sem mensagem'}</p>
+                                  <div className="mt-1 flex items-center gap-1.5 min-w-0">
+                                    {detectPreviewMediaKind(chat.lastMessage) === 'audio' && (
+                                      <Volume2 size={13} className="shrink-0 text-slate-500 dark:text-zinc-400" />
+                                    )}
+                                    {detectPreviewMediaKind(chat.lastMessage) === 'document' && (
+                                      <FileText size={13} className="shrink-0 text-slate-500 dark:text-zinc-400" />
+                                    )}
+                                    <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400 truncate min-w-0">
+                                      {formatChatPreviewText(chat.lastMessage) || 'Sem mensagem'}
+                                    </p>
+                                  </div>
+                                  <p className="mt-1 text-[11px] font-bold text-slate-500 dark:text-zinc-400 truncate">
+                                    {formatConversationListTimestamp(chat.lastTimestamp)}
+                                  </p>
                                 </div>
                               </button>
                               <div className="shrink-0 text-right">
-                                <p className="text-xs font-bold text-emerald-600">{formatChatTime(chat.lastTimestamp)}</p>
+                                <p className="text-xs font-bold text-slate-500">{formatChatTime(chat.lastTimestamp)}</p>
                                 {chat.unreadCount > 0 && (
                                   <span className="inline-flex items-center justify-center mt-1 min-w-5 h-5 px-1 rounded-full bg-emerald-500 text-white text-[10px] font-black shadow-sm">
                                     {chat.unreadCount}
@@ -5805,7 +6044,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                     </div>
                   </section>
 
-                  <section className="flex flex-col min-h-0 h-full overflow-hidden bg-slate-50/70 dark:bg-zinc-950/60">
+                  <section className="relative flex flex-col min-h-0 h-full overflow-hidden bg-[#f3f4f6] dark:bg-zinc-950/60">
                     {!selectedChat ? (
                       <div className="flex-1 flex items-center justify-center text-slate-500 dark:text-zinc-400 font-semibold">
                         {status.connected
@@ -5814,21 +6053,21 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                       </div>
                     ) : (
                       <>
-                        <div className="px-5 py-4 bg-white border-b-2 border-cyan-100 flex items-center justify-between dark:bg-zinc-900/80 dark:border-white/10">
+                        <div className="shrink-0 sticky top-0 z-10 px-5 py-4 bg-white border-b border-slate-200 flex items-center justify-between dark:bg-zinc-900/80 dark:border-white/10">
                           <div>
                             <div className="flex items-center gap-2">
                               <p className="text-2xl font-black text-slate-900 dark:text-zinc-100">{selectedChat.displayName}</p>
                               <button
                                 type="button"
                                 onClick={() => setIsContactDetailsVisible((prev) => !prev)}
-                                className="px-2.5 py-1 rounded-lg border border-cyan-200 bg-cyan-50 text-cyan-700 text-[10px] font-black uppercase tracking-widest hover:bg-cyan-100 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                                className="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 text-[10px] font-black uppercase tracking-widest hover:bg-slate-100 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-zinc-800"
                               >
                                 {isContactDetailsVisible ? 'Ocultar dados' : 'Ver dados'}
                               </button>
                             </div>
                             {(selectedChat.contactTypeLabel || selectedChat.relationshipLabel) && (
                               <div className="mt-1.5 flex items-center gap-2">
-                                <span className="inline-flex items-center gap-1 rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-widest text-cyan-700 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-200">
+                                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-200">
                                   {selectedChat.contactTypeLabel || 'Contato'}
                                   <span className="opacity-60">•</span>
                                   {selectedChat.relationshipLabel || 'Indefinido'}
@@ -5856,7 +6095,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         <div
                           ref={messagesViewportRef}
                           onScroll={handleMessagesScroll}
-                          className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2"
+                          className="flex-1 min-h-0 h-0 overflow-y-auto overscroll-contain p-5 pb-28 space-y-3"
                         >
                           {messagesLoading ? (
                             <div className="text-center text-sm font-semibold text-slate-500 dark:text-zinc-400 py-8">Carregando mensagens...</div>
@@ -5879,8 +6118,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                   <div
                                     className={`relative max-w-[70%] px-4 py-3 rounded-2xl text-sm font-medium shadow-sm ${
                                       msg.fromMe
-                                        ? 'ml-auto bg-emerald-500 text-white rounded-br-md'
-                                        : 'mr-auto bg-white border border-cyan-100 text-slate-800 rounded-bl-md dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100'
+                                        ? 'ml-auto bg-[#065f46] text-white rounded-br-md'
+                                        : 'mr-auto bg-white border border-slate-200 text-slate-800 rounded-bl-md dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100'
                                     }`}
                                   >
                                     <span
@@ -5907,7 +6146,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                             Seu navegador não suporta áudio.
                                           </audio>
                                         ) : (
-                                          <div className="text-xs font-semibold opacity-80 mb-2">
+                                          <div className="text-xs font-semibold opacity-80 mb-2 inline-flex items-center gap-1.5">
+                                            <Volume2 size={13} />
                                             Áudio recebido (pré-visualização indisponível).
                                           </div>
                                         )}
@@ -5962,7 +6202,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                             {msg.fileName || 'Abrir arquivo'}
                                           </a>
                                         ) : (
-                                          <div className="text-xs font-semibold opacity-80">
+                                          <div className="text-xs font-semibold opacity-80 inline-flex items-center gap-1.5">
+                                            <FileText size={13} />
                                             Arquivo recebido: {msg.fileName || 'documento'}
                                           </div>
                                         )}
@@ -6017,7 +6258,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                           <div ref={messagesBottomRef} />
                         </div>
 
-                        <div className="shrink-0 p-4 border-t-2 border-cyan-100 bg-white dark:bg-zinc-900/85 dark:border-white/10">
+                        <div className="shrink-0 sticky bottom-0 z-10 p-4 border-t border-slate-200 bg-white dark:bg-zinc-900/85 dark:border-white/10">
                           {chatAttachment && (
                             <div className="mb-3 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 flex items-center justify-between gap-2 dark:bg-zinc-900 dark:border-cyan-500/30">
                               <div className="min-w-0">
@@ -6036,7 +6277,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                               </button>
                             </div>
                           )}
-                          <div className="flex items-end gap-2">
+                          <div className="flex items-end gap-2 bg-slate-100 rounded-2xl p-2.5 dark:bg-zinc-900">
                           <label className="p-3 rounded-xl border-2 border-cyan-100 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 cursor-pointer dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-zinc-800">
                             <Paperclip size={15} />
                             <input type="file" className="hidden" onChange={handleAttachFile} />
@@ -6078,13 +6319,13 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             onChange={(e) => setChatReply(e.target.value)}
                             placeholder={status.connected ? 'Digite uma mensagem...' : 'Conecte na aba QR CODE para enviar mensagens...'}
                             disabled={!status.connected}
-                            className="flex-1 px-3 py-2 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
+                            className="flex-1 px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-400 outline-none text-sm bg-white dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
                           />
                           <button
                             type="button"
                             onClick={handleReply}
                             disabled={!status.connected || isSendingChat || (!chatReply.trim() && !chatAttachment)}
-                            className="px-4 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white font-black"
+                            className="px-4 py-3 rounded-xl bg-[#065f46] hover:bg-emerald-800 disabled:opacity-60 text-white font-black"
                           >
                             <Send size={15} />
                           </button>
@@ -6095,7 +6336,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                   </section>
 
                   {selectedChat && isContactDetailsVisible && (
-                  <aside className="p-5 bg-white border-l-2 border-cyan-100 min-h-0 h-full overflow-y-auto dark:bg-zinc-900/75 dark:border-white/10">
+                  <aside className="p-5 bg-[#f8fafc] border-l border-slate-200 min-h-0 h-full overflow-y-auto dark:bg-zinc-900/75 dark:border-white/10">
                     {selectedChat ? (
                       <div className="space-y-5">
                         {!isContactDetailsVisible ? (
@@ -6107,8 +6348,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                           </div>
                         ) : (
                           <>
-                            <div className="text-center">
-                              <div className="w-20 h-20 mx-auto rounded-full bg-cyan-100 overflow-hidden flex items-center justify-center text-cyan-700 text-2xl font-black">
+                            <div className="text-center rounded-2xl border border-slate-200 bg-white px-4 py-5 dark:bg-zinc-900 dark:border-white/10">
+                              <div className="w-20 h-20 mx-auto rounded-2xl bg-emerald-100 overflow-hidden flex items-center justify-center text-emerald-700 text-2xl font-black">
                                 {selectedChat.avatarUrl ? (
                                   <img
                                     src={selectedChat.avatarUrl}
@@ -6123,7 +6364,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                               <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400">+{selectedChat.phone}</p>
                             </div>
 
-                            <div className="space-y-2">
+                            <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-3 dark:bg-zinc-900 dark:border-white/10">
                               <p className="text-[11px] uppercase tracking-widest font-black text-slate-500">Etiquetas</p>
                               <div className="flex flex-wrap gap-2">
                                 {(selectedChat.labels || []).length > 0 ? (
@@ -6138,7 +6379,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                               </div>
                             </div>
 
-                            <div className="space-y-2">
+                            <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-3 dark:bg-zinc-900 dark:border-white/10">
                               <p className="text-[11px] uppercase tracking-widest font-black text-slate-500">Saldos de planos</p>
                               {selectedStudent && (
                                 <div className="rounded-xl border border-cyan-100 bg-cyan-50/60 px-3 py-2 flex items-center justify-between">
@@ -6216,33 +6457,11 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                               )}
                             </div>
 
-                            <div className="space-y-2 pt-2 border-t border-cyan-100 dark:border-white/10">
-                              <p className="text-[11px] uppercase tracking-widest font-black text-slate-500">Relatório do contato</p>
-                              <select
-                                value={reportPeriodMode}
-                                onChange={(e) => setReportPeriodMode(e.target.value as ReportPeriodMode)}
-                                className="w-full px-3 py-2 rounded-xl border-2 border-emerald-100 bg-emerald-50/40 text-xs font-black text-slate-700 outline-none focus:border-emerald-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
-                              >
-                                <option value="WEEKLY">Semanal</option>
-                                <option value="BIWEEKLY">Quinzenal</option>
-                                <option value="CUSTOM">Período (inicial/final)</option>
-                              </select>
-                              {reportPeriodMode === 'CUSTOM' && (
-                                <div className="grid grid-cols-1 gap-2">
-                                  <input
-                                    type="date"
-                                    value={reportStartDate}
-                                    onChange={(e) => setReportStartDate(e.target.value)}
-                                    className="w-full px-3 py-2 rounded-xl border-2 border-emerald-100 bg-white text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
-                                  />
-                                  <input
-                                    type="date"
-                                    value={reportEndDate}
-                                    onChange={(e) => setReportEndDate(e.target.value)}
-                                    className="w-full px-3 py-2 rounded-xl border-2 border-emerald-100 bg-white text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
-                                  />
-                                </div>
-                              )}
+                            <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-white/10 rounded-2xl border border-slate-200 bg-white p-3 dark:bg-zinc-900 dark:border-white/10">
+                              <p className="text-[11px] uppercase tracking-widest font-black text-slate-500">Relatório Consumo Semanal</p>
+                              <p className="text-[10px] font-semibold text-slate-400 dark:text-zinc-500 leading-relaxed">
+                                Envia o consumo dos últimos 7 dias considerando os dias de funcionamento configurados.
+                              </p>
                               <button
                                 type="button"
                                 onClick={handleSendConsumptionReport}
@@ -6250,7 +6469,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                 className="w-full px-3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
                               >
                                 <CalendarDays size={13} />
-                                {isSendingReport ? 'Enviando...' : 'Enviar relatório'}
+                                {isSendingReport ? 'Enviando...' : 'Enviar relatório semanal'}
                               </button>
                               <p className="text-[11px] font-semibold text-slate-500 dark:text-zinc-400">
                                 {selectedChatClient
@@ -8232,7 +8451,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       )}
 
       {activeTab === 'DISPAROS' && (
-        <div className="py-2">
+        <div className="py-2 rounded-[24px] border border-slate-200 bg-gradient-to-b from-white via-amber-50/35 to-orange-50/25 px-3 md:px-4 shadow-[0_16px_38px_-28px_rgba(15,23,42,0.5)] dark:border-zinc-700 dark:from-zinc-900 dark:via-zinc-900 dark:to-zinc-900">
           <CentralDisparos activeEnterprise={activeEnterprise} />
         </div>
       )}

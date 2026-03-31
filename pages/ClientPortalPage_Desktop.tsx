@@ -57,7 +57,7 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
   const [children, setChildren] = useState<Client[]>([]);
 
   const [activeChildIndex, setActiveChildIndex] = useState(0);
-  const [activeSection, setActiveSection] = useState<'OVERVIEW' | 'PLANS' | 'HISTORY' | 'SETTINGS'>('OVERVIEW');
+  const [activeSection, setActiveSection] = useState<'DASHBOARD' | 'EXTRATOS' | 'ALUNOS' | 'CONFIGURACOES'>('DASHBOARD');
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [rechargeValue, setRechargeValue] = useState<string>('');
   const [rechargingPlan, setRechargingPlan] = useState<string | null>(null);
@@ -354,63 +354,110 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100">
-      {/* HEADER */}
-      <header className="sticky top-0 z-40 bg-white border-b border-gray-200 shadow-sm">
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-blue-50">
+      <header className="sticky top-0 z-40 bg-gradient-to-r from-sky-700 to-blue-700 text-white shadow-lg">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <img
-              src={guardianAvatar}
-              alt={currentUser?.name || 'Responsável'}
-              className="w-12 h-12 rounded-xl object-cover border-2 border-white shadow-lg"
-            />
+            <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-sm">
+              <Building size={24} />
+            </div>
             <div>
-              <h1 className="text-2xl font-black text-gray-900">CantinaSmart</h1>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Portal do Responsável</p>
+              <h1 className="text-2xl font-black">Dashboard do Responsável</h1>
+              <p className="text-xs font-bold text-sky-100 uppercase tracking-widest">Portal CantinaSmart</p>
             </div>
           </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 px-6 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg font-bold transition-all"
-          >
-            <LogOut size={18} /> Sair
-          </button>
+          <div className="flex items-center gap-3">
+            <div className="hidden md:flex items-center gap-3 bg-white/15 px-3 py-2 rounded-xl">
+              <img
+                src={guardianAvatar}
+                alt={currentUser?.name || 'Responsável'}
+                className="w-9 h-9 rounded-lg object-cover border border-white/40"
+              />
+              <div>
+                <p className="text-sm font-bold leading-tight">{currentUser?.name || 'Responsável'}</p>
+                <p className="text-[11px] text-sky-100">Acesso por link seguro</p>
+              </div>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-4 py-2 bg-white/15 hover:bg-white/25 rounded-lg font-bold transition-all"
+            >
+              <LogOut size={18} /> Sair
+            </button>
+          </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
         <div className="grid grid-cols-12 gap-8">
-          {/* SIDEBAR - SELEÇÃO DE ALUNOS */}
-          <div className="col-span-3">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sticky top-24">
+          <div className="col-span-12 lg:col-span-3 space-y-4">
+            <div className="bg-white rounded-2xl shadow-sm border border-blue-100 p-4 sticky top-24">
+              <h2 className="text-xs font-black text-gray-500 uppercase tracking-[3px] mb-3">Menu</h2>
+              <div className="space-y-2">
+                <button
+                  onClick={() => setActiveSection('DASHBOARD')}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-black transition-all ${
+                    activeSection === 'DASHBOARD' ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <Home size={16} /> Dashboard
+                </button>
+                <button
+                  onClick={() => setActiveSection('EXTRATOS')}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-black transition-all ${
+                    activeSection === 'EXTRATOS' ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <History size={16} /> Extratos
+                </button>
+                <button
+                  onClick={() => setActiveSection('ALUNOS')}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-black transition-all ${
+                    activeSection === 'ALUNOS' ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <User size={16} /> Alunos
+                </button>
+                <button
+                  onClick={() => setActiveSection('CONFIGURACOES')}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-black transition-all ${
+                    activeSection === 'CONFIGURACOES' ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <Settings size={16} /> Configurações
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="col-span-12 lg:col-span-9 space-y-8">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xs font-black text-gray-400 uppercase tracking-[3px]">Meus Alunos</h2>
+                <h2 className="text-xs font-black text-gray-500 uppercase tracking-[3px]">Meus Alunos</h2>
                 <button
                   onClick={() => setIsAddChildModalOpen(true)}
-                  className="p-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg transition-all"
+                  className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition-all"
                   title="Adicionar aluno"
                 >
                   <Plus size={18} />
                 </button>
               </div>
-              <div className="space-y-2 max-h-[600px] overflow-y-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {children.map((child, idx) => (
-                  <div key={child.id} className="relative group">
+                  <div key={child.id} className="relative">
                     <button
                       onClick={() => setActiveChildIndex(idx)}
                       className={`w-full text-left p-4 rounded-xl transition-all border-2 ${
-                        activeChildIndex === idx
-                          ? 'border-indigo-600 bg-indigo-50'
-                          : 'border-transparent bg-gray-50 hover:bg-gray-100'
+                        activeChildIndex === idx ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50'
                       }`}
                     >
-                      <img src={child.photo} alt={child.name} className="w-12 h-12 rounded-lg mb-2 object-cover" />
-                      <p className="text-sm font-black text-gray-900">{child.name}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{child.class}</p>
-                      <div className="mt-2 pt-2 border-t border-gray-200">
-                        <p className="text-xs text-gray-600">
-                          <strong>Saldo:</strong> R$ {(child.balance || 0).toFixed(2)}
-                        </p>
+                      <div className="flex items-start gap-3">
+                        <img src={child.photo} alt={child.name} className="w-12 h-12 rounded-lg object-cover" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-black text-gray-900 truncate">{child.name}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">{child.class}</p>
+                          <p className="text-xs text-gray-700 mt-2 font-semibold">Saldo: R$ {(child.balance || 0).toFixed(2)}</p>
+                        </div>
                       </div>
                     </button>
                     {activeChildIndex === idx && (
@@ -426,138 +473,135 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
                 ))}
               </div>
             </div>
-          </div>
 
-          {/* MAIN CONTENT */}
-          <div className="col-span-9 space-y-8">
-            {/* SECTION TABS */}
-            <div className="flex gap-2 bg-white rounded-xl shadow-sm border border-gray-100 p-1">
-              {(['OVERVIEW', 'PLANS', 'HISTORY', 'SETTINGS'] as const).map(section => (
-                <button
-                  key={section}
-                  onClick={() => setActiveSection(section)}
-                  className={`flex-1 py-3 px-4 rounded-lg text-xs font-black transition-all ${
-                    activeSection === section
-                      ? 'bg-indigo-600 text-white shadow-md'
-                      : 'text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  {section === 'OVERVIEW' && <Home size={14} className="inline mr-2" />}
-                  {section === 'PLANS' && <Star size={14} className="inline mr-2" />}
-                  {section === 'HISTORY' && <History size={14} className="inline mr-2" />}
-                  {section === 'SETTINGS' && <Settings size={14} className="inline mr-2" />}
-                  {section}
-                </button>
-              ))}
-            </div>
+            {/* DASHBOARD SECTION */}
+            {activeSection === 'DASHBOARD' && (
+              <div className="space-y-6 animate-in fade-in">
+                <div className="grid grid-cols-1 xl:grid-cols-[1.35fr_0.95fr] gap-6">
+                  <div className="bg-gradient-to-br from-sky-700 via-blue-700 to-indigo-700 rounded-[28px] p-8 text-white shadow-lg relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full -mr-40 -mt-40 blur-3xl"></div>
+                    <div className="relative z-10 space-y-6">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-sky-100 text-xs font-black uppercase tracking-[3px] mb-2">Dashboard Financeiro</p>
+                          <h3 className="text-3xl font-black leading-tight">{activeChild?.name}</h3>
+                          <p className="text-sm text-sky-100 mt-2">
+                            {enterprises.find(enterprise => enterprise.id === activeChild.enterpriseId)?.name || 'Unidade Escolar'}
+                          </p>
+                        </div>
+                        <div className="bg-white/15 rounded-2xl px-4 py-3 backdrop-blur-sm text-right">
+                          <p className="text-[11px] uppercase font-black tracking-[2px] text-sky-100">Situação</p>
+                          <p className="text-lg font-black">Ativo</p>
+                        </div>
+                      </div>
 
-            {/* OVERVIEW SECTION */}
-            {activeSection === 'OVERVIEW' && (
-              <div className="space-y-8 animate-in fade-in">
-                {/* BIG BALANCE CARD */}
-                <div className="bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-2xl p-8 text-white shadow-lg relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full -mr-48 -mt-48 blur-3xl"></div>
-                  <div className="relative z-10">
-                    <p className="text-indigo-100 text-sm font-bold uppercase tracking-wider mb-2">Saldo Disponível</p>
-                    <p className="text-6xl font-black tracking-tight mb-6">R$ {(activeChild?.balance || 0).toFixed(2)}</p>
-                    <div className="grid grid-cols-2 gap-4">
-                      <button
-                        onClick={() => {
-                          setRechargingPlan('PREPAGO');
-                          setIsPlanModalOpen(true);
-                        }}
-                        className="bg-white/20 hover:bg-white/30 text-white py-3 px-4 rounded-lg font-bold uppercase text-xs transition-all backdrop-blur-sm"
-                      >
-                        <Plus size={16} className="inline mr-2" /> Recarregar
-                      </button>
-                      <button className="bg-white text-indigo-600 py-3 px-4 rounded-lg font-bold uppercase text-xs hover:bg-gray-100 transition-all">
-                        <Copy size={16} className="inline mr-2" /> Copiar
-                      </button>
+                      <div>
+                        <p className="text-sky-100 text-sm font-bold uppercase tracking-wider mb-2">Saldo Disponível</p>
+                        <p className="text-6xl font-black tracking-tight">R$ {(activeChild?.balance || 0).toFixed(2)}</p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <button
+                          onClick={() => {
+                            setRechargingPlan('PREPAGO');
+                            setIsPlanModalOpen(true);
+                          }}
+                          className="bg-white/15 hover:bg-white/25 text-white py-3 px-4 rounded-xl font-bold uppercase text-xs transition-all backdrop-blur-sm"
+                        >
+                          <Plus size={16} className="inline mr-2" /> Recarregar
+                        </button>
+                        <button className="bg-white text-blue-700 py-3 px-4 rounded-xl font-bold uppercase text-xs hover:bg-slate-100 transition-all">
+                          <Copy size={16} className="inline mr-2" /> Copiar dados
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-[28px] border border-blue-100 p-6 shadow-sm">
+                    <div className="flex items-center justify-between mb-5">
+                      <h3 className="text-sm font-black text-gray-900 uppercase tracking-[2px]">Resumo do Aluno</h3>
+                      <div className="w-11 h-11 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                        <User size={18} />
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50">
+                        <div>
+                          <p className="text-[11px] font-black uppercase tracking-[2px] text-gray-400">Matrícula</p>
+                          <p className="text-sm font-black text-gray-900 mt-1">{activeChild.registrationId || '-'}</p>
+                        </div>
+                        <ChevronRight size={18} className="text-gray-300" />
+                      </div>
+                      <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50">
+                        <div>
+                          <p className="text-[11px] font-black uppercase tracking-[2px] text-gray-400">Turma</p>
+                          <p className="text-sm font-black text-gray-900 mt-1">{activeChild.class || 'Nao informada'}</p>
+                        </div>
+                        <ChevronRight size={18} className="text-gray-300" />
+                      </div>
+                      <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50">
+                        <div>
+                          <p className="text-[11px] font-black uppercase tracking-[2px] text-gray-400">Planos ativos</p>
+                          <p className="text-sm font-black text-gray-900 mt-1">{(activeChild.servicePlans || []).filter(plan => plan !== 'PREPAGO').length || 0}</p>
+                        </div>
+                        <Star size={18} className="text-amber-500" />
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                {/* STATS GRID */}
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-                    <div className="text-indigo-600 mb-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                  <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                    <div className="text-blue-600 mb-3">
                       <Wallet size={24} />
                     </div>
                     <p className="text-xs font-bold text-gray-500 uppercase mb-1">Limite Diário</p>
                     <p className="text-2xl font-black text-gray-900">R$ {(activeChild?.dailyLimit || 0).toFixed(2)}</p>
                   </div>
 
-                  <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+                  <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
                     <div className="text-orange-600 mb-3">
                       <ShoppingCart size={24} />
                     </div>
                     <p className="text-xs font-bold text-gray-500 uppercase mb-1">Gasto Hoje</p>
-                    <p className="text-2xl font-black text-gray-900">R$ {(activeChild?.balance * 0.1).toFixed(2)}</p>
+                    <p className="text-2xl font-black text-gray-900">R$ {(activeChild?.spentToday || 0).toFixed(2)}</p>
                   </div>
 
-                  <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+                  <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
                     <div className="text-emerald-600 mb-3">
                       <CheckCircle2 size={24} />
                     </div>
                     <p className="text-xs font-bold text-gray-500 uppercase mb-1">Status</p>
                     <p className="text-2xl font-black text-emerald-600">Ativo</p>
                   </div>
-                </div>
 
-                {/* QUICK PLANS */}
-                <div>
-                  <h3 className="text-sm font-black text-gray-900 mb-4 flex items-center gap-2">
-                    <Star size={20} className="text-amber-600" /> Planos Ativos
-                  </h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    {(activeChild.servicePlans || [])
-                      .filter(p => p !== 'PREPAGO')
-                      .map(plan => (
-                        <div key={plan} className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-all">
-                          <div className="flex items-center justify-between mb-4">
-                            <h4 className="text-sm font-black text-gray-900 uppercase">
-                              {plan === 'LANCHE_FIXO' ? 'Kit Lanche' : 'Almoço PF'}
-                            </h4>
-                            <div
-                              className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                                plan === 'LANCHE_FIXO' ? 'bg-amber-100 text-amber-600' : 'bg-orange-100 text-orange-600'
-                              }`}
-                            >
-                              {plan === 'LANCHE_FIXO' ? <UtensilsCrossed size={18} /> : <Beef size={18} />}
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <div className="flex justify-between">
-                              <span className="text-xs text-gray-600">Saldo</span>
-                              <span className="text-sm font-bold text-gray-900">
-                                {(activeChild.planBalances || {})[plan] || 0} {plan === 'LANCHE_FIXO' ? 'lanches' : 'refeições'}
-                              </span>
-                            </div>
-                            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full ${plan === 'LANCHE_FIXO' ? 'bg-amber-500' : 'bg-orange-500'}`}
-                                style={{
-                                  width: `${Math.min(100, ((activeChild.planBalances || {})[plan] || 0) * 10)}%`
-                                }}
-                              ></div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+                  <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                    <div className="text-amber-600 mb-3">
+                      <Star size={24} />
+                    </div>
+                    <p className="text-xs font-bold text-gray-500 uppercase mb-1">Valor de Planos</p>
+                    <p className="text-2xl font-black text-gray-900">R$ {currentPlanCosts.toFixed(2)}</p>
                   </div>
                 </div>
 
-                {/* RECENT TRANSACTIONS */}
-                <div>
-                  <h3 className="text-sm font-black text-gray-900 mb-4 flex items-center gap-2">
-                    <History size={20} className="text-blue-600" /> Últimas Transações
-                  </h3>
-                  <div className="grid grid-cols-1 gap-2">
-                    {MOCK_TODAY_HISTORY.slice(0, 8).map(item => (
-                      <div key={item.id} className="bg-white rounded-lg p-4 flex items-center justify-between border border-gray-100 hover:shadow-sm transition-all">
-                        <div className="flex items-center gap-3">
+                <div className="grid grid-cols-1 xl:grid-cols-[1.35fr_0.95fr] gap-6">
+                  <div className="bg-white rounded-[28px] border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+                      <h3 className="text-sm font-black text-gray-900 uppercase tracking-[2px] flex items-center gap-2">
+                        <History size={18} className="text-blue-600" /> Ultimos Lancamentos
+                      </h3>
+                      <button
+                        onClick={() => setActiveSection('EXTRATOS')}
+                        className="text-xs font-black uppercase tracking-[2px] text-blue-600 hover:text-blue-700"
+                      >
+                        Ver extrato
+                      </button>
+                    </div>
+                    <div className="divide-y divide-gray-100">
+                      {MOCK_TODAY_HISTORY.slice(0, 6).map(item => (
+                        <div key={item.id} className="px-6 py-4 grid grid-cols-[auto_1fr_auto] gap-4 items-center hover:bg-slate-50 transition-all">
                           <div
-                            className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                            className={`w-11 h-11 rounded-2xl flex items-center justify-center ${
                               item.type === 'CONSUMPTION'
                                 ? 'bg-orange-100 text-orange-600'
                                 : item.type === 'RECHARGE'
@@ -570,23 +614,75 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
                             {item.type === 'PLAN_USE' && <Check size={16} />}
                           </div>
                           <div>
-                            <p className="text-sm font-bold text-gray-900">{item.item}</p>
-                            <p className="text-xs text-gray-500">{item.time}</p>
+                            <p className="text-sm font-black text-gray-900">{item.item}</p>
+                            <p className="text-xs text-gray-500 uppercase tracking-[1px]">{item.time} • {item.category}</p>
                           </div>
+                          <p className={`text-sm font-black ${item.type === 'RECHARGE' ? 'text-emerald-600' : 'text-orange-600'}`}>
+                            {item.type === 'PLAN_USE'
+                              ? `-${item.value} un`
+                              : `${item.type === 'RECHARGE' ? '+' : '-'}R$ ${(item.value || 0).toFixed(2)}`}
+                          </p>
                         </div>
-                        <p className="text-sm font-black text-orange-600">-R$ {(item.value || 0).toFixed(2)}</p>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="bg-white rounded-[28px] p-6 shadow-sm border border-gray-100">
+                      <h3 className="text-sm font-black text-gray-900 mb-4 flex items-center gap-2 uppercase tracking-[2px]">
+                        <Star size={18} className="text-amber-600" /> Planos Ativos
+                      </h3>
+                      <div className="space-y-3">
+                        {(activeChild.servicePlans || []).filter(plan => plan !== 'PREPAGO').length > 0 ? (
+                          (activeChild.servicePlans || [])
+                            .filter(plan => plan !== 'PREPAGO')
+                            .map(plan => (
+                              <div key={plan} className="rounded-2xl border border-gray-100 p-4 bg-slate-50">
+                                <div className="flex items-center justify-between mb-3">
+                                  <div>
+                                    <p className="text-sm font-black text-gray-900 uppercase">
+                                      {plan === 'LANCHE_FIXO' ? 'Kit Lanche' : 'Almoco PF'}
+                                    </p>
+                                    <p className="text-xs text-gray-500 mt-1">Saldo disponivel</p>
+                                  </div>
+                                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${plan === 'LANCHE_FIXO' ? 'bg-amber-100 text-amber-600' : 'bg-orange-100 text-orange-600'}`}>
+                                    {plan === 'LANCHE_FIXO' ? <UtensilsCrossed size={18} /> : <Beef size={18} />}
+                                  </div>
+                                </div>
+                                <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden mb-2">
+                                  <div
+                                    className={`h-full ${plan === 'LANCHE_FIXO' ? 'bg-amber-500' : 'bg-orange-500'}`}
+                                    style={{ width: `${Math.min(100, ((activeChild.planBalances || {})[plan] || 0) * 10)}%` }}
+                                  ></div>
+                                </div>
+                                <p className="text-sm font-black text-gray-900">
+                                  {(activeChild.planBalances || {})[plan] || 0} {plan === 'LANCHE_FIXO' ? 'lanches' : 'refeicoes'}
+                                </p>
+                              </div>
+                            ))
+                        ) : (
+                          <div className="rounded-2xl border border-dashed border-gray-200 p-5 text-center text-sm font-bold text-gray-400">
+                            Nenhum plano fixo ativo.
+                          </div>
+                        )}
                       </div>
-                    ))}
+                    </div>
+
+                    <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-[28px] p-6 text-white shadow-sm">
+                      <p className="text-[11px] font-black uppercase tracking-[2px] text-slate-300 mb-2">Informacoes de Saude</p>
+                      <p className="text-lg font-black mb-3">{activeChild.restrictions.length > 0 ? activeChild.restrictions.join(', ') : 'Sem restricoes cadastradas'}</p>
+                      <p className="text-sm text-slate-300">{activeChild.dietaryNotes || 'Nenhuma observacao alimentar registrada para este aluno.'}</p>
+                    </div>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* PLANS SECTION */}
-            {activeSection === 'PLANS' && (
+            {/* ALUNOS SECTION */}
+            {activeSection === 'ALUNOS' && (
               <div className="space-y-6 animate-in fade-in">
                 <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
-                  <h3 className="text-lg font-black text-gray-900 mb-6">Gerenciar Planos</h3>
+                  <h3 className="text-lg font-black text-gray-900 mb-6">Alunos e Planos</h3>
                   <div className="space-y-6">
                     {(activeChild.servicePlans || []).map(plan => (
                       <div key={plan} className="border-l-4 border-indigo-600 pl-6 py-4">
@@ -626,11 +722,11 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
               </div>
             )}
 
-            {/* HISTORY SECTION */}
-            {activeSection === 'HISTORY' && (
+            {/* EXTRATOS SECTION */}
+            {activeSection === 'EXTRATOS' && (
               <div className="space-y-6 animate-in fade-in">
                 <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
-                  <h3 className="text-lg font-black text-gray-900 mb-6">Histórico de Transações</h3>
+                  <h3 className="text-lg font-black text-gray-900 mb-6">Extrato de Transações</h3>
                   <div className="space-y-2">
                     {[...MOCK_TODAY_HISTORY, ...MOCK_TODAY_HISTORY].map((item, idx) => (
                       <div key={idx} className="p-4 bg-gray-50 rounded-lg flex items-center justify-between hover:bg-gray-100 transition-all">
@@ -663,8 +759,8 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
               </div>
             )}
 
-            {/* SETTINGS SECTION */}
-            {activeSection === 'SETTINGS' && (
+            {/* CONFIGURACOES SECTION */}
+            {activeSection === 'CONFIGURACOES' && (
               <div className="space-y-6 animate-in fade-in">
                 <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
                   <h3 className="text-lg font-black text-gray-900 mb-6">Configurações</h3>
@@ -677,7 +773,7 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
                         <label className="text-xs font-bold text-gray-600 uppercase">Nome Completo</label>
                         <input
                           type="text"
-                          value="João da Silva"
+                          value={currentUser?.name || ''}
                           disabled
                           className="mt-2 w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-600 font-medium"
                         />
@@ -686,7 +782,7 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
                         <label className="text-xs font-bold text-gray-600 uppercase">Email</label>
                         <input
                           type="email"
-                          value="joao@example.com"
+                          value={currentUser?.email || ''}
                           disabled
                           className="mt-2 w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-600 font-medium"
                         />
@@ -695,7 +791,7 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
                         <label className="text-xs font-bold text-gray-600 uppercase">Telefone</label>
                         <input
                           type="tel"
-                          value="(11) 99999-9999"
+                          value={currentUser?.phone || currentUser?.whatsapp || ''}
                           disabled
                           className="mt-2 w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-600 font-medium"
                         />
@@ -704,7 +800,7 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
                         <label className="text-xs font-bold text-gray-600 uppercase">CPF</label>
                         <input
                           type="text"
-                          value="123.456.789-00"
+                          value={currentUser?.cpf || ''}
                           disabled
                           className="mt-2 w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-600 font-medium"
                         />

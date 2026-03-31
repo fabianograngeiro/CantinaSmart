@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Settings, Calendar, AlertCircle, Check, Save, Info, Printer, RefreshCw
 } from 'lucide-react';
-import { User, Enterprise, OpeningHours } from '../types';
+import { User, Enterprise, OpeningHours, PlanConsumptionProcessingProfile } from '../types';
 import ApiService from '../services/api';
 
 interface SettingsPageProps {
@@ -60,7 +60,34 @@ const normalizeOpeningHours = (openingHours?: Record<string, OpeningHours>) => {
   return normalized;
 };
 
-type SettingsTab = 'FINANCEIRO' | 'ATENDIMENTO' | 'SALDO' | 'IMPRESSAO';
+const normalizeProcessingProfile = (profile?: PlanConsumptionProcessingProfile) => {
+  const cutoffRaw = String(profile?.cutoffTime || '').trim();
+  const cutoffTime = /^([01]\d|2[0-3]):([0-5]\d)$/.test(cutoffRaw) ? cutoffRaw : '18:00';
+  const planIds = Array.isArray(profile?.planIds)
+    ? profile!.planIds!.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+
+  return {
+    id: String(profile?.id || '').trim(),
+    name: String(profile?.name || '').trim(),
+    enabled: profile?.enabled !== false,
+    cutoffTime,
+    planIds,
+    unitId: String(profile?.unitId || '').trim(),
+    createdAt: String(profile?.createdAt || '').trim(),
+    updatedAt: String(profile?.updatedAt || '').trim(),
+  };
+};
+
+const normalizeProcessingProfiles = (profiles?: PlanConsumptionProcessingProfile[]) => {
+  if (!Array.isArray(profiles)) return [];
+  return profiles
+    .map((profile) => normalizeProcessingProfile(profile))
+    .filter((profile) => Boolean(profile.name || profile.id));
+};
+
+type SettingsTab = 'FINANCEIRO' | 'ATENDIMENTO' | 'SALDO' | 'IMPRESSAO' | 'PROCESSAMENTO';
+type ProcessingViewTab = 'PERFIL' | 'GERENCIAR';
 type ReceiptPrintMode = 'SERVER_BROWSER' | 'LOCAL_AGENT';
 type LocalAgentStatus = 'IDLE' | 'CHECKING' | 'ONLINE' | 'OFFLINE';
 type ReceiptPaperWidth = '58mm' | '80mm';
@@ -119,6 +146,20 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState('');
+  const [enterpriseOptions, setEnterpriseOptions] = useState<Enterprise[]>([]);
+  const [processingEnterpriseId, setProcessingEnterpriseId] = useState<string>(String(activeEnterprise?.id || ''));
+  const [processingPlans, setProcessingPlans] = useState<any[]>([]);
+  const [isLoadingProcessingPlans, setIsLoadingProcessingPlans] = useState(false);
+  const [processingEnabled, setProcessingEnabled] = useState<boolean>(true);
+  const [processingCutoffTime, setProcessingCutoffTime] = useState<string>('18:00');
+  const [processingPlanIds, setProcessingPlanIds] = useState<string[]>([]);
+  const [processingViewTab, setProcessingViewTab] = useState<ProcessingViewTab>('PERFIL');
+  const [processingProfileName, setProcessingProfileName] = useState<string>('');
+  const [editingProcessingProfileId, setEditingProcessingProfileId] = useState<string>('');
+  const [processingProfiles, setProcessingProfiles] = useState<PlanConsumptionProcessingProfile[]>([]);
+  const [isSavingProcessingProfile, setIsSavingProcessingProfile] = useState(false);
+  const [processingProfileStatus, setProcessingProfileStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [processingProfileMessage, setProcessingProfileMessage] = useState('');
 
   const applyInstalledPrinterAsActive = (list: Array<{ name: string; isDefault: boolean }>) => {
     if (!Array.isArray(list) || list.length === 0) return;
@@ -147,7 +188,95 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
     setReceiptMarginHorizontal(Math.max(0, Math.min(20, Number(activeEnterprise.receiptMarginHorizontal ?? 2))));
     setReceiptItemGapTop(Math.max(0, Math.min(20, Number(activeEnterprise.receiptItemGapTop ?? 4))));
     setReceiptItemGapBottom(Math.max(0, Math.min(20, Number(activeEnterprise.receiptItemGapBottom ?? 4))));
+    setProcessingEnterpriseId(String(activeEnterprise.id || ''));
+    const normalizedProfile = normalizeProcessingProfile((activeEnterprise as any).planConsumptionProcessingProfile);
+    const normalizedProfiles = normalizeProcessingProfiles((activeEnterprise as any).planConsumptionProcessingProfiles);
+    setProcessingEnabled(normalizedProfile.enabled);
+    setProcessingCutoffTime(normalizedProfile.cutoffTime);
+    setProcessingPlanIds(normalizedProfile.planIds);
+    setProcessingProfileName(normalizedProfile.name || '');
+    setEditingProcessingProfileId(normalizedProfile.id || '');
+    setProcessingProfiles(normalizedProfiles);
   }, [activeEnterprise]);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadEnterprises = async () => {
+      try {
+        const list = await ApiService.getEnterprises();
+        if (!mounted) return;
+        const normalized = Array.isArray(list) ? list : [];
+        setEnterpriseOptions(normalized);
+
+        const selectedId = String(processingEnterpriseId || activeEnterprise.id || '').trim();
+        const selectedEnterprise = normalized.find((item: any) => String(item?.id || '').trim() === selectedId)
+          || normalized.find((item: any) => String(item?.id || '').trim() === String(activeEnterprise.id || '').trim());
+
+        if (selectedEnterprise) {
+          setProcessingEnterpriseId(String(selectedEnterprise.id || ''));
+          const normalizedProfile = normalizeProcessingProfile((selectedEnterprise as any).planConsumptionProcessingProfile);
+          const normalizedProfiles = normalizeProcessingProfiles((selectedEnterprise as any).planConsumptionProcessingProfiles);
+          setProcessingEnabled(normalizedProfile.enabled);
+          setProcessingCutoffTime(normalizedProfile.cutoffTime);
+          setProcessingPlanIds(normalizedProfile.planIds);
+          setProcessingProfileName(normalizedProfile.name || '');
+          setEditingProcessingProfileId(normalizedProfile.id || '');
+          setProcessingProfiles(normalizedProfiles);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar unidades para perfil de processamento:', error);
+        if (!mounted) return;
+        setEnterpriseOptions([activeEnterprise]);
+      }
+    };
+
+    void loadEnterprises();
+    return () => {
+      mounted = false;
+    };
+  }, [activeEnterprise.id]);
+
+  useEffect(() => {
+    const enterpriseId = String(processingEnterpriseId || '').trim();
+    if (!enterpriseId) {
+      setProcessingPlans([]);
+      return;
+    }
+
+    const selectedEnterprise = enterpriseOptions.find((item) => String(item?.id || '').trim() === enterpriseId);
+    if (selectedEnterprise) {
+      const normalizedProfile = normalizeProcessingProfile((selectedEnterprise as any).planConsumptionProcessingProfile);
+      const normalizedProfiles = normalizeProcessingProfiles((selectedEnterprise as any).planConsumptionProcessingProfiles);
+      setProcessingEnabled(normalizedProfile.enabled);
+      setProcessingCutoffTime(normalizedProfile.cutoffTime);
+      setProcessingPlanIds(normalizedProfile.planIds);
+      setProcessingProfileName(normalizedProfile.name || '');
+      setEditingProcessingProfileId(normalizedProfile.id || '');
+      setProcessingProfiles(normalizedProfiles);
+    }
+
+    let mounted = true;
+    const loadPlans = async () => {
+      setIsLoadingProcessingPlans(true);
+      try {
+        const list = await ApiService.getPlans(enterpriseId);
+        if (!mounted) return;
+        const activePlans = (Array.isArray(list) ? list : []).filter((plan: any) => plan?.isActive !== false);
+        setProcessingPlans(activePlans);
+      } catch (error) {
+        console.error('Erro ao carregar planos para perfil de processamento:', error);
+        if (!mounted) return;
+        setProcessingPlans([]);
+      } finally {
+        if (mounted) setIsLoadingProcessingPlans(false);
+      }
+    };
+
+    void loadPlans();
+    return () => {
+      mounted = false;
+    };
+  }, [processingEnterpriseId, enterpriseOptions]);
 
   const loadSystemPrinters = async () => {
     setPrintersLoading(true);
@@ -271,8 +400,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
         receiptItemGapTop: Math.max(0, Math.min(20, Number(receiptItemGapTop || 0))),
         receiptItemGapBottom: Math.max(0, Math.min(20, Number(receiptItemGapBottom || 0)))
       };
-      await ApiService.updateEnterprise(activeEnterprise.id, payload);
-      Object.assign(activeEnterprise as any, payload);
+      const updatedEnterprise = await ApiService.updateEnterprise(activeEnterprise.id, payload);
+      Object.assign(activeEnterprise as any, updatedEnterprise || payload);
       setSaveStatus('success');
       setSaveMessage('Configurações salvas com sucesso!');
       setTimeout(() => setSaveStatus('idle'), 3000);
@@ -283,6 +412,197 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
       setTimeout(() => setSaveStatus('idle'), 3000);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const resetProcessingProfileForm = () => {
+    setEditingProcessingProfileId('');
+    setProcessingProfileName('');
+    setProcessingEnabled(true);
+    setProcessingCutoffTime('18:00');
+    setProcessingPlanIds([]);
+    setProcessingProfileStatus('idle');
+    setProcessingProfileMessage('');
+  };
+
+  const handleEditProcessingProfile = (profile: PlanConsumptionProcessingProfile) => {
+    const normalized = normalizeProcessingProfile(profile);
+    setEditingProcessingProfileId(normalized.id || '');
+    setProcessingProfileName(normalized.name || '');
+    setProcessingEnabled(normalized.enabled);
+    setProcessingCutoffTime(normalized.cutoffTime);
+    setProcessingPlanIds(normalized.planIds);
+    setProcessingViewTab('PERFIL');
+    setProcessingProfileStatus('idle');
+    setProcessingProfileMessage('');
+  };
+
+  const handleSaveProcessingProfile = async () => {
+    const targetEnterpriseId = String(processingEnterpriseId || '').trim();
+    if (!targetEnterpriseId) {
+      setProcessingProfileStatus('error');
+      setProcessingProfileMessage('Selecione a unidade para salvar o perfil.');
+      return;
+    }
+
+    const profileName = String(processingProfileName || '').trim();
+    if (!profileName) {
+      setProcessingProfileStatus('error');
+      setProcessingProfileMessage('Informe um nome para o perfil.');
+      return;
+    }
+
+    if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(String(processingCutoffTime || '').trim())) {
+      setProcessingProfileStatus('error');
+      setProcessingProfileMessage('Informe um horário válido no formato HH:mm.');
+      return;
+    }
+
+    if (processingEnabled && processingPlanIds.length === 0) {
+      setProcessingProfileStatus('error');
+      setProcessingProfileMessage('Selecione pelo menos um plano para processar automaticamente.');
+      return;
+    }
+
+    setIsSavingProcessingProfile(true);
+    setProcessingProfileStatus('idle');
+
+    const nowIso = new Date().toISOString();
+    const profileId = String(editingProcessingProfileId || `proc_${Date.now()}`).trim();
+    const profilePayload: PlanConsumptionProcessingProfile = {
+      id: profileId,
+      name: profileName,
+      enabled: processingEnabled,
+      cutoffTime: String(processingCutoffTime || '').trim(),
+      planIds: Array.from(new Set(processingPlanIds.map((id) => String(id || '').trim()).filter(Boolean))),
+      unitId: targetEnterpriseId,
+      createdAt: (() => {
+        const existing = processingProfiles.find((profile) => String(profile?.id || '').trim() === profileId);
+        return String(existing?.createdAt || nowIso);
+      })(),
+      updatedAt: nowIso,
+    };
+
+    const nextProfiles = (() => {
+      const current = normalizeProcessingProfiles(processingProfiles);
+      const existingIndex = current.findIndex((profile) => String(profile?.id || '').trim() === profileId);
+      if (existingIndex >= 0) {
+        const updated = [...current];
+        updated[existingIndex] = profilePayload;
+        return updated;
+      }
+      return [profilePayload, ...current];
+    })();
+
+    try {
+      const updatedEnterprise = await ApiService.updateEnterprise(targetEnterpriseId, {
+        planConsumptionProcessingProfile: profilePayload,
+        planConsumptionProcessingProfiles: nextProfiles,
+      });
+
+      setEnterpriseOptions((prev) => {
+        const list = Array.isArray(prev) ? [...prev] : [];
+        const index = list.findIndex((item) => String(item?.id || '').trim() === targetEnterpriseId);
+        if (index >= 0) {
+          list[index] = {
+            ...list[index],
+            ...(updatedEnterprise || {}),
+            planConsumptionProcessingProfile: profilePayload,
+            planConsumptionProcessingProfiles: nextProfiles,
+          };
+          return list;
+        }
+        return [...list, updatedEnterprise];
+      });
+      setProcessingProfiles(nextProfiles);
+      setEditingProcessingProfileId(profileId);
+
+      if (String(activeEnterprise.id || '').trim() === targetEnterpriseId) {
+        Object.assign(activeEnterprise as any, {
+          planConsumptionProcessingProfile: profilePayload,
+          planConsumptionProcessingProfiles: nextProfiles,
+        });
+      }
+
+      setProcessingProfileStatus('success');
+      setProcessingProfileMessage(editingProcessingProfileId ? 'Perfil de processamento atualizado com sucesso.' : 'Perfil de processamento salvo com sucesso.');
+    } catch (error) {
+      console.error('Erro ao salvar perfil de processamento de consumo:', error);
+      setProcessingProfileStatus('error');
+      setProcessingProfileMessage('Não foi possível salvar o perfil de processamento.');
+    } finally {
+      setIsSavingProcessingProfile(false);
+    }
+  };
+
+  const handleDeleteProcessingProfile = async (profileIdRaw: string) => {
+    const targetEnterpriseId = String(processingEnterpriseId || '').trim();
+    const profileId = String(profileIdRaw || '').trim();
+    if (!targetEnterpriseId || !profileId) return;
+
+    const targetProfile = processingProfiles.find((profile) => String(profile?.id || '').trim() === profileId);
+    const confirmed = window.confirm(`Deseja apagar o perfil "${String(targetProfile?.name || 'Sem nome')}"?`);
+    if (!confirmed) return;
+
+    const currentEnterprise = enterpriseOptions.find(
+      (enterprise) => String(enterprise?.id || '').trim() === targetEnterpriseId
+    ) || null;
+
+    const nextProfiles = normalizeProcessingProfiles(processingProfiles).filter(
+      (profile) => String(profile?.id || '').trim() !== profileId
+    );
+    const currentActiveProfileRaw = (currentEnterprise as any)?.planConsumptionProcessingProfile;
+    const currentActiveId = String((currentEnterprise as any)?.planConsumptionProcessingProfile?.id || '').trim();
+    const nextActiveProfile = currentActiveId === profileId
+      ? (nextProfiles[0] || null)
+      : (currentActiveProfileRaw ? normalizeProcessingProfile(currentActiveProfileRaw) : null);
+
+    setIsSavingProcessingProfile(true);
+    setProcessingProfileStatus('idle');
+    try {
+      const updatedEnterprise = await ApiService.updateEnterprise(targetEnterpriseId, {
+        planConsumptionProcessingProfiles: nextProfiles,
+        planConsumptionProcessingProfile: nextActiveProfile,
+      });
+
+      setEnterpriseOptions((prev) => {
+        const list = Array.isArray(prev) ? [...prev] : [];
+        const index = list.findIndex((item) => String(item?.id || '').trim() === targetEnterpriseId);
+        if (index >= 0) {
+          list[index] = {
+            ...list[index],
+            ...(updatedEnterprise || {}),
+            planConsumptionProcessingProfiles: nextProfiles,
+            planConsumptionProcessingProfile: nextActiveProfile,
+          };
+        }
+        return list;
+      });
+
+      setProcessingProfiles(nextProfiles);
+      if (editingProcessingProfileId === profileId) {
+        if (nextActiveProfile) {
+          handleEditProcessingProfile(nextActiveProfile);
+        } else {
+          resetProcessingProfileForm();
+        }
+      }
+
+      if (String(activeEnterprise.id || '').trim() === targetEnterpriseId) {
+        Object.assign(activeEnterprise as any, {
+          planConsumptionProcessingProfiles: nextProfiles,
+          planConsumptionProcessingProfile: nextActiveProfile,
+        });
+      }
+
+      setProcessingProfileStatus('success');
+      setProcessingProfileMessage('Perfil de processamento apagado com sucesso.');
+    } catch (error) {
+      console.error('Erro ao apagar perfil de processamento:', error);
+      setProcessingProfileStatus('error');
+      setProcessingProfileMessage('Não foi possível apagar o perfil de processamento.');
+    } finally {
+      setIsSavingProcessingProfile(false);
     }
   };
 
@@ -297,11 +617,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
         </p>
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-2 grid grid-cols-2 lg:grid-cols-4 gap-1.5 dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-2 grid grid-cols-2 lg:grid-cols-5 gap-1.5 dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
         <button onClick={() => setActiveTab('FINANCEIRO')} className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest ${activeTab === 'FINANCEIRO' ? 'bg-indigo-600 text-white' : 'bg-gray-50 text-gray-500'}`}>Pagamento</button>
         <button onClick={() => setActiveTab('ATENDIMENTO')} className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest ${activeTab === 'ATENDIMENTO' ? 'bg-indigo-600 text-white' : 'bg-gray-50 text-gray-500'}`}>Atendimento</button>
         <button onClick={() => setActiveTab('SALDO')} className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest ${activeTab === 'SALDO' ? 'bg-indigo-600 text-white' : 'bg-gray-50 text-gray-500'}`}>Saldo/Negativo</button>
         <button onClick={() => setActiveTab('IMPRESSAO')} className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest ${activeTab === 'IMPRESSAO' ? 'bg-indigo-600 text-white' : 'bg-gray-50 text-gray-500'}`}>Impressão</button>
+        <button onClick={() => setActiveTab('PROCESSAMENTO')} className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest ${activeTab === 'PROCESSAMENTO' ? 'bg-indigo-600 text-white' : 'bg-gray-50 text-gray-500'}`}>Processamento</button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -801,6 +1122,222 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                       : 'No modo Navegador/Servidor, a lista vem do servidor backend.'}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {activeTab === 'PROCESSAMENTO' && (
+              <div className="space-y-4 p-4 bg-violet-50 border border-violet-100 rounded-xl">
+                <div className="flex items-start gap-2">
+                  <Calendar size={16} className="text-violet-600 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <label className="text-xs font-black text-violet-900 uppercase tracking-widest block mb-1">
+                      Perfil de Processamento dos Consumos
+                    </label>
+                    <p className="text-xs text-violet-700">
+                      Crie e gerencie perfis de processamento por unidade.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 bg-white p-1.5 rounded-xl border border-violet-200">
+                  <button
+                    type="button"
+                    onClick={() => setProcessingViewTab('PERFIL')}
+                    className={`py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                      processingViewTab === 'PERFIL'
+                        ? 'bg-violet-600 text-white'
+                        : 'bg-violet-50 text-violet-700 hover:bg-violet-100'
+                    }`}
+                  >
+                    Perfil
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProcessingViewTab('GERENCIAR')}
+                    className={`py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                      processingViewTab === 'GERENCIAR'
+                        ? 'bg-violet-600 text-white'
+                        : 'bg-violet-50 text-violet-700 hover:bg-violet-100'
+                    }`}
+                  >
+                    Gerenciar Perfis
+                  </button>
+                </div>
+
+                {processingViewTab === 'PERFIL' && (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-[10px] font-black text-violet-700 uppercase tracking-widest mb-1">Nome do Perfil</p>
+                        <input
+                          type="text"
+                          value={processingProfileName}
+                          onChange={(e) => setProcessingProfileName(e.target.value)}
+                          placeholder="Ex.: Perfil Merenda Tarde"
+                          className="w-full px-3 py-2 rounded-lg border border-violet-200 bg-white text-sm font-black text-violet-700"
+                        />
+                      </div>
+
+                      <div>
+                        <p className="text-[10px] font-black text-violet-700 uppercase tracking-widest mb-1">Unidade do Perfil</p>
+                        <select
+                          value={processingEnterpriseId}
+                          onChange={(e) => setProcessingEnterpriseId(String(e.target.value || '').trim())}
+                          className="w-full px-3 py-2 rounded-lg border border-violet-200 bg-white text-sm font-black text-violet-700"
+                        >
+                          {(enterpriseOptions.length > 0 ? enterpriseOptions : [activeEnterprise]).map((enterprise) => (
+                            <option key={enterprise.id} value={enterprise.id}>{enterprise.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <p className="text-[10px] font-black text-violet-700 uppercase tracking-widest mb-1">Horário de Processamento</p>
+                        <input
+                          type="time"
+                          value={processingCutoffTime}
+                          onChange={(e) => setProcessingCutoffTime(e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg border border-violet-200 bg-white text-sm font-black text-violet-700"
+                        />
+                      </div>
+
+                      <div className="flex items-end">
+                        {editingProcessingProfileId ? (
+                          <button
+                            type="button"
+                            onClick={resetProcessingProfileForm}
+                            className="w-full px-3 py-2 rounded-lg border border-violet-200 bg-white text-[10px] font-black uppercase tracking-widest text-violet-700 hover:bg-violet-50"
+                          >
+                            Novo Perfil
+                          </button>
+                        ) : (
+                          <div className="w-full px-3 py-2 rounded-lg border border-violet-100 bg-violet-50 text-[10px] font-black uppercase tracking-widest text-violet-700 text-center">
+                            Criando novo perfil
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl p-3 border border-violet-100 space-y-3">
+                      <label className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={processingEnabled}
+                          onChange={(e) => setProcessingEnabled(e.target.checked)}
+                        />
+                        Ativar processamento automático de consumos
+                      </label>
+
+                      <div>
+                        <p className="text-[10px] font-black text-violet-700 uppercase tracking-widest mb-2">Planos incluídos no processamento</p>
+                        {isLoadingProcessingPlans ? (
+                          <p className="text-xs font-bold text-gray-500">Carregando planos...</p>
+                        ) : processingPlans.length === 0 ? (
+                          <p className="text-xs font-bold text-gray-500">Nenhum plano ativo encontrado para a unidade selecionada.</p>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-56 overflow-auto pr-1">
+                            {processingPlans.map((plan: any) => {
+                              const planId = String(plan?.id || '').trim();
+                              const checked = processingPlanIds.includes(planId);
+                              return (
+                                <label key={planId} className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-wider text-gray-700 bg-violet-50 border border-violet-100 rounded-lg px-2.5 py-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(e) => {
+                                      const isChecked = e.target.checked;
+                                      setProcessingPlanIds((prev) => {
+                                        if (isChecked) return Array.from(new Set([...prev, planId]));
+                                        return prev.filter((id) => id !== planId);
+                                      });
+                                    }}
+                                  />
+                                  <span className="truncate">{String(plan?.name || 'Plano')}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleSaveProcessingProfile}
+                        disabled={isSavingProcessingProfile}
+                        className="flex-1 py-3 bg-violet-600 text-white rounded-xl font-black uppercase tracking-widest text-xs shadow-lg shadow-violet-100 hover:bg-violet-700 disabled:opacity-50 active:scale-95 transition-all flex items-center justify-center gap-2"
+                      >
+                        <Save size={16} />
+                        {isSavingProcessingProfile
+                          ? 'Salvando Perfil...'
+                          : (editingProcessingProfileId ? 'Atualizar Perfil de Processamento' : 'Salvar Perfil de Processamento')}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {processingViewTab === 'GERENCIAR' && (
+                  <div className="bg-white rounded-xl p-3 border border-violet-100 space-y-3">
+                    {processingProfiles.length === 0 ? (
+                      <p className="text-xs font-bold text-gray-500">Nenhum perfil de processamento criado para esta unidade.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-72 overflow-auto pr-1">
+                        {processingProfiles.map((profile) => {
+                          const normalized = normalizeProcessingProfile(profile);
+                          const plansCount = normalized.planIds.length;
+                          return (
+                            <div key={String(normalized.id || normalized.name)} className="border border-violet-100 rounded-lg p-3 bg-violet-50">
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <p className="text-xs font-black text-violet-900 uppercase tracking-wider">{normalized.name || 'Sem nome'}</p>
+                                  <p className="text-[10px] font-bold text-violet-700 uppercase tracking-widest mt-1">
+                                    {normalized.enabled ? 'Ativo' : 'Inativo'} • {normalized.cutoffTime} • {plansCount} plano(s)
+                                  </p>
+                                  {normalized.updatedAt && (
+                                    <p className="text-[10px] font-bold text-gray-500 mt-1">
+                                      Atualizado em {new Date(normalized.updatedAt).toLocaleString('pt-BR')}
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="flex gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditProcessingProfile(profile)}
+                                    className="px-2.5 py-1.5 rounded-lg border border-violet-200 bg-white text-[10px] font-black uppercase tracking-widest text-violet-700 hover:bg-violet-100"
+                                  >
+                                    Editar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteProcessingProfile(String(profile?.id || ''))}
+                                    disabled={isSavingProcessingProfile}
+                                    className="px-2.5 py-1.5 rounded-lg border border-rose-200 bg-rose-50 text-[10px] font-black uppercase tracking-widest text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                                  >
+                                    Apagar
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {processingProfileStatus === 'success' && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center gap-2.5">
+                    <Check size={18} className="text-emerald-600" />
+                    <p className="text-xs font-bold text-emerald-700">{processingProfileMessage}</p>
+                  </div>
+                )}
+
+                {processingProfileStatus === 'error' && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2.5">
+                    <AlertCircle size={18} className="text-red-600" />
+                    <p className="text-xs font-bold text-red-700">{processingProfileMessage}</p>
+                  </div>
+                )}
               </div>
             )}
 

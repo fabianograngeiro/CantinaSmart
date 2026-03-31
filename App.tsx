@@ -19,6 +19,7 @@ import RestaurantPOSPage from './pages/RestaurantPOSPage';
 import DashboardPage from './pages/DashboardPage';
 import ClientsPage from './pages/ClientsPage';
 import ProductsPage from './pages/ProductsPage';
+import ProductCategoriesPage from './pages/ProductCategoriesPage';
 import InventoryPage from './pages/InventoryPage';
 import ReportsPage from './pages/ReportsPage';
 import SaasPlansPage from './pages/SaasPlansPage';
@@ -33,6 +34,8 @@ import SuppliersPage from './pages/SuppliersPage';
 import ClientPortalPage from './pages/ClientPortalPage';
 import ClientPortalPageDesktop from './pages/ClientPortalPage_Desktop';
 import CollaboratorPortalPage from './pages/CollaboratorPortalPage';
+import PortalAccessPage from './pages/PortalAccessPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import MenuManagementPage from './pages/MenuManagementPage';
 import MenuCalendarPage from './pages/MenuCalendarPage';
 import SchoolCalendarPage from './pages/SchoolCalendarPage';
@@ -51,8 +54,7 @@ import FinancialPage from './pages/FinancialPage';
 import WhatsAppPage from './pages/WhatsAppPage';
 import NotificationCenter from './components/NotificationCenter';
 import { useTheme } from './components/ThemeProvider';
-
-
+import AdminContactsPage from './pages/AdminContactsPage';
 import { Enterprise, Role, User, TransactionRecord } from './types';
 import ApiService from './services/api';
 import notificationService from './services/notificationService';
@@ -87,16 +89,21 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    try {
-      const token = ApiService.getToken();
-      const rawUser = localStorage.getItem(AUTH_USER_STORAGE_KEY);
-      const rawEnterprise = localStorage.getItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
-      if (!token || !rawUser) return;
-      const parsedUser = JSON.parse(rawUser) as User;
-      if (!parsedUser?.id) return;
-      setCurrentUser(parsedUser);
-      setIsAuthenticated(true);
-      if (rawEnterprise) {
+    const restoreSession = async () => {
+      try {
+        const token = ApiService.getToken();
+        const rawUser = localStorage.getItem(AUTH_USER_STORAGE_KEY);
+        const rawEnterprise = localStorage.getItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
+        if (!token || !rawUser) return;
+
+        const parsedUser = JSON.parse(rawUser) as User;
+        if (!parsedUser?.id) return;
+
+        setCurrentUser(parsedUser);
+        setIsAuthenticated(true);
+
+        if (!rawEnterprise) return;
+
         const parsedEnterprise = JSON.parse(rawEnterprise) as Enterprise;
         const normalizedRole = String(parsedUser?.role || '').toUpperCase();
         const userEnterpriseIds = Array.isArray(parsedUser?.enterpriseIds)
@@ -106,18 +113,31 @@ const App: React.FC = () => {
           || normalizedRole === Role.ADMIN_SISTEMA
           || userEnterpriseIds.includes(String(parsedEnterprise?.id || '').trim());
 
-        if (parsedEnterprise?.id && canReuseStoredEnterprise) {
-          setActiveEnterprise(parsedEnterprise);
-        } else {
+        if (!parsedEnterprise?.id || !canReuseStoredEnterprise) {
           localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
+          return;
         }
+
+        try {
+          const freshEnterprise = await ApiService.getEnterprise(parsedEnterprise.id);
+          if (freshEnterprise?.id) {
+            setActiveEnterprise(freshEnterprise);
+            return;
+          }
+        } catch (refreshError) {
+          console.warn('Falha ao recarregar empresa ativa da API. Usando cache local.', refreshError);
+        }
+
+        setActiveEnterprise(parsedEnterprise);
+      } catch (err) {
+        console.error('Erro ao restaurar sessão:', err);
+        ApiService.clearToken();
+        localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+        localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
       }
-    } catch (err) {
-      console.error('Erro ao restaurar sessão:', err);
-      ApiService.clearToken();
-      localStorage.removeItem(AUTH_USER_STORAGE_KEY);
-      localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
-    }
+    };
+
+    restoreSession();
   }, []);
 
   useEffect(() => {
@@ -410,6 +430,20 @@ const AppContent: React.FC<any> = (props) => {
           wrapper: 'border-amber-300/80 bg-amber-50 text-amber-900',
           icon: 'text-amber-700',
         };
+  const isPortalAccessRoute = location.pathname === '/portal-access';
+  const isResetPasswordRoute = location.pathname === '/reset-password';
+  const isOwnerUnitPanel = isOwner && Boolean(activeEnterprise?.id) && location.pathname !== '/enterprises';
+  const isUnitPanelUser = isAdminUnit || isOwnerUnitPanel;
+  const canAccessInventory = isOwnerUnitPanel ? true : resolvedPermissions.canAccessInventory;
+  const canAccessReports = isOwnerUnitPanel ? true : resolvedPermissions.canAccessReports;
+  const canAccessPOS = isOwnerUnitPanel ? true : resolvedPermissions.canAccessPOS;
+  const canAccessClients = isOwnerUnitPanel ? true : resolvedPermissions.canAccessClients;
+  const canManageStaff = isOwnerUnitPanel ? true : resolvedPermissions.canManageStaff;
+  const canAccessUsersRoute = isSuperAdmin || (isOwner ? !isOwnerUnitPanel : canManageStaff);
+  const canAccessSystemSettingsRoute = isSuperAdmin || isAdminSistema || (isOwner && !isOwnerUnitPanel);
+  const activeSchoolUnitName = String(activeEnterprise?.attachedSchoolName || activeEnterprise?.name || '').trim();
+  const collaboratorSidebarLabel = activeSchoolUnitName ? `COLABORADOR ${activeSchoolUnitName}` : 'COLABORADOR';
+  const studentsSidebarLabel = activeSchoolUnitName ? `ALUNOS ${activeSchoolUnitName}` : 'ALUNOS';
 
   // Verificar se está na página de enterprises
   const isOnEnterprisesPage = location.pathname === '/enterprises';
@@ -499,6 +533,14 @@ const AppContent: React.FC<any> = (props) => {
     (currentUser?.enterpriseIds || []).join(','),
   ]);
 
+  if (isPortalAccessRoute) {
+    return <PortalAccessPage />;
+  }
+
+  if (isResetPasswordRoute) {
+    return <ResetPasswordPage />;
+  }
+
   return (
       <div className="flex h-screen bg-gray-50 dark:bg-[#0c0c0e] overflow-hidden text-gray-900 dark:text-zinc-100 font-['Inter'] relative">
         {isAuthenticated && trialBanner.show && (
@@ -532,6 +574,8 @@ const AppContent: React.FC<any> = (props) => {
              <Routes>
                <Route path="/menu-calendar" element={<MenuCalendarPage />} />
                <Route path="/portal" element={<ClientPortalPage />} />
+               <Route path="/portal-access" element={<PortalAccessPage />} />
+               <Route path="/reset-password" element={<ResetPasswordPage />} />
                <Route path="/register" element={<RegistrationPage />} />
                <Route path="*" element={<LoginPage onLogin={handleLogin} />} />
              </Routes>
@@ -540,8 +584,22 @@ const AppContent: React.FC<any> = (props) => {
           // Portal users - sem sidebar, renderiza apenas portal routes
           <div className="flex-1">
              <Routes>
-               <Route path="/portal" element={<ClientPortalPageWrapper currentUser={currentUser} />} />
-               <Route path="*" element={<ClientPortalPageWrapper currentUser={currentUser} />} />
+               <Route
+                 path="/portal"
+                 element={
+                   currentUser?.role === 'COLABORADOR'
+                     ? <CollaboratorPortalPage />
+                     : <ClientPortalPageWrapper currentUser={currentUser} />
+                 }
+               />
+               <Route
+                 path="*"
+                 element={
+                   currentUser?.role === 'COLABORADOR'
+                     ? <CollaboratorPortalPage />
+                     : <ClientPortalPageWrapper currentUser={currentUser} />
+                 }
+               />
              </Routes>
           </div>
         ) : (
@@ -570,6 +628,12 @@ const AppContent: React.FC<any> = (props) => {
 
               <nav className="flex-1 mt-4 px-3 space-y-1 overflow-y-auto overflow-x-visible scrollbar-hide pb-10">
                 <SidebarItem icon={<LayoutDashboard size={20} />} label="Início" to="/" isOpen={isSidebarOpen} />
+
+                {isOwnerUnitPanel && (
+                  <div className="pt-2 pb-2 space-y-1">
+                    <SidebarItem icon={<ShieldCheck size={20} />} label="PAINEL ADMIN" to="/enterprises" isOpen={isSidebarOpen} />
+                  </div>
+                )}
                 
                 {isSuperAdmin && (
                   <div className="pt-4 pb-2 space-y-1">
@@ -613,29 +677,30 @@ const AppContent: React.FC<any> = (props) => {
                   </div>
                 )}
 
-                {isAdminUnit && (
+                {isUnitPanelUser && (
                   <div className="pt-4 pb-2 space-y-1 border-t border-slate-800/30 dark:border-white/5 mt-4">
                     <p className={`text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Minha Unidade</p>
                     
                     {/* MENU EXCLUSIVO PARA CANTINA */}
-                    {isCantina && resolvedPermissions.canAccessReports && (
+                    {isCantina && canAccessReports && (
                       <SidebarItem icon={<Truck size={20} />} label="Entrega do Dia" to="/daily-delivery" isOpen={isSidebarOpen} />
                     )}
 
-                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Calendar size={20} />} label="Cardápio Local" to="/menu-lunch" isOpen={isSidebarOpen} />}
-                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<CalendarDays size={20} />} label="Calendário Escolar" to="/school-calendar" isOpen={isSidebarOpen} />}
-                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Beef size={20} />} label="Base Nutricional" to="/nutritional-info" isOpen={isSidebarOpen} />}
-                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Sparkles size={20} />} label="Planos Ativos" to={`/plans/${activeEnterprise?.id}`} isOpen={isSidebarOpen} />}
-                    {resolvedPermissions.canAccessReports && <SidebarItem icon={<ReceiptText size={20} />} label="Transações" to="/unit-sales" isOpen={isSidebarOpen} />}
-                    {resolvedPermissions.canAccessReports && <SidebarItem icon={<DollarSign size={20} />} label="Financeiro" to="/financial" isOpen={isSidebarOpen} />}
-                    {resolvedPermissions.canAccessReports && <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp" to="/whatsapp" isOpen={isSidebarOpen} />}
-                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<ArrowRightLeft size={20} />} label="Estoque Unidade" to="/inventory" isOpen={isSidebarOpen} />}
-                    {resolvedPermissions.canManageStaff && <SidebarItem icon={<Settings size={20} />} label="Ajustes" to="/settings" isOpen={isSidebarOpen} />}
-                    {isOwner && <SidebarItem icon={<ShieldCheck size={20} />} label="Config. Sistema" to="/system-settings" isOpen={isSidebarOpen} />}
+                    {canAccessInventory && <SidebarItem icon={<Calendar size={20} />} label="Cardápio Local" to="/menu-lunch" isOpen={isSidebarOpen} />}
+                    {canAccessInventory && <SidebarItem icon={<CalendarDays size={20} />} label="Calendário Escolar" to="/school-calendar" isOpen={isSidebarOpen} />}
+                    {canAccessInventory && <SidebarItem icon={<Beef size={20} />} label="Base Nutricional" to="/nutritional-info" isOpen={isSidebarOpen} />}
+                    {canAccessInventory && <SidebarItem icon={<Sparkles size={20} />} label="Planos Ativos" to={`/plans/${activeEnterprise?.id}`} isOpen={isSidebarOpen} />}
+                    {canAccessReports && <SidebarItem icon={<ReceiptText size={20} />} label="Transações" to="/unit-sales" isOpen={isSidebarOpen} />}
+                    {canAccessReports && <SidebarItem icon={<DollarSign size={20} />} label="Financeiro" to="/financial" isOpen={isSidebarOpen} />}
+                    {canAccessReports && <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp" to="/whatsapp" isOpen={isSidebarOpen} />}
+                    {canAccessInventory && <SidebarItem icon={<ArrowRightLeft size={20} />} label="Estoque Unidade" to="/inventory" isOpen={isSidebarOpen} />}
+                      {canAccessReports && <SidebarItem icon={<Users size={20} />} label="Contato WPP" to="/whatsapp-contacts" isOpen={isSidebarOpen} />}
+                    {canManageStaff && <SidebarItem icon={<Settings size={20} />} label="Ajustes" to="/settings" isOpen={isSidebarOpen} />}
+                    {isOwner && !isOwnerUnitPanel && <SidebarItem icon={<ShieldCheck size={20} />} label="Config. Sistema" to="/system-settings" isOpen={isSidebarOpen} />}
                   </div>
                 )}
 
-                {isOwner && (
+                {isOwner && !isOwnerUnitPanel && (
                   <div className="pt-4 pb-2 space-y-1">
                     <p className={`text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Administração</p>
                     <SidebarItem icon={<Building2 size={20} />} label="Minhas Unidades" to="/enterprises" isOpen={isSidebarOpen} />
@@ -647,10 +712,11 @@ const AppContent: React.FC<any> = (props) => {
                 {!isSuperAdmin && (
                   <div className="py-4 border-t border-slate-800/50 dark:border-white/5 mt-4 space-y-1">
                     <p className={`text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Operacional</p>
-                    {resolvedPermissions.canAccessPOS && <SidebarItem icon={<ShoppingCart size={20} />} label="Vender (PDV)" to="/pos" isOpen={isSidebarOpen} />}
-                    {resolvedPermissions.canAccessClients && <SidebarItem icon={<UserCircle size={20} />} label="Cliente/Responsável" to="/clients-responsaveis" isOpen={isSidebarOpen} />}
-                    {resolvedPermissions.canAccessClients && <SidebarItem icon={<Users size={20} />} label="Alunos" to="/clients" isOpen={isSidebarOpen} />}
-                    {resolvedPermissions.canAccessInventory && <SidebarItem icon={<Package size={20} />} label="Produtos" to="/products" isOpen={isSidebarOpen} />}
+                    {canAccessPOS && <SidebarItem icon={<ShoppingCart size={20} />} label="Vender (PDV)" to="/pos" isOpen={isSidebarOpen} />}
+                    {canAccessClients && <SidebarItem icon={<UserCircle size={20} />} label={collaboratorSidebarLabel} to="/clients-responsaveis" isOpen={isSidebarOpen} />}
+                    {canAccessClients && <SidebarItem icon={<Users size={20} />} label={studentsSidebarLabel} to="/clients" isOpen={isSidebarOpen} />}
+                    {canAccessInventory && <SidebarItem icon={<Package size={20} />} label="Produtos" to="/products" isOpen={isSidebarOpen} />}
+                    {canAccessInventory && <SidebarItem icon={<ClipboardList size={20} />} label="Categorias" to="/product-categories" isOpen={isSidebarOpen} />}
                     <SidebarItem icon={<ClipboardList size={20} />} label="Suprimentos" to="/orders" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Truck size={20} />} label="Fornecedores" to="/suppliers" isOpen={isSidebarOpen} />
                   </div>
@@ -662,8 +728,7 @@ const AppContent: React.FC<any> = (props) => {
                 {isOwner && (
                   <button 
                     onClick={() => {
-                      setActiveEnterprise(null);
-                      // O modal será mostrado automaticamente quando activeEnterprise for null
+                      setShowEnterpriseSelector(true);
                     }}
                     className={`flex items-center w-full px-2 py-1.5 rounded-lg text-indigo-400 hover:bg-indigo-500/10 transition-all ${!isSidebarOpen && 'justify-center'}`}
                   >
@@ -720,13 +785,13 @@ const AppContent: React.FC<any> = (props) => {
                 <Routes>
                   <Route path="/menu-calendar" element={<MenuCalendarPage activeEnterprise={activeEnterprise} currentUser={currentUser} />} />
                   <Route path="/" element={<DashboardPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
-                  <Route path="/pos" element={resolvedPermissions.canAccessPOS ? (isRestaurant ? <RestaurantPOSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <POSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} />) : <Navigate to="/" />} />
-                  <Route path="/clients" element={resolvedPermissions.canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="ALUNOS" /> : <Navigate to="/" />} />
-                  <Route path="/clients-responsaveis" element={resolvedPermissions.canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="CLIENTES_RESPONSAVEIS" /> : <Navigate to="/" />} />
-                  <Route path="/products" element={resolvedPermissions.canAccessInventory ? <ProductsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
-                  <Route path="/product-categories" element={<Navigate to="/products" replace />} />
-                  <Route path="/inventory" element={resolvedPermissions.canAccessInventory ? <InventoryPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
-                  <Route path="/reports" element={resolvedPermissions.canAccessReports ? <ReportsPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/pos" element={canAccessPOS ? (isRestaurant ? <RestaurantPOSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <POSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} />) : <Navigate to="/" />} />
+                  <Route path="/clients" element={canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="ALUNOS" /> : <Navigate to="/" />} />
+                  <Route path="/clients-responsaveis" element={canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="CLIENTES_RESPONSAVEIS" /> : <Navigate to="/" />} />
+                  <Route path="/products" element={canAccessInventory ? <ProductsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/product-categories" element={canAccessInventory ? <ProductCategoriesPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/inventory" element={canAccessInventory ? <InventoryPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/reports" element={canAccessReports ? <ReportsPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/saas-plans" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canManagePlans) ? <SaasPlansPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/saas-planos" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canManagePlans) ? <SaasPlanosPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/saas-billing" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canViewBilling) ? <SaasBillingPage currentUser={currentUser} /> : <Navigate to="/" />} />
@@ -736,26 +801,33 @@ const AppContent: React.FC<any> = (props) => {
                   <Route path="/error-tickets" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canViewErrorTickets) ? <ErrorTicketsPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/saas-clients" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canManageClients) ? <SaasClientsPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/system-staff" element={isSuperAdmin ? <SystemStaffPage currentUser={currentUser} /> : <Navigate to="/" />} />
-                  <Route path="/unit-sales" element={resolvedPermissions.canAccessReports ? <UnitSalesTransactionsPage activeEnterprise={activeEnterprise} transactions={transactions} /> : <Navigate to="/" />} />
-                  <Route path="/financial" element={resolvedPermissions.canAccessReports ? <FinancialPage activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
-                  <Route path="/whatsapp" element={resolvedPermissions.canAccessReports ? <WhatsAppPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
-                  <Route path="/users" element={(isSuperAdmin || isOwner || resolvedPermissions.canManageStaff) ? <UserManagementPage currentUser={currentUser} /> : <Navigate to="/" />} />
-                  <Route path="/system-settings" element={<SystemSettingsPage currentUser={currentUser} />} />
-                  <Route path="/enterprises" element={isSuperAdmin || isOwner || (isAdminSistema && currentUser?.systemPermissions?.canManageEnterprises) ? <EnterprisesPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/unit-sales" element={canAccessReports ? <UnitSalesTransactionsPage activeEnterprise={activeEnterprise} transactions={transactions} /> : <Navigate to="/" />} />
+                  <Route path="/financial" element={canAccessReports ? <FinancialPage activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/whatsapp" element={canAccessReports ? <WhatsAppPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/users" element={canAccessUsersRoute ? <UserManagementPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                    <Route path="/whatsapp-contacts" element={canAccessReports ? <AdminContactsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/system-settings" element={canAccessSystemSettingsRoute ? <SystemSettingsPage currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/enterprises" element={isSuperAdmin || isOwner || (isAdminSistema && currentUser?.systemPermissions?.canManageEnterprises)
+                    ? <EnterprisesPage currentUser={currentUser} onSelectEnterprise={(enterprise) => {
+                        setActiveEnterprise(enterprise);
+                        setShowEnterpriseSelector(false);
+                      }} />
+                    : <Navigate to="/" />}
+                  />
                   <Route path="/suppliers" element={<SuppliersPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
                   <Route path="/portal" element={
                     currentUser?.role === 'RESPONSAVEL' ? <ClientPortalPageWrapper /> :
                     currentUser?.role === 'COLABORADOR' ? <CollaboratorPortalPage /> :
                     <Navigate to="/" />
                   } />
-                  <Route path="/menu-lunch" element={resolvedPermissions.canAccessInventory ? <MenuManagementPage type="ALMOCO" currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
-                  <Route path="/school-calendar" element={resolvedPermissions.canAccessInventory ? <SchoolCalendarPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
-                  <Route path="/nutritional-info" element={resolvedPermissions.canAccessInventory ? <NutritionalInfoPage /> : <Navigate to="/" />} />
+                  <Route path="/menu-lunch" element={canAccessInventory ? <MenuManagementPage type="ALMOCO" currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/school-calendar" element={canAccessInventory ? <SchoolCalendarPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/nutritional-info" element={canAccessInventory ? <NutritionalInfoPage /> : <Navigate to="/" />} />
                   <Route path="/orders" element={<OrdersPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
                   <Route path="/register" element={<RegistrationPage />} />
-                  <Route path="/plans/:enterpriseId" element={resolvedPermissions.canAccessInventory ? <PlansPage activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
-                  <Route path="/daily-delivery" element={resolvedPermissions.canAccessReports ? <DailyDeliveryPage activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <Navigate to="/" />} />
-                  <Route path="/settings" element={resolvedPermissions.canManageStaff ? <SettingsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/plans/:enterpriseId" element={canAccessInventory ? <PlansPage activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/daily-delivery" element={canAccessReports ? <DailyDeliveryPage activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <Navigate to="/" />} />
+                  <Route path="/settings" element={canManageStaff ? <SettingsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="*" element={<Navigate to="/" />} />
                 </Routes>
               </div>
@@ -764,17 +836,29 @@ const AppContent: React.FC<any> = (props) => {
         )}
 
         {/* Modal de Seleção de Empresa para OWNER */}
-        {isAuthenticated && isOwner && !activeEnterprise && !isOnEnterprisesPage && (
+        {isAuthenticated && isOwner && (showEnterpriseSelector || (!activeEnterprise && !isOnEnterprisesPage)) && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-2xl w-full shadow-2xl border border-slate-200 dark:border-slate-700 animate-in zoom-in-95 duration-200">
-              <div className="flex items-center gap-3 mb-6">
+              <div className="flex items-center justify-between gap-3 mb-6">
+                <div className="flex items-center gap-3">
                 <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-500/20 rounded-2xl flex items-center justify-center">
                   <Building className="text-indigo-600" size={24} />
                 </div>
                 <div>
-                  <h3 className="text-xl font-black text-gray-800 dark:text-slate-100">Selecione uma Unidade</h3>
+                  <h3 className="text-xl font-black text-gray-800 dark:text-slate-100">{showEnterpriseSelector ? 'Trocar Unidade' : 'Selecione uma Unidade'}</h3>
                   <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Escolha qual unidade você deseja acessar</p>
                 </div>
+                </div>
+                {activeEnterprise && (
+                  <button
+                    onClick={() => setShowEnterpriseSelector(false)}
+                    className="p-2 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    aria-label="Fechar seletor de unidade"
+                    title="Fechar"
+                  >
+                    <X size={20} />
+                  </button>
+                )}
               </div>
 
               {availableEnterprises.length === 0 ? (
@@ -803,6 +887,7 @@ const AppContent: React.FC<any> = (props) => {
                         onClick={() => {
                           setActiveEnterprise(enterprise);
                           setShowEnterpriseSelector(false);
+                          navigate('/');
                         }}
                         className="w-full p-4 border-2 border-gray-200 dark:border-slate-700 rounded-2xl hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-all text-left group"
                       >

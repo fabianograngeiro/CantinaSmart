@@ -37,8 +37,19 @@ const getResetBaseUrl = (req: Request) => {
   const origin = configuredOrigin || requestOrigin || `${req.protocol}://${req.get('host') || 'localhost:3000'}`;
   return `${origin.replace(/\/$/, '')}/#/reset-password`;
 };
+const buildPortalAccessTokenHash = (token: string) => createHash('sha256').update(token).digest('hex');
+const getPortalAccessBaseUrl = (req: Request) => {
+  const configuredOrigin = String(process.env.APP_PUBLIC_URL || '').trim();
+  const requestOrigin = String(req.get('origin') || '').trim();
+  const origin = configuredOrigin || requestOrigin || `${req.protocol}://${req.get('host') || 'localhost:3000'}`;
+  return `${origin.replace(/\/$/, '')}/#/portal-access`;
+};
 
-const sanitizeUser = (user: any) => ({ ...user, password: undefined });
+const sanitizeUser = (user: any) => ({
+  ...user,
+  password: undefined,
+  portalAccessTokenHash: undefined,
+});
 
 const findUserByResetToken = (token: string) => {
   const tokenHash = buildResetTokenHash(token);
@@ -272,6 +283,43 @@ router.post('/reset-password/complete', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/portal/access', (req: Request, res: Response) => {
+  const rawToken = String(req.body?.token || '').trim();
+  if (!rawToken) {
+    return res.status(400).json({ error: 'Token de acesso não informado.' });
+  }
+
+  const tokenHash = buildPortalAccessTokenHash(rawToken);
+  const user = db.getUsers().find((entry: any) => {
+    return String(entry?.portalAccessTokenHash || '').trim() === tokenHash && entry?.portalAccessEnabled !== false;
+  });
+
+  if (!user) {
+    return res.status(401).json({ error: 'Token de acesso inválido.' });
+  }
+
+  if (user.isActive === false) {
+    return res.status(403).json({ error: 'Conta desativada. Entre em contato com o suporte.' });
+  }
+
+  if (isDateOnOrBeforeToday(user.expirationDate)) {
+    if (user.isActive !== false) {
+      db.updateUser(user.id, { isActive: false });
+    }
+    return res.status(403).json({ error: 'Acesso vencido. Renove a assinatura para voltar a acessar.' });
+  }
+
+  const token = generateToken(user.id, user.role);
+  db.updateUser(user.id, {
+    portalAccessTokenLastUsedAt: new Date().toISOString(),
+  });
+
+  return res.json({
+    token,
+    user: sanitizeUser(user),
+  });
+});
+
 // Get all users
 router.use(authMiddleware);
 
@@ -312,6 +360,216 @@ router.post('/:id/reset-password-link', (req: AuthRequest, res: Response) => {
       name: updatedUser.name,
       email: updatedUser.email,
     },
+  });
+});
+
+router.post('/:id/portal-link', (req: AuthRequest, res: Response) => {
+  const requesterRole = normalizeRole(req.userRole);
+  if (!['SUPERADMIN', 'ADMIN_SISTEMA', 'OWNER', 'ADMIN'].includes(requesterRole)) {
+    return res.status(403).json({ error: 'Sem permissão para gerar link fixo de portal.' });
+  }
+
+  const targetId = String(req.params.id || '').trim();
+  let targetUser = db.getUser(targetId);
+  let rawToken = '';
+
+  if (!targetUser) {
+    const ensuredFromClient = db.ensurePortalAccessForClientId(targetId, { regenerateToken: true });
+    if (!ensuredFromClient?.user) {
+      return res.status(404).json({ error: 'Usuário/cliente não encontrado para gerar link.' });
+    }
+    targetUser = ensuredFromClient.user;
+    rawToken = String(ensuredFromClient.rawToken || '').trim();
+  }
+
+  const targetRole = normalizeRole(String(targetUser.role || ''));
+  if (!['RESPONSAVEL', 'COLABORADOR', 'CLIENTE'].includes(targetRole)) {
+    return res.status(400).json({ error: 'Link fixo disponível apenas para usuários de portal.' });
+  }
+
+  let updated = targetUser;
+  if (!rawToken) {
+    rawToken = randomBytes(48).toString('hex');
+    const tokenHash = buildPortalAccessTokenHash(rawToken);
+    updated = db.updateUser(targetUser.id, {
+      portalAccessEnabled: true,
+      portalAccessTokenHash: tokenHash,
+      portalAccessTokenCreatedAt: new Date().toISOString(),
+    });
+  }
+
+  if (!updated) {
+    return res.status(404).json({ error: 'Usuário não encontrado' });
+  }
+
+  const accessLink = `${getPortalAccessBaseUrl(req)}?t=${encodeURIComponent(rawToken)}`;
+  return res.json({
+    accessLink,
+    user: {
+      id: updated.id,
+      name: updated.name,
+      email: updated.email,
+      role: updated.role,
+    },
+  });
+});
+
+router.post('/portal-links/backfill', (req: AuthRequest, res: Response) => {
+  const requesterRole = normalizeRole(req.userRole);
+  if (!['SUPERADMIN', 'ADMIN_SISTEMA', 'OWNER', 'ADMIN'].includes(requesterRole)) {
+    return res.status(403).json({ error: 'Sem permissão para gerar links em lote.' });
+  }
+
+  const requestedEnterpriseId = String(req.body?.enterpriseId || '').trim();
+  const canAccessAll = canAccessAllEnterprises(req.userRole);
+  const allowedEnterpriseIds = getRequesterEnterpriseIds(req);
+
+  if (requestedEnterpriseId && !canAccessAll && !allowedEnterpriseIds.includes(requestedEnterpriseId)) {
+    return res.status(403).json({ error: 'Sem permissão para gerar links nesta empresa.' });
+  }
+
+  const scopedEnterpriseIds = canAccessAll
+    ? (requestedEnterpriseId ? [requestedEnterpriseId] : [])
+    : (requestedEnterpriseId ? [requestedEnterpriseId] : allowedEnterpriseIds);
+
+  const allClients = scopedEnterpriseIds.length > 0
+    ? scopedEnterpriseIds.flatMap((enterpriseId) => db.getClients(enterpriseId))
+    : db.getClients();
+
+  const uniqueClients = new Map<string, any>();
+  allClients.forEach((client: any) => {
+    const clientId = String(client?.id || '').trim();
+    if (!clientId) return;
+    if (!uniqueClients.has(clientId)) uniqueClients.set(clientId, client);
+  });
+
+  const normalizeDigits = (value: unknown) => String(value || '').replace(/\D/g, '');
+  const normalizeToken = (value: unknown) => String(value || '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase();
+
+  const directPortalClients = Array.from(uniqueClients.values()).filter((client: any) => {
+    const type = normalizeRole(String(client?.type || ''));
+    return type === 'RESPONSAVEL' || type === 'COLABORADOR';
+  });
+
+  const directByEnterprise = new Map<string, any[]>();
+  directPortalClients.forEach((client: any) => {
+    const enterpriseId = String(client?.enterpriseId || '').trim();
+    if (!enterpriseId) return;
+    const bucket = directByEnterprise.get(enterpriseId) || [];
+    bucket.push(client);
+    directByEnterprise.set(enterpriseId, bucket);
+  });
+
+  const materializedClients: any[] = [];
+
+  Array.from(uniqueClients.values()).forEach((student: any) => {
+    const type = normalizeRole(String(student?.type || ''));
+    if (type !== 'ALUNO') return;
+
+    const enterpriseId = String(student?.enterpriseId || '').trim();
+    if (!enterpriseId) return;
+    if (scopedEnterpriseIds.length > 0 && !scopedEnterpriseIds.includes(enterpriseId)) return;
+
+    const parentName = String(student?.parentName || student?.guardianName || student?.guardians?.[0] || '').trim();
+    const parentPhone = normalizeDigits(student?.parentWhatsapp || student?.guardianPhone || '');
+    const parentEmail = normalizeEmail(student?.parentEmail || student?.guardianEmail || '');
+    const parentCpf = normalizeDigits(student?.parentCpf || '');
+
+    if (!parentName && !parentPhone) return;
+
+    const candidates = directByEnterprise.get(enterpriseId) || [];
+    const parentNameToken = normalizeToken(parentName);
+    const found = candidates.find((candidate: any) => {
+      const candidatePhone = normalizeDigits(candidate?.phone || candidate?.parentWhatsapp || '');
+      const candidateEmail = normalizeEmail(candidate?.email || candidate?.parentEmail || '');
+      const candidateCpf = normalizeDigits(candidate?.cpf || candidate?.parentCpf || '');
+      const candidateNameToken = normalizeToken(candidate?.name);
+
+      if (parentPhone && candidatePhone && parentPhone === candidatePhone) return true;
+      if (parentCpf && candidateCpf && parentCpf === candidateCpf) return true;
+      if (parentEmail && candidateEmail && parentEmail === candidateEmail && parentNameToken && candidateNameToken === parentNameToken) return true;
+      if (!parentPhone && !parentCpf && parentNameToken && candidateNameToken === parentNameToken) return true;
+      return false;
+    });
+
+    if (found) return;
+
+    const generatedRegistrationId = `RESP-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    const createdResponsible = db.createClient({
+      enterpriseId,
+      type: 'RESPONSAVEL',
+      registrationId: generatedRegistrationId,
+      name: parentName || 'Responsável',
+      class: String(student?.parentRelationship || 'PAIS').trim() || 'PAIS',
+      servicePlans: ['PREPAGO'],
+      selectedPlansConfig: [],
+      planCreditBalances: {},
+      balance: 0,
+      spentToday: 0,
+      isBlocked: false,
+      restrictions: [],
+      parentName: parentName || 'Responsável',
+      parentRelationship: String(student?.parentRelationship || 'PAIS').trim() || 'PAIS',
+      phone: parentPhone,
+      parentWhatsappCountryCode: String(student?.parentWhatsappCountryCode || '55').replace(/\D/g, '') || '55',
+      parentWhatsapp: parentPhone,
+      email: parentEmail,
+      parentEmail,
+      cpf: parentCpf,
+      parentCpf,
+    });
+
+    materializedClients.push(createdResponsible);
+    const nextCandidates = directByEnterprise.get(enterpriseId) || [];
+    nextCandidates.push(createdResponsible);
+    directByEnterprise.set(enterpriseId, nextCandidates);
+    uniqueClients.set(String(createdResponsible?.id || '').trim(), createdResponsible);
+  });
+
+  const generated: Array<any> = [];
+  const skipped: Array<any> = [];
+
+  uniqueClients.forEach((client) => {
+    const type = normalizeRole(String(client?.type || ''));
+    if (type !== 'RESPONSAVEL' && type !== 'COLABORADOR') {
+      skipped.push({
+        clientId: String(client?.id || '').trim(),
+        name: String(client?.name || '').trim(),
+        reason: 'Tipo sem acesso de portal',
+      });
+      return;
+    }
+
+    const ensured = db.ensurePortalAccessForClientId(String(client?.id || '').trim(), { regenerateToken: true });
+    if (!ensured?.user || !ensured?.rawToken) {
+      skipped.push({
+        clientId: String(client?.id || '').trim(),
+        name: String(client?.name || '').trim(),
+        reason: 'Não foi possível gerar link',
+      });
+      return;
+    }
+
+    generated.push({
+      clientId: String(client?.id || '').trim(),
+      name: String(client?.name || '').trim(),
+      type,
+      userId: String(ensured.user?.id || '').trim(),
+      enterpriseId: String(client?.enterpriseId || '').trim(),
+      accessLink: `${getPortalAccessBaseUrl(req)}?t=${encodeURIComponent(String(ensured.rawToken || '').trim())}`,
+    });
+  });
+
+  return res.json({
+    materializedCount: materializedClients.length,
+    generatedCount: generated.length,
+    skippedCount: skipped.length,
+    generated,
+    skipped,
   });
 });
 

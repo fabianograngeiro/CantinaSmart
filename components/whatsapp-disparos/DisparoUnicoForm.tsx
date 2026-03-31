@@ -249,10 +249,10 @@ const DisparoUnicoForm: React.FC = () => {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-      <section className="rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 shadow-sm space-y-4">
+      <section className="rounded-[24px] border border-slate-200 dark:border-zinc-700 bg-[linear-gradient(180deg,rgba(255,255,255,1),rgba(255,247,237,0.82))] dark:bg-zinc-900 p-5 shadow-[0_16px_38px_-28px_rgba(15,23,42,0.6)] space-y-4">
         <div>
           <h3 className="text-lg font-black text-slate-900 dark:text-zinc-100">Disparo Único</h3>
-          <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400">
+          <p className="text-sm font-semibold text-slate-600 dark:text-zinc-400">
             Monte a mensagem e visualize em tempo real no formato WhatsApp.
           </p>
         </div>
@@ -267,7 +267,7 @@ const DisparoUnicoForm: React.FC = () => {
               value={buscaCliente}
               onChange={(e) => setBuscaCliente(e.target.value)}
               placeholder="Pesquisar por nome..."
-              className="w-full pl-9 pr-3 py-2.5 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+              className="w-full pl-9 pr-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
             />
           </div>
           <select
@@ -278,7 +278,7 @@ const DisparoUnicoForm: React.FC = () => {
               const cliente = CLIENTES_MOCK.find((item) => item.id === id);
               setClienteNome(cliente?.nome || '');
             }}
-            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+            className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
           >
             <option value="">Selecione um cliente</option>
             {clientesFiltrados.map((cliente) => (
@@ -297,7 +297,7 @@ const DisparoUnicoForm: React.FC = () => {
             rows={8}
             value={mensagemCorpo}
             onChange={(e) => setMensagemCorpo(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-medium bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+            className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-medium bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
             placeholder="Digite sua mensagem..."
           />
           <p className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
@@ -316,14 +316,14 @@ const DisparoUnicoForm: React.FC = () => {
               type="datetime-local"
               value={dataAgendamento}
               onChange={(e) => setDataAgendamento(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+              className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
             />
           </div>
           <div className="space-y-1.5">
             <label className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
               Anexo
             </label>
-            <label className="w-full inline-flex items-center gap-2 px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 bg-cyan-50 dark:bg-zinc-800 text-cyan-700 dark:text-cyan-300 text-sm font-black cursor-pointer hover:bg-cyan-100 dark:hover:bg-zinc-700">
+            <label className="w-full inline-flex items-center gap-2 px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 bg-orange-50 dark:bg-zinc-800 text-orange-700 dark:text-orange-300 text-sm font-black cursor-pointer hover:bg-orange-100 dark:hover:bg-zinc-700">
               <Paperclip size={14} />
               {arquivo ? arquivo.name : 'Selecionar arquivo'}
               <input
@@ -345,7 +345,7 @@ const DisparoUnicoForm: React.FC = () => {
               min={0}
               value={delayMin}
               onChange={(e) => setDelayMin(Math.max(0, Number(e.target.value) || 0))}
-              className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+              className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
             />
           </div>
           <div className="space-y-1.5">
@@ -357,22 +357,22 @@ const DisparoUnicoForm: React.FC = () => {
               min={0}
               value={delayMax}
               onChange={(e) => setDelayMax(Math.max(0, Number(e.target.value) || 0))}
-              className="w-full px-3 py-2 rounded-xl border-2 border-cyan-100 dark:border-zinc-700 focus:border-cyan-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+              className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
             />
           </div>
         </div>
 
         {isSending && (
-          <div className="rounded-xl border border-cyan-100 dark:border-cyan-900/50 bg-cyan-50 dark:bg-cyan-950/30 p-3 space-y-2">
-            <div className="flex items-center gap-2 text-cyan-700 dark:text-cyan-300">
+          <div className="rounded-xl border border-orange-200 dark:border-orange-900/50 bg-orange-50 dark:bg-orange-950/30 p-3 space-y-2">
+            <div className="flex items-center gap-2 text-orange-700 dark:text-orange-300">
               <Loader2 size={14} className="animate-spin" />
               <p className="text-xs font-black uppercase tracking-widest">
                 Aguardando envio {waitingSeconds > 0 ? `(${waitingSeconds}s)` : ''}
               </p>
             </div>
-            <div className="h-2 rounded-full bg-cyan-100 dark:bg-cyan-950/40 overflow-hidden">
+            <div className="h-2 rounded-full bg-orange-100 dark:bg-orange-950/40 overflow-hidden">
               <div
-                className="h-full bg-cyan-500 transition-all duration-300"
+                className="h-full bg-orange-500 transition-all duration-300"
                 style={{ width: `${Math.min(100, Math.max(0, progressPct))}%` }}
               />
             </div>
@@ -380,14 +380,14 @@ const DisparoUnicoForm: React.FC = () => {
         )}
 
         <div className="flex items-center justify-between gap-3">
-          <p className={`text-sm font-semibold ${feedback ? 'text-cyan-700 dark:text-cyan-300' : 'text-slate-500 dark:text-zinc-400'}`}>
+          <p className={`text-sm font-semibold ${feedback ? 'text-orange-700 dark:text-orange-300' : 'text-slate-500 dark:text-zinc-400'}`}>
             {feedback || 'Configure e clique em processar envio.'}
           </p>
           <button
             type="button"
             onClick={processarEnvio}
             disabled={isSending}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-black uppercase tracking-widest"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 disabled:bg-slate-300 text-white text-xs font-black uppercase tracking-widest"
           >
             {isSending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
             {isSending ? 'Enviando...' : 'Processar envio'}
@@ -395,13 +395,13 @@ const DisparoUnicoForm: React.FC = () => {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 shadow-sm space-y-3">
+      <section className="rounded-[24px] border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 shadow-[0_16px_38px_-28px_rgba(15,23,42,0.6)] space-y-3">
         <h3 className="text-lg font-black text-slate-900 dark:text-zinc-100">Preview WhatsApp</h3>
         <WhatsAppPreview clienteNome={clienteNome} mensagemCorpo={mensagemCorpo} horario={horaAtual} />
       </section>
       </div>
 
-      <section className="rounded-2xl border border-cyan-100 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 shadow-sm space-y-3">
+      <section className="rounded-[24px] border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 shadow-[0_16px_38px_-28px_rgba(15,23,42,0.6)] space-y-3">
         <h3 className="text-lg font-black text-slate-900 dark:text-zinc-100">Logs em tempo real</h3>
         {logs.length === 0 ? (
           <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400">Nenhum envio processado ainda.</p>

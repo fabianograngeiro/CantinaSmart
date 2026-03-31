@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+
+<html class="light" lang="pt-BR"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              colors: {
+                "error-container": "#ffdad6",
+                "error": "#ba1a1a",
+                "surface": "#fbf8ff",
+                "surface-container-highest": "#e4e1ea",
+                "on-primary-fixed-variant": "#343d96",
+                "surface-container-high": "#eae7ef",
+                "on-tertiary-fixed-variant": "#7b2e12",
+                "on-primary": "#ffffff",
+                "primary-container": "#1a237e",
+                "outline-variant": "#c6c5d4",
+                "on-primary-fixed": "#000767",
+                "tertiary-fixed": "#ffdbd0",
+                "inverse-on-surface": "#f2eff8",
+                "primary": "#000666",
+                "on-secondary-fixed-variant": "#354a53",
+                "secondary-container": "#cfe6f2",
+                "surface-bright": "#fbf8ff",
+                "tertiary-container": "#5c1800",
+                "surface-container-lowest": "#ffffff",
+                "on-background": "#1b1b21",
+                "on-secondary-fixed": "#071e27",
+                "surface-dim": "#dbd9e1",
+                "surface-container": "#efecf5",
+                "outline": "#767683",
+                "inverse-primary": "#bdc2ff",
+                "on-tertiary-fixed": "#390c00",
+                "primary-fixed-dim": "#bdc2ff",
+                "on-error": "#ffffff",
+                "on-secondary-container": "#526772",
+                "on-error-container": "#93000a",
+                "on-tertiary-container": "#e17c5a",
+                "inverse-surface": "#303036",
+                "primary-fixed": "#e0e0ff",
+                "surface-variant": "#e4e1ea",
+                "tertiary": "#380b00",
+                "secondary": "#4c616c",
+                "on-surface": "#1b1b21",
+                "background": "#fbf8ff",
+                "on-primary-container": "#8690ee",
+                "on-tertiary": "#ffffff",
+                "tertiary-fixed-dim": "#ffb59d",
+                "surface-tint": "#4c56af",
+                "surface-container-low": "#f5f2fb",
+                "secondary-fixed-dim": "#b4cad6",
+                "secondary-fixed": "#cfe6f2",
+                "on-surface-variant": "#454652",
+                "on-secondary": "#ffffff"
+              },
+              fontFamily: {
+                "headline": ["Manrope"],
+                "body": ["Inter"],
+                "label": ["Inter"]
+              },
+              borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+            },
+          },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .font-manrope { font-family: 'Manrope', sans-serif; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface min-h-screen flex flex-col">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center w-full px-6 py-4 bg-gradient-to-br from-[#000666] to-[#1a237e] shadow-lg shadow-blue-900/10 sticky top-0 z-50">
+<div class="flex items-center gap-4">
+<span class="text-xl font-bold text-white tracking-tight font-manrope">Relatório de Consumo Escolar</span>
+</div>
+<div class="flex items-center gap-2">
+<button class="p-2 text-blue-200 hover:text-white hover:bg-white/10 rounded-full transition-all scale-95 active:scale-90 duration-200">
+<span class="material-symbols-outlined" data-icon="picture_as_pdf">picture_as_pdf</span>
+</button>
+<button class="p-2 text-blue-200 hover:text-white hover:bg-white/10 rounded-full transition-all scale-95 active:scale-90 duration-200">
+<span class="material-symbols-outlined" data-icon="mail">mail</span>
+</button>
+<button class="p-2 text-blue-200 hover:text-white hover:bg-white/10 rounded-full transition-all scale-95 active:scale-90 duration-200">
+<span class="material-symbols-outlined" data-icon="share">share</span>
+</button>
+<div class="ml-4 h-10 w-10 rounded-full overflow-hidden border-2 border-white/20">
+<img alt="Logo da Unidade Escolar" class="h-full w-full object-cover" data-alt="Official school crest with heraldic elements in elegant gold and navy blue colors on a clean white background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA-nY1tbPLXUi9sdaeVVAKWtNWrLchh4f1XLLBngLNNRSqRHFAlKz6XrodfbMw5JoOec4uGAlJ8YuBITiS8_izr5CwUfcAQIBOT66-cnBqoNdp_68_rVTkO4XCWdJhG5WPTZcukQzogDwHanyAA6mf5U_jCeXPR-hIkh6sNHX409OE-a09OWqrRBSIVkUVKJZIpa5iEDVFeF8ETVYaeoTPIizmFMDS3ZD4KJ7DdDrjfCpJyFQ8b8khgZPeMXkMUxn1uiuMp3bJpDR0"/>
+</div>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<!-- SideNavBar -->
+<aside class="hidden md:flex flex-col h-full py-6 bg-[#f5f2fb] w-64 shrink-0 overflow-y-auto">
+<div class="px-6 mb-8">
+<div class="flex items-center gap-3 mb-1">
+<div class="h-10 w-10 rounded-xl bg-primary flex items-center justify-center text-white">
+<span class="material-symbols-outlined">school</span>
+</div>
+<div>
+<h2 class="text-lg font-black text-[#000666] font-manrope leading-tight">Gestão Escolar</h2>
+<p class="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Unidade Central</p>
+</div>
+</div>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 text-slate-600 hover:text-[#000666] px-6 py-3 hover:bg-[#efecf5] transition-all font-manrope text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+                    Dashboard
+                </a>
+<a class="flex items-center gap-3 text-slate-600 hover:text-[#000666] px-6 py-3 hover:bg-[#efecf5] transition-all font-manrope text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="receipt_long">receipt_long</span>
+                    Extratos
+                </a>
+<a class="flex items-center gap-3 text-slate-600 hover:text-[#000666] px-6 py-3 hover:bg-[#efecf5] transition-all font-manrope text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="group">group</span>
+                    Alunos
+                </a>
+<a class="flex items-center gap-3 bg-white text-[#000666] font-bold rounded-l-full ml-4 shadow-sm px-6 py-3 font-manrope text-sm" href="#">
+<span class="material-symbols-outlined" data-icon="settings" style="font-variation-settings: 'FILL' 1;">settings</span>
+                    Configurações
+                </a>
+</nav>
+<div class="px-4 mt-6">
+<button class="w-full bg-primary hover:bg-primary-container text-white rounded-full py-3 px-4 flex items-center justify-center gap-2 text-sm font-bold shadow-md transition-all active:scale-95">
+<span class="material-symbols-outlined text-sm">add</span>
+                    Novo Lançamento
+                </button>
+</div>
+<div class="mt-auto border-t border-outline-variant/20 pt-4">
+<a class="flex items-center gap-3 text-slate-600 hover:text-[#000666] px-6 py-3 hover:bg-[#efecf5] transition-all font-manrope text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+                    Suporte
+                </a>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="flex-1 bg-surface overflow-y-auto p-6 md:p-10">
+<div class="max-w-4xl mx-auto space-y-10">
+<!-- Page Header -->
+<section>
+<h1 class="text-4xl font-extrabold text-primary font-manrope tracking-tight mb-2">Configurações</h1>
+<p class="text-on-surface-variant font-medium">Gerencie suas informações pessoais e preferências de segurança do portal.</p>
+</section>
+<!-- Bento Grid Layout for Settings -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+<!-- Section: Perfil do Responsável -->
+<div class="md:col-span-8 bg-surface-container-lowest rounded-xl p-8 shadow-sm">
+<div class="flex items-center gap-3 mb-8">
+<span class="material-symbols-outlined text-primary" data-icon="person_outline">person_outline</span>
+<h3 class="text-xl font-bold font-manrope text-primary">Perfil do Responsável</h3>
+</div>
+<form class="space-y-6">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<div class="space-y-1">
+<label class="block text-xs font-bold uppercase tracking-wider text-outline mb-1">Nome Completo</label>
+<input class="w-full bg-surface-container-low border-none rounded-lg px-4 py-3 text-on-surface focus:ring-2 focus:ring-primary-container transition-all" type="text" value="Ricardo Oliveira Mendes"/>
+</div>
+<div class="space-y-1">
+<label class="block text-xs font-bold uppercase tracking-wider text-outline mb-1">CPF</label>
+<input class="w-full bg-surface-container border-none rounded-lg px-4 py-3 text-on-surface-variant cursor-not-allowed" disabled="" type="text" value="123.456.789-00"/>
+</div>
+<div class="space-y-1">
+<label class="block text-xs font-bold uppercase tracking-wider text-outline mb-1">E-mail de Contato</label>
+<input class="w-full bg-surface-container-low border-none rounded-lg px-4 py-3 text-on-surface focus:ring-2 focus:ring-primary-container transition-all" type="email" value="ricardo.mendes@email.com"/>
+</div>
+<div class="space-y-1">
+<label class="block text-xs font-bold uppercase tracking-wider text-outline mb-1">Celular / WhatsApp</label>
+<input class="w-full bg-surface-container-low border-none rounded-lg px-4 py-3 text-on-surface focus:ring-2 focus:ring-primary-container transition-all" type="tel" value="(11) 98765-4321"/>
+</div>
+</div>
+<div class="flex justify-end pt-4">
+<button class="bg-primary text-white font-bold px-8 py-3 rounded-full hover:bg-primary-container transition-all shadow-md active:scale-95" type="button">Salvar Alterações</button>
+</div>
+</form>
+</div>
+<!-- Section: Profile Stats/Info (Bento Tile) -->
+<div class="md:col-span-4 flex flex-col gap-6">
+<div class="bg-[#000666] text-white rounded-xl p-6 relative overflow-hidden flex-1 shadow-lg shadow-blue-900/10">
+<div class="relative z-10">
+<p class="text-blue-200 text-xs font-bold uppercase tracking-widest mb-4">Unidade Vinculada</p>
+<h4 class="text-xl font-bold font-manrope leading-tight">Escola Internacional Horizonte</h4>
+<p class="mt-2 text-sm text-blue-100">Ano Letivo 2024</p>
+<div class="mt-8 flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary-fixed">verified_user</span>
+<span class="text-xs font-medium">Conta Verificada</span>
+</div>
+</div>
+<div class="absolute -bottom-4 -right-4 opacity-10">
+<span class="material-symbols-outlined text-9xl" data-icon="verified">verified</span>
+</div>
+</div>
+<!-- Mini Card for Quick Action -->
+<div class="bg-secondary-container rounded-xl p-6 shadow-sm flex items-center justify-between group cursor-pointer hover:bg-secondary-fixed transition-colors">
+<div>
+<h4 class="font-bold text-on-secondary-container">Acesso do Aluno</h4>
+<p class="text-xs text-on-secondary-container/80">Verificar credenciais de dependentes</p>
+</div>
+<span class="material-symbols-outlined text-on-secondary-container group-hover:translate-x-1 transition-transform">arrow_forward</span>
+</div>
+</div>
+<!-- Section: Notificações (Institutional Layout) -->
+<div class="md:col-span-6 bg-surface-container-low rounded-xl p-8 border border-outline-variant/10">
+<div class="flex items-center gap-3 mb-8">
+<span class="material-symbols-outlined text-primary" data-icon="notifications">notifications</span>
+<h3 class="text-xl font-bold font-manrope text-primary">Notificações</h3>
+</div>
+<div class="space-y-8">
+<div class="flex items-start justify-between">
+<div class="space-y-1">
+<p class="font-bold text-on-surface">Alertas por E-mail</p>
+<p class="text-sm text-on-surface-variant max-w-[280px]">Receba resumos semanais de consumo e avisos de recarga.</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+<div class="flex items-start justify-between">
+<div class="space-y-1">
+<p class="font-bold text-on-surface">Notificações via WhatsApp</p>
+<p class="text-sm text-on-surface-variant max-w-[280px]">Confirmações de compra em tempo real diretamente no seu celular.</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+<div class="flex items-start justify-between">
+<div class="space-y-1">
+<p class="font-bold text-on-surface">Novidades e Ofertas</p>
+<p class="text-sm text-on-surface-variant max-w-[280px]">Informações sobre novos itens no cardápio e campanhas especiais.</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+</div>
+</div>
+<!-- Section: Segurança -->
+<div class="md:col-span-6 bg-surface-container-lowest rounded-xl p-8 shadow-sm">
+<div class="flex items-center gap-3 mb-8">
+<span class="material-symbols-outlined text-primary" data-icon="security">security</span>
+<h3 class="text-xl font-bold font-manrope text-primary">Segurança</h3>
+</div>
+<form class="space-y-6">
+<div class="space-y-1">
+<label class="block text-xs font-bold uppercase tracking-wider text-outline mb-1">Senha Atual</label>
+<div class="relative">
+<input class="w-full bg-surface-container-low border-none rounded-lg px-4 py-3 pr-10 text-on-surface focus:ring-2 focus:ring-primary-container transition-all" placeholder="••••••••" type="password"/>
+<span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-outline text-sm cursor-pointer">visibility</span>
+</div>
+</div>
+<div class="space-y-1">
+<label class="block text-xs font-bold uppercase tracking-wider text-outline mb-1">Nova Senha</label>
+<input class="w-full bg-surface-container-low border-none rounded-lg px-4 py-3 text-on-surface focus:ring-2 focus:ring-primary-container transition-all" placeholder="Mínimo 8 caracteres" type="password"/>
+</div>
+<div class="space-y-1">
+<label class="block text-xs font-bold uppercase tracking-wider text-outline mb-1">Confirmar Nova Senha</label>
+<input class="w-full bg-surface-container-low border-none rounded-lg px-4 py-3 text-on-surface focus:ring-2 focus:ring-primary-container transition-all" placeholder="Repita a nova senha" type="password"/>
+</div>
+<div class="pt-2">
+<button class="w-full bg-surface-container-high text-on-surface-variant font-bold px-6 py-3 rounded-full hover:bg-surface-container-highest transition-all active:scale-95 flex items-center justify-center gap-2" type="button">
+<span class="material-symbols-outlined text-sm">lock_reset</span>
+                                    Atualizar Senha
+                                </button>
+</div>
+</form>
+<div class="mt-8 pt-8 border-t border-outline-variant/20">
+<p class="text-xs font-bold uppercase tracking-wider text-error mb-4">Ações Críticas</p>
+<button class="text-error font-semibold text-sm hover:underline flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">no_accounts</span>
+                                Solicitar exclusão de conta
+                            </button>
+</div>
+</div>
+</div>
+<!-- Footer Narrative -->
+<footer class="pt-12 pb-6 border-t border-outline-variant/30 text-center">
+<p class="text-xs text-on-surface-variant font-medium">Último acesso realizado em: 24 de Outubro, 2023 às 14:32 • IP: 187.56.22.1</p>
+</footer>
+</div>
+</main>
+</div>
+<!-- Mobile Navigation (Visible on small screens only) -->
+<nav class="md:hidden flex justify-around items-center bg-surface-container-lowest border-t border-outline-variant/20 py-3 px-6 sticky bottom-0 z-50">
+<button class="flex flex-col items-center gap-1 text-slate-500">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="text-[10px] font-bold uppercase tracking-tighter">Início</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-slate-500">
+<span class="material-symbols-outlined">receipt_long</span>
+<span class="text-[10px] font-bold uppercase tracking-tighter">Extratos</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-slate-500">
+<span class="material-symbols-outlined">group</span>
+<span class="text-[10px] font-bold uppercase tracking-tighter">Alunos</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-primary">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">settings</span>
+<span class="text-[10px] font-bold uppercase tracking-tighter">Ajustes</span>
+</button>
+</nav>
+</body></html>

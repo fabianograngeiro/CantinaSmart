@@ -26,6 +26,8 @@ type WhatsAppQrSnapshot = {
     etaSec: number | null;
     estimatedTotalSec: number | null;
     processedChats: number;
+    processedContacts: number;
+    restoredConversations: number;
     processedMessages: number;
     throttledFeatures: string[];
   };
@@ -56,6 +58,8 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
   const [endDateInput, setEndDateInput] = useState('');
   const [syncFullHistory, setSyncFullHistory] = useState(true);
   const [safeSyncMode, setSafeSyncMode] = useState(true);
+  const [syncContacts, setSyncContacts] = useState(true);
+  const [syncHistories, setSyncHistories] = useState(true);
   const hasInitializedRef = useRef(false);
   const isLoadingStatusRef = useRef(false);
   const hasLoggedOfflineRef = useRef(false);
@@ -68,6 +72,8 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
     endDate: 'whatsapp_session_end_date',
     syncFullHistory: 'whatsapp_session_sync_full_history',
     safeSyncMode: 'whatsapp_session_safe_sync_mode',
+    syncContacts: 'whatsapp_session_sync_contacts',
+    syncHistories: 'whatsapp_session_sync_histories',
   } as const;
 
   const isBackendUnreachableError = (err: unknown) => {
@@ -131,14 +137,20 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
 
     const bootstrap = async () => {
       try {
-        const today = new Date().toISOString().slice(0, 10);
+        const todayDate = new Date();
+        const historyStartDate = new Date(todayDate);
+        historyStartDate.setDate(historyStartDate.getDate() - 29);
+        const today = todayDate.toISOString().slice(0, 10);
+        const defaultHistoryStart = historyStartDate.toISOString().slice(0, 10);
         const savedSessionName = localStorage.getItem(STORAGE_KEYS.sessionName) || '';
         const savedPeriodMode = localStorage.getItem(STORAGE_KEYS.periodMode) === 'range' ? 'range' : 'days';
         const savedDurationDays = localStorage.getItem(STORAGE_KEYS.durationDays) || '30';
-        const savedStartDate = localStorage.getItem(STORAGE_KEYS.startDate) || today;
-        const savedEndDate = localStorage.getItem(STORAGE_KEYS.endDate) || '';
+        const savedStartDate = localStorage.getItem(STORAGE_KEYS.startDate) || defaultHistoryStart;
+        const savedEndDate = localStorage.getItem(STORAGE_KEYS.endDate) || today;
         const savedSync = localStorage.getItem(STORAGE_KEYS.syncFullHistory);
         const savedSafeMode = localStorage.getItem(STORAGE_KEYS.safeSyncMode);
+        const savedSyncContacts = localStorage.getItem(STORAGE_KEYS.syncContacts);
+        const savedSyncHistories = localStorage.getItem(STORAGE_KEYS.syncHistories);
 
         setSessionName(savedSessionName);
         setPeriodMode(savedPeriodMode);
@@ -147,6 +159,8 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
         setEndDateInput(savedEndDate);
         setSyncFullHistory(savedSync !== 'false');
         setSafeSyncMode(savedSafeMode !== 'false');
+        setSyncContacts(savedSyncContacts !== 'false');
+        setSyncHistories(savedSyncHistories !== 'false');
 
         const snapshot = await ApiService.getWhatsAppQr();
         setStatus({
@@ -184,7 +198,9 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
     localStorage.setItem(STORAGE_KEYS.endDate, endDateInput);
     localStorage.setItem(STORAGE_KEYS.syncFullHistory, String(syncFullHistory));
     localStorage.setItem(STORAGE_KEYS.safeSyncMode, String(safeSyncMode));
-  }, [sessionName, periodMode, durationDays, startDateInput, endDateInput, syncFullHistory, safeSyncMode]);
+    localStorage.setItem(STORAGE_KEYS.syncContacts, String(syncContacts));
+    localStorage.setItem(STORAGE_KEYS.syncHistories, String(syncHistories));
+  }, [sessionName, periodMode, durationDays, startDateInput, endDateInput, syncFullHistory, safeSyncMode, syncContacts, syncHistories]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -211,10 +227,10 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
     let computedEnd = '';
     if (periodMode === 'days') {
       const days = Math.max(1, Number(durationDays) || 1);
-      const end = new Date(today);
-      end.setDate(end.getDate() + days);
-      computedStart = toIsoDate(today);
-      computedEnd = toIsoDate(end);
+      const start = new Date(today);
+      start.setDate(start.getDate() - (days - 1));
+      computedStart = toIsoDate(start);
+      computedEnd = toIsoDate(today);
     } else {
       computedStart = String(startDateInput || '').trim();
       computedEnd = String(endDateInput || '').trim();
@@ -238,14 +254,15 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
 
     setStarting(true);
     try {
-      const forceNewSession = status.state === 'DISCONNECTED' || status.state === 'ERROR';
       await ApiService.startWhatsAppSession({
-        forceNewSession,
+        forceNewSession: true,
         sessionName: normalizedSessionName,
         startDate: computedStart,
         endDate: computedEnd,
         syncFullHistory,
-        safeSyncMode
+        safeSyncMode,
+        syncContacts,
+        syncHistories
       });
       await loadStatus();
       window.setTimeout(() => {
@@ -292,6 +309,28 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
   const formLocked = status.connected;
   const syncProgress = status.syncProgress;
   const showSyncProgress = Boolean(syncProgress && (syncProgress.active || syncProgress.phase === 'DONE' || syncProgress.phase === 'ERROR'));
+  const isConversationSyncRunning = Boolean(
+    syncProgress
+    && syncProgress.phase !== 'DONE'
+    && syncProgress.phase !== 'ERROR'
+    && (syncProgress.active || status.connected)
+  );
+  const showConversationSyncIndicator = Boolean(status.connected || showSyncProgress);
+  const conversationSyncIndicator = isConversationSyncRunning
+    ? {
+      label: 'Sincronizando histórico',
+      description: 'Carregando conversas antigas e consolidando cache local.',
+      badgeClass: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
+      dotClass: 'bg-amber-500',
+      pulse: true,
+    }
+    : {
+      label: 'Escutando novas mensagens',
+      description: 'Sincronização concluída. Novas conversas serão capturadas em tempo real.',
+      badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300',
+      dotClass: 'bg-emerald-500',
+      pulse: false,
+    };
 
   const formatDuration = (totalSec: number | null | undefined) => {
     const safe = Number(totalSec || 0);
@@ -375,6 +414,19 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
             </span>
           </div>
 
+          {showConversationSyncIndicator && (
+            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 flex items-center justify-between gap-3 dark:bg-zinc-900 dark:border-white/10">
+              <div className="min-w-0">
+                <p className="text-sm font-black text-slate-800 dark:text-zinc-100">Sincronização de conversas</p>
+                <p className="text-xs font-semibold text-slate-500 dark:text-zinc-400 truncate">{conversationSyncIndicator.description}</p>
+              </div>
+              <span className={`shrink-0 inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-[0.08em] ${conversationSyncIndicator.badgeClass}`}>
+                <span className={`w-2 h-2 rounded-full ${conversationSyncIndicator.dotClass} ${conversationSyncIndicator.pulse ? 'animate-pulse' : ''}`} />
+                {conversationSyncIndicator.label}
+              </span>
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <label className="text-sm font-black text-slate-800 dark:text-zinc-100">Nome da sessão</label>
             <input
@@ -415,6 +467,39 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
               <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${safeSyncMode ? 'translate-x-9' : 'translate-x-1'}`} />
             </button>
           </label>
+
+          <div className="space-y-2">
+            <p className="text-sm font-black text-slate-800 dark:text-zinc-100">Opções de sincronização</p>
+            <label className="flex items-center justify-between rounded-xl border-2 border-slate-200 bg-white px-3 py-2 dark:bg-zinc-900 dark:border-white/10">
+              <div>
+                <p className="text-sm font-semibold text-slate-700 dark:text-zinc-100">Sincronizar contatos</p>
+                <p className="text-xs font-medium text-slate-500 dark:text-zinc-400">Importar nomes, fotos e informações dos contatos.</p>
+              </div>
+              <button
+                type="button"
+                disabled={formLocked}
+                onClick={() => setSyncContacts((prev) => !prev)}
+                className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors ${syncContacts ? 'bg-blue-500' : 'bg-slate-300'} disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${syncContacts ? 'translate-x-7' : 'translate-x-1'}`} />
+              </button>
+            </label>
+
+            <label className="flex items-center justify-between rounded-xl border-2 border-slate-200 bg-white px-3 py-2 dark:bg-zinc-900 dark:border-white/10">
+              <div>
+                <p className="text-sm font-semibold text-slate-700 dark:text-zinc-100">Sincronizar histórico de conversas</p>
+                <p className="text-xs font-medium text-slate-500 dark:text-zinc-400">Restaurar mensagens do período selecionado.</p>
+              </div>
+              <button
+                type="button"
+                disabled={formLocked}
+                onClick={() => setSyncHistories((prev) => !prev)}
+                className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors ${syncHistories ? 'bg-purple-500' : 'bg-slate-300'} disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${syncHistories ? 'translate-x-7' : 'translate-x-1'}`} />
+              </button>
+            </label>
+          </div>
 
           <div className="space-y-1.5">
             <label className="text-sm font-black text-slate-800 dark:text-zinc-100">Período de sincronização</label>
@@ -512,6 +597,12 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
                 <span>Estimado: <strong>{formatDuration(syncProgress.estimatedTotalSec)}</strong></span>
                 <span>ETA: <strong>{syncProgress.etaSec == null ? '--' : formatDuration(syncProgress.etaSec)}</strong></span>
               </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] font-semibold text-slate-700 dark:text-zinc-200">
+                <span>Contatos sincronizados: <strong>{Math.max(0, Number(syncProgress.processedContacts || 0))}</strong></span>
+                <span>Conversas restauradas: <strong>{Math.max(0, Number(syncProgress.restoredConversations || 0))}</strong></span>
+                <span>Chats processados: <strong>{Math.max(0, Number(syncProgress.processedChats || 0))}</strong></span>
+                <span>Mensagens processadas: <strong>{Math.max(0, Number(syncProgress.processedMessages || 0))}</strong></span>
+              </div>
               {syncProgress.mode === 'SAFE' && Array.isArray(syncProgress.throttledFeatures) && syncProgress.throttledFeatures.length > 0 && (
                 <p className="text-[11px] font-semibold text-indigo-700/90 dark:text-indigo-300">
                   Modo protegido ativo: {syncProgress.throttledFeatures.join(', ')}.
@@ -548,11 +639,11 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
           <button
             type="button"
             onClick={handleStart}
-            disabled={starting || !canGenerateQr || status.connected || status.state === 'QR_READY' || status.state === 'INITIALIZING'}
+            disabled={starting || !canGenerateQr || status.connected}
             className="px-4 py-1.5 rounded-lg bg-emerald-500 text-white text-xs font-black hover:bg-emerald-600 disabled:opacity-60 flex items-center gap-1.5"
           >
             <QrCode size={14} />
-            {starting ? 'Iniciando...' : 'Gerar QR Code'}
+            {starting ? 'Iniciando...' : (status.qrAvailable ? 'Gerar novo QR Code' : 'Gerar QR Code')}
           </button>
         </div>
       </section>
@@ -600,7 +691,7 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
 
         {periodMode === 'days' ? (
           <div className="space-y-1.5">
-            <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-400">Quantidade de dias da sessão</label>
+            <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-400">Quantidade de dias do histórico</label>
             <input
               type="number"
               min={1}
@@ -668,6 +759,11 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
         <div>
           <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 dark:text-zinc-400">Conexão WhatsApp</p>
           <p className="text-sm font-black text-gray-800 dark:text-zinc-100 mt-1">{statusLabel}</p>
+          {showConversationSyncIndicator && (
+            <p className="text-[11px] font-semibold text-gray-600 dark:text-zinc-300 mt-1">
+              {conversationSyncIndicator.label}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -679,11 +775,11 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
           </button>
           <button
             onClick={handleStart}
-            disabled={starting || !canGenerateQr || status.connected || status.state === 'QR_READY' || status.state === 'INITIALIZING'}
+            disabled={starting || !canGenerateQr || status.connected}
             className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-black uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60 flex items-center gap-2"
           >
             <QrCode size={14} />
-            {starting ? 'Iniciando...' : 'Gerar QR'}
+            {starting ? 'Iniciando...' : (status.qrAvailable ? 'Novo QR' : 'Gerar QR')}
           </button>
           <button
             onClick={handleStop}
@@ -753,6 +849,12 @@ const WhatsAppQrConnector: React.FC<WhatsAppQrConnectorProps> = ({ variant = 'de
             <span>Decorrido: <strong>{formatDuration(syncProgress.elapsedSec)}</strong></span>
             <span>Estimado: <strong>{formatDuration(syncProgress.estimatedTotalSec)}</strong></span>
             <span>ETA: <strong>{syncProgress.etaSec == null ? '--' : formatDuration(syncProgress.etaSec)}</strong></span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] font-semibold text-slate-700 dark:text-zinc-200">
+            <span>Contatos sincronizados: <strong>{Math.max(0, Number(syncProgress.processedContacts || 0))}</strong></span>
+            <span>Conversas restauradas: <strong>{Math.max(0, Number(syncProgress.restoredConversations || 0))}</strong></span>
+            <span>Chats processados: <strong>{Math.max(0, Number(syncProgress.processedChats || 0))}</strong></span>
+            <span>Mensagens processadas: <strong>{Math.max(0, Number(syncProgress.processedMessages || 0))}</strong></span>
           </div>
           {syncProgress.mode === 'SAFE' && Array.isArray(syncProgress.throttledFeatures) && syncProgress.throttledFeatures.length > 0 && (
             <p className="text-[11px] font-semibold text-indigo-700/90 dark:text-indigo-300">

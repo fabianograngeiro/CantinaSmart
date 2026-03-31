@@ -6,6 +6,13 @@ import { canAccessAllEnterprises, getRequesterEnterpriseIds, requesterCanAccessE
 const router = Router();
 router.use(authMiddleware);
 
+const resolveRoleLabel = (role?: string) => {
+  const normalized = String(role || '').trim().toUpperCase();
+  if (!normalized) return '';
+  if (normalized === 'OWNER') return 'DONO DE REDE';
+  return normalized.replace(/_/g, ' ');
+};
+
 // Get all transactions
 router.get('/', (req: AuthRequest, res: Response) => {
   const { clientId, enterpriseId } = req.query;
@@ -56,7 +63,28 @@ router.post('/', (req: AuthRequest, res: Response) => {
     return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
 
-  const newTransaction = db.createTransaction(req.body);
+  const requesterUser = req.userId ? db.getUser(String(req.userId || '').trim()) : null;
+  const requesterName = String(
+    requesterUser?.name
+    || requesterUser?.fullName
+    || requesterUser?.username
+    || requesterUser?.email
+    || req.userId
+    || ''
+  ).trim();
+  const requesterRole = String(req.userRole || '').trim().toUpperCase();
+  const requesterRoleLabel = resolveRoleLabel(requesterRole);
+
+  const newTransaction = db.createTransaction({
+    ...payload,
+    createdByUserId: String(req.userId || '').trim(),
+    createdByName: requesterName,
+    createdByRole: requesterRole,
+    createdByRoleLabel: requesterRoleLabel,
+    sessionUserName: requesterName,
+    sessionUserRole: requesterRole,
+    sessionUserRoleLabel: requesterRoleLabel,
+  });
   res.status(201).json(newTransaction);
 });
 
@@ -100,7 +128,24 @@ router.delete('/:id', (req: AuthRequest, res: Response) => {
     return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
 
-  const deleted = db.deleteTransaction(req.params.id);
+  const requesterUser = req.userId ? db.getUser(String(req.userId || '').trim()) : null;
+  const deletedByName = String(
+    req.body?.deletedByName
+    || requesterUser?.email
+    || requesterUser?.name
+    || requesterUser?.fullName
+    || requesterUser?.username
+    || req.userId
+    || ''
+  ).trim();
+  const deleteReason = String(req.body?.deleteReason || '').trim();
+
+  const deleted = db.deleteTransaction(req.params.id, {
+    deletedByName,
+    deleteReason,
+    requesterUserId: String(req.userId || '').trim(),
+    requesterRole: String(req.userRole || '').trim(),
+  });
   if (!deleted) {
     return res.status(404).json({ error: 'Transação não encontrada' });
   }
