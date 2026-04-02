@@ -2951,6 +2951,16 @@ export class Database {
             if (isPlanConsumption) {
               this.applyPlanBalanceDelta(clientRef, tx, -signedUnits, -signedAmount);
             }
+            return;
+          }
+
+          if (txType === 'DEBIT' || txType === 'DEBITO') {
+            clientRef.balance = Number((Number(clientRef.balance || 0) - signedAmount).toFixed(2));
+            return;
+          }
+
+          if (txType === 'AJUSTE_SALDO') {
+            clientRef.balance = Number((Number(clientRef.balance || 0) + signedAmount).toFixed(2));
           }
         };
 
@@ -3116,6 +3126,16 @@ export class Database {
         if (isPlanConsumption) {
           this.applyPlanBalanceDelta(clientRef, tx, -signedUnits, -signedAmount);
         }
+        return;
+      }
+
+      if (txType === 'DEBIT' || txType === 'DEBITO') {
+        clientRef.balance = Number((Number(clientRef.balance || 0) - signedAmount).toFixed(2));
+        return;
+      }
+
+      if (txType === 'AJUSTE_SALDO') {
+        clientRef.balance = Number((Number(clientRef.balance || 0) + signedAmount).toFixed(2));
       }
     };
 
