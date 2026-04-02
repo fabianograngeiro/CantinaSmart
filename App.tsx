@@ -825,7 +825,7 @@ const AppContent: React.FC<any> = (props) => {
                   <Route path="/nutritional-info" element={canAccessInventory ? <NutritionalInfoPage /> : <Navigate to="/" />} />
                   <Route path="/orders" element={<OrdersPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
                   <Route path="/register" element={<RegistrationPage />} />
-                  <Route path="/plans/:enterpriseId" element={canAccessInventory ? <PlansPage activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/plans/:enterpriseId" element={canAccessInventory ? <PlansPage activeEnterprise={activeEnterprise} currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/daily-delivery" element={canAccessReports ? <DailyDeliveryPage activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <Navigate to="/" />} />
                   <Route path="/settings" element={canManageStaff ? <SettingsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="*" element={<Navigate to="/" />} />

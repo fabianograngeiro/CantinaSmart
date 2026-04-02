@@ -8,15 +8,16 @@ import {
   Tag, Filter, ChevronDown, UtensilsCrossed,
   ArrowUpRight, ArrowDown
 } from 'lucide-react';
-import { Plan, Enterprise, Product, MenuItem, PlanItem, Ingredient } from '../types';
+import { Plan, Enterprise, Product, MenuItem, PlanItem, Ingredient, User, Role } from '../types';
 import { ApiService } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 
 interface PlansPageProps {
   activeEnterprise: Enterprise;
+  currentUser?: User | null;
 }
 
-const PlansPage: React.FC<PlansPageProps> = ({ activeEnterprise }) => {
+const PlansPage: React.FC<PlansPageProps> = ({ activeEnterprise, currentUser }) => {
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
     return (
@@ -31,9 +32,12 @@ const PlansPage: React.FC<PlansPageProps> = ({ activeEnterprise }) => {
 
   const navigate = useNavigate();
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [enterprises, setEnterprises] = useState<Enterprise[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [weeklyMenu, setWeeklyMenu] = useState<MenuItem[]>([]);
+  const [selectedUnitId, setSelectedUnitId] = useState<string>('ALL');
+  const isSystemWideAdmin = currentUser?.role === Role.SUPERADMIN || currentUser?.role === Role.ADMIN_SISTEMA;
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   
@@ -58,12 +62,23 @@ const PlansPage: React.FC<PlansPageProps> = ({ activeEnterprise }) => {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [plansData, productsData, ingredientsData] = await Promise.all([
-          ApiService.getPlans(activeEnterprise.id),
-          ApiService.getProducts(activeEnterprise.id),
+        const enterprisesData = await ApiService.getEnterprises();
+        const scopedEnterpriseIds = isSystemWideAdmin
+          ? enterprisesData.map((enterprise: Enterprise) => String(enterprise.id || '').trim()).filter(Boolean)
+          : [String(activeEnterprise.id || '').trim()].filter(Boolean);
+        const currentUnitId = isSystemWideAdmin
+          ? (selectedUnitId === 'ALL' ? scopedEnterpriseIds[0] : selectedUnitId)
+          : String(activeEnterprise.id || '').trim();
+
+        const [plansByEnterprise, productsData, ingredientsData] = await Promise.all([
+          Promise.all(scopedEnterpriseIds.map((enterpriseId) => ApiService.getPlans(enterpriseId))),
+          ApiService.getProducts(currentUnitId),
           ApiService.getIngredients()
         ]);
-        setPlans(plansData);
+        const plansData = plansByEnterprise.flat();
+        const dedupPlans = Array.from(new Map(plansData.map((plan: Plan) => [String(plan.id || ''), plan])).values());
+        setPlans(dedupPlans);
+        setEnterprises(enterprisesData);
         setProducts(productsData);
         setIngredients(ingredientsData);
         // Para weeklyMenu, usar um array vazio se não tem API disponível
@@ -71,16 +86,34 @@ const PlansPage: React.FC<PlansPageProps> = ({ activeEnterprise }) => {
       } catch (err) {
         console.error('Erro ao carregar dados:', err);
         setPlans([]);
+        setEnterprises([]);
         setProducts([]);
         setIngredients([]);
         setWeeklyMenu([]);
       }
     };
     loadData();
-  }, [activeEnterprise.id]);
+  }, [activeEnterprise.id, isSystemWideAdmin, selectedUnitId]);
 
   // Dados brutos
-  const allProducts = useMemo(() => products.filter(p => p.enterpriseId === activeEnterprise.id), [products, activeEnterprise.id]);
+  const effectiveUnitId = useMemo(() => {
+    if (isSystemWideAdmin && selectedUnitId !== 'ALL') return selectedUnitId;
+    return String(activeEnterprise.id || '').trim();
+  }, [isSystemWideAdmin, selectedUnitId, activeEnterprise.id]);
+
+  const allProducts = useMemo(() => products.filter(p => p.enterpriseId === effectiveUnitId), [products, effectiveUnitId]);
+  const visiblePlans = useMemo(() => {
+    if (!isSystemWideAdmin) return plans;
+    if (selectedUnitId === 'ALL') return plans;
+    return plans.filter((plan) => String(plan.enterpriseId || '').trim() === selectedUnitId);
+  }, [plans, isSystemWideAdmin, selectedUnitId]);
+  const enterpriseNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    enterprises.forEach((enterprise) => {
+      map.set(String(enterprise.id || '').trim(), String(enterprise.name || '').trim());
+    });
+    return map;
+  }, [enterprises]);
   const allRecipes = useMemo(() => {
     // Busca todos os itens definidos como cardápio/ficha técnica no sistema
     // E também os itens da BASE NUTRICIONAL (Ingredients)
@@ -132,12 +165,20 @@ const PlansPage: React.FC<PlansPageProps> = ({ activeEnterprise }) => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    const targetEnterpriseId = isSystemWideAdmin
+      ? (selectedUnitId === 'ALL' ? '' : selectedUnitId)
+      : String(activeEnterprise.id || '').trim();
+    if (!targetEnterpriseId) {
+      alert('Selecione uma unidade para salvar o plano.');
+      return;
+    }
+
     const planPayload = {
       name: formData.name,
       description: formData.description,
       price: Number(formData.price),
       items: formData.items,
-      enterpriseId: activeEnterprise.id,
+      enterpriseId: targetEnterpriseId,
       isActive: editingPlan ? editingPlan.isActive : true
     };
 
@@ -245,7 +286,8 @@ const PlansPage: React.FC<PlansPageProps> = ({ activeEnterprise }) => {
             <Sparkles className="text-indigo-600" size={20} /> Planos de Alimentação
           </h1>
           <p className="text-gray-500 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.12em] mt-1">
-            Gestão de pacotes e combos para a unidade: <span className="text-indigo-600">{activeEnterprise.name}</span>
+            Gestão de pacotes e combos {isSystemWideAdmin ? 'de todas as unidades (incluindo inativas)' : `para a unidade: `}
+            {!isSystemWideAdmin && <span className="text-indigo-600">{activeEnterprise.name}</span>}
           </p>
         </div>
         <button 
@@ -257,8 +299,23 @@ const PlansPage: React.FC<PlansPageProps> = ({ activeEnterprise }) => {
       </header>
 
       {/* Listagem de Planos */}
+      {isSystemWideAdmin && (
+        <div className="bg-white rounded-2xl border p-3">
+          <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Unidade</label>
+          <select
+            value={selectedUnitId}
+            onChange={(e) => setSelectedUnitId(e.target.value)}
+            className="w-full mt-1 px-3 py-2 rounded-xl bg-gray-50 border border-transparent focus:border-indigo-500 outline-none text-xs font-black uppercase tracking-wider"
+          >
+            <option value="ALL">Todas as unidades</option>
+            {enterprises.map((enterprise) => (
+              <option key={enterprise.id} value={enterprise.id}>{enterprise.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-         {plans.length === 0 ? (
+         {visiblePlans.length === 0 ? (
            <div className="col-span-full py-32 bg-white rounded-[48px] border-2 border-dashed border-gray-100 flex flex-col items-center justify-center text-center">
               <div className="w-24 h-24 bg-indigo-50 text-indigo-300 rounded-3xl flex items-center justify-center mb-6">
                  <CreditCard size={48} />
@@ -266,7 +323,7 @@ const PlansPage: React.FC<PlansPageProps> = ({ activeEnterprise }) => {
               <h3 className="text-xl font-black text-gray-400 uppercase tracking-widest">Nenhum plano cadastrado</h3>
               <p className="text-xs font-bold text-gray-300 uppercase tracking-widest mt-2">Clique no botão acima para definir seu primeiro pacote alimentar.</p>
            </div>
-         ) : plans.map(plan => (
+         ) : visiblePlans.map(plan => (
            <div key={plan.id} className={`bg-white rounded-[22px] border shadow-sm hover:shadow-xl transition-all group overflow-hidden flex flex-col border-b-4 ${plan.isActive ? 'border-b-indigo-500/10' : 'border-b-red-500/10 opacity-75'}`}>
               <div className="p-4 flex-1 space-y-3">
                  <div className="flex justify-between items-start">
@@ -309,7 +366,12 @@ const PlansPage: React.FC<PlansPageProps> = ({ activeEnterprise }) => {
               <div className="px-4 py-2.5 bg-gray-50/50 border-t border-gray-100 flex items-center justify-between">
                  <div className={`flex items-center gap-1 text-[8px] font-black uppercase tracking-[0.12em] ${plan.isActive ? 'text-emerald-600' : 'text-red-500'}`}>
                     {plan.isActive ? <><CheckCircle2 size={14} /> Ativo</> : <><AlertCircle size={14} /> Desativado</>}
-                 </div>
+                  </div>
+                 {isSystemWideAdmin && (
+                   <p className="text-[8px] font-black uppercase tracking-[0.12em] text-indigo-600">
+                     Unidade: {enterpriseNameById.get(String(plan.enterpriseId || '').trim()) || String(plan.enterpriseId || '-')}
+                   </p>
+                 )}
                  <span className="text-[8px] font-bold text-gray-300 uppercase tracking-tight">#{plan.id.toUpperCase()}</span>
               </div>
            </div>

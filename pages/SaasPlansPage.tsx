@@ -258,7 +258,8 @@ type ClientFormData = {
 };
 
 const SaasPlansPage: React.FC<SaasPlansPageProps> = ({ currentUser }) => {
-  const isSuperAdmin = String(currentUser.role || '').toUpperCase() === Role.SUPERADMIN;
+  const normalizeRole = (value?: string) => String(value || '').trim().toUpperCase().replace(/[\s-]+/g, '_');
+  const isSuperAdmin = normalizeRole(String(currentUser.role || '')) === Role.SUPERADMIN;
   const [isLoading, setIsLoading] = useState(false);
   const [enterprises, setEnterprises] = useState<Enterprise[]>([]);
   const [ownerUsers, setOwnerUsers] = useState<User[]>([]);
@@ -269,6 +270,11 @@ const SaasPlansPage: React.FC<SaasPlansPageProps> = ({ currentUser }) => {
   const [resetLinkData, setResetLinkData] = useState<{ resetLink: string; expiresAt: string } | null>(null);
   const [isResetLinkModalOpen, setIsResetLinkModalOpen] = useState(false);
   const [isGeneratingResetLink, setIsGeneratingResetLink] = useState(false);
+
+  const isOwnerUser = (user: Partial<User>) => {
+    const role = normalizeRole(String(user?.role || ''));
+    return role === Role.OWNER || role === 'DONO_DE_REDE' || role === 'DONO_REDE';
+  };
 
   const getUserEnterprises = (user: User) => {
     const userKeys = userIdentitySet(user);
@@ -294,18 +300,23 @@ const SaasPlansPage: React.FC<SaasPlansPageProps> = ({ currentUser }) => {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [enterpriseData, usersData] = await Promise.all([
-        ApiService.getEnterprises(),
-        ApiService.getUsers(),
-      ]);
-      const normalizedEnterprises = Array.isArray(enterpriseData) ? enterpriseData : [];
+      const usersData = await ApiService.getUsers();
       const owners: User[] = Array.isArray(usersData)
-        ? usersData.filter((u: User) => String(u.role).toUpperCase() === Role.OWNER)
+        ? usersData.filter((u: User) => isOwnerUser(u))
         : [];
-      setEnterprises(normalizedEnterprises);
       setOwnerUsers(owners);
+
+      try {
+        const enterpriseData = await ApiService.getEnterprises();
+        const normalizedEnterprises = Array.isArray(enterpriseData) ? enterpriseData : [];
+        setEnterprises(normalizedEnterprises);
+      } catch (enterpriseErr) {
+        console.error('Erro ao carregar empresas na tela Clientes/Planos:', enterpriseErr);
+        setEnterprises([]);
+      }
     } catch (err) {
       console.error('Erro ao carregar dados de planos SaaS:', err);
+      setOwnerUsers([]);
       setEnterprises([]);
     } finally {
       setIsLoading(false);

@@ -2959,9 +2959,6 @@ export class Database {
             return;
           }
 
-          if (txType === 'AJUSTE_SALDO') {
-            clientRef.balance = Number((Number(clientRef.balance || 0) + signedAmount).toFixed(2));
-          }
         };
 
         const prevClientId = String(previous?.clientId || '').trim();
@@ -3134,9 +3131,6 @@ export class Database {
         return;
       }
 
-      if (txType === 'AJUSTE_SALDO') {
-        clientRef.balance = Number((Number(clientRef.balance || 0) + signedAmount).toFixed(2));
-      }
     };
 
     // Reverte os efeitos no aluno/colaborador antes de remover a transação.

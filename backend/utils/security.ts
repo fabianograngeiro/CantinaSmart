@@ -1,7 +1,10 @@
-import jwt, { SignOptions } from 'jsonwebtoken';
+import jwt from 'jsonwebtoken';
 import bcryptjs from 'bcryptjs';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key';
+const JWT_SECRET = String(process.env.JWT_SECRET || '').trim();
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET não configurado. Defina a variável de ambiente JWT_SECRET no backend.');
+}
 const JWT_EXPIRES_IN: string | number = process.env.JWT_EXPIRES_IN || '12h';
 const REFRESH_EXPIRES_IN: string | number = process.env.REFRESH_TOKEN_EXPIRES_IN || '7d';
 

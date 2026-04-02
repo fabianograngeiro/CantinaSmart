@@ -1897,6 +1897,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           const nextBalance = Number((Number(selectedClient.balance || 0) - saldoPaid).toFixed(2));
           const updatedClient = await ApiService.updateClient(selectedClient.id, {
             balance: nextBalance,
+            balanceAdjustment: {
+              source: 'OPERACAO_PDV_PAGAMENTO_SALDO',
+              reason: 'Desconto operacional de saldo em venda PDV',
+              requestedByUserId: String((currentUser as any)?.id || ''),
+              requestedByName: String((currentUser as any)?.name || (currentUser as any)?.username || ''),
+            },
             spentToday: (selectedClient.spentToday || 0) + saldoPaid
           });
           updatedSelectedClient = updatedClient;
@@ -2120,6 +2126,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
         const creditedClient = await ApiService.updateClient(selectedClient.id, {
           balance: Number(((updatedSelectedClient?.balance || 0) + freeCantinaCreditTotal).toFixed(2)),
+          balanceAdjustment: {
+            source: 'OPERACAO_PDV_CREDITO',
+            reason: 'Crédito operacional via PDV',
+            requestedByUserId: String((currentUser as any)?.id || ''),
+            requestedByName: String((currentUser as any)?.name || (currentUser as any)?.username || ''),
+          },
           selectedPlansConfig: existingSelectedPlans,
           servicePlans: existingServicePlans,
           planCreditBalances: existingPlanCreditBalances

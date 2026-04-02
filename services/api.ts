@@ -496,7 +496,7 @@ export class ApiService {
   }
 
   // ===== CLIENTS =====
-  static async getClients(enterpriseId: string) {
+  static async getClients(enterpriseId?: string) {
     const response = await fetch(this.buildApiUrl('/clients', {
       enterpriseId,
     }), {
