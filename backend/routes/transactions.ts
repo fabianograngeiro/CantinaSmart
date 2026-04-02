@@ -79,8 +79,20 @@ router.post('/', (req: AuthRequest, res: Response) => {
   if (!payload.enterpriseId) {
     return res.status(400).json({ error: 'enterpriseId é obrigatório' });
   }
-  if (!requesterCanAccessEnterprise(req, String(payload.enterpriseId || ''))) {
+  const enterpriseId = String(payload.enterpriseId || '').trim();
+  if (!requesterCanAccessEnterprise(req, enterpriseId)) {
     return res.status(403).json({ error: 'Acesso negado para esta empresa' });
+  }
+  const clientId = String(payload.clientId || '').trim();
+  if (clientId) {
+    const client = db.getClient(clientId);
+    if (!client) {
+      return res.status(400).json({ error: 'clientId inválido' });
+    }
+    const clientEnterpriseId = String((client as any)?.enterpriseId || '').trim();
+    if (clientEnterpriseId && clientEnterpriseId !== enterpriseId) {
+      return res.status(400).json({ error: 'enterpriseId da transação não corresponde ao enterpriseId do cliente' });
+    }
   }
 
   const requesterUser = req.userId ? db.getUser(String(req.userId || '').trim()) : null;
@@ -116,6 +128,21 @@ router.put('/:id', (req: AuthRequest, res: Response) => {
   }
   if (!requesterCanAccessEnterprise(req, String((current as any)?.enterpriseId || ''))) {
     return res.status(403).json({ error: 'Acesso negado para esta empresa' });
+  }
+  const nextEnterpriseId = String((req.body || {})?.enterpriseId || (current as any)?.enterpriseId || '').trim();
+  if (nextEnterpriseId && !requesterCanAccessEnterprise(req, nextEnterpriseId)) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
+  }
+  const nextClientId = String((req.body || {})?.clientId || (current as any)?.clientId || '').trim();
+  if (nextClientId) {
+    const client = db.getClient(nextClientId);
+    if (!client) {
+      return res.status(400).json({ error: 'clientId inválido' });
+    }
+    const clientEnterpriseId = String((client as any)?.enterpriseId || '').trim();
+    if (nextEnterpriseId && clientEnterpriseId && nextEnterpriseId !== clientEnterpriseId) {
+      return res.status(400).json({ error: 'enterpriseId da transação não corresponde ao enterpriseId do cliente' });
+    }
   }
 
   const updated = db.updateTransaction(req.params.id, req.body || {});

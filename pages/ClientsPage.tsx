@@ -285,6 +285,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     || currentUser?.role === Role.ADMIN_RESTAURANTE
     || currentUser?.role === Role.GERENTE
     || currentUser?.role === Role.FUNCIONARIO_BASICO;
+  const isSystemWideAdmin = currentUser?.role === Role.SUPERADMIN || currentUser?.role === Role.ADMIN_SISTEMA;
   const isResponsibleView = viewMode === 'CLIENTES_RESPONSAVEIS';
 
   // Carregar clientes, empresas, planos e transações da API
@@ -296,20 +297,35 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   };
 
   useEffect(() => {
-    const enterpriseId = activeEnterpriseId;
-    if (!enterpriseId) return;
+    if (!activeEnterpriseId && !isSystemWideAdmin) return;
 
     const loadData = async () => {
       try {
-        const [clientsData, enterprisesData, plansData, transactionsData] = await Promise.all([
-          ApiService.getClients(enterpriseId),
-          ApiService.getEnterprises(),
-          ApiService.getPlans(enterpriseId),
+        const enterprisesData = await ApiService.getEnterprises();
+        const scopedEnterpriseIds = isSystemWideAdmin
+          ? enterprisesData.map((enterprise: Enterprise) => String(enterprise.id || '').trim()).filter(Boolean)
+          : [activeEnterpriseId].filter(Boolean);
+
+        const [clientsByEnterprise, plansByEnterprise, transactionsData] = await Promise.all([
+          Promise.all(scopedEnterpriseIds.map((enterpriseId) => ApiService.getClients(enterpriseId))),
+          Promise.all(scopedEnterpriseIds.map((enterpriseId) => ApiService.getPlans(enterpriseId))),
           ApiService.getTransactions()
         ]);
-        setClients(clientsData);
+
+        const clientsData = clientsByEnterprise.flat();
+        const plansData = plansByEnterprise.flat();
+        const dedupById = <T extends { id?: string }>(items: T[]) => {
+          const map = new Map<string, T>();
+          items.forEach((item) => {
+            const key = String(item?.id || '').trim();
+            if (key) map.set(key, item);
+          });
+          return Array.from(map.values());
+        };
+
+        setClients(dedupById(clientsData));
         setEnterprises(enterprisesData);
-        setPlans(plansData);
+        setPlans(dedupById(plansData));
         setTransactions(transactionsData);
       } catch (err) {
         console.error('Erro ao carregar dados:', err);
@@ -320,7 +336,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       }
     };
     loadData();
-  }, [activeEnterpriseId]);
+  }, [activeEnterpriseId, isSystemWideAdmin]);
 
   const schoolCalendarYearsToLoad = useMemo(() => {
     return Array.from(new Set([
@@ -765,8 +781,16 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   };
 
   const availablePlans = useMemo(() => {
-    return plans.filter(p => p.enterpriseId === activeEnterpriseId && p.isActive !== false);
-  }, [plans, activeEnterpriseId]);
+    const targetUnit = !isUnitAdmin && selectedUnitId !== 'ALL'
+      ? selectedUnitId
+      : activeEnterpriseId;
+    return plans.filter((p) => {
+      const matchesUnit = targetUnit ? p.enterpriseId === targetUnit : isSystemWideAdmin;
+      if (!matchesUnit) return false;
+      if (isSystemWideAdmin) return true;
+      return p.isActive !== false;
+    });
+  }, [plans, activeEnterpriseId, isUnitAdmin, selectedUnitId, isSystemWideAdmin]);
 
   const currentEnterpriseConfig = useMemo(() => {
     return enterprises.find(ent => ent.id === activeEnterpriseId) || activeEnterprise;
@@ -2073,6 +2097,12 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     try {
       const updated = await ApiService.updateClient(rechargingClient.id, {
         balance: newBalance,
+        balanceAdjustment: {
+          source: 'OPERACAO_RECARGA',
+          reason: planName ? `Recarga operacional de plano ${planName}` : 'Recarga operacional de saldo livre',
+          requestedByUserId: String((currentUser as any)?.id || ''),
+          requestedByName: String((currentUser as any)?.name || (currentUser as any)?.username || ''),
+        },
         servicePlans: newPlans,
         selectedPlansConfig: nextSelectedPlans,
         ...(isPlanRecharge ? { planCreditBalances: nextPlanCreditBalances } : {}),
@@ -3371,7 +3401,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     printWindow.print();
   };
 
-  if (!activeEnterpriseId) {
+  if (!activeEnterpriseId && !isSystemWideAdmin) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center space-y-4">

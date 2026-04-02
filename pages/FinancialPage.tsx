@@ -366,7 +366,8 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
   }, [availableCategories, selectedCategory]);
 
   const summaryTransactions = useMemo(() => {
-    return filterTransactionsByPeriod(transactions, summaryTimeFilter, summarySpecificDate);
+    return filterTransactionsByPeriod(transactions, summaryTimeFilter, summarySpecificDate)
+      .filter((tx) => !tx.isAudit);
   }, [transactions, summaryTimeFilter, summarySpecificDate]);
 
   const totalRevenue = useMemo(() => {

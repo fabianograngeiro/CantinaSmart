@@ -6,12 +6,16 @@ import { exec as execCallback } from 'child_process';
 import { promisify } from 'util';
 import { db } from '../database.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
-import { hashPassword } from '../utils/security.js';
+import { hashPassword, generateToken } from '../utils/security.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const exec = promisify(execCallback);
+const isSystemAdmin = (role?: string) => {
+  const normalized = String(role || '').trim().toUpperCase();
+  return normalized === 'SUPERADMIN' || normalized === 'ADMIN_SISTEMA';
+};
 
 const COLLAB_MIGRATION_TAG = 'COLLAB_CONSUMPTION_MIGRATION_V1';
 
@@ -153,7 +157,7 @@ const listSystemPrinters = async (): Promise<{ name: string; isDefault: boolean 
   }));
 };
 
-router.get('/printers', async (_req: Request, res: Response) => {
+router.get('/printers', authMiddleware, async (_req: AuthRequest, res: Response) => {
   try {
     const printers = await listSystemPrinters();
     res.json({
@@ -175,7 +179,10 @@ router.get('/printers', async (_req: Request, res: Response) => {
 });
 
 // Download completo da database atual
-router.get('/backup', async (req: Request, res: Response) => {
+router.get('/backup', authMiddleware, async (req: AuthRequest, res: Response) => {
+  if (!isSystemAdmin(req.userRole)) {
+    return res.status(403).json({ success: false, message: 'Acesso restrito ao SUPERADMIN/ADMIN_SISTEMA.' });
+  }
   try {
     const databasePath = path.resolve(__dirname, '../data/database.json');
     const databaseRaw = await fs.readFile(databasePath, 'utf-8');
@@ -199,7 +206,10 @@ router.get('/backup', async (req: Request, res: Response) => {
 });
 
 // Restaura database completa a partir de arquivo de backup
-router.post('/restore', async (req: Request, res: Response) => {
+router.post('/restore', authMiddleware, async (req: AuthRequest, res: Response) => {
+  if (!isSystemAdmin(req.userRole)) {
+    return res.status(403).json({ success: false, message: 'Acesso restrito ao SUPERADMIN/ADMIN_SISTEMA.' });
+  }
   try {
     const normalizedBackup = normalizeBackupPayload(req.body);
     const databasePath = path.resolve(__dirname, '../data/database.json');
@@ -222,7 +232,10 @@ router.post('/restore', async (req: Request, res: Response) => {
 });
 
 // Reset completo da database - apaga todos os dados
-router.post('/reset', (req: Request, res: Response) => {
+router.post('/reset', authMiddleware, (req: AuthRequest, res: Response) => {
+  if (!isSystemAdmin(req.userRole)) {
+    return res.status(403).json({ success: false, message: 'Acesso restrito ao SUPERADMIN/ADMIN_SISTEMA.' });
+  }
   console.log('\n🔥 [SYSTEM] RESET DATABASE REQUEST RECEIVED');
   
   try {
@@ -248,7 +261,7 @@ router.post('/reset', (req: Request, res: Response) => {
 });
 
 // Endpoint de status do sistema
-router.get('/status', (req: Request, res: Response) => {
+router.get('/status', authMiddleware, (_req: AuthRequest, res: Response) => {
   const stats = db.getStats();
   
   res.json({
@@ -355,8 +368,8 @@ router.post('/initial-setup', async (req: Request, res: Response) => {
     console.log(`   Nome: ${name}`);
     console.log(`   Email: ${email}`);
     
-    // Gera token para o usuário
-    const token = Buffer.from(JSON.stringify({ userId: createdUser.id, role: createdUser.role })).toString('base64');
+    // Gera token JWT válido para primeira sessão
+    const token = generateToken(createdUser.id, createdUser.role);
     
     res.json({
       success: true,
@@ -383,7 +396,10 @@ router.post('/initial-setup', async (req: Request, res: Response) => {
 });
 
 // Migra consumo acumulado de colaboradores para transações históricas
-router.post('/migrate-collaborator-consumption', (req: Request, res: Response) => {
+router.post('/migrate-collaborator-consumption', authMiddleware, (req: AuthRequest, res: Response) => {
+  if (!isSystemAdmin(req.userRole)) {
+    return res.status(403).json({ success: false, message: 'Acesso restrito ao SUPERADMIN/ADMIN_SISTEMA.' });
+  }
   try {
     const dryRun = Boolean(req.body?.dryRun);
     const clients = db.getClients();
@@ -464,7 +480,10 @@ router.post('/migrate-collaborator-consumption', (req: Request, res: Response) =
 });
 
 // Limpa todos os dados de uma empresa específica
-router.post('/clear-enterprise-data', (req: Request, res: Response) => {
+router.post('/clear-enterprise-data', authMiddleware, (req: AuthRequest, res: Response) => {
+  if (!isSystemAdmin(req.userRole)) {
+    return res.status(403).json({ success: false, message: 'Acesso restrito ao SUPERADMIN/ADMIN_SISTEMA.' });
+  }
   try {
     const enterpriseName = String(req.body?.enterpriseName || '').trim();
     const enterpriseId = String(req.body?.enterpriseId || '').trim();

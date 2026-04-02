@@ -1,7 +1,19 @@
 import { db } from '../database.js';
 import { AuthRequest } from '../middleware/auth.js';
 
-export const normalizeRole = (value?: string) => String(value || '').trim().toUpperCase();
+export const normalizeRole = (value?: string) => {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_');
+
+  if (normalized === 'SUPER_ADMIN') return 'SUPERADMIN';
+  if (normalized === 'ADMINSISTEMA') return 'ADMIN_SISTEMA';
+  if (normalized === 'ADMIN_SISTEMA') return 'ADMIN_SISTEMA';
+  if (normalized === 'DONO_DE_REDE' || normalized === 'DONO_REDE') return 'OWNER';
+
+  return normalized;
+};
 
 export const canAccessAllEnterprises = (role?: string) => {
   const normalized = normalizeRole(role);
