@@ -23,7 +23,7 @@ import { formatPhoneWithFlag } from '../utils/phone';
 
 type TimeFilter = 'TODAY' | 'MONTH' | 'YEAR' | 'DATE';
 type EntryType = 'RECEITA' | 'DESPESA';
-type FinancialSectionTab = 'PENDING' | 'REMINDERS' | 'LAUNCHES';
+type FinancialSectionTab = 'PENDING' | 'REMINDERS' | 'LAUNCHES' | 'AUDIT';
 type PaymentMethodViewFilter = 'ALL' | 'CORE';
 
 type FinancialTx = {
@@ -42,6 +42,9 @@ type FinancialTx = {
   reminderDate?: string;
   monthReference?: string;
   isManual: boolean;
+  rawType?: string;
+  userName?: string;
+  isAudit?: boolean;
 };
 
 interface FinancialPageProps {
@@ -175,30 +178,41 @@ const mapRawTransactionToFinancial = (tx: any): FinancialTx | null => {
 
   const amount = Number(tx?.amount ?? tx?.total ?? tx?.value ?? 0);
   const safeAmount = Number.isFinite(amount) ? Math.max(0, amount) : 0;
+  const rawType = normalizeUpper(tx?.type);
+  const userName = String(
+    tx?.deletedByName
+    || tx?.createdByName
+    || tx?.sessionUserName
+    || tx?.updatedByName
+    || 'SISTEMA'
+  ).trim();
 
   const financeKind = normalizeUpper(tx?.financeKind);
   const isManualFinance = Boolean(tx?.financeEntry);
 
-  if (normalizeUpper(tx?.type) === 'AUDITORIA_EXCLUSAO') {
-    const deletedRevenue = Number(tx?.deletedRevenueAmount || 0);
-    const deletedExpense = Number(tx?.deletedExpenseAmount || 0);
-    const safeDeletedRevenue = Number.isFinite(deletedRevenue) ? Math.max(0, deletedRevenue) : 0;
-    const safeDeletedExpense = Number.isFinite(deletedExpense) ? Math.max(0, deletedExpense) : 0;
-    const auditDetails = `Entradas subtraídas: R$ ${safeDeletedRevenue.toFixed(2)} • Saídas subtraídas: R$ ${safeDeletedExpense.toFixed(2)}`;
-
+  if (rawType.includes('AUDITORIA')) {
+    const quantity = Number(tx?.deletedTransactionCount || tx?.quantity || 1);
+    const normalizedQuantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+    const normalizedUnitPrice = Number(tx?.unitPrice);
+    const unitPrice = Number.isFinite(normalizedUnitPrice)
+      ? Math.max(0, normalizedUnitPrice)
+      : Number((safeAmount / normalizedQuantity).toFixed(2));
     return {
       id: String(tx?.id || `tx_${Date.now()}`),
       date,
       time,
-      client: String(tx?.deletedByName || tx?.clientName || tx?.client || 'Administração'),
-      description: `${String(tx?.description || 'Exclusão registrada em transações')} • ${auditDetails}`,
+      client: String(tx?.clientName || tx?.client || 'Administração'),
+      description: String(tx?.description || tx?.item || 'Registro de auditoria'),
       type: 'RECEITA',
-      amount: 0,
-      method: 'AJUSTE',
-      category: 'AJUSTE EXCLUSAO TRANSACAO',
-      quantity: Number(tx?.deletedTransactionCount || 1),
-      unitPrice: 0,
+      amount: safeAmount,
+      method: String(tx?.method || tx?.paymentMethod || 'AUDITORIA'),
+      category: String(tx?.financeCategory || tx?.category || 'AUDITORIA'),
+      quantity: normalizedQuantity,
+      unitPrice,
       isManual: false,
+      rawType,
+      userName,
+      isAudit: true,
     };
   }
 
@@ -219,6 +233,9 @@ const mapRawTransactionToFinancial = (tx: any): FinancialTx | null => {
       reminderDate: tx?.reminderDate ? String(tx.reminderDate) : undefined,
       monthReference: tx?.monthReference ? String(tx.monthReference) : undefined,
       isManual: isManualFinance,
+      rawType,
+      userName,
+      isAudit: false,
     };
   }
 
@@ -242,6 +259,9 @@ const mapRawTransactionToFinancial = (tx: any): FinancialTx | null => {
       quantity: Number(tx?.quantity || 1),
       unitPrice: safeAmount,
       isManual: false,
+      rawType,
+      userName,
+      isAudit: false,
     };
   }
 
@@ -261,6 +281,9 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
   const [launchSpecificDate, setLaunchSpecificDate] = useState(toLocalDateKey(new Date()));
   const [launchTypeFilter, setLaunchTypeFilter] = useState<'ALL' | 'RECEITA' | 'DESPESA'>('ALL');
   const [launchSearch, setLaunchSearch] = useState('');
+  const [auditTimeFilter, setAuditTimeFilter] = useState<TimeFilter>('TODAY');
+  const [auditSpecificDate, setAuditSpecificDate] = useState(toLocalDateKey(new Date()));
+  const [auditSearch, setAuditSearch] = useState('');
   const [activeSectionTab, setActiveSectionTab] = useState<FinancialSectionTab>('PENDING');
   const [paymentMethodViewFilter, setPaymentMethodViewFilter] = useState<PaymentMethodViewFilter>('ALL');
   const [selectedPendingClientIds, setSelectedPendingClientIds] = useState<string[]>([]);
@@ -529,12 +552,29 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
     const periodList = filterTransactionsByPeriod(transactions, launchTimeFilter, launchSpecificDate);
     const term = normalizeUpper(launchSearch);
     return periodList.filter((tx) => {
+      if (tx.isAudit) return false;
       const matchesType = launchTypeFilter === 'ALL' || tx.type === launchTypeFilter;
       const matchesSearch = !term
         || normalizeUpper(`${tx.description} ${tx.category} ${tx.client}`).includes(term);
       return matchesType && matchesSearch;
     });
   }, [transactions, launchTimeFilter, launchSpecificDate, launchTypeFilter, launchSearch]);
+
+  const filteredAuditTransactions = useMemo(() => {
+    const periodList = filterTransactionsByPeriod(transactions, auditTimeFilter, auditSpecificDate);
+    const term = normalizeUpper(auditSearch);
+    return periodList
+      .filter((tx) => tx.isAudit)
+      .filter((tx) => {
+        if (!term) return true;
+        return normalizeUpper(`${tx.id} ${tx.description} ${tx.category} ${tx.rawType || tx.type} ${tx.client} ${tx.userName || ''}`).includes(term);
+      })
+      .sort((a, b) => {
+        const left = new Date(`${a.date || ''}T${a.time || '00:00'}`).getTime();
+        const right = new Date(`${b.date || ''}T${b.time || '00:00'}`).getTime();
+        return right - left;
+      });
+  }, [transactions, auditTimeFilter, auditSpecificDate, auditSearch]);
 
   const resetEntryForm = () => {
     setDescription('');
@@ -904,7 +944,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
       </div>
 
       <div className="dash-panel p-1.5">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
           <button
             onClick={() => setActiveSectionTab('LAUNCHES')}
             className={`px-3 py-2.5 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] transition-all ${
@@ -934,6 +974,16 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
             }`}
           >
             Lembretes de Despesas
+          </button>
+          <button
+            onClick={() => setActiveSectionTab('AUDIT')}
+            className={`px-3 py-2.5 rounded-lg text-[9px] font-black uppercase tracking-[0.12em] transition-all ${
+              activeSectionTab === 'AUDIT'
+                ? 'bg-indigo-600 text-white shadow'
+                : 'bg-white dark:bg-zinc-900 text-gray-500 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800 border border-transparent dark:border-white/10'
+            }`}
+          >
+            Auditoria
           </button>
         </div>
       </div>
@@ -1215,6 +1265,84 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
                   <td className="px-3 py-2.5 text-gray-600 font-bold">{tx.dueDate ? formatDateBr(tx.dueDate) : '-'}</td>
                 </tr>
               )})}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      )}
+
+      {activeSectionTab === 'AUDIT' && (
+      <div className="dash-panel overflow-hidden">
+        <div className="p-4 border-b bg-gray-50 flex items-center justify-between">
+          <h3 className="text-xs font-black uppercase tracking-[0.12em] text-gray-700">Auditoria</h3>
+          <span className="text-[10px] font-black text-gray-500">{isLoading ? 'Carregando...' : `${filteredAuditTransactions.length} registro(s)`}</span>
+        </div>
+        <div className="p-3 border-b bg-white grid grid-cols-1 md:grid-cols-3 gap-2.5">
+          <input
+            type="text"
+            value={auditSearch}
+            onChange={(e) => setAuditSearch(e.target.value)}
+            placeholder="Filtrar por ARD, descrição, categoria, tipo, aluno/colaborador ou usuário..."
+            className="w-full px-3 py-2 rounded-xl bg-gray-50 border border-transparent focus:border-indigo-500 outline-none text-xs font-semibold"
+          />
+          <select
+            value={auditTimeFilter}
+            onChange={(e) => setAuditTimeFilter(e.target.value as TimeFilter)}
+            className="w-full px-3 py-2 rounded-xl bg-gray-50 border border-transparent focus:border-indigo-500 outline-none text-[10px] font-black uppercase tracking-[0.12em]"
+          >
+            <option value="TODAY">Hoje</option>
+            <option value="MONTH">Mês</option>
+            <option value="YEAR">Ano</option>
+            <option value="DATE">Data</option>
+          </select>
+          {auditTimeFilter === 'DATE' ? (
+            <input
+              type="date"
+              value={auditSpecificDate}
+              onChange={(e) => setAuditSpecificDate(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl bg-gray-50 border border-transparent focus:border-indigo-500 outline-none text-[10px] font-black"
+            />
+          ) : (
+            <div className="hidden md:block" />
+          )}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-gray-50 text-[9px] font-black uppercase tracking-[0.12em] text-gray-400">
+              <tr>
+                <th className="px-3 py-2.5 text-left">Data/Hora</th>
+                <th className="px-3 py-2.5 text-left">Tipo</th>
+                <th className="px-3 py-2.5 text-left">ARD</th>
+                <th className="px-3 py-2.5 text-left">Aluno/Colaborador</th>
+                <th className="px-3 py-2.5 text-left">Usuário</th>
+                <th className="px-3 py-2.5 text-left">Categoria</th>
+                <th className="px-3 py-2.5 text-left">Descrição</th>
+                <th className="px-3 py-2.5 text-right">Unitário</th>
+                <th className="px-3 py-2.5 text-right">Valor</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {filteredAuditTransactions.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-400 font-bold uppercase text-xs">Sem registros de auditoria no período</td>
+                </tr>
+              ) : filteredAuditTransactions.map((tx) => (
+                <tr key={`audit_${tx.id}`}>
+                  <td className="px-3 py-2.5 font-bold text-gray-700">{formatDateBr(tx.date)} {tx.time}</td>
+                  <td className="px-3 py-2.5">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-200">
+                      {tx.rawType || tx.type}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 font-black text-gray-700">{tx.id}</td>
+                  <td className="px-3 py-2.5 text-gray-800 font-bold">{tx.client || '-'}</td>
+                  <td className="px-3 py-2.5 text-gray-700 font-bold">{tx.userName || 'SISTEMA'}</td>
+                  <td className="px-3 py-2.5 text-gray-700 font-bold">{tx.category || '-'}</td>
+                  <td className="px-3 py-2.5 text-gray-800 font-bold">{tx.description}</td>
+                  <td className="px-3 py-2.5 text-right font-bold text-gray-700">R$ {Number(tx.unitPrice || 0).toFixed(2)}</td>
+                  <td className="px-3 py-2.5 text-right font-black text-indigo-700">R$ {Number(tx.amount || 0).toFixed(2)}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
