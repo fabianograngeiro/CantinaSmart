@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../database.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
+import { processOverduePlanConsumptions } from '../services/planConsumptionAutoProcessor.js';
 
 const router = Router();
 
@@ -193,15 +194,21 @@ router.post('/', (req: AuthRequest, res: Response) => {
 });
 
 // Update enterprise
-router.put('/:id', (req: AuthRequest, res: Response) => {
+router.put('/:id', async (req: AuthRequest, res: Response) => {
   if (!requesterCanAccessEnterprise(req, req.params.id)) {
     return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
-  const updated = db.updateEnterprise(req.params.id, req.body);
-  if (!updated) {
-    return res.status(404).json({ error: 'Empresa não encontrada' });
+  try {
+    const updated = db.updateEnterprise(req.params.id, req.body);
+    if (!updated) {
+      return res.status(404).json({ error: 'Empresa não encontrada' });
+    }
+    await processOverduePlanConsumptions({ enterpriseId: req.params.id, force: true });
+    res.json(updated);
+  } catch (error) {
+    console.error('Erro ao atualizar empresa:', error);
+    res.status(500).json({ error: 'Erro ao atualizar empresa' });
   }
-  res.json(updated);
 });
 
 // Delete enterprise

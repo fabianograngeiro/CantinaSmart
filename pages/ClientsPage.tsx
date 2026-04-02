@@ -1812,9 +1812,6 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     }
 
     const parsedFormBalance = Number(formData.initialCredit || 0);
-    const balanceToPersist = formData.type === 'ALUNO'
-      ? (Number.isFinite(parsedFormBalance) ? parsedFormBalance : 0)
-      : (editingClient?.balance || 0);
     const normalizedStudentName = String(formData.name || '').trim();
     const normalizedParentName = String(formData.parentName || '').trim();
     const normalizedParentRelationship = String(formData.parentRelationship || 'PAIS').trim().toUpperCase();
@@ -1896,7 +1893,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       }
     }
 
-    const clientPayload = {
+    const clientPayloadBase = {
       registrationId: editingClient?.registrationId || (clients.length + 1000).toString(),
       name: formData.name,
       type: formData.type,
@@ -1906,7 +1903,6 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         ...selectedPlanConfigs.map(plan => plan.planName),
       ] as any,
       selectedPlansConfig: selectedPlanConfigs,
-      balance: balanceToPersist,
       spentToday: editingClient ? (editingClient.spentToday || 0) : 0,
       isBlocked: editingClient ? editingClient.isBlocked : false,
       restrictions: formData.restrictions,
@@ -1941,6 +1937,12 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
           }
         : null
     };
+    const clientPayload = editingClient
+      ? clientPayloadBase
+      : {
+          ...clientPayloadBase,
+          balance: Number.isFinite(parsedFormBalance) ? parsedFormBalance : 0,
+        };
 
     try {
       if (editingClient) {
@@ -2105,6 +2107,63 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     } catch (err) {
       console.error('Erro ao recarregar cliente:', err);
       alert('Erro ao recarregar cliente. Tente novamente.');
+    }
+  };
+
+  const handleManualBalanceAdjustment = async () => {
+    if (!viewingClient) return;
+
+    const currentBalance = Number(viewingClient.balance || 0);
+    const currentLabel = currentBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const targetRaw = window.prompt(
+      `Saldo atual: R$ ${currentLabel}\nInforme o novo saldo final do aluno/cliente:`,
+      currentBalance.toFixed(2)
+    );
+    if (targetRaw === null) return;
+
+    const normalizedTargetRaw = targetRaw.replace(',', '.').trim();
+    const parsedTarget = Number(normalizedTargetRaw);
+    if (!Number.isFinite(parsedTarget)) {
+      alert('Valor de saldo inválido.');
+      return;
+    }
+
+    const nextBalance = Number(parsedTarget.toFixed(2));
+    if (nextBalance === Number(currentBalance.toFixed(2))) {
+      alert('O saldo informado é igual ao saldo atual. Nenhum ajuste foi aplicado.');
+      return;
+    }
+
+    const reason = window.prompt('Informe o motivo do ajuste de saldo:');
+    if (reason === null) return;
+    const normalizedReason = String(reason || '').trim();
+    if (normalizedReason.length < 3) {
+      alert('Informe um motivo válido (mínimo de 3 caracteres).');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Confirmar ajuste de saldo de R$ ${currentBalance.toFixed(2)} para R$ ${nextBalance.toFixed(2)}?\nMotivo: ${normalizedReason}`
+    );
+    if (!confirmed) return;
+
+    try {
+      const updated = await ApiService.updateClient(viewingClient.id, {
+        balance: nextBalance,
+        balanceAdjustment: {
+          reason: normalizedReason,
+          source: 'CLIENTS_PAGE_DETAIL',
+          requestedByUserId: String((currentUser as any)?.id || ''),
+          requestedByName: String((currentUser as any)?.name || (currentUser as any)?.username || ''),
+        },
+      });
+
+      setClients(prev => prev.map(c => (c.id === viewingClient.id ? updated : c)));
+      setViewingClient(updated);
+      alert(`Ajuste aplicado com sucesso. Novo saldo: R$ ${nextBalance.toFixed(2)}.`);
+    } catch (error: any) {
+      console.error('Erro ao ajustar saldo manualmente:', error);
+      alert(error?.message || 'Erro ao ajustar saldo. Tente novamente.');
     }
   };
 
@@ -4102,6 +4161,12 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                     >
                        <Edit size={18} /> Editar Cadastro
                     </button>
+                    <button
+                       onClick={handleManualBalanceAdjustment}
+                       className="flex-1 py-4 bg-amber-500 text-white rounded-[20px] font-black uppercase tracking-[2px] text-xs shadow-xl shadow-amber-100 hover:bg-amber-600 active:scale-95 transition-all flex items-center justify-center gap-2 text-center"
+                    >
+                       <DollarSign size={18} /> Ajustar Saldo
+                    </button>
                  </div>
               </div>
            </div>
@@ -4974,7 +5039,6 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                            key={`${plan.id}-recharge-${dateKey}`}
                                            onClick={() => toggleRechargePlanDate(plan.id, dateCell)}
                                            disabled={!isCalendarReady || !isAllowedDate || isSchoolBlockedDate}
-                                             title={isSchoolBlockedDate ? (getSchoolEventTitle(dateCell) || 'Dia sem aula') : undefined}
                                            className={`w-full rounded-lg border text-[10px] font-black transition-all flex items-center justify-center text-center ${
                                              !isCalendarReady
                                                ? 'h-9 bg-gray-100 border-gray-200 text-gray-300 cursor-not-allowed'

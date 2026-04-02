@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../database.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
+import { processOverduePlanConsumptions } from '../services/planConsumptionAutoProcessor.js';
 import { canAccessAllEnterprises, getRequesterEnterpriseIds, requesterCanAccessEnterprise } from '../utils/enterpriseAccess.js';
 
 const router = Router();
@@ -14,7 +15,7 @@ const resolveRoleLabel = (role?: string) => {
 };
 
 // Get all transactions
-router.get('/', (req: AuthRequest, res: Response) => {
+router.get('/', async (req: AuthRequest, res: Response) => {
   const { clientId, enterpriseId } = req.query;
   const requestedEnterpriseId = String(enterpriseId || '').trim();
 
@@ -25,32 +26,51 @@ router.get('/', (req: AuthRequest, res: Response) => {
     }
   }
 
-  const transactions = db.getTransactions({
-    clientId: clientId as string | undefined,
-    enterpriseId: enterpriseId as string | undefined,
-  });
+  try {
+    if (requestedEnterpriseId) {
+      await processOverduePlanConsumptions({ enterpriseId: requestedEnterpriseId });
+    }
 
-  if (canAccessAllEnterprises(req.userRole)) {
-    return res.json(transactions);
+    const transactions = db.getTransactions({
+      clientId: clientId as string | undefined,
+      enterpriseId: enterpriseId as string | undefined,
+    });
+
+    if (canAccessAllEnterprises(req.userRole)) {
+      return res.json(transactions);
+    }
+
+    const allowed = new Set(getRequesterEnterpriseIds(req));
+    const scoped = (Array.isArray(transactions) ? transactions : []).filter((tx: any) =>
+      allowed.has(String(tx?.enterpriseId || '').trim())
+    );
+    return res.json(scoped);
+  } catch (error) {
+    console.error('❌ [TRANSACTIONS] Error fetching transactions:', (error as Error).message);
+    return res.status(500).json({ error: 'Erro ao buscar transações' });
   }
-
-  const allowed = new Set(getRequesterEnterpriseIds(req));
-  const scoped = (Array.isArray(transactions) ? transactions : []).filter((tx: any) =>
-    allowed.has(String(tx?.enterpriseId || '').trim())
-  );
-  return res.json(scoped);
 });
 
 // Get transaction by ID
-router.get('/:id', (req: AuthRequest, res: Response) => {
-  const transaction = db.getTransaction(req.params.id);
-  if (!transaction) {
-    return res.status(404).json({ error: 'Transação não encontrada' });
+router.get('/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const existingTransaction = db.getTransaction(req.params.id);
+    if (existingTransaction?.enterpriseId) {
+      await processOverduePlanConsumptions({ enterpriseId: String(existingTransaction.enterpriseId || '').trim() });
+    }
+
+    const transaction = db.getTransaction(req.params.id);
+    if (!transaction) {
+      return res.status(404).json({ error: 'Transação não encontrada' });
+    }
+    if (!requesterCanAccessEnterprise(req, String((transaction as any)?.enterpriseId || ''))) {
+      return res.status(403).json({ error: 'Acesso negado para esta empresa' });
+    }
+    res.json(transaction);
+  } catch (error) {
+    console.error('❌ [TRANSACTIONS] Error fetching transaction by id:', (error as Error).message);
+    res.status(500).json({ error: 'Erro ao buscar transação' });
   }
-  if (!requesterCanAccessEnterprise(req, String((transaction as any)?.enterpriseId || ''))) {
-    return res.status(403).json({ error: 'Acesso negado para esta empresa' });
-  }
-  res.json(transaction);
 });
 
 // Create transaction

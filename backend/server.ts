@@ -29,6 +29,7 @@ import errorTicketsRoutes from './routes/errorTickets.js';
 import saasFinancialRoutes from './routes/saasFinancial.js';
 import taskRemindersRoutes from './routes/taskReminders.js';
 import { startWhatsAppDispatchScheduler } from './services/dispatchSchedulerService.js';
+import { startPlanConsumptionAutoProcessor } from './services/planConsumptionAutoProcessor.js';
 import { authMiddleware } from './middleware/auth.js';
 import { whatsappSession } from './utils/whatsappSession.js';
 
@@ -109,6 +110,7 @@ app.get('*', (req, res, next) => {
 // Start server
 app.listen(PORT, () => {
   startWhatsAppDispatchScheduler();
+  startPlanConsumptionAutoProcessor();
   whatsappSession.initializeOnBoot().catch((err: unknown) => {
     console.error('[SERVER] Falha na inicialização automática do WhatsApp:', err);
   });

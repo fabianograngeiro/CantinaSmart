@@ -3,6 +3,7 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import { fileURLToPath } from 'url';
 import { db } from '../database.js';
+import { processOverduePlanConsumptions } from '../services/planConsumptionAutoProcessor.js';
 import { validateClient, validateClientUpdate } from '../utils/validation.js';
 import { authMiddleware } from '../middleware/auth.js';
 
@@ -32,6 +33,33 @@ const extensionFromMime = (mimeType: string) => {
 };
 
 const PHONE_REQUIRED_VALIDATION_ERROR = 'Telefone é obrigatório para responsável e colaborador';
+const CADASTRO_BALANCE_GUARD_FIELDS = [
+  'name',
+  'class',
+  'classType',
+  'classGrade',
+  'type',
+  'parentName',
+  'parentRelationship',
+  'parentWhatsapp',
+  'parentEmail',
+  'parentCpf',
+  'phone',
+  'email',
+  'cpf',
+  'restrictions',
+  'dietaryNotes',
+  'relatedStudent',
+];
+
+const resolveRoleLabel = (role?: string) => {
+  const normalized = String(role || '').trim().toUpperCase();
+  if (!normalized) return '';
+  if (normalized === 'OWNER') return 'DONO DE REDE';
+  return normalized.replace(/_/g, ' ');
+};
+
+const hasOwnField = (payload: any, key: string) => Object.prototype.hasOwnProperty.call(payload || {}, key);
 
 const hasActiveAiTemporaryPatchForPhoneValidation = () => {
   const tickets = db.getErrorTickets({ status: 'OPEN' });
@@ -51,7 +79,7 @@ const hasActiveAiTemporaryPatchForPhoneValidation = () => {
 router.use(authMiddleware);
 
 // Get all clients
-router.get('/', (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   console.log('📋 [CLIENTS] GET /clients - User:', (req as any).userId);
   
   const { enterpriseId } = req.query;
@@ -62,6 +90,7 @@ router.get('/', (req: Request, res: Response) => {
   }
 
   try {
+    await processOverduePlanConsumptions({ enterpriseId });
     const clients = db.getClients(enterpriseId);
     console.log('✅ [CLIENTS] Retrieved', clients.length, 'clients');
     res.json(clients);
@@ -137,17 +166,27 @@ router.post('/upload-photo', async (req: Request, res: Response) => {
 });
 
 // Get client by ID
-router.get('/:id', (req: Request, res: Response) => {
+router.get('/:id', async (req: Request, res: Response) => {
   console.log('🔍 [CLIENTS] GET /clients/:id -', req.params.id);
-  
-  const client = db.getClient(req.params.id);
-  if (!client) {
-    console.log('❌ [CLIENTS] Client not found:', req.params.id);
-    return res.status(404).json({ error: 'Cliente não encontrado' });
+
+  try {
+    const existingClient = db.getClient(req.params.id);
+    if (existingClient?.enterpriseId) {
+      await processOverduePlanConsumptions({ enterpriseId: String(existingClient.enterpriseId || '').trim() });
+    }
+
+    const client = db.getClient(req.params.id);
+    if (!client) {
+      console.log('❌ [CLIENTS] Client not found:', req.params.id);
+      return res.status(404).json({ error: 'Cliente não encontrado' });
+    }
+    
+    console.log('✅ [CLIENTS] Client found:', client.name);
+    res.json(client);
+  } catch (error) {
+    console.error('❌ [CLIENTS] Error fetching client by id:', (error as Error).message);
+    res.status(500).json({ error: 'Erro ao buscar cliente' });
   }
-  
-  console.log('✅ [CLIENTS] Client found:', client.name);
-  res.json(client);
 });
 
 // Create client
@@ -203,8 +242,80 @@ router.put('/:id', (req: Request, res: Response) => {
   }
 
   try {
-    const updated = db.updateClient(req.params.id, req.body);
+    const payload = req.body || {};
+    const currentBalance = Number(current?.balance || 0);
+    const hasBalanceField = hasOwnField(payload, 'balance');
+    const requestedBalance = Number(payload?.balance);
+    const balanceChanged = hasBalanceField
+      && Number.isFinite(requestedBalance)
+      && Number(requestedBalance.toFixed(2)) !== Number(currentBalance.toFixed(2));
+    const isCadastroPayload = CADASTRO_BALANCE_GUARD_FIELDS.some((field) => hasOwnField(payload, field));
+
+    const balanceAdjustmentPayload = payload?.balanceAdjustment && typeof payload.balanceAdjustment === 'object'
+      ? payload.balanceAdjustment
+      : null;
+    const adjustmentReason = String(balanceAdjustmentPayload?.reason || '').trim();
+
+    if (balanceChanged && isCadastroPayload && !balanceAdjustmentPayload) {
+      return res.status(400).json({
+        error: 'Edição direta de saldo no cadastro está bloqueada. Use Ajuste de Saldo com motivo.',
+      });
+    }
+
+    if (balanceAdjustmentPayload && !adjustmentReason) {
+      return res.status(400).json({
+        error: 'Motivo do ajuste de saldo é obrigatório.',
+      });
+    }
+
+    const updatePayload = { ...payload };
+    delete (updatePayload as any).balanceAdjustment;
+
+    const updated = db.updateClient(req.params.id, updatePayload);
     if (!updated) return res.status(404).json({ error: 'Cliente não encontrado' });
+
+    if (balanceChanged && balanceAdjustmentPayload) {
+      const requesterUserId = String((req as any).userId || '').trim();
+      const requesterUser = requesterUserId ? db.getUser(requesterUserId) : null;
+      const requesterName = String(
+        requesterUser?.name
+        || requesterUser?.fullName
+        || requesterUser?.username
+        || requesterUser?.email
+        || requesterUserId
+        || ''
+      ).trim();
+      const requesterRole = String((req as any).userRole || '').trim().toUpperCase();
+      const requesterRoleLabel = resolveRoleLabel(requesterRole);
+      const balanceAfter = Number((Number(updated?.balance || 0)).toFixed(2));
+      const adjustmentAmount = Number((balanceAfter - Number(currentBalance || 0)).toFixed(2));
+
+      db.createTransaction({
+        clientId: String(updated.id || '').trim(),
+        clientName: String(updated.name || '').trim(),
+        enterpriseId: String(updated.enterpriseId || '').trim(),
+        type: 'AJUSTE_SALDO',
+        amount: adjustmentAmount,
+        total: adjustmentAmount,
+        plan: 'PREPAGO',
+        paymentMethod: 'AJUSTE',
+        method: 'AJUSTE',
+        status: 'CONCLUIDA',
+        description: `Ajuste manual de saldo (${adjustmentAmount >= 0 ? 'crédito' : 'débito'})`,
+        item: `Motivo: ${adjustmentReason}`,
+        adjustmentReason,
+        adjustmentSource: String(balanceAdjustmentPayload?.source || 'CADASTRO_CLIENTE').trim() || 'CADASTRO_CLIENTE',
+        balanceBefore: Number(currentBalance.toFixed(2)),
+        balanceAfter,
+        createdByUserId: requesterUserId,
+        createdByName: requesterName,
+        createdByRole: requesterRole,
+        createdByRoleLabel: requesterRoleLabel,
+        sessionUserName: requesterName,
+        sessionUserRole: requesterRole,
+        sessionUserRoleLabel: requesterRoleLabel,
+      });
+    }
     
     console.log('✅ [CLIENTS] Client updated:', req.params.id);
     res.json(updated);
