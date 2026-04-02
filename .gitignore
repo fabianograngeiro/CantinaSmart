@@ -6,14 +6,9 @@ backend/data/**
 .env
 .env.*
 !.env.example
-.envrc
-.envrc.*
 backend/.env
 backend/.env.*
 !backend/.env.example
-**/.env
-**/.env.*
-!**/.env.example
 
 
 # Database / runtime data
