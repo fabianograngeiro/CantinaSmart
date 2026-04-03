@@ -11,7 +11,7 @@ import { Product, User, Enterprise, Role, Category, ProductUnit } from '../types
 
 interface ProductsPageProps {
   currentUser: User;
-  activeEnterprise: Enterprise;
+  activeEnterprise: Enterprise | null;
 }
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace(/\/api\/?$/, '');
@@ -30,6 +30,14 @@ const normalizeSearchText = (value: string) =>
     .toLowerCase()
     .trim();
 
+const formatExpiryDatePtBr = (value?: string) => {
+  const raw = String(value || '').trim();
+  if (!raw) return 'Sem vencimento';
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  return parsed.toLocaleDateString('pt-BR');
+};
+
 const fileToBase64 = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -44,28 +52,24 @@ const fileToBase64 = (file: File): Promise<string> =>
 
 const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterprise }) => {
   const restoreProductsInputRef = useRef<HTMLInputElement | null>(null);
-  // Guard clause: se não houver enterprise ativa, retornar carregamento
-  if (!activeEnterprise) {
-    return (
-      <div className="products-shell flex items-center justify-center h-96 rounded-2xl">
-        <div className="text-center space-y-4">
-          <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full"></div>
-          <p className="text-gray-600 dark:text-zinc-300 font-medium">Carregando produtos...</p>
-        </div>
-      </div>
-    );
-  }
+  const activeEnterpriseId = String(activeEnterprise?.id || '').trim();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   
   // Carregar produtos e categorias da API
   useEffect(() => {
+    if (!activeEnterpriseId) {
+      setProducts([]);
+      setCategories([]);
+      return;
+    }
+
     const loadData = async () => {
       try {
         const [productsData, categoriesData] = await Promise.all([
-          ApiService.getProducts(activeEnterprise.id),
-          ApiService.getCategories(activeEnterprise.id)
+          ApiService.getProducts(activeEnterpriseId),
+          ApiService.getCategories(activeEnterpriseId)
         ]);
 
         setProducts(productsData);
@@ -80,7 +84,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
               mapByName.set(product.category, {
                 id: `cat_local_${index}`,
                 name: product.category,
-                enterpriseId: activeEnterprise.id,
+                enterpriseId: activeEnterpriseId,
                 subCategories: []
               });
             }
@@ -106,7 +110,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
     };
 
     loadData();
-  }, [activeEnterprise.id]);
+  }, [activeEnterpriseId]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | 'ALL'>('ALL');
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
@@ -135,7 +139,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
     minStock: 5,
     expiryDate: '',
     image: '',
-    enterpriseId: activeEnterprise.id
+    enterpriseId: activeEnterpriseId
   });
 
   const isOwner = currentUser.role === Role.OWNER;
@@ -145,7 +149,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
     const normalizedSearchTerm = normalizeSearchText(searchTerm);
 
     return products.filter(p => {
-      const matchesUnit = isOwner || p.enterpriseId === activeEnterprise.id;
+      const matchesUnit = isOwner || p.enterpriseId === activeEnterpriseId;
       const normalizedProductName = normalizeSearchText(p.name);
       const eanValue = String(p.ean || '');
       const searchDigits = String(searchTerm || '').replace(/\D/g, '');
@@ -164,7 +168,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
       
       return matchesUnit && matchesSearch && matchesCategory;
     });
-  }, [products, searchTerm, selectedCategoryId, categories, isOwner, activeEnterprise.id]);
+  }, [products, searchTerm, selectedCategoryId, categories, isOwner, activeEnterpriseId]);
 
   const handleOpenNewProduct = () => {
     setEditingProductId(null);
@@ -181,7 +185,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
       minStock: 5,
       expiryDate: '',
       image: '',
-      enterpriseId: activeEnterprise.id
+      enterpriseId: activeEnterpriseId
     });
     setProductImageFile(null);
     setProductImagePreview('');
@@ -212,14 +216,14 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
       setIsSavingCategory(true);
       const createdCategory = await ApiService.createCategory({
         name: categoryName,
-        enterpriseId: activeEnterprise.id,
+        enterpriseId: activeEnterpriseId,
         subCategories: [],
       });
 
       const normalizedCreatedCategory: Category = {
         id: String(createdCategory?.id || `cat_${Date.now()}`),
         name: String(createdCategory?.name || categoryName),
-        enterpriseId: String(createdCategory?.enterpriseId || activeEnterprise.id),
+        enterpriseId: String(createdCategory?.enterpriseId || activeEnterpriseId),
         subCategories: Array.isArray(createdCategory?.subCategories) ? createdCategory.subCategories : [],
       };
 
@@ -301,6 +305,9 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
       stock: productForm.controlsStock ? Number(productForm.stock) : 0,
       minStock: productForm.controlsStock ? Number(productForm.minStock) : 0,
       expiryDate: productForm.expiryDate,
+      expirations: productForm.expiryDate
+        ? [{ batch: '', quantity: Number(productForm.stock || 0), expiresAt: productForm.expiryDate, notes: '' }]
+        : [],
       isActive: true,
       image: uploadedImageUrl,
       enterpriseId: productForm.enterpriseId,
@@ -339,7 +346,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
   };
 
   const backupProductsPayload = useMemo(() => {
-    const enterpriseProducts = products.filter((product) => String(product.enterpriseId || '').trim() === String(activeEnterprise.id || '').trim());
+    const enterpriseProducts = products.filter((product) => String(product.enterpriseId || '').trim() === activeEnterpriseId);
     return enterpriseProducts.map((product) => ({
       id: String(product.id || ''),
       name: String(product.name || ''),
@@ -353,11 +360,16 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
       stock: Number(product.stock || 0),
       minStock: Number(product.minStock || 0),
       expiryDate: String(product.expiryDate || ''),
+      expirations: Array.isArray(product.expirations)
+        ? product.expirations
+        : (product.expiryDate
+          ? [{ batch: '', quantity: Number(product.stock || 0), expiresAt: String(product.expiryDate || ''), notes: '' }]
+          : []),
       image: String(product.image || ''),
       isActive: product.isActive !== false,
-      enterpriseId: String(product.enterpriseId || activeEnterprise.id),
+      enterpriseId: String(product.enterpriseId || activeEnterpriseId),
     }));
-  }, [products, activeEnterprise.id]);
+  }, [products, activeEnterpriseId]);
 
   const handleBackupProducts = () => {
     const now = new Date();
@@ -440,8 +452,13 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
 
       if (!window.confirm(confirmText)) return;
 
-      await ApiService.restoreProductsSnapshot(String(activeEnterprise.id), items);
-      const refreshed = await ApiService.getProducts(activeEnterprise.id);
+      if (!activeEnterpriseId) {
+        notificationService.alerta('Unidade não selecionada', 'Selecione uma unidade antes de restaurar o backup.');
+        return;
+      }
+
+      await ApiService.restoreProductsSnapshot(activeEnterpriseId, items);
+      const refreshed = await ApiService.getProducts(activeEnterpriseId);
       setProducts(Array.isArray(refreshed) ? refreshed : []);
       notificationService.informativo('Restauração concluída', `${items.length} produto(s) restaurado(s).`);
     } catch (error) {
@@ -457,8 +474,8 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
 
   const activeCategories = useMemo(() => (
     categories
-      .filter((c: any) => (isOwner || c.enterpriseId === activeEnterprise.id) && c?.isActive !== false)
-  ), [categories, isOwner, activeEnterprise.id]);
+      .filter((c: any) => (isOwner || c.enterpriseId === activeEnterpriseId) && c?.isActive !== false)
+  ), [categories, isOwner, activeEnterpriseId]);
 
   const availableSubCategories = useMemo(() => {
     if (!productForm.categoryId) return [];
@@ -466,6 +483,17 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
     if (!selectedCategory) return [];
     return (selectedCategory.subCategories || []).filter((sub: any) => sub?.isActive !== false);
   }, [productForm.categoryId, categories]);
+
+  if (!activeEnterpriseId) {
+    return (
+      <div className="products-shell flex items-center justify-center h-96 rounded-2xl">
+        <div className="text-center space-y-4">
+          <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full"></div>
+          <p className="text-gray-600 dark:text-zinc-300 font-medium">Carregando produtos...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -500,7 +528,7 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
             >
               <option value="ALL">Todas as categorias</option>
               {categories
-                .filter((c) => isOwner || c.enterpriseId === activeEnterprise.id)
+                .filter((c) => isOwner || c.enterpriseId === activeEnterpriseId)
                 .map((cat) => (
                   <option key={cat.id} value={cat.id}>
                     {cat.name}
@@ -552,13 +580,14 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
                   <th className="px-4 py-3">Categoria</th>
                   <th className="px-4 py-3 text-center">Preço</th>
                   <th className="px-4 py-3 text-center">Estoque</th>
+                  <th className="px-4 py-3 text-center">Vencimento</th>
                   <th className="px-4 py-3 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {filteredProducts.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-14 text-center text-gray-400 font-bold uppercase text-[11px] tracking-widest">Nenhum produto encontrado</td>
+                    <td colSpan={6} className="px-4 py-14 text-center text-gray-400 font-bold uppercase text-[11px] tracking-widest">Nenhum produto encontrado</td>
                   </tr>
                 ) : filteredProducts.map(product => (
                   <tr key={product.id} className="hover:bg-indigo-50/20 transition-all group">
@@ -603,6 +632,13 @@ const ProductsPage: React.FC<ProductsPageProps> = ({ currentUser, activeEnterpri
                           {product.stock < product.minStock && <span className="text-[7px] font-black text-red-400 uppercase tracking-widest mt-0.5 animate-pulse">Crítico</span>}
                         </div>
                       )}
+                    </td>
+                    <td className="px-4 py-3.5 text-center">
+                      <div className="flex flex-col items-center">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-black text-gray-700 bg-gray-50 px-2 py-1 rounded-md border border-gray-200">
+                          <Calendar size={10} /> {formatExpiryDatePtBr(product.expiryDate)}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-4 py-3.5 text-right">
                        <div className="flex items-center justify-end gap-2">

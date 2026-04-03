@@ -226,6 +226,33 @@ const getDueDatesForConfig = (
   return Array.from(new Set(dueDates)).sort();
 };
 
+const findMostRecentPlanCreditTransaction = (
+  clientId: string,
+  planId: string,
+  transactions: any[]
+) => {
+  const normalizedClientId = String(clientId || '').trim();
+  const normalizedPlanId = String(planId || '').trim();
+  if (!normalizedClientId || !normalizedPlanId) return null;
+
+  const creditTx = (Array.isArray(transactions) ? transactions : [])
+    .filter((tx: any) => {
+      const txClientId = String(tx?.clientId || '').trim();
+      const txPlanId = String(tx?.planId || tx?.originPlanId || '').trim();
+      const txType = normalizeToken(tx?.type);
+      return txClientId === normalizedClientId
+        && txPlanId === normalizedPlanId
+        && (txType === 'CREDIT' || txType === 'CREDITO');
+    })
+    .sort((a: any, b: any) => {
+      const aTs = new Date(a?.timestamp || `${a?.date || ''}T${a?.time || '00:00'}`).getTime();
+      const bTs = new Date(b?.timestamp || `${b?.date || ''}T${b?.time || '00:00'}`).getTime();
+      return bTs - aTs;
+    })[0];
+
+  return creditTx || null;
+};
+
 const runAutoProcessForEnterprise = (enterpriseId: string, now: Date) => {
   const enterprise = db.getEnterprise(enterpriseId);
   if (!enterprise) return 0;
@@ -270,8 +297,15 @@ const runAutoProcessForEnterprise = (enterpriseId: string, now: Date) => {
         if (!deliveryKey || manuallyDeletedDeliveryKeys.has(normalizeToken(deliveryKey))) return;
         if (Number(deliveryBalanceByKey.get(deliveryKey) || 0) > 0) return;
 
+        // Encontra a recarga mais recente para lincar
+        const mostRecentCredit = findMostRecentPlanCreditTransaction(
+          String(client?.id || '').trim(),
+          resolvedPlanId,
+          transactions
+        );
+
         const txTimestamp = new Date(now.getTime() + index * 1000);
-        db.createTransaction({
+        const createPayload: any = {
           clientId: String(client?.id || '').trim(),
           clientName: String(client?.name || '').trim(),
           enterpriseId,
@@ -291,7 +325,15 @@ const runAutoProcessForEnterprise = (enterpriseId: string, now: Date) => {
           planId: resolvedPlanId || undefined,
           planUnitValue: Number(plan?.price || config?.planPrice || 0) || undefined,
           planUnits: 1,
-        });
+        };
+
+        // ✅ Lincar à recarga encontrada
+        if (mostRecentCredit) {
+          createPayload.originTransactionId = String(mostRecentCredit?.id || '').trim();
+          createPayload.purchaseRefCode = String(mostRecentCredit?.purchaseRefCode || '').trim() || undefined;
+        }
+
+        db.createTransaction(createPayload);
         deliveryBalanceByKey.set(deliveryKey, 1);
         processedCount += 1;
       });

@@ -55,12 +55,18 @@ router.put('/', (req: AuthRequest, res: Response) => {
     return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
 
+  const requesterRole = String(req.userRole || '').trim().toUpperCase();
+  const requester = req.userId ? db.getUser(String(req.userId || '').trim()) : null;
+
   const saved = db.upsertSchoolCalendar({
     enterpriseId,
     schoolYear,
     meta,
     legends,
     events,
+    updatedByUserId: String(req.userId || '').trim(),
+    updatedByName: String((requester as any)?.name || '').trim(),
+    updatedByRole: requesterRole,
   });
 
   if (!saved) {

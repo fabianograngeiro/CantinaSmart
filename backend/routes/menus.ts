@@ -7,9 +7,61 @@ const router = Router();
 router.use(authMiddleware);
 
 const DAYS_OF_WEEK = ['SEGUNDA', 'TERCA', 'QUARTA', 'QUINTA', 'SEXTA', 'SABADO'] as const;
+const DAY_TOKEN_MAP: Record<string, string> = {
+  SEGUNDA: 'SEGUNDA',
+  SEG: 'SEGUNDA',
+  TERCA: 'TERCA',
+  TERCA_FEIRA: 'TERCA',
+  TER: 'TERCA',
+  QUARTA: 'QUARTA',
+  QUA: 'QUARTA',
+  QUINTA: 'QUINTA',
+  QUI: 'QUINTA',
+  SEXTA: 'SEXTA',
+  SEX: 'SEXTA',
+  SABADO: 'SABADO',
+  SAB: 'SABADO',
+};
 
-const createEmptyWeeklyMenu = () =>
-  DAYS_OF_WEEK.map((day) => ({
+const normalizeDayToken = (value: unknown) => {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z]/g, '_')
+    .toUpperCase()
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+};
+
+const resolveWorkingDaysFromSchoolCalendar = (record: any) => {
+  const meta = record?.meta && typeof record.meta === 'object' ? record.meta : {};
+  const candidateLists: unknown[] = [
+    meta?.workingDays,
+    meta?.businessDays,
+    meta?.expedientDays,
+    meta?.serviceDays,
+    meta?.defaultWorkingDays,
+    meta?.daysOfWeek,
+    meta?.diasExpediente,
+    meta?.diasDeExpediente,
+  ];
+
+  const rawDays = candidateLists.find((value) => Array.isArray(value));
+  if (!Array.isArray(rawDays) || rawDays.length === 0) {
+    return [...DAYS_OF_WEEK];
+  }
+
+  const normalized = rawDays
+    .map((day) => DAY_TOKEN_MAP[normalizeDayToken(day)] || '')
+    .filter(Boolean);
+
+  const unique = Array.from(new Set(normalized));
+  if (unique.length === 0) return [...DAYS_OF_WEEK];
+  return DAYS_OF_WEEK.filter((day) => unique.includes(day));
+};
+
+const createEmptyWeeklyMenu = (workingDays: readonly string[] = DAYS_OF_WEEK) =>
+  workingDays.map((day) => ({
     id: `${day.toLowerCase()}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     dayOfWeek: day,
     items: [],
@@ -31,12 +83,25 @@ router.get('/', (req: AuthRequest, res: Response) => {
 
   const record = db.getMenuByEnterpriseAndType(enterpriseId, type, weekIndex, monthKey);
   if (!record) {
+    const schoolYear = Number((monthKey || '').slice(0, 4)) || new Date().getFullYear();
+    const schoolCalendar = db.getSchoolCalendarByEnterpriseAndYear(enterpriseId, schoolYear);
+    const workingDays = resolveWorkingDaysFromSchoolCalendar(schoolCalendar);
+    const defaultDays = createEmptyWeeklyMenu(workingDays);
+    const savedDefault = db.upsertMenuByEnterpriseAndType({
+      enterpriseId,
+      type,
+      weekIndex,
+      monthKey,
+      days: defaultDays,
+    });
+
     return res.json({
       enterpriseId,
       type,
       weekIndex,
       monthKey,
-      days: createEmptyWeeklyMenu(),
+      days: Array.isArray(savedDefault?.days) ? savedDefault.days : defaultDays,
+      updatedAt: savedDefault?.updatedAt,
     });
   }
 

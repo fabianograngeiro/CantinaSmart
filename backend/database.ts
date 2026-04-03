@@ -10,6 +10,7 @@ const __dirname = path.dirname(__filename);
 const DATA_DIR = path.join(__dirname, 'data');
 const DATABASE_FILE = path.join(DATA_DIR, 'database.json');
 const CURRENT_SCHEMA_VERSION = 2;
+const NATIVE_INGREDIENT_CATEGORIES = ['Proteinas', 'Carboidratos', 'Legumes', 'Verduras', 'Frutas', 'Laticinios', 'Bebidas', 'Outros'];
 
 interface DatabaseShape {
   schemaVersion: number;
@@ -25,6 +26,9 @@ interface DatabaseShape {
   orders: any[];
   ingredients: any[];
   errorTickets: any[];
+  financialEntries?: any[];
+  financialSettingsByEnterprise?: Record<string, any>;
+  systemSettings?: Record<string, any>;
   saasCashflowEntries?: any[];
   taskReminders?: any[];
   devAssistantConfig?: {
@@ -39,6 +43,7 @@ interface DatabaseShape {
     schedules?: any;
     aiConfig?: any;
     syncDiagnostics?: any;
+    agendaByEnterprise?: Record<string, any[]>;
     dispatchAutomationsByEnterprise?: Record<string, any>;
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
@@ -62,6 +67,9 @@ const createEmptyDatabase = (): DatabaseShape => ({
   orders: [],
   ingredients: [],
   errorTickets: [],
+  financialEntries: [],
+  financialSettingsByEnterprise: {},
+  systemSettings: {},
   saasCashflowEntries: [],
   taskReminders: [],
   devAssistantConfig: {
@@ -71,7 +79,9 @@ const createEmptyDatabase = (): DatabaseShape => ({
   },
   menus: [],
   schoolCalendars: [],
-  whatsappStore: {},
+  whatsappStore: {
+    agendaByEnterprise: {},
+  },
 });
 
 export class Database {
@@ -88,6 +98,9 @@ export class Database {
   private orders: any[] = [];
   private ingredients: any[] = [];
   private errorTickets: any[] = [];
+  private financialEntries: any[] = [];
+  private financialSettingsByEnterprise: Record<string, any> = {};
+  private systemSettings: Record<string, any> = {};
   private saasCashflowEntries: any[] = [];
   private taskReminders: any[] = [];
   private devAssistantConfig: {
@@ -106,6 +119,7 @@ export class Database {
     schedules?: any;
     aiConfig?: any;
     syncDiagnostics?: any;
+    agendaByEnterprise?: Record<string, any[]>;
     dispatchAutomationsByEnterprise?: Record<string, any>;
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
@@ -284,6 +298,37 @@ export class Database {
     });
   }
 
+  private syncResponsibleUsersLinkedStudents() {
+    const responsibleClients = this.clients.filter((client: any) =>
+      String(client?.type || '').trim().toUpperCase() === 'RESPONSAVEL'
+    );
+
+    responsibleClients.forEach((responsible: any) => {
+      const responsibleClientId = String(responsible?.id || '').trim();
+      if (!responsibleClientId) return;
+
+      const relatedStudentIds = this.clients
+        .filter((client: any) => {
+          if (String(client?.type || '').trim().toUpperCase() !== 'ALUNO') return false;
+          const explicitResponsibleId = String(client?.responsibleClientId || '').trim();
+          if (explicitResponsibleId && explicitResponsibleId === responsibleClientId) return true;
+          const linkedIds = this.toStringArray(responsible?.relatedStudentIds);
+          return linkedIds.includes(String(client?.id || '').trim());
+        })
+        .map((student: any) => String(student?.id || '').trim())
+        .filter(Boolean);
+
+      const portalUser = this.getPortalUserByLinkedClientId(responsibleClientId);
+      if (!portalUser) return;
+
+      this.updateUser(String(portalUser?.id || '').trim(), {
+        relatedStudentIds,
+        accessibleClientIds: [responsibleClientId, ...relatedStudentIds],
+        portalScope: 'RESPONSAVEL_ALUNOS_RELACIONADOS',
+      });
+    });
+  }
+
   ensurePortalAccessForClientId(clientId: string, options?: { regenerateToken?: boolean }) {
     const normalizedClientId = String(clientId || '').trim();
     if (!normalizedClientId) return null;
@@ -307,10 +352,73 @@ export class Database {
     return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   }
 
+  private generateShortReference(prefix: string, size: number = 8) {
+    const normalizedPrefix = String(prefix || '').trim().toLowerCase() || 'ref';
+    const randomPart = Math.random().toString(36).replace(/[^a-z0-9]/gi, '').slice(2, 2 + Math.max(4, size));
+    return `${normalizedPrefix}_${randomPart}`;
+  }
+
+  private normalizeProductExpirations(value: any, fallbackExpiryDate?: string) {
+    const safeList = Array.isArray(value) ? value : [];
+    const normalized = safeList
+      .map((item: any) => ({
+        batch: String(item?.batch || item?.lot || '').trim(),
+        quantity: this.toFiniteNumber(item?.quantity, 0),
+        expiresAt: String(item?.expiresAt || item?.expiryDate || item?.date || '').trim(),
+        notes: String(item?.notes || '').trim(),
+      }))
+      .filter((item: any) => item.expiresAt.length > 0);
+
+    const fallback = String(fallbackExpiryDate || '').trim();
+    if (normalized.length === 0 && fallback) {
+      normalized.push({
+        batch: '',
+        quantity: 0,
+        expiresAt: fallback,
+        notes: '',
+      });
+    }
+
+    return normalized;
+  }
+
+  private normalizeProductRecord(record: any) {
+    const expirations = this.normalizeProductExpirations(record?.expirations, record?.expiryDate);
+    const nearestExpiry = expirations
+      .map((item: any) => String(item?.expiresAt || '').trim())
+      .filter(Boolean)
+      .sort()[0] || '';
+
+    return {
+      ...record,
+      enterpriseId: String(record?.enterpriseId || '').trim(),
+      name: String(record?.name || '').trim(),
+      category: String(record?.category || 'GERAL').trim() || 'GERAL',
+      subCategory: String(record?.subCategory || '').trim(),
+      ean: String(record?.ean || '').trim(),
+      unit: String(record?.unit || 'UN').trim().toUpperCase(),
+      controlsStock: record?.controlsStock !== false,
+      price: this.toFiniteNumber(record?.price, 0),
+      cost: this.toFiniteNumber(record?.cost, 0),
+      stock: this.toFiniteNumber(record?.stock, 0),
+      minStock: this.toFiniteNumber(record?.minStock, 0),
+      expiryDate: nearestExpiry,
+      expirations,
+      image: String(record?.image || '').trim(),
+      isActive: record?.isActive !== false,
+    };
+  }
+
   private normalizeParentRelationship(value: any) {
     const normalized = String(value || '').trim().toUpperCase();
     if (['PAIS', 'AVOS', 'TIOS', 'TUTOR_LEGAL'].includes(normalized)) return normalized;
     return 'PAIS';
+  }
+
+  private normalizeUnitKind(value: any) {
+    const normalized = String(value || '').trim().toUpperCase();
+    if (normalized === 'RESTAURANTE') return 'RESTAURANTE';
+    return 'CANTINA';
   }
 
   private toStringArray(value: any) {
@@ -1314,10 +1422,25 @@ export class Database {
   private normalizeStoredData() {
     this.enterprises = this.enterprises.map((enterprise) => this.normalizeContactFields(enterprise));
     this.suppliers = this.suppliers.map((supplier) => this.normalizeContactFields(supplier));
+    this.products = this.products.map((product) => this.normalizeProductRecord(product));
     this.ingredients = this.ingredients.map((ingredient) => this.normalizeIngredientRecord(ingredient));
-    this.ensureNutritionalBaseSeed();
     this.deduplicateDeliveryHistoryTransactions();
     this.removeOrphanTransactionReferences();
+    this.financialEntries = Array.isArray(this.financialEntries)
+      ? this.financialEntries.map((entry: any) => ({
+          ...entry,
+          id: String(entry?.id || this.generateEntityId('fin')).trim(),
+          kind: String(entry?.kind || 'MOVIMENTACAO').trim().toUpperCase(),
+          createdAt: String(entry?.createdAt || new Date().toISOString()).trim(),
+          updatedAt: String(entry?.updatedAt || entry?.createdAt || new Date().toISOString()).trim(),
+        }))
+      : [];
+    this.financialSettingsByEnterprise = this.financialSettingsByEnterprise && typeof this.financialSettingsByEnterprise === 'object'
+      ? this.financialSettingsByEnterprise
+      : {};
+    this.systemSettings = this.systemSettings && typeof this.systemSettings === 'object'
+      ? this.systemSettings
+      : {};
     this.clients = this.clients.map((client) => {
       const contactNormalized = this.normalizeContactFields(client);
       const schemaNormalized = this.normalizeClientPlanBalances(contactNormalized);
@@ -1327,6 +1450,7 @@ export class Database {
     this.syncCollaboratorStudentRelationships();
     this.syncResponsibleStudentRelationships();
     this.syncPortalUsersFromClients();
+    this.syncResponsibleUsersLinkedStudents();
   }
 
   constructor() {
@@ -1366,6 +1490,9 @@ export class Database {
       orders: readArrayFile('orders.json'),
       ingredients: readArrayFile('ingredients.json'),
       errorTickets: [],
+      financialEntries: [],
+      financialSettingsByEnterprise: {},
+      systemSettings: {},
       devAssistantConfig: {
         autoPatchEnabled: true,
         updatedAt: '',
@@ -1397,6 +1524,13 @@ export class Database {
       orders: ensureArray(safeRaw.orders),
       ingredients: ensureArray(safeRaw.ingredients),
       errorTickets: ensureArray((safeRaw as any).errorTickets),
+      financialEntries: ensureArray((safeRaw as any).financialEntries),
+      financialSettingsByEnterprise: (safeRaw as any).financialSettingsByEnterprise && typeof (safeRaw as any).financialSettingsByEnterprise === 'object'
+        ? (safeRaw as any).financialSettingsByEnterprise
+        : {},
+      systemSettings: (safeRaw as any).systemSettings && typeof (safeRaw as any).systemSettings === 'object'
+        ? (safeRaw as any).systemSettings
+        : {},
       saasCashflowEntries: ensureArray((safeRaw as any).saasCashflowEntries),
       taskReminders: ensureArray((safeRaw as any).taskReminders),
       devAssistantConfig: (safeRaw as any).devAssistantConfig && typeof (safeRaw as any).devAssistantConfig === 'object'
@@ -1445,6 +1579,13 @@ export class Database {
     this.orders = data.orders;
     this.ingredients = data.ingredients;
     this.errorTickets = Array.isArray((data as any).errorTickets) ? (data as any).errorTickets : [];
+    this.financialEntries = Array.isArray((data as any).financialEntries) ? (data as any).financialEntries : [];
+    this.financialSettingsByEnterprise = (data as any).financialSettingsByEnterprise && typeof (data as any).financialSettingsByEnterprise === 'object'
+      ? (data as any).financialSettingsByEnterprise
+      : {};
+    this.systemSettings = (data as any).systemSettings && typeof (data as any).systemSettings === 'object'
+      ? (data as any).systemSettings
+      : {};
     this.saasCashflowEntries = Array.isArray((data as any).saasCashflowEntries) ? (data as any).saasCashflowEntries : [];
     this.taskReminders = Array.isArray((data as any).taskReminders) ? (data as any).taskReminders : [];
     this.devAssistantConfig = {
@@ -1457,6 +1598,9 @@ export class Database {
     this.whatsappStore = (data as any).whatsappStore && typeof (data as any).whatsappStore === 'object'
       ? (data as any).whatsappStore
       : {};
+    if (!this.whatsappStore.agendaByEnterprise || typeof this.whatsappStore.agendaByEnterprise !== 'object') {
+      this.whatsappStore.agendaByEnterprise = {};
+    }
   }
 
   private snapshotData(): DatabaseShape {
@@ -1474,6 +1618,9 @@ export class Database {
       orders: this.orders,
       ingredients: this.ingredients,
       errorTickets: this.errorTickets,
+      financialEntries: this.financialEntries,
+      financialSettingsByEnterprise: this.financialSettingsByEnterprise,
+      systemSettings: this.systemSettings,
       saasCashflowEntries: this.saasCashflowEntries,
       taskReminders: this.taskReminders,
       devAssistantConfig: this.devAssistantConfig,
@@ -1588,22 +1735,155 @@ export class Database {
       orders: this.orders.length,
       transactions: this.transactions.length,
       errorTickets: this.errorTickets.length,
+      financialEntries: this.financialEntries.length,
       saasCashflowEntries: this.saasCashflowEntries.length,
       taskReminders: this.taskReminders.length,
     };
   }
 
+  // ===== FINANCEIRO =====
+  getFinancialEntries(enterpriseId?: string) {
+    const normalizedEnterpriseId = String(enterpriseId || '').trim();
+    let result = [...this.financialEntries];
+    if (normalizedEnterpriseId) {
+      result = result.filter((entry: any) => String(entry?.enterpriseId || '').trim() === normalizedEnterpriseId);
+    }
+    return result.sort((a: any, b: any) => {
+      const aTs = new Date(String(a?.createdAt || '')).getTime();
+      const bTs = new Date(String(b?.createdAt || '')).getTime();
+      return (Number.isFinite(bTs) ? bTs : 0) - (Number.isFinite(aTs) ? aTs : 0);
+    });
+  }
+
+  createFinancialEntry(data: any) {
+    const nowIso = new Date().toISOString();
+    const next = {
+      id: String(data?.id || this.generateEntityId('fin')).trim(),
+      enterpriseId: String(data?.enterpriseId || '').trim(),
+      kind: String(data?.kind || 'MOVIMENTACAO').trim().toUpperCase(),
+      type: String(data?.type || 'DEBITO').trim().toUpperCase(),
+      title: String(data?.title || '').trim(),
+      description: String(data?.description || '').trim(),
+      amount: this.roundValue(this.toFiniteNumber(data?.amount, 0), 2),
+      category: String(data?.category || '').trim(),
+      referenceType: String(data?.referenceType || '').trim().toUpperCase(),
+      referenceId: String(data?.referenceId || '').trim(),
+      createdByUserId: String(data?.createdByUserId || '').trim(),
+      createdByName: String(data?.createdByName || '').trim(),
+      createdByRole: String(data?.createdByRole || '').trim().toUpperCase(),
+      createdAt: String(data?.createdAt || nowIso).trim(),
+      updatedAt: nowIso,
+    };
+    this.financialEntries.push(next);
+    this.saveData();
+    return next;
+  }
+
+  updateFinancialEntry(id: string, data: any) {
+    const index = this.financialEntries.findIndex((entry: any) => String(entry?.id || '').trim() === String(id || '').trim());
+    if (index === -1) return null;
+    this.financialEntries[index] = {
+      ...this.financialEntries[index],
+      ...data,
+      amount: data?.amount !== undefined
+        ? this.roundValue(this.toFiniteNumber(data?.amount, this.toFiniteNumber(this.financialEntries[index]?.amount, 0)), 2)
+        : this.roundValue(this.toFiniteNumber(this.financialEntries[index]?.amount, 0), 2),
+      updatedAt: new Date().toISOString(),
+    };
+    this.saveData();
+    return this.financialEntries[index];
+  }
+
+  deleteFinancialEntry(id: string) {
+    const index = this.financialEntries.findIndex((entry: any) => String(entry?.id || '').trim() === String(id || '').trim());
+    if (index === -1) return false;
+    this.financialEntries.splice(index, 1);
+    this.saveData();
+    return true;
+  }
+
+  getFinancialSettings(enterpriseId: string) {
+    const normalizedEnterpriseId = String(enterpriseId || '').trim();
+    if (!normalizedEnterpriseId) return {};
+    const current = this.financialSettingsByEnterprise[normalizedEnterpriseId];
+    return current && typeof current === 'object' ? current : {};
+  }
+
+  updateFinancialSettings(enterpriseId: string, patch: any) {
+    const normalizedEnterpriseId = String(enterpriseId || '').trim();
+    if (!normalizedEnterpriseId) return null;
+    const current = this.getFinancialSettings(normalizedEnterpriseId);
+    const next = {
+      ...current,
+      ...(patch && typeof patch === 'object' ? patch : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    this.financialSettingsByEnterprise[normalizedEnterpriseId] = next;
+    this.saveData();
+    return next;
+  }
+
+  // ===== AJUSTES =====
+  getSystemSettings() {
+    return this.systemSettings && typeof this.systemSettings === 'object'
+      ? this.systemSettings
+      : {};
+  }
+
+  updateSystemSettings(patch: any) {
+    this.systemSettings = {
+      ...this.getSystemSettings(),
+      ...(patch && typeof patch === 'object' ? patch : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    this.saveData();
+    return this.systemSettings;
+  }
+
   // ===== TASK REMINDERS =====
-  getTaskReminders() {
-    return [...this.taskReminders].sort((a: any, b: any) => {
+  getTaskReminders(filters?: { enterpriseIds?: string[]; createdByUserId?: string }) {
+    const allowedEnterpriseIds = Array.isArray(filters?.enterpriseIds)
+      ? filters?.enterpriseIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : [];
+    const createdByUserId = String(filters?.createdByUserId || '').trim();
+
+    let result = [...this.taskReminders];
+
+    if (allowedEnterpriseIds.length > 0) {
+      const allowedSet = new Set(allowedEnterpriseIds);
+      result = result.filter((item: any) => {
+        const itemEnterpriseId = String(item?.enterpriseId || '').trim();
+        if (itemEnterpriseId && allowedSet.has(itemEnterpriseId)) return true;
+        const visibleEnterpriseIds = Array.isArray(item?.visibleEnterpriseIds)
+          ? item.visibleEnterpriseIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+          : [];
+        return visibleEnterpriseIds.some((id: string) => allowedSet.has(id));
+      });
+    }
+
+    if (createdByUserId) {
+      result = result.filter((item: any) => String(item?.createdByUserId || '').trim() === createdByUserId);
+    }
+
+    return result.sort((a: any, b: any) => {
       const aTs = new Date(String(a?.reminderDate || a?.dueDate || a?.createdAt || '')).getTime();
       const bTs = new Date(String(b?.reminderDate || b?.dueDate || b?.createdAt || '')).getTime();
       return (Number.isFinite(aTs) ? aTs : 0) - (Number.isFinite(bTs) ? bTs : 0);
     });
   }
 
+  getTaskReminder(id: string) {
+    const normalizedId = String(id || '').trim();
+    if (!normalizedId) return null;
+    return this.taskReminders.find((item: any) => String(item?.id || '').trim() === normalizedId) || null;
+  }
+
   createTaskReminder(data: any) {
     const nowIso = new Date().toISOString();
+    const enterpriseId = String(data?.enterpriseId || '').trim();
+    const visibleEnterpriseIds = Array.isArray(data?.visibleEnterpriseIds)
+      ? data.visibleEnterpriseIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : (enterpriseId ? [enterpriseId] : []);
     const next = {
       id: String(data?.id || this.generateEntityId('task')),
       title: String(data?.title || '').trim(),
@@ -1612,11 +1892,14 @@ export class Database {
       reminderDate: String(data?.reminderDate || '').trim(),
       relatedData: String(data?.relatedData || '').trim(),
       status: String(data?.status || 'PENDING').trim().toUpperCase() === 'DONE' ? 'DONE' : 'PENDING',
+      enterpriseId,
+      visibleEnterpriseIds,
       createdAt: String(data?.createdAt || nowIso),
       updatedAt: nowIso,
       completedAt: String(data?.completedAt || '').trim(),
       createdByUserId: String(data?.createdByUserId || '').trim(),
       createdByName: String(data?.createdByName || '').trim(),
+      createdByRole: String(data?.createdByRole || '').trim().toUpperCase(),
     };
 
     this.taskReminders.push(next);
@@ -1784,6 +2067,7 @@ export class Database {
     const nowIso = new Date().toISOString();
     const allowedStatus = ['OPEN', 'IN_PROGRESS', 'RESOLVED'];
     const normalizedStatus = String(data?.status || 'OPEN').trim().toUpperCase();
+    const createdByRole = String(data?.userRole || data?.createdByRole || '').trim().toUpperCase();
     const newTicket = {
       id: String(data?.id || this.generateEntityId('ticket')),
       title: String(data?.title || 'Erro no sistema').trim() || 'Erro no sistema',
@@ -1801,7 +2085,8 @@ export class Database {
       userName: String(data?.userName || '').trim(),
       userEmail: String(data?.userEmail || '').trim(),
       userPhone: String(data?.userPhone || '').trim(),
-      userRole: String(data?.userRole || '').trim(),
+      userRole: createdByRole,
+      visibilityScope: ['OWNER', 'ADMIN', 'GERENTE'],
       patchAppliedByAi: Boolean(data?.patchAppliedByAi),
       aiPatch: data?.aiPatch && typeof data.aiPatch === 'object'
         ? {
@@ -1987,6 +2272,9 @@ export class Database {
     meta?: any;
     legends?: any[];
     events?: any[];
+    updatedByUserId?: string;
+    updatedByName?: string;
+    updatedByRole?: string;
   }) {
     const enterpriseId = String(payload.enterpriseId || '').trim();
     const schoolYear = Number(payload.schoolYear);
@@ -1999,6 +2287,9 @@ export class Database {
       meta: payload.meta && typeof payload.meta === 'object' ? payload.meta : {},
       legends: Array.isArray(payload.legends) ? payload.legends : [],
       events: Array.isArray(payload.events) ? payload.events : [],
+      updatedByUserId: String(payload.updatedByUserId || '').trim(),
+      updatedByName: String(payload.updatedByName || '').trim(),
+      updatedByRole: String(payload.updatedByRole || '').trim().toUpperCase(),
       updatedAt: new Date().toISOString(),
     };
 
@@ -2009,11 +2300,36 @@ export class Database {
     );
 
     if (existingIndex > -1) {
+      const previous = this.schoolCalendars[existingIndex] || {};
+      const previousHistory = Array.isArray(previous?.history) ? previous.history : [];
       normalized.id = String(this.schoolCalendars[existingIndex]?.id || `school_calendar_${Date.now()}`);
-      this.schoolCalendars[existingIndex] = normalized;
+      this.schoolCalendars[existingIndex] = {
+        ...normalized,
+        history: [
+          ...previousHistory,
+          {
+            at: normalized.updatedAt,
+            updatedByUserId: normalized.updatedByUserId,
+            updatedByName: normalized.updatedByName,
+            updatedByRole: normalized.updatedByRole,
+            action: 'UPSERT',
+          },
+        ].slice(-200),
+      };
     } else {
       normalized.id = `school_calendar_${Date.now()}`;
-      this.schoolCalendars.push(normalized);
+      this.schoolCalendars.push({
+        ...normalized,
+        history: [
+          {
+            at: normalized.updatedAt,
+            updatedByUserId: normalized.updatedByUserId,
+            updatedByName: normalized.updatedByName,
+            updatedByRole: normalized.updatedByRole,
+            action: 'CREATE',
+          },
+        ],
+      });
     }
 
     this.saveData();
@@ -2027,11 +2343,111 @@ export class Database {
       : {};
   }
 
+  private resolveAgendaWppType(enterpriseId: string, phone: string, unitType?: string) {
+    const normalizedPhone = this.normalizeBrazilPhone(phone);
+    const normalizedUnitType = this.normalizeUnitKind(unitType);
+    if (!normalizedPhone) {
+      return normalizedUnitType === 'RESTAURANTE' ? 'CLIENTE_RESTAURANTE' : 'LEAD';
+    }
+
+    const enterpriseClients = this.getClients(enterpriseId);
+    const linkedClient = enterpriseClients.find((client: any) => {
+      const phoneA = this.normalizeBrazilPhone(client?.phone || '');
+      const phoneB = this.normalizeBrazilPhone(client?.parentWhatsapp || '');
+      return normalizedPhone === phoneA || normalizedPhone === phoneB;
+    });
+
+    if (!linkedClient) {
+      return normalizedUnitType === 'RESTAURANTE' ? 'CLIENTE_RESTAURANTE' : 'LEAD';
+    }
+
+    if (normalizedUnitType === 'RESTAURANTE') return 'CLIENTE_RESTAURANTE';
+    return 'AGENDA_CLIENTES';
+  }
+
+  getAgendaWpp(enterpriseId: string, type?: string) {
+    const normalizedEnterpriseId = String(enterpriseId || '').trim();
+    if (!normalizedEnterpriseId) return [];
+    const normalizedType = String(type || '').trim().toUpperCase();
+    const store = this.getWhatsAppStore() as any;
+    const agendaByEnterprise = store?.agendaByEnterprise && typeof store.agendaByEnterprise === 'object'
+      ? store.agendaByEnterprise
+      : {};
+    const agenda = Array.isArray(agendaByEnterprise[normalizedEnterpriseId])
+      ? agendaByEnterprise[normalizedEnterpriseId]
+      : [];
+    if (!normalizedType) return agenda;
+    return agenda.filter((item: any) => String(item?.type || '').trim().toUpperCase() === normalizedType);
+  }
+
+  syncAgendaWppContacts(payload: {
+    enterpriseId: string;
+    unitType?: string;
+    contacts: Array<{ phone?: string; name?: string; chatId?: string; metadata?: any }>;
+    syncedByUserId?: string;
+    syncedByName?: string;
+  }) {
+    const enterpriseId = String(payload?.enterpriseId || '').trim();
+    if (!enterpriseId) return [];
+
+    const store = this.getWhatsAppStore() as any;
+    const agendaByEnterprise = store?.agendaByEnterprise && typeof store.agendaByEnterprise === 'object'
+      ? { ...store.agendaByEnterprise }
+      : {};
+
+    const current = Array.isArray(agendaByEnterprise[enterpriseId])
+      ? [...agendaByEnterprise[enterpriseId]]
+      : [];
+
+    const byPhone = new Map<string, any>();
+    current.forEach((entry: any) => {
+      const digits = this.normalizeBrazilPhone(entry?.phone || '');
+      if (digits) byPhone.set(digits, entry);
+    });
+
+    const nowIso = new Date().toISOString();
+    const contacts = Array.isArray(payload?.contacts) ? payload.contacts : [];
+    contacts.forEach((contact) => {
+      const phone = this.normalizeBrazilPhone(contact?.phone || '');
+      if (!phone) return;
+      const existing = byPhone.get(phone);
+      const agendaType = this.resolveAgendaWppType(enterpriseId, phone, payload?.unitType);
+      const next = {
+        id: String(existing?.id || this.generateEntityId('wppag')).trim(),
+        enterpriseId,
+        phone,
+        name: String(contact?.name || existing?.name || '').trim(),
+        chatId: String(contact?.chatId || existing?.chatId || '').trim(),
+        type: agendaType,
+        linkedClientId: String(existing?.linkedClientId || '').trim(),
+        metadata: contact?.metadata && typeof contact.metadata === 'object'
+          ? contact.metadata
+          : (existing?.metadata && typeof existing.metadata === 'object' ? existing.metadata : {}),
+        lastSyncedAt: nowIso,
+        syncedByUserId: String(payload?.syncedByUserId || '').trim(),
+        syncedByName: String(payload?.syncedByName || '').trim(),
+        createdAt: String(existing?.createdAt || nowIso).trim(),
+        updatedAt: nowIso,
+      };
+      byPhone.set(phone, next);
+    });
+
+    agendaByEnterprise[enterpriseId] = Array.from(byPhone.values())
+      .sort((a: any, b: any) => String(a?.name || '').localeCompare(String(b?.name || ''), 'pt-BR'));
+
+    this.updateWhatsAppStore({
+      agendaByEnterprise,
+    });
+
+    return agendaByEnterprise[enterpriseId];
+  }
+
   updateWhatsAppStore(patch: {
     history?: any;
     schedules?: any;
     aiConfig?: any;
     syncDiagnostics?: any;
+    agendaByEnterprise?: Record<string, any[]>;
     dispatchAutomationsByEnterprise?: Record<string, any>;
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
@@ -2041,6 +2457,9 @@ export class Database {
     this.whatsappStore = {
       ...this.getWhatsAppStore(),
       ...(patch && typeof patch === 'object' ? patch : {}),
+      agendaByEnterprise: patch?.agendaByEnterprise && typeof patch.agendaByEnterprise === 'object'
+        ? patch.agendaByEnterprise
+        : ((this.getWhatsAppStore() as any)?.agendaByEnterprise || {}),
       updatedAt: new Date().toISOString(),
     };
     this.saveData();
@@ -2107,7 +2526,19 @@ export class Database {
   }
 
   createUser(data: any) {
-    const newUser = { ...data, id: 'u_' + Date.now() };
+    const role = String(data?.role || '').trim().toUpperCase();
+    const newUser = {
+      ...data,
+      id: 'u_' + Date.now(),
+      relatedStudentIds: Array.isArray(data?.relatedStudentIds)
+        ? data.relatedStudentIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+        : [],
+      accessibleClientIds: Array.isArray(data?.accessibleClientIds)
+        ? data.accessibleClientIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+        : (role === 'RESPONSAVEL'
+          ? [String(data?.linkedClientId || '').trim()].filter(Boolean)
+          : []),
+    };
     this.users.push(newUser);
     this.saveData();
     return newUser;
@@ -2148,7 +2579,7 @@ export class Database {
   createProduct(data: any) {
     this.productSequence += 1;
     const nextId = `p_${String(this.productSequence).padStart(6, '0')}`;
-    const newProduct = { ...data, id: nextId };
+    const newProduct = this.normalizeProductRecord({ ...data, id: nextId });
     this.products.push(newProduct);
     this.saveData();
     return newProduct;
@@ -2157,7 +2588,7 @@ export class Database {
   updateProduct(id: string, data: any) {
     const index = this.products.findIndex(p => p.id === id);
     if (index > -1) {
-      this.products[index] = { ...this.products[index], ...data };
+      this.products[index] = this.normalizeProductRecord({ ...this.products[index], ...data });
       this.saveData();
       return this.products[index];
     }
@@ -2182,24 +2613,11 @@ export class Database {
       .map((record) => {
         const idRaw = String(record?.id || '').trim();
         const id = idRaw || this.generateEntityId('p');
-        return {
+        return this.normalizeProductRecord({
           ...record,
           id,
           enterpriseId: normalizedEnterpriseId || String(record?.enterpriseId || '').trim(),
-          name: String(record?.name || '').trim(),
-          category: String(record?.category || 'GERAL').trim() || 'GERAL',
-          subCategory: String(record?.subCategory || '').trim(),
-          ean: String(record?.ean || '').trim(),
-          unit: String(record?.unit || 'UN').trim().toUpperCase(),
-          controlsStock: record?.controlsStock !== false,
-          price: this.toFiniteNumber(record?.price, 0),
-          cost: this.toFiniteNumber(record?.cost, 0),
-          stock: this.toFiniteNumber(record?.stock, 0),
-          minStock: this.toFiniteNumber(record?.minStock, 0),
-          expiryDate: String(record?.expiryDate || '').trim(),
-          image: String(record?.image || '').trim(),
-          isActive: record?.isActive !== false,
-        };
+        });
       })
       .filter((record) => Boolean(record?.id) && Boolean(record?.enterpriseId) && Boolean(record?.name));
 
@@ -2268,11 +2686,28 @@ export class Database {
   }
 
   // ===== CLIENTS =====
-  getClients(enterpriseId?: string) {
-    if (enterpriseId) {
-      return this.clients.filter(c => c.enterpriseId === enterpriseId);
+  getClients(enterpriseId?: string, options?: { primaryOnly?: boolean; unitType?: string }) {
+    const normalizedEnterpriseId = String(enterpriseId || '').trim();
+    const unitType = this.normalizeUnitKind(options?.unitType);
+    let result = normalizedEnterpriseId
+      ? this.clients.filter((c) => String(c?.enterpriseId || '').trim() === normalizedEnterpriseId)
+      : this.clients;
+
+    if (options?.primaryOnly) {
+      result = result.filter((client: any) => {
+        const type = String(client?.type || '').trim().toUpperCase();
+        if (unitType === 'RESTAURANTE') {
+          return type === 'CLIENTE_RESTAURANTE' || type === 'CLIENTE';
+        }
+        return type === 'RESPONSAVEL' || type === 'COLABORADOR';
+      });
     }
-    return this.clients;
+
+    return result;
+  }
+
+  getPrimaryClients(enterpriseId?: string, unitType?: string) {
+    return this.getClients(enterpriseId, { primaryOnly: true, unitType });
   }
 
   getClient(id: string) {
@@ -2775,6 +3210,247 @@ export class Database {
     return this.transactions.find(t => t.id === id);
   }
 
+  private transactionAffectsStock(tx: any) {
+    const txType = this.normalizeToken(tx?.type);
+    const txDesc = this.normalizeToken(tx?.description || tx?.item);
+    const hasItems = Array.isArray(tx?.items) && tx.items.length > 0;
+    if (!hasItems) return false;
+    if (txDesc.includes('AUDITORIA') || txDesc.includes('ESTORNO') || txDesc.includes('REVERS')) return false;
+    return txType === 'CONSUMO' || txType === 'DEBIT' || txType === 'DEBITO' || txType === 'VENDA_BALCAO';
+  }
+
+  private applyStockDeltaFromTransactionItems(tx: any, factor: number) {
+    if (!this.transactionAffectsStock(tx)) return;
+    const enterpriseId = String(tx?.enterpriseId || '').trim();
+    if (!enterpriseId) return;
+
+    const items = Array.isArray(tx?.items) ? tx.items : [];
+    items.forEach((item: any) => {
+      const quantity = Math.max(0, this.toFiniteNumber(item?.quantity, 0));
+      if (!quantity) return;
+
+      const explicitProductId = String(item?.productId || item?.id || '').trim();
+      const itemName = this.normalizeToken(item?.name || item?.productName || '');
+
+      const productIndex = this.products.findIndex((product: any) => {
+        if (String(product?.enterpriseId || '').trim() !== enterpriseId) return false;
+        if (explicitProductId && String(product?.id || '').trim() === explicitProductId) return true;
+        if (!explicitProductId && itemName && this.normalizeToken(product?.name) === itemName) return true;
+        return false;
+      });
+      if (productIndex < 0) return;
+
+      const current = this.products[productIndex] || {};
+      if (current?.controlsStock === false) return;
+      const currentStock = this.toFiniteNumber(current?.stock, 0);
+      const nextStock = this.roundValue(currentStock + (quantity * factor), 4);
+      this.products[productIndex] = {
+        ...current,
+        stock: nextStock,
+      };
+    });
+  }
+
+  private computeFinancialImpactForTransaction(tx: any) {
+    const amountRaw = this.resolveTransactionAmount(tx);
+    const amount = Math.max(0, Number.isFinite(amountRaw) ? amountRaw : 0);
+    if (!amount) return { revenue: 0, expense: 0 };
+
+    const financeKind = this.normalizeToken(tx?.financeKind);
+    if (financeKind === 'RECEITA') return { revenue: amount, expense: 0 };
+    if (financeKind === 'DESPESA') return { revenue: 0, expense: amount };
+
+    const description = this.normalizeToken(tx?.description || tx?.item);
+    const rawType = this.normalizeToken(tx?.type);
+    const paymentMethodRaw = this.normalizeToken(tx?.method || tx?.paymentMethod);
+    const paymentTokens = paymentMethodRaw
+      .split('+')
+      .map((token: string) => token.trim())
+      .filter(Boolean);
+    const allowedPdvMethods = new Set(['DEBITO', 'PIX', 'CREDITO', 'DINHEIRO']);
+    const hasAllowedPdvMethod = paymentTokens.some((token: string) => allowedPdvMethods.has(token));
+
+    const isCantinaCredit = description.includes('CREDITO LIVRE CANTINA');
+    const isPlanCredit = description.includes('RECARGA DE PLANO') || description.includes('CREDITO PLANO');
+    const isPdvSale = description.includes('COMPRA PDV') && hasAllowedPdvMethod;
+    const isLegacyCounterSale = rawType === 'VENDA_BALCAO' && hasAllowedPdvMethod;
+
+    if (isCantinaCredit || isPlanCredit || isPdvSale || isLegacyCounterSale) {
+      return { revenue: amount, expense: 0 };
+    }
+
+    return { revenue: 0, expense: 0 };
+  }
+
+  private collectTransactionIdsForDeletion(
+    targetTransaction: any,
+    normalizedId: string,
+    options?: { includeOriginCredit?: boolean }
+  ) {
+    const idsToDelete = new Set<string>([normalizedId]);
+    const includeOriginCredit = Boolean(options?.includeOriginCredit);
+
+    const isPlanCreditTx = (tx: any) => {
+      const txType = this.normalizeToken(tx?.type);
+      if (txType !== 'CREDIT' && txType !== 'CREDITO') return false;
+      const txDesc = this.normalizeToken(tx?.description || tx?.item);
+      if (txDesc.includes('ESTORNO') || txDesc.includes('REVERS')) return false;
+      const txMethod = this.normalizeToken(tx?.paymentMethod || tx?.method);
+      const txPlanId = String(tx?.planId || tx?.originPlanId || '').trim();
+      const txPlan = this.normalizeToken(tx?.plan || tx?.planName || '');
+      return Boolean(txPlanId) || txMethod.includes('PLANO') || (txPlan.length > 0 && !['AVULSO', 'PREPAGO', 'GERAL', 'VENDA'].includes(txPlan));
+    };
+
+    if (includeOriginCredit) {
+      const targetType = this.normalizeToken(targetTransaction?.type);
+      if (targetType === 'CONSUMO') {
+        const originId = String(targetTransaction?.originTransactionId || '').trim();
+        if (originId) {
+          const originTx = this.transactions.find((tx: any) => String(tx?.id || '').trim() === originId);
+          if (originTx && isPlanCreditTx(originTx)) {
+            idsToDelete.add(originId);
+          }
+        }
+      }
+    }
+
+    // Remove a transação solicitada e toda a cadeia vinculada por originTransactionId.
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      this.transactions.forEach((tx: any) => {
+        const txId = String(tx?.id || '').trim();
+        const originId = String(tx?.originTransactionId || '').trim();
+        if (!txId || !originId) return;
+        if (idsToDelete.has(originId) && !idsToDelete.has(txId)) {
+          idsToDelete.add(txId);
+          expanded = true;
+        }
+      });
+    }
+
+    const isPlanCreditTarget = isPlanCreditTx(targetTransaction);
+
+    if (isPlanCreditTarget) {
+      const targetId = String(targetTransaction?.id || '').trim();
+      const targetClientId = String(targetTransaction?.clientId || '').trim();
+      const targetPlanId = String(targetTransaction?.planId || targetTransaction?.originPlanId || '').trim();
+      const targetPlanName = this.normalizeToken(targetTransaction?.plan || targetTransaction?.planName || '');
+      const targetPurchaseRef = String(targetTransaction?.purchaseRefCode || '').trim();
+
+      const isAutoDeliveryConsumption = (tx: any) => {
+        const desc = this.normalizeToken(tx?.description || tx?.item);
+        return desc.includes('BAIXA RETROATIVA AUTOMATICA DO PLANO') || desc.includes('ENTREGA DO DIA');
+      };
+
+      this.transactions.forEach((tx: any) => {
+        const txId = String(tx?.id || '').trim();
+        if (!txId || idsToDelete.has(txId)) return;
+        if (this.normalizeToken(tx?.type) !== 'CONSUMO') return;
+        if (!isAutoDeliveryConsumption(tx)) return;
+
+        const txClientId = String(tx?.clientId || '').trim();
+        if (!targetClientId || txClientId !== targetClientId) return;
+
+        const txPlanId = String(tx?.planId || tx?.originPlanId || '').trim();
+        const txPlanName = this.normalizeToken(tx?.plan || tx?.planName || '');
+        const samePlan = (targetPlanId && txPlanId && targetPlanId === txPlanId)
+          || (targetPlanName && txPlanName && targetPlanName === txPlanName);
+        if (!samePlan) return;
+
+        // Hardening: só remove consumos automáticos com vínculo forte.
+        const txOrigin = String(tx?.originTransactionId || '').trim();
+        const txPurchaseRef = String(tx?.purchaseRefCode || '').trim();
+        const hasStrongLink = (targetId && txOrigin === targetId)
+          || (targetPurchaseRef && txPurchaseRef && targetPurchaseRef === txPurchaseRef);
+        if (!hasStrongLink) return;
+
+        idsToDelete.add(txId);
+      });
+    }
+
+    return idsToDelete;
+  }
+
+  getTransactionDeletePreview(id: string, options?: { includeOriginCredit?: boolean }) {
+    const normalizedId = String(id || '').trim();
+    if (!normalizedId) return null;
+
+    const targetTransaction = this.transactions.find((t: any) => String(t?.id || '').trim() === normalizedId) as any;
+    if (!targetTransaction) return null;
+
+    const includeOriginCredit = Boolean(options?.includeOriginCredit);
+    const idsToDelete = this.collectTransactionIdsForDeletion(targetTransaction, normalizedId, { includeOriginCredit });
+    const removedTransactions = this.transactions.filter((tx: any) => {
+      const txId = String(tx?.id || '').trim();
+      return Boolean(txId) && idsToDelete.has(txId);
+    });
+
+    const targetType = this.normalizeToken(targetTransaction?.type);
+    const linkedOriginId = String(targetTransaction?.originTransactionId || '').trim();
+    const linkedOriginTransaction = linkedOriginId
+      ? this.transactions.find((tx: any) => String(tx?.id || '').trim() === linkedOriginId) || null
+      : null;
+    const linkedOriginType = this.normalizeToken((linkedOriginTransaction as any)?.type);
+    const linkedOriginDescription = this.normalizeToken((linkedOriginTransaction as any)?.description || (linkedOriginTransaction as any)?.item);
+    const linkedOriginIsPlanCredit = Boolean(linkedOriginTransaction)
+      && (linkedOriginType === 'CREDIT' || linkedOriginType === 'CREDITO')
+      && !linkedOriginDescription.includes('ESTORNO')
+      && !linkedOriginDescription.includes('REVERS');
+    const canAlsoDeleteOriginCredit = targetType === 'CONSUMO' && linkedOriginIsPlanCredit;
+
+    const removedFinancialTotals = removedTransactions.reduce((acc: { revenue: number; expense: number }, tx: any) => {
+      const impact = this.computeFinancialImpactForTransaction(tx);
+      return {
+        revenue: Number((acc.revenue + impact.revenue).toFixed(2)),
+        expense: Number((acc.expense + impact.expense).toFixed(2)),
+      };
+    }, { revenue: 0, expense: 0 });
+
+    const stockRollbackByProduct: Record<string, { productId: string; productName: string; quantity: number }> = {};
+    removedTransactions.forEach((tx: any) => {
+      if (tx?.stockEffectsApplied === false) return;
+      if (!this.transactionAffectsStock(tx)) return;
+      const items = Array.isArray(tx?.items) ? tx.items : [];
+      items.forEach((item: any) => {
+        const quantity = Math.max(0, this.toFiniteNumber(item?.quantity, 0));
+        if (!quantity) return;
+        const productId = String(item?.productId || item?.id || '').trim() || `name:${this.normalizeToken(item?.name || item?.productName || '')}`;
+        if (!productId) return;
+        const current = stockRollbackByProduct[productId] || {
+          productId,
+          productName: String(item?.name || item?.productName || 'Produto').trim() || 'Produto',
+          quantity: 0,
+        };
+        current.quantity = Number((current.quantity + quantity).toFixed(4));
+        stockRollbackByProduct[productId] = current;
+      });
+    });
+
+    return {
+      targetId: normalizedId,
+      targetType: String(targetTransaction?.type || '').trim().toUpperCase(),
+      targetDescription: String(targetTransaction?.description || targetTransaction?.item || '').trim(),
+      includeOriginCredit,
+      canAlsoDeleteOriginCredit,
+      linkedOriginTransactionId: canAlsoDeleteOriginCredit ? linkedOriginId : '',
+      linkedOriginDescription: canAlsoDeleteOriginCredit
+        ? String((linkedOriginTransaction as any)?.description || (linkedOriginTransaction as any)?.item || '').trim()
+        : '',
+      warnings: canAlsoDeleteOriginCredit && !includeOriginCredit
+        ? [
+          'Este consumo está vinculado a uma recarga de plano que permanecerá ativa.',
+          'Se quiser remover também a recarga e toda a cadeia vinculada, use includeOriginCredit=true.',
+        ]
+        : [],
+      deleteCount: idsToDelete.size,
+      idsToDelete: Array.from(idsToDelete.values()),
+      removedFinancialTotals,
+      stockRollbackPreview: Object.values(stockRollbackByProduct),
+      removedTransactions,
+    };
+  }
+
   createTransaction(data: any) {
     const now = new Date();
     const nowIso = now.toISOString();
@@ -2784,10 +3460,17 @@ export class Database {
 
     const parsedAmount = Number(data?.amount ?? data?.total ?? data?.value ?? 0);
     const amount = Number.isFinite(parsedAmount) ? parsedAmount : 0;
+    const normalizedPaymentMethod = this.normalizeToken(data?.paymentMethod || data?.method || '');
+    const normalizedTypeFromPayload = this.normalizeToken(data?.type);
+    const transactionKind = String(data?.kind || '').trim().toUpperCase()
+      || (normalizedTypeFromPayload === 'CONSUMO' || normalizedPaymentMethod.includes('DINHEIRO') || normalizedPaymentMethod.includes('CARTAO')
+        ? 'VENDA'
+        : 'MOVIMENTACAO');
 
     const newTransaction = {
       ...data,
       id: data?.id || `t_${Date.now()}_${randomSuffix}`,
+      kind: transactionKind,
       type: data?.type || 'DEBIT',
       amount,
       total: Number(data?.total ?? amount) || amount,
@@ -2796,6 +3479,16 @@ export class Database {
       timestamp: data?.timestamp || nowIso,
       date: data?.date || date,
       time: data?.time || time,
+      auditTrail: Array.isArray(data?.auditTrail)
+        ? data.auditTrail
+        : [{
+            event: 'CREATED',
+            at: nowIso,
+            byUserId: String(data?.createdByUserId || '').trim(),
+            byName: String(data?.createdByName || '').trim(),
+            byRole: String(data?.createdByRole || '').trim().toUpperCase(),
+            note: 'Transação criada',
+          }],
     };
 
     const normalizedType = this.normalizeToken(newTransaction?.type);
@@ -2854,6 +3547,32 @@ export class Database {
 
     this.transactions.push(newTransaction);
 
+    const stockEffectsApplied = this.transactionAffectsStock(newTransaction);
+    if (stockEffectsApplied) {
+      // Venda/consumo com itens reduz estoque no momento da criação.
+      this.applyStockDeltaFromTransactionItems(newTransaction, -1);
+    }
+    (newTransaction as any).stockEffectsApplied = stockEffectsApplied;
+
+    // Espelha qualquer lançamento financeiro no livro caixa por unidade.
+    this.createFinancialEntry({
+      enterpriseId: String(newTransaction?.enterpriseId || '').trim(),
+      kind: String(newTransaction?.kind || 'MOVIMENTACAO').trim().toUpperCase(),
+      type: this.normalizeToken(newTransaction?.type).includes('CREDIT') || this.normalizeToken(newTransaction?.type).includes('CREDITO')
+        ? 'CREDITO'
+        : 'DEBITO',
+      title: String(newTransaction?.description || newTransaction?.item || 'Transação').trim() || 'Transação',
+      description: String(newTransaction?.description || '').trim(),
+      amount: amount,
+      category: String(newTransaction?.category || '').trim(),
+      referenceType: 'TRANSACTION',
+      referenceId: String(newTransaction?.id || '').trim(),
+      createdByUserId: String(newTransaction?.createdByUserId || '').trim(),
+      createdByName: String(newTransaction?.createdByName || '').trim(),
+      createdByRole: String(newTransaction?.createdByRole || '').trim().toUpperCase(),
+      createdAt: String(newTransaction?.timestamp || nowIso),
+    });
+
     if (this.isDeliveryPlanTransaction(newTransaction)) {
       const clientId = String(newTransaction?.clientId || '').trim();
       const clientIndex = clientId
@@ -2881,6 +3600,7 @@ export class Database {
       }
     }
 
+
     this.saveData();
     return newTransaction;
   }
@@ -2896,13 +3616,54 @@ export class Database {
       const updatePayload = { ...data };
       delete (updatePayload as any).applyClientEffects;
 
+      const currentAudit = Array.isArray(previous?.auditTrail) ? previous.auditTrail : [];
+      const nextAudit = [
+        ...currentAudit,
+        {
+          event: 'UPDATED',
+          at: new Date().toISOString(),
+          byUserId: String(updatePayload?.updatedByUserId || updatePayload?.createdByUserId || '').trim(),
+          byName: String(updatePayload?.updatedByName || updatePayload?.createdByName || '').trim(),
+          byRole: String(updatePayload?.updatedByRole || updatePayload?.createdByRole || '').trim().toUpperCase(),
+          note: String(updatePayload?.auditNote || 'Transação atualizada').trim(),
+        },
+      ];
+
       this.transactions[index] = {
         ...previous,
         ...updatePayload,
         id: previous.id,
         amount: nextAmount,
-        total: Number(updatePayload?.total ?? nextAmount) || nextAmount
+        total: Number(updatePayload?.total ?? nextAmount) || nextAmount,
+        auditTrail: nextAudit,
       };
+
+      const previousStockApplied = previous?.stockEffectsApplied !== false && this.transactionAffectsStock(previous);
+      if (previousStockApplied) {
+        this.applyStockDeltaFromTransactionItems(previous, +1);
+      }
+      const nextStockApplied = this.transactionAffectsStock(this.transactions[index]);
+      if (nextStockApplied) {
+        this.applyStockDeltaFromTransactionItems(this.transactions[index], -1);
+      }
+      (this.transactions[index] as any).stockEffectsApplied = nextStockApplied;
+
+      const financialEntry = this.financialEntries.find((entry: any) =>
+        String(entry?.referenceType || '').trim().toUpperCase() === 'TRANSACTION'
+        && String(entry?.referenceId || '').trim() === String(previous?.id || '').trim()
+      );
+      if (financialEntry?.id) {
+        this.updateFinancialEntry(String(financialEntry.id), {
+          kind: String(this.transactions[index]?.kind || financialEntry?.kind || 'MOVIMENTACAO').trim().toUpperCase(),
+          type: this.normalizeToken(this.transactions[index]?.type).includes('CREDIT') || this.normalizeToken(this.transactions[index]?.type).includes('CREDITO')
+            ? 'CREDITO'
+            : 'DEBITO',
+          title: String(this.transactions[index]?.description || this.transactions[index]?.item || financialEntry?.title || 'Transação').trim(),
+          description: String(this.transactions[index]?.description || '').trim(),
+          amount: this.resolveTransactionAmount(this.transactions[index]),
+          category: String(this.transactions[index]?.category || financialEntry?.category || '').trim(),
+        });
+      }
 
       if (applyClientEffects) {
         const amountFromTx = (tx: any) => {
@@ -2982,95 +3743,25 @@ export class Database {
     return null;
   }
 
-  deleteTransaction(id: string, audit?: { deletedByName?: string; deleteReason?: string; requesterUserId?: string; requesterRole?: string }) {
+  deleteTransaction(
+    id: string,
+    audit?: {
+      deletedByName?: string;
+      deleteReason?: string;
+      requesterUserId?: string;
+      requesterRole?: string;
+      includeOriginCredit?: boolean;
+    }
+  ) {
     const normalizedId = String(id || '').trim();
     if (!normalizedId) return false;
 
     const targetTransaction = this.transactions.find((t: any) => String(t?.id || '').trim() === normalizedId) as any;
     if (!targetTransaction) return false;
 
-    // Remove a transação solicitada e toda a cadeia vinculada por originTransactionId.
-    const idsToDelete = new Set<string>([normalizedId]);
-    let expanded = true;
-    while (expanded) {
-      expanded = false;
-      this.transactions.forEach((tx: any) => {
-        const txId = String(tx?.id || '').trim();
-        const originId = String(tx?.originTransactionId || '').trim();
-        if (!txId || !originId) return;
-        if (idsToDelete.has(originId) && !idsToDelete.has(txId)) {
-          idsToDelete.add(txId);
-          expanded = true;
-        }
-      });
-    }
-
-    const isPlanCreditTarget = (() => {
-      const txType = this.normalizeToken(targetTransaction?.type);
-      if (txType !== 'CREDIT' && txType !== 'CREDITO') return false;
-      const txDesc = this.normalizeToken(targetTransaction?.description || targetTransaction?.item);
-      if (txDesc.includes('ESTORNO') || txDesc.includes('REVERS')) return false;
-      const txMethod = this.normalizeToken(targetTransaction?.paymentMethod || targetTransaction?.method);
-      const txPlanId = String(targetTransaction?.planId || targetTransaction?.originPlanId || '').trim();
-      const txPlan = this.normalizeToken(targetTransaction?.plan || targetTransaction?.planName || '');
-      return Boolean(txPlanId) || txMethod.includes('PLANO') || (txPlan.length > 0 && !['AVULSO', 'PREPAGO', 'GERAL', 'VENDA'].includes(txPlan));
-    })();
-
-    if (isPlanCreditTarget) {
-      const targetClientId = String(targetTransaction?.clientId || '').trim();
-      const targetPlanId = String(targetTransaction?.planId || targetTransaction?.originPlanId || '').trim();
-      const targetPlanName = this.normalizeToken(targetTransaction?.plan || targetTransaction?.planName || '');
-      const targetTimestamp = (() => {
-        const raw = String(targetTransaction?.timestamp || '').trim();
-        if (raw) {
-          const parsed = new Date(raw).getTime();
-          if (Number.isFinite(parsed)) return parsed;
-        }
-        const fallback = new Date(`${String(targetTransaction?.date || '').trim()}T${String(targetTransaction?.time || '00:00').trim() || '00:00'}`).getTime();
-        return Number.isFinite(fallback) ? fallback : 0;
-      })();
-
-      const isAutoDeliveryConsumption = (tx: any) => {
-        const desc = this.normalizeToken(tx?.description || tx?.item);
-        return desc.includes('BAIXA RETROATIVA AUTOMATICA DO PLANO') || desc.includes('ENTREGA DO DIA');
-      };
-
-      this.transactions.forEach((tx: any) => {
-        const txId = String(tx?.id || '').trim();
-        if (!txId || idsToDelete.has(txId)) return;
-
-        const txType = this.normalizeToken(tx?.type);
-        if (txType !== 'CONSUMO') return;
-        if (!isAutoDeliveryConsumption(tx)) return;
-
-        const txClientId = String(tx?.clientId || '').trim();
-        if (!targetClientId || txClientId !== targetClientId) return;
-
-        const txPlanId = String(tx?.planId || tx?.originPlanId || '').trim();
-        const txPlanName = this.normalizeToken(tx?.plan || tx?.planName || '');
-        const samePlan = (targetPlanId && txPlanId && targetPlanId === txPlanId)
-          || (targetPlanName && txPlanName && targetPlanName === txPlanName);
-        if (!samePlan) return;
-
-        const txTs = (() => {
-          const raw = String(tx?.timestamp || '').trim();
-          if (raw) {
-            const parsed = new Date(raw).getTime();
-            if (Number.isFinite(parsed)) return parsed;
-          }
-          const fallback = new Date(`${String(tx?.date || '').trim()}T${String(tx?.time || '00:00').trim() || '00:00'}`).getTime();
-          return Number.isFinite(fallback) ? fallback : 0;
-        })();
-
-        // Consumos automáticos dessa compra são gravados próximos ao timestamp da recarga.
-        if (targetTimestamp > 0 && txTs > 0) {
-          const delta = Math.abs(txTs - targetTimestamp);
-          if (delta <= (10 * 60 * 1000)) {
-            idsToDelete.add(txId);
-          }
-        }
-      });
-    }
+    const idsToDelete = this.collectTransactionIdsForDeletion(targetTransaction, normalizedId, {
+      includeOriginCredit: Boolean(audit?.includeOriginCredit),
+    });
 
     const removedTransactions = this.transactions.filter((tx: any) => {
       const txId = String(tx?.id || '').trim();
@@ -3144,38 +3835,15 @@ export class Database {
       this.clients[index] = clientRef;
     });
 
-    const computeFinancialImpact = (tx: any) => {
-      const amount = Math.max(0, amountFromTx(tx));
-      if (!amount) return { revenue: 0, expense: 0 };
-
-      const financeKind = this.normalizeToken(tx?.financeKind);
-      if (financeKind === 'RECEITA') return { revenue: amount, expense: 0 };
-      if (financeKind === 'DESPESA') return { revenue: 0, expense: amount };
-
-      const description = this.normalizeToken(tx?.description || tx?.item);
-      const rawType = this.normalizeToken(tx?.type);
-      const paymentMethodRaw = this.normalizeToken(tx?.method || tx?.paymentMethod);
-      const paymentTokens = paymentMethodRaw
-        .split('+')
-        .map((token: string) => token.trim())
-        .filter(Boolean);
-      const allowedPdvMethods = new Set(['DEBITO', 'PIX', 'CREDITO', 'DINHEIRO']);
-      const hasAllowedPdvMethod = paymentTokens.some((token: string) => allowedPdvMethods.has(token));
-
-      const isCantinaCredit = description.includes('CREDITO LIVRE CANTINA');
-      const isPlanCredit = description.includes('RECARGA DE PLANO') || description.includes('CREDITO PLANO');
-      const isPdvSale = description.includes('COMPRA PDV') && hasAllowedPdvMethod;
-      const isLegacyCounterSale = rawType === 'VENDA_BALCAO' && hasAllowedPdvMethod;
-
-      if (isCantinaCredit || isPlanCredit || isPdvSale || isLegacyCounterSale) {
-        return { revenue: amount, expense: 0 };
-      }
-
-      return { revenue: 0, expense: 0 };
-    };
+    // Rollback explícito de estoque para vendas/consumos com itens.
+    removedTransactions.forEach((tx: any) => {
+      const shouldRollbackStock = tx?.stockEffectsApplied !== false && this.transactionAffectsStock(tx);
+      if (!shouldRollbackStock) return;
+      this.applyStockDeltaFromTransactionItems(tx, +1);
+    });
 
     const removedFinancialTotals = removedTransactions.reduce((acc: { revenue: number; expense: number }, tx: any) => {
-      const impact = computeFinancialImpact(tx);
+      const impact = this.computeFinancialImpactForTransaction(tx);
       return {
         revenue: Number((acc.revenue + impact.revenue).toFixed(2)),
         expense: Number((acc.expense + impact.expense).toFixed(2)),
@@ -3186,6 +3854,14 @@ export class Database {
     this.transactions = this.transactions.filter((tx: any) => {
       const txId = String(tx?.id || '').trim();
       return !txId || !idsToDelete.has(txId);
+    });
+
+    this.financialEntries = this.financialEntries.filter((entry: any) => {
+      const referenceType = String(entry?.referenceType || '').trim().toUpperCase();
+      const referenceId = String(entry?.referenceId || '').trim();
+      if (referenceType !== 'TRANSACTION') return true;
+      if (!referenceId) return true;
+      return !idsToDelete.has(referenceId);
     });
 
     if (this.transactions.length === before) return false;
@@ -3297,9 +3973,11 @@ export class Database {
     const status = ['AGUARDANDO_APROVACAO_OWNER', 'ABERTO', 'ENTREGUE', 'CANCELADO'].includes(normalizedStatus)
       ? normalizedStatus
       : 'ABERTO';
+    const shortRef = this.generateShortReference('ord', 7);
     const newOrder = {
       ...data,
-      id: 'ord_' + Date.now(),
+      id: String(data?.id || shortRef).trim(),
+      referenceCode: String(data?.referenceCode || shortRef).trim(),
       enterpriseId: String(data?.enterpriseId || '').trim(),
       enterpriseName: String(data?.enterpriseName || '').trim(),
       status,
@@ -3351,11 +4029,13 @@ export class Database {
     const unit = String(record?.unit || 'g').trim().toLowerCase();
     const safeUnit = unit === 'ml' || unit === 'un' ? unit : 'g';
     const normalizedSource = String(record?.source || '').trim().toUpperCase();
+    const requestedCategory = String(record?.category || '').trim();
+    const resolvedCategory = NATIVE_INGREDIENT_CATEGORIES.includes(requestedCategory) ? requestedCategory : 'Outros';
     return {
       ...record,
       id: String(record?.id || this.generateEntityId('ing')).trim(),
       name: String(record?.name || '').trim(),
-      category: String(record?.category || 'Outros').trim() || 'Outros',
+      category: resolvedCategory,
       unit: safeUnit,
       calories: this.roundValue(this.toFiniteNumber(record?.calories, 0), 2),
       proteins: this.roundValue(this.toFiniteNumber(record?.proteins, 0), 2),
@@ -3388,6 +4068,10 @@ export class Database {
   getIngredients(includeInactive = false) {
     if (includeInactive) return this.ingredients;
     return this.ingredients.filter((ingredient) => ingredient?.isActive !== false);
+  }
+
+  getIngredientCategories() {
+    return [...NATIVE_INGREDIENT_CATEGORIES];
   }
 
   getIngredient(id: string) {

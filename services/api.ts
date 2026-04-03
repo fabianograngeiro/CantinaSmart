@@ -797,6 +797,27 @@ export class ApiService {
     return response.json();
   }
 
+  static async getPlanCreditValidationPreview(data: {
+    enterpriseId: string;
+    clientId: string;
+    type: 'CREDIT' | 'CREDITO';
+    planId?: string;
+    planName?: string;
+    plan?: string;
+    selectedDates: string[];
+    amount?: number;
+    planUnitValue?: number;
+  }) {
+    const response = await fetch(`${API_URL}/transactions/plan-credit-preview`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Falha ao buscar preview da recarga de plano');
+    const payload = await response.json();
+    return payload?.preview || payload;
+  }
+
   static async updateTransaction(id: string, data: any) {
     const response = await fetch(`${API_URL}/transactions/${id}`, {
       method: 'PUT',
@@ -807,13 +828,32 @@ export class ApiService {
     return response.json();
   }
 
-  static async deleteTransaction(id: string, metadata?: { deletedByName?: string; deleteReason?: string }) {
+  static async getTransactionDeletePreview(id: string, options?: { includeOriginCredit?: boolean }) {
+    const includeOriginCredit = options?.includeOriginCredit ? 'true' : undefined;
+    const response = await fetch(this.buildApiUrl(`/transactions/${id}/delete-preview`, {
+      includeOriginCredit,
+    }), {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) throw new Error('Falha ao buscar preview da exclusão');
+    const payload = await response.json();
+    return payload?.preview || payload;
+  }
+
+  static async deleteTransaction(
+    id: string,
+    metadata?: { deletedByName?: string; deleteReason?: string; includeOriginCredit?: boolean }
+  ) {
+    const includeOriginCredit = Boolean(metadata?.includeOriginCredit);
+    const preview = await this.getTransactionDeletePreview(id, { includeOriginCredit });
     const response = await fetch(`${API_URL}/transactions/${id}`, {
       method: 'DELETE',
       headers: this.getHeaders(),
       body: JSON.stringify({
         deletedByName: String(metadata?.deletedByName || '').trim(),
         deleteReason: String(metadata?.deleteReason || '').trim(),
+        includeOriginCredit,
+        confirmDeleteCount: Number(preview?.deleteCount || 0),
       }),
     });
     if (!response.ok) throw new Error('Falha ao excluir transação');

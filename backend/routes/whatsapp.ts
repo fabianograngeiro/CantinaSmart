@@ -948,6 +948,58 @@ router.get('/chats', async (_req: Request, res: Response) => {
   }
 });
 
+router.get('/agenda', async (req: AuthRequest, res: Response) => {
+  try {
+    const enterpriseId = resolveEnterpriseIdOrReject(req, res);
+    if (!enterpriseId) return;
+    const type = String(req.query.type || '').trim().toUpperCase();
+    const agenda = db.getAgendaWpp(enterpriseId, type || undefined);
+    return res.json({ success: true, agenda });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao carregar agenda WPP.',
+    });
+  }
+});
+
+router.post('/agenda/sync', async (req: AuthRequest, res: Response) => {
+  try {
+    const enterpriseId = resolveEnterpriseIdOrReject(req, res);
+    if (!enterpriseId) return;
+
+    const unitType = String(req.body?.unitType || 'CANTINA').trim().toUpperCase();
+    const incomingContacts = Array.isArray(req.body?.contacts) ? req.body.contacts : null;
+    const contacts = incomingContacts || (await whatsappSession.getClientChats());
+
+    const normalized = (Array.isArray(contacts) ? contacts : []).map((entry: any) => ({
+      phone: String(entry?.phone || extractPhoneFromChatId(String(entry?.chatId || ''))).trim(),
+      name: String(entry?.name || entry?.contactName || '').trim(),
+      chatId: String(entry?.chatId || '').trim(),
+      metadata: entry?.metadata && typeof entry.metadata === 'object' ? entry.metadata : {},
+    }));
+
+    const agenda = db.syncAgendaWppContacts({
+      enterpriseId,
+      unitType,
+      contacts: normalized,
+      syncedByUserId: String(req.userId || '').trim(),
+      syncedByName: String((req.userId ? db.getUser(String(req.userId || '').trim())?.name : '') || '').trim(),
+    });
+
+    return res.json({
+      success: true,
+      count: Array.isArray(agenda) ? agenda.length : 0,
+      agenda,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao sincronizar agenda WPP.',
+    });
+  }
+});
+
 router.get('/chats/:chatId/messages', async (req: AuthRequest, res: Response) => {
   try {
     const enterpriseId = resolveEnterpriseIdOrReject(req, res);

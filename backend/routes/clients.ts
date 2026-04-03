@@ -1,7 +1,4 @@
 import { Router, Request, Response } from 'express';
-import path from 'path';
-import { promises as fs } from 'fs';
-import { fileURLToPath } from 'url';
 import { db } from '../database.js';
 import { processOverduePlanConsumptions } from '../services/planConsumptionAutoProcessor.js';
 import { validateClient, validateClientUpdate } from '../utils/validation.js';
@@ -9,21 +6,6 @@ import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { canAccessAllEnterprises, requesterCanAccessEnterprise } from '../utils/enterpriseAccess.js';
 
 const router = Router();
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const CLIENT_PHOTOS_DIR = path.resolve(__dirname, '../clients_photos');
-
-const ensureClientPhotosDir = async () => {
-  await fs.mkdir(CLIENT_PHOTOS_DIR, { recursive: true });
-};
-
-const sanitizeFileName = (name: string) => {
-  return String(name || 'cliente')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9._-]/g, '_')
-    .toLowerCase();
-};
 
 const extensionFromMime = (mimeType: string) => {
   const normalized = String(mimeType || '').toLowerCase();
@@ -31,6 +13,15 @@ const extensionFromMime = (mimeType: string) => {
   if (normalized === 'image/png') return 'png';
   if (normalized === 'image/webp') return 'webp';
   return null;
+};
+
+const stripDataUrlPrefix = (value: string) => {
+  const raw = String(value || '').trim();
+  const commaIndex = raw.indexOf(',');
+  if (raw.startsWith('data:') && commaIndex > -1) {
+    return raw.slice(commaIndex + 1);
+  }
+  return raw;
 };
 
 const PHONE_REQUIRED_VALIDATION_ERROR = 'Telefone é obrigatório para responsável e colaborador';
@@ -64,7 +55,7 @@ router.use(authMiddleware);
 router.get('/', async (req: AuthRequest, res: Response) => {
   console.log('📋 [CLIENTS] GET /clients - User:', (req as any).userId);
   
-  const { enterpriseId } = req.query;
+  const { enterpriseId, primaryOnly, unitType } = req.query;
   
   const normalizedEnterpriseId = typeof enterpriseId === 'string' ? enterpriseId.trim() : '';
   const canAccessAll = canAccessAllEnterprises(req.userRole);
@@ -80,7 +71,23 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (normalizedEnterpriseId) {
       await processOverduePlanConsumptions({ enterpriseId: normalizedEnterpriseId });
     }
-    const clients = normalizedEnterpriseId ? db.getClients(normalizedEnterpriseId) : db.getClients();
+    const isPrimaryOnly = String(primaryOnly || '').toLowerCase() === 'true' || String(primaryOnly || '') === '1';
+    const normalizedUnitType = String(unitType || '').trim();
+    let clients = normalizedEnterpriseId
+      ? db.getClients(normalizedEnterpriseId, { primaryOnly: isPrimaryOnly, unitType: normalizedUnitType })
+      : db.getClients(undefined, { primaryOnly: isPrimaryOnly, unitType: normalizedUnitType });
+
+    const normalizedRole = String(req.userRole || '').trim().toUpperCase();
+    if (normalizedRole === 'RESPONSAVEL') {
+      const requester = req.userId ? db.getUser(String(req.userId || '').trim()) : null;
+      const accessibleClientIds = Array.isArray((requester as any)?.accessibleClientIds)
+        ? (requester as any).accessibleClientIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+        : [];
+      const linkedClientId = String((requester as any)?.linkedClientId || '').trim();
+      const idSet = new Set<string>([...accessibleClientIds, linkedClientId].filter(Boolean));
+      clients = clients.filter((client: any) => idSet.has(String(client?.id || '').trim()));
+    }
+
     console.log('✅ [CLIENTS] Retrieved', clients.length, 'clients');
     res.json(clients);
   } catch (error) {
@@ -124,7 +131,7 @@ router.post('/restore', (req: AuthRequest, res: Response) => {
 // Upload de foto do cliente/usuário
 router.post('/upload-photo', async (req: Request, res: Response) => {
   try {
-    const { fileName, mimeType, dataBase64 } = req.body || {};
+    const { mimeType, dataBase64 } = req.body || {};
     if (!dataBase64 || typeof dataBase64 !== 'string') {
       return res.status(400).json({ error: 'Arquivo inválido para upload.' });
     }
@@ -134,12 +141,8 @@ router.post('/upload-photo', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Formato de imagem não suportado. Use JPG, PNG ou WEBP.' });
     }
 
-    const safeName = sanitizeFileName(fileName || 'cliente');
-    const baseName = safeName.replace(/\.[^.]+$/, '') || 'cliente';
-    const finalFileName = `${baseName}_${Date.now()}.${ext}`;
-    const filePath = path.join(CLIENT_PHOTOS_DIR, finalFileName);
-
-    const fileBuffer = Buffer.from(dataBase64, 'base64');
+    const normalizedBase64 = stripDataUrlPrefix(dataBase64);
+    const fileBuffer = Buffer.from(normalizedBase64, 'base64');
     if (!fileBuffer.length) {
       return res.status(400).json({ error: 'Conteúdo da imagem está vazio.' });
     }
@@ -147,12 +150,13 @@ router.post('/upload-photo', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'A imagem deve ter no máximo 5MB.' });
     }
 
-    await ensureClientPhotosDir();
-    await fs.writeFile(filePath, fileBuffer);
+    const dataUrl = `data:${String(mimeType).toLowerCase()};base64,${normalizedBase64}`;
 
     return res.json({
       success: true,
-      photoUrl: `/clients_photos/${finalFileName}`
+      photoUrl: dataUrl,
+      photoBase64: normalizedBase64,
+      storage: 'base64'
     });
   } catch (error) {
     console.error('❌ [CLIENTS] Error uploading client photo:', (error as Error).message);
