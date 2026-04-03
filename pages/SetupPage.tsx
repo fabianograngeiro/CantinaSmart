@@ -33,7 +33,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ onSetupComplete }) => {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text);
-      await ApiService.restoreDatabaseBackup(parsed);
+      await ApiService.restoreDatabaseBackupSetup(parsed);
       alert('✅ Backup restaurado com sucesso! A página será recarregada.');
       window.location.reload();
     } catch (err) {

@@ -1075,6 +1075,19 @@ export class ApiService {
     return response.json();
   }
 
+  static async restoreDatabaseBackupSetup(backupData: any) {
+    const response = await fetch(`${API_URL}/system/restore-setup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(backupData),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Falha ao restaurar backup da database');
+    }
+    return response.json();
+  }
+
   static async getSystemStatus() {
     const response = await fetch(`${API_URL}/system/status`, {
       headers: this.getHeaders(),

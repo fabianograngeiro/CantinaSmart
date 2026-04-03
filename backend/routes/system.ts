@@ -31,6 +31,8 @@ interface DatabaseBackupShape {
   transactions: any[];
   orders: any[];
   ingredients: any[];
+  // Campos opcionais preservados do backup
+  [key: string]: any;
 }
 
 const normalizeBackupPayload = (payload: any): DatabaseBackupShape => {
@@ -51,6 +53,24 @@ const normalizeBackupPayload = (payload: any): DatabaseBackupShape => {
     throw new Error('Backup inválido: campo "productSequence" deve ser numérico e >= 0.');
   }
 
+  // Campos opcionais que devem ser preservados se existirem
+  const optionalArrayFields = ['errorTickets', 'saasCashflowEntries', 'taskReminders', 'menus', 'schoolCalendars', 'whatsappStore'];
+  const optionalArrays: Record<string, any[]> = {};
+  for (const field of optionalArrayFields) {
+    if (payload[field] !== undefined) {
+      optionalArrays[field] = Array.isArray(payload[field]) ? payload[field] : [];
+    }
+  }
+
+  // Outros campos opcionais não-array (ex.: devAssistantConfig, schemaVersion)
+  const optionalOthers: Record<string, any> = {};
+  const knownFields = new Set(['enterprises','users','products','productSequence','categories','clients','plans','suppliers','transactions','orders','ingredients', ...optionalArrayFields]);
+  for (const [key, value] of Object.entries(payload)) {
+    if (!knownFields.has(key)) {
+      optionalOthers[key] = value;
+    }
+  }
+
   return {
     enterprises: readArray('enterprises'),
     users: readArray('users'),
@@ -63,6 +83,8 @@ const normalizeBackupPayload = (payload: any): DatabaseBackupShape => {
     transactions: readArray('transactions'),
     orders: readArray('orders'),
     ingredients: readArray('ingredients'),
+    ...optionalArrays,
+    ...optionalOthers,
   };
 };
 
@@ -200,6 +222,37 @@ router.get('/backup', authMiddleware, async (req: AuthRequest, res: Response) =>
     res.status(500).json({
       success: false,
       message: 'Erro ao gerar backup da database',
+      error: err instanceof Error ? err.message : 'Erro desconhecido'
+    });
+  }
+});
+
+// Restaura database em modo setup (sem autenticação, só funciona quando não há usuários)
+router.post('/restore-setup', async (req: Request, res: Response) => {
+  try {
+    const currentUsers = db.getUsers();
+    if (Array.isArray(currentUsers) && currentUsers.length > 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'Restore sem autenticação só é permitido quando o sistema não possui usuários cadastrados.',
+      });
+    }
+
+    const normalizedBackup = normalizeBackupPayload(req.body);
+    const databasePath = path.resolve(__dirname, '../data/database.json');
+    await fs.writeFile(databasePath, JSON.stringify(normalizedBackup, null, 2), 'utf-8');
+    db.reload();
+
+    res.json({
+      success: true,
+      message: 'Backup restaurado com sucesso.',
+      stats: db.getStats()
+    });
+  } catch (err) {
+    console.error('❌ [SYSTEM] Erro ao restaurar backup (setup):', err);
+    res.status(400).json({
+      success: false,
+      message: 'Erro ao restaurar backup da database',
       error: err instanceof Error ? err.message : 'Erro desconhecido'
     });
   }
