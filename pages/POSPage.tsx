@@ -936,6 +936,22 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     return () => window.removeEventListener('click', handleGlobalClick);
   }, [selectedClient, isFinalConsumer, showSuspendedPanel]);
 
+  useEffect(() => {
+    setPayments((prev) => {
+      const filtered = prev.filter((payment) => {
+        if (isFinalConsumer || !selectedClient) {
+          return payment.method !== 'SALDO' && payment.method !== 'CREDITO_COLABORADOR';
+        }
+        if (selectedClient.type === 'COLABORADOR') {
+          return payment.method !== 'SALDO';
+        }
+        return payment.method !== 'CREDITO_COLABORADOR';
+      });
+
+      return filtered.length === prev.length ? prev : filtered;
+    });
+  }, [selectedClient, isFinalConsumer]);
+
   const filteredProducts = useMemo(() => {
     const normalizedActiveCategory = String(activeCategory || '').trim().toUpperCase();
     if (normalizedActiveCategory === 'PLANOS') return [];
@@ -1877,6 +1893,14 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       const creditoColaboradorPaid = payments
         .filter(p => p.method === 'CREDITO_COLABORADOR')
         .reduce((sum, payment) => sum + payment.amount, 0);
+
+      if (selectedClient?.type !== 'COLABORADOR' && creditoColaboradorPaid > 0) {
+        throw new Error('Pagamento invalido: aluno nao pode usar CREDITO_COLABORADOR. Remova esse pagamento e tente novamente.');
+      }
+
+      if (selectedClient?.type === 'COLABORADOR' && saldoPaid > 0) {
+        throw new Error('Pagamento invalido: colaborador nao pode usar SALDO CANTINA. Use CREDITO_COLABORADOR.');
+      }
 
       if (selectedClient && (saldoPaid > 0 || creditoColaboradorPaid > 0)) {
         // Se o cliente é um COLABORADOR, registra como dívida/consumo
