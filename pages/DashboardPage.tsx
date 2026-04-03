@@ -403,8 +403,10 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
             const deliveryShifts = Array.isArray(config?.deliveryShifts) ? config.deliveryShifts : [];
             const shiftsMultiplier = deliveryShifts.length > 0 ? deliveryShifts.length : 1;
 
-            const hasWeekDayMatch = days.some((day: string) => normalize(day) === dayInfo.key);
+            // Se o plano usa datas específicas (selectedDates), elas são a fonte autoritativa.
+            // Só usa daysOfWeek como fallback quando selectedDates está vazio.
             const hasSelectedDateMatch = selectedDates.some((date: string) => String(date || '').slice(0, 10) === dayInfo.iso);
+            const hasWeekDayMatch = selectedDates.length === 0 && days.some((day: string) => normalize(day) === dayInfo.key);
             if (!hasWeekDayMatch && !hasSelectedDateMatch) return;
 
             const rawPlanName = String(config?.planName || config?.name || '').trim();
