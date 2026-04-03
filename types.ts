@@ -148,6 +148,12 @@ export type Product = {
   image?: string;
   enterpriseId: string;
   expiryDate?: string;
+  expirations?: Array<{
+    batch?: string;
+    quantity?: number;
+    expiresAt: string;
+    notes?: string;
+  }>;
   nutritionalInfo?: {
     calories: number;
     sugar: boolean;

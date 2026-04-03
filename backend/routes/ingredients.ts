@@ -1,7 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../database.js';
+import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 
 const router = Router();
+router.use(authMiddleware);
+
+const canManageIngredients = (role?: string) => {
+  const normalized = String(role || '').trim().toUpperCase();
+  return ['SUPERADMIN', 'ADMIN_SISTEMA', 'OWNER', 'ADMIN', 'GERENTE'].includes(normalized);
+};
 const normalizeSearchText = (value: string) =>
   String(value || '')
     .normalize('NFD')
@@ -31,6 +38,10 @@ router.get('/search', (req: Request, res: Response) => {
   res.json(ingredients);
 });
 
+router.get('/categories', (_req: Request, res: Response) => {
+  return res.json(db.getIngredientCategories());
+});
+
 // Get all ingredients
 router.get('/', (req: Request, res: Response) => {
   const includeInactiveParam = String(req.query.includeInactive || '').toLowerCase();
@@ -40,7 +51,10 @@ router.get('/', (req: Request, res: Response) => {
 });
 
 // Restore full ingredients table
-router.post('/restore', (req: Request, res: Response) => {
+router.post('/restore', (req: AuthRequest, res: Response) => {
+  if (!canManageIngredients(req.userRole)) {
+    return res.status(403).json({ error: 'Apenas owner/admin/gerente podem restaurar a base nutricional.' });
+  }
   const payloadItems = Array.isArray(req.body)
     ? req.body
     : (Array.isArray(req.body?.items) ? req.body.items : null);
@@ -67,13 +81,25 @@ router.get('/:id', (req: Request, res: Response) => {
 });
 
 // Create ingredient
-router.post('/', (req: Request, res: Response) => {
-  const newIngredient = db.createIngredient(req.body);
+router.post('/', (req: AuthRequest, res: Response) => {
+  if (!canManageIngredients(req.userRole)) {
+    return res.status(403).json({ error: 'Apenas owner/admin/gerente podem criar ingredientes.' });
+  }
+  const requester = req.userId ? db.getUser(String(req.userId || '').trim()) : null;
+  const newIngredient = db.createIngredient({
+    ...(req.body || {}),
+    createdByUserId: String(req.userId || '').trim(),
+    createdByName: String((requester as any)?.name || '').trim(),
+    createdByRole: String(req.userRole || '').trim().toUpperCase(),
+  });
   res.status(201).json(newIngredient);
 });
 
 // Update ingredient
-router.put('/:id', (req: Request, res: Response) => {
+router.put('/:id', (req: AuthRequest, res: Response) => {
+  if (!canManageIngredients(req.userRole)) {
+    return res.status(403).json({ error: 'Apenas owner/admin/gerente podem atualizar ingredientes.' });
+  }
   const updated = db.updateIngredient(req.params.id, req.body);
   if (!updated) {
     return res.status(404).json({ error: 'Ingrediente não encontrado' });
@@ -82,7 +108,10 @@ router.put('/:id', (req: Request, res: Response) => {
 });
 
 // Delete ingredient
-router.delete('/:id', (req: Request, res: Response) => {
+router.delete('/:id', (req: AuthRequest, res: Response) => {
+  if (!canManageIngredients(req.userRole)) {
+    return res.status(403).json({ error: 'Apenas owner/admin/gerente podem excluir ingredientes.' });
+  }
   const deleted = db.deleteIngredient(req.params.id);
   if (!deleted) {
     return res.status(404).json({ error: 'Ingrediente não encontrado' });

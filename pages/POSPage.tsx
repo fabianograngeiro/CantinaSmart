@@ -475,6 +475,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   const [studentCreditPlanIds, setStudentCreditPlanIds] = useState<string[]>([]);
   const [studentCreditPlanDays, setStudentCreditPlanDays] = useState<Record<string, string[]>>({});
   const [studentCreditPlanDates, setStudentCreditPlanDates] = useState<Record<string, string[]>>({});
+  const [studentCreditPlanPreviewByPlanId, setStudentCreditPlanPreviewByPlanId] = useState<Record<string, any>>({});
+  const [isStudentCreditPlanPreviewLoading, setIsStudentCreditPlanPreviewLoading] = useState(false);
   const [studentCreditOpenCalendarId, setStudentCreditOpenCalendarId] = useState<string | null>(null);
   const [studentCreditCalendarMonth, setStudentCreditCalendarMonth] = useState<Date>(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [isQuickClientModalOpen, setIsQuickClientModalOpen] = useState(false);
@@ -1065,6 +1067,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     const result = new Map<string, Set<string>>();
     if (!selectedClient) return result;
 
+    const normalizePlanToken = (raw: any) => String(raw || '')
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase();
+
     const normalizeTxDateKey = (raw: any) => {
       const value = String(raw || '').trim();
       if (!value) return '';
@@ -1083,9 +1091,9 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       if (!dateKey) return;
 
       const txPlanId = String(planIdRaw || '').trim();
-      const txPlanName = String(planNameRaw || '').trim().toUpperCase();
+      const txPlanName = normalizePlanToken(planNameRaw);
       const matchById = availablePlans.find((plan) => String(plan.id) === txPlanId);
-      const matchByName = availablePlans.find((plan) => String(plan.name || '').trim().toUpperCase() === txPlanName);
+      const matchByName = availablePlans.find((plan) => normalizePlanToken(plan.name) === txPlanName);
       const matchedPlanId = String(matchById?.id || matchByName?.id || '').trim();
       if (!matchedPlanId) return;
 
@@ -1126,6 +1134,36 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       if (fallbackDateKey) {
         registerDate(txPlanId, txPlanName, fallbackDateKey);
       }
+    });
+
+    // Libera remarcação de datas já removidas manualmente em exclusões anteriores.
+    posTransactions.forEach((tx: any) => {
+      if (String(tx?.clientId || '') !== String(selectedClient.id || '')) return;
+      if (String(tx?.type || '').toUpperCase() !== 'AUDITORIA_EXCLUSAO') return;
+
+      const deletedKeys = Array.isArray(tx?.deletedDeliveryKeys) ? tx.deletedDeliveryKeys : [];
+      deletedKeys.forEach((rawKey: any) => {
+        const key = String(rawKey || '').trim();
+        if (!key) return;
+        const segments = key.split('|');
+        if (segments.length < 3) return;
+
+        const deletedClientId = String(segments[0] || '').trim();
+        const deletedDate = String(segments[segments.length - 1] || '').trim();
+        const deletedPlanToken = normalizePlanToken(segments.slice(1, -1).join('|'));
+        if (!deletedClientId || deletedClientId !== String(selectedClient.id || '')) return;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(deletedDate)) return;
+        if (!deletedPlanToken) return;
+
+        const planMatch = availablePlans.find((plan) => normalizePlanToken(plan.name) === deletedPlanToken);
+        const matchedPlanId = String(planMatch?.id || '').trim();
+        if (!matchedPlanId) return;
+
+        const planDates = result.get(matchedPlanId);
+        if (!planDates) return;
+        planDates.delete(deletedDate);
+        result.set(matchedPlanId, planDates);
+      });
     });
 
     return result;
@@ -1196,13 +1234,30 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     if (!balancesRaw || typeof balancesRaw !== 'object') return 0;
 
     const byId = balancesRaw[plan.id];
-    if (byId) return Math.max(0, Number(byId.balance || 0));
-
     const byNameKey = Object.keys(balancesRaw).find((key) =>
       String(balancesRaw[key]?.planName || '').trim().toUpperCase() === String(plan.name || '').trim().toUpperCase()
     );
-    if (!byNameKey) return 0;
-    return Math.max(0, Number(balancesRaw[byNameKey]?.balance || 0));
+    const rawBalance = byId
+      ? Math.max(0, Number(byId.balance || 0))
+      : (byNameKey ? Math.max(0, Number(balancesRaw[byNameKey]?.balance || 0)) : 0);
+
+    if (rawBalance <= 0.0001) return 0;
+
+    // Regra: saldo reservado por consumo agendado/não entregue não entra como crédito livre.
+    const registeredDates = registeredPlanDatesByPlanId.get(plan.id) || new Set<string>();
+    const consumedDates = consumedPlanDatesByPlanId.get(plan.id) || new Set<string>();
+    const reversedDates = reversedPlanDatesByPlanId.get(plan.id) || new Set<string>();
+    const reservedPendingUnits = Array.from(registeredDates).reduce((acc, dateKey) => {
+      if (consumedDates.has(dateKey)) return acc;
+      if (reversedDates.has(dateKey)) return acc;
+      return acc + 1;
+    }, 0);
+
+    const unitPrice = Number(getPlanUnitPriceForClient(client, plan, plan.id, plan.name) || 0);
+    if (reservedPendingUnits <= 0 || unitPrice <= 0) return rawBalance;
+
+    const reservedValue = Number((reservedPendingUnits * unitPrice).toFixed(2));
+    return Math.max(0, Number((rawBalance - reservedValue).toFixed(2)));
   };
 
   const getPlanUnitRemaining = (client: Client | null, plan: Plan) => {
@@ -1583,16 +1638,130 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     setStudentCreditPlanIds([]);
     setStudentCreditPlanDays({});
     setStudentCreditPlanDates({});
+    setStudentCreditPlanPreviewByPlanId({});
+    setIsStudentCreditPlanPreviewLoading(false);
     setStudentCreditOpenCalendarId(null);
     setStudentCreditCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   };
 
-  const confirmServiceActionToCart = () => {
+  useEffect(() => {
+    if (!isServiceActionModalOpen || serviceActionType !== 'CREDIT_STUDENT' || !selectedClient) {
+      setStudentCreditPlanPreviewByPlanId({});
+      setIsStudentCreditPlanPreviewLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadPreviews = async () => {
+      const selectedPlanIds = studentCreditPlanIds.filter((planId) => {
+        const selectedDates = studentCreditPlanDates[planId] || [];
+        return selectedDates.length > 0;
+      });
+
+      if (selectedPlanIds.length === 0) {
+        setStudentCreditPlanPreviewByPlanId({});
+        setIsStudentCreditPlanPreviewLoading(false);
+        return;
+      }
+
+      setIsStudentCreditPlanPreviewLoading(true);
+
+      const previews = await Promise.all(selectedPlanIds.map(async (planId) => {
+        try {
+          const plan = availablePlans.find((p) => p.id === planId);
+          const selectedDates = Array.from(new Set(studentCreditPlanDates[planId] || []));
+          if (!plan || selectedDates.length === 0) return [planId, null] as const;
+
+          const grossAmount = Number((Number(plan.price || 0) * selectedDates.length).toFixed(2));
+          const preview = await ApiService.getPlanCreditValidationPreview({
+            enterpriseId: activeEnterpriseId,
+            clientId: String(selectedClient.id || ''),
+            type: 'CREDIT',
+            planId: String(plan.id || ''),
+            planName: String(plan.name || ''),
+            plan: String(plan.name || ''),
+            selectedDates,
+            amount: grossAmount,
+            planUnitValue: Number(plan.price || 0),
+          });
+
+          return [planId, preview || null] as const;
+        } catch {
+          return [planId, null] as const;
+        }
+      }));
+
+      if (cancelled) return;
+
+      const next: Record<string, any> = {};
+      previews.forEach(([planId, preview]) => {
+        if (preview) next[planId] = preview;
+      });
+
+      setStudentCreditPlanPreviewByPlanId(next);
+      setIsStudentCreditPlanPreviewLoading(false);
+    };
+
+    void loadPreviews();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isServiceActionModalOpen,
+    serviceActionType,
+    selectedClient,
+    studentCreditPlanIds,
+    studentCreditPlanDates,
+    availablePlans,
+    activeEnterpriseId,
+  ]);
+
+  const confirmServiceActionToCart = async () => {
     if (!selectedClient || !serviceActionType) return;
     const freeAmount = Number(serviceActionAmount.replace(',', '.'));
 
     if (serviceActionType === 'CREDIT_STUDENT') {
       const validFreeAmount = Number.isFinite(freeAmount) && freeAmount > 0 ? freeAmount : 0;
+      const previewByPlanId = { ...studentCreditPlanPreviewByPlanId } as Record<string, any>;
+
+      const missingPreviewPlanIds = studentCreditPlanIds.filter((planId) => {
+        const selectedDates = studentCreditPlanDates[planId] || [];
+        return selectedDates.length > 0 && !previewByPlanId[planId];
+      });
+
+      if (missingPreviewPlanIds.length > 0) {
+        try {
+          const loadedPreviews = await Promise.all(missingPreviewPlanIds.map(async (planId) => {
+            const plan = availablePlans.find((p) => p.id === planId);
+            const selectedDates = Array.from(new Set(studentCreditPlanDates[planId] || []));
+            if (!plan || selectedDates.length === 0) return [planId, null] as const;
+            const grossAmount = Number((Number(plan.price || 0) * selectedDates.length).toFixed(2));
+            const preview = await ApiService.getPlanCreditValidationPreview({
+              enterpriseId: activeEnterpriseId,
+              clientId: String(selectedClient.id || ''),
+              type: 'CREDIT',
+              planId: String(plan.id || ''),
+              planName: String(plan.name || ''),
+              plan: String(plan.name || ''),
+              selectedDates,
+              amount: grossAmount,
+              planUnitValue: Number(plan.price || 0),
+            });
+            return [planId, preview || null] as const;
+          }));
+
+          loadedPreviews.forEach(([planId, preview]) => {
+            if (preview) previewByPlanId[planId] = preview;
+          });
+          setStudentCreditPlanPreviewByPlanId((prev) => ({ ...prev, ...previewByPlanId }));
+        } catch {
+          alert('Não foi possível validar o preview oficial da recarga de plano. Tente novamente.');
+          return;
+        }
+      }
+
       const selectedPlanCredits = studentCreditPlanIds
         .map((planId) => {
           const selectedPlan = availablePlans.find(plan => plan.id === planId);
@@ -1602,9 +1771,22 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           const selectedCount = selectedDates.length > 0 ? selectedDates.length : selectedDays.length;
           const planSubtotal = Number((selectedPlan.price * selectedCount).toFixed(2));
           if (selectedCount <= 0 || planSubtotal <= 0) return null;
-          const availableBalance = getAvailablePlanCreditBalance(selectedClient, selectedPlan);
-          const discountedSubtotal = Number(Math.max(0, planSubtotal - availableBalance).toFixed(2));
-          return { selectedPlan, selectedDays, selectedDates, selectedCount, planSubtotal, availableBalance, discountedSubtotal };
+          const serverPreview = previewByPlanId[planId] || null;
+          const availableBalance = serverPreview
+            ? Math.max(0, Number(serverPreview.freeBalance || 0))
+            : getAvailablePlanCreditBalance(selectedClient, selectedPlan);
+          const discountedSubtotal = serverPreview
+            ? Math.max(0, Number(serverPreview.minRequiredAmount || 0))
+            : Number(Math.max(0, planSubtotal - availableBalance).toFixed(2));
+          return {
+            selectedPlan,
+            selectedDays,
+            selectedDates,
+            selectedCount,
+            planSubtotal,
+            availableBalance,
+            discountedSubtotal,
+          };
         })
         .filter(Boolean) as Array<{
           selectedPlan: Plan;
@@ -4119,8 +4301,17 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                             const selectedDatesCount = studentCreditPlanDates[plan.id]?.length || 0;
                             const selectedCount = selectedDatesCount > 0 ? selectedDatesCount : selectedDaysCount;
                             const subtotal = plan.price * selectedCount;
-                            const availableBalance = getAvailablePlanCreditBalance(selectedClient, plan);
-                            const discountedSubtotal = Math.max(0, subtotal - availableBalance);
+                            const serverPreview = studentCreditPlanPreviewByPlanId[plan.id] || null;
+                            const availableBalance = serverPreview
+                              ? Math.max(0, Number(serverPreview.freeBalance || 0))
+                              : getAvailablePlanCreditBalance(selectedClient, plan);
+                            const discountedSubtotal = serverPreview
+                              ? Math.max(0, Number(serverPreview.minRequiredAmount || 0))
+                              : Math.max(0, subtotal - availableBalance);
+                            const rawBalance = serverPreview ? Math.max(0, Number(serverPreview.rawBalance || 0)) : null;
+                            const reservedValue = serverPreview ? Math.max(0, Number(serverPreview.reservedValue || 0)) : null;
+                            const reservedUnits = serverPreview ? Math.max(0, Number(serverPreview.reservedPendingUnits || 0)) : null;
+                            const planGross = serverPreview ? Math.max(0, Number(serverPreview.grossAmount || 0)) : null;
 
                             return (
                               <div
@@ -4163,8 +4354,18 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                       {selectedDatesCount} dia(s) do mês selecionado(s) • Subtotal: R$ {subtotal.toFixed(2)}
                                     </p>
                                     <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mt-1">
-                                      Saldo disponível: R$ {availableBalance.toFixed(2)} • Líquido: R$ {discountedSubtotal.toFixed(2)}
+                                      Saldo livre: R$ {availableBalance.toFixed(2)} • Cobrança mínima: R$ {discountedSubtotal.toFixed(2)}
                                     </p>
+                                    {serverPreview && (
+                                      <p className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest mt-1">
+                                        Saldo bruto: R$ {Number(rawBalance || 0).toFixed(2)} • Reservado: {Number(reservedUnits || 0)} un (R$ {Number(reservedValue || 0).toFixed(2)}) • Bruto novas datas: R$ {Number(planGross || 0).toFixed(2)}
+                                      </p>
+                                    )}
+                                    {!serverPreview && isStudentCreditPlanPreviewLoading && selectedDatesCount > 0 && (
+                                      <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest mt-1">
+                                        Calculando preview oficial...
+                                      </p>
+                                    )}
                                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-1">
                                       {selectedDaysCount} dia(s) da semana marcado(s)
                                     </p>

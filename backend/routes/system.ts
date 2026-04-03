@@ -7,6 +7,7 @@ import { promisify } from 'util';
 import { db } from '../database.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { hashPassword, generateToken } from '../utils/security.js';
+import { requesterCanAccessEnterprise } from '../utils/enterpriseAccess.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -15,6 +16,11 @@ const exec = promisify(execCallback);
 const isSystemAdmin = (role?: string) => {
   const normalized = String(role || '').trim().toUpperCase();
   return normalized === 'SUPERADMIN' || normalized === 'ADMIN_SISTEMA';
+};
+
+const canManageUnitSettings = (role?: string) => {
+  const normalized = String(role || '').trim().toUpperCase();
+  return ['SUPERADMIN', 'ADMIN_SISTEMA', 'OWNER', 'ADMIN', 'GERENTE'].includes(normalized);
 };
 
 const COLLAB_MIGRATION_TAG = 'COLLAB_CONSUMPTION_MIGRATION_V1';
@@ -54,7 +60,7 @@ const normalizeBackupPayload = (payload: any): DatabaseBackupShape => {
   }
 
   // Campos opcionais que devem ser preservados se existirem
-  const optionalArrayFields = ['errorTickets', 'saasCashflowEntries', 'taskReminders', 'menus', 'schoolCalendars', 'whatsappStore'];
+  const optionalArrayFields = ['errorTickets', 'financialEntries', 'saasCashflowEntries', 'taskReminders', 'menus', 'schoolCalendars'];
   const optionalArrays: Record<string, any[]> = {};
   for (const field of optionalArrayFields) {
     if (payload[field] !== undefined) {
@@ -62,9 +68,18 @@ const normalizeBackupPayload = (payload: any): DatabaseBackupShape => {
     }
   }
 
+  const optionalObjectFields = ['whatsappStore', 'financialSettingsByEnterprise', 'systemSettings', 'devAssistantConfig'];
+  const optionalObjects: Record<string, any> = {};
+  for (const field of optionalObjectFields) {
+    if (payload[field] !== undefined) {
+      const value = payload[field];
+      optionalObjects[field] = value && typeof value === 'object' ? value : {};
+    }
+  }
+
   // Outros campos opcionais não-array (ex.: devAssistantConfig, schemaVersion)
   const optionalOthers: Record<string, any> = {};
-  const knownFields = new Set(['enterprises','users','products','productSequence','categories','clients','plans','suppliers','transactions','orders','ingredients', ...optionalArrayFields]);
+  const knownFields = new Set(['enterprises','users','products','productSequence','categories','clients','plans','suppliers','transactions','orders','ingredients', ...optionalArrayFields, ...optionalObjectFields]);
   for (const [key, value] of Object.entries(payload)) {
     if (!knownFields.has(key)) {
       optionalOthers[key] = value;
@@ -84,6 +99,7 @@ const normalizeBackupPayload = (payload: any): DatabaseBackupShape => {
     orders: readArray('orders'),
     ingredients: readArray('ingredients'),
     ...optionalArrays,
+    ...optionalObjects,
     ...optionalOthers,
   };
 };
@@ -322,6 +338,95 @@ router.get('/status', authMiddleware, (_req: AuthRequest, res: Response) => {
     stats,
     totalRecords: Object.values(stats).reduce((sum, count) => sum + count, 0)
   });
+});
+
+router.get('/settings', authMiddleware, (_req: AuthRequest, res: Response) => {
+  return res.json({
+    success: true,
+    settings: db.getSystemSettings(),
+  });
+});
+
+router.put('/settings', authMiddleware, (req: AuthRequest, res: Response) => {
+  if (!canManageUnitSettings(req.userRole)) {
+    return res.status(403).json({ success: false, message: 'Acesso negado para atualizar ajustes.' });
+  }
+  const next = db.updateSystemSettings({
+    ...(req.body && typeof req.body === 'object' ? req.body : {}),
+    updatedByUserId: String(req.userId || '').trim(),
+    updatedByRole: String(req.userRole || '').trim().toUpperCase(),
+  });
+  return res.json({ success: true, settings: next });
+});
+
+router.get('/financial-settings', authMiddleware, (req: AuthRequest, res: Response) => {
+  const enterpriseId = String(req.query?.enterpriseId || '').trim();
+  if (!enterpriseId) {
+    return res.status(400).json({ success: false, message: 'enterpriseId é obrigatório.' });
+  }
+  if (!requesterCanAccessEnterprise(req, enterpriseId)) {
+    return res.status(403).json({ success: false, message: 'Acesso negado para esta empresa.' });
+  }
+  return res.json({
+    success: true,
+    settings: db.getFinancialSettings(enterpriseId),
+  });
+});
+
+router.put('/financial-settings', authMiddleware, (req: AuthRequest, res: Response) => {
+  if (!canManageUnitSettings(req.userRole)) {
+    return res.status(403).json({ success: false, message: 'Acesso negado para atualizar financeiro.' });
+  }
+  const enterpriseId = String(req.body?.enterpriseId || '').trim();
+  if (!enterpriseId) {
+    return res.status(400).json({ success: false, message: 'enterpriseId é obrigatório.' });
+  }
+  if (!requesterCanAccessEnterprise(req, enterpriseId)) {
+    return res.status(403).json({ success: false, message: 'Acesso negado para esta empresa.' });
+  }
+  const patch = req.body?.settings && typeof req.body.settings === 'object' ? req.body.settings : {};
+  const next = db.updateFinancialSettings(enterpriseId, {
+    ...patch,
+    updatedByUserId: String(req.userId || '').trim(),
+    updatedByRole: String(req.userRole || '').trim().toUpperCase(),
+  });
+  return res.json({ success: true, settings: next || {} });
+});
+
+router.get('/financial-entries', authMiddleware, (req: AuthRequest, res: Response) => {
+  const enterpriseId = String(req.query?.enterpriseId || '').trim();
+  if (!enterpriseId) {
+    return res.status(400).json({ success: false, message: 'enterpriseId é obrigatório.' });
+  }
+  if (!requesterCanAccessEnterprise(req, enterpriseId)) {
+    return res.status(403).json({ success: false, message: 'Acesso negado para esta empresa.' });
+  }
+  return res.json({
+    success: true,
+    entries: db.getFinancialEntries(enterpriseId),
+  });
+});
+
+router.post('/financial-entries', authMiddleware, (req: AuthRequest, res: Response) => {
+  if (!canManageUnitSettings(req.userRole)) {
+    return res.status(403).json({ success: false, message: 'Acesso negado para lançar no financeiro.' });
+  }
+  const enterpriseId = String(req.body?.enterpriseId || '').trim();
+  if (!enterpriseId) {
+    return res.status(400).json({ success: false, message: 'enterpriseId é obrigatório.' });
+  }
+  if (!requesterCanAccessEnterprise(req, enterpriseId)) {
+    return res.status(403).json({ success: false, message: 'Acesso negado para esta empresa.' });
+  }
+  const requester = req.userId ? db.getUser(String(req.userId || '').trim()) : null;
+  const entry = db.createFinancialEntry({
+    ...(req.body || {}),
+    enterpriseId,
+    createdByUserId: String(req.userId || '').trim(),
+    createdByName: String((requester as any)?.name || '').trim(),
+    createdByRole: String(req.userRole || '').trim().toUpperCase(),
+  });
+  return res.status(201).json({ success: true, entry });
 });
 
 router.get('/dev-assistant-config', authMiddleware, (req: AuthRequest, res: Response) => {
