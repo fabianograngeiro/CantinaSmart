@@ -479,6 +479,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   const [isStudentCreditPlanPreviewLoading, setIsStudentCreditPlanPreviewLoading] = useState(false);
   const [studentCreditOpenCalendarId, setStudentCreditOpenCalendarId] = useState<string | null>(null);
   const [studentCreditCalendarMonth, setStudentCreditCalendarMonth] = useState<Date>(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [schoolCalendarBlockedDatesByYear, setSchoolCalendarBlockedDatesByYear] = useState<Record<number, string[]>>({});
+  const [schoolCalendarEventTitlesByDate, setSchoolCalendarEventTitlesByDate] = useState<Record<string, string>>({});
   const [isQuickClientModalOpen, setIsQuickClientModalOpen] = useState(false);
   const [isCreatingQuickClient, setIsCreatingQuickClient] = useState(false);
   const [saleErrorMessage, setSaleErrorMessage] = useState('');
@@ -611,6 +613,88 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   const availablePlans = useMemo(() => {
     return plans.filter(p => p.enterpriseId === activeEnterpriseId && p.isActive !== false);
   }, [plans, activeEnterpriseId]);
+
+  const schoolCalendarYearsToLoad = useMemo(() => {
+    const years = [
+      new Date().getFullYear(),
+      Number(studentCreditCalendarMonth.getFullYear()),
+    ].filter((year) => Number.isFinite(year));
+    return Array.from(new Set(years));
+  }, [studentCreditCalendarMonth]);
+
+  useEffect(() => {
+    setSchoolCalendarBlockedDatesByYear({});
+    setSchoolCalendarEventTitlesByDate({});
+  }, [activeEnterpriseId]);
+
+  useEffect(() => {
+    if (!activeEnterpriseId) return;
+
+    const missingYears = schoolCalendarYearsToLoad.filter((year) => schoolCalendarBlockedDatesByYear[year] === undefined);
+    if (missingYears.length === 0) return;
+
+    let cancelled = false;
+
+    const loadSchoolCalendarYears = async () => {
+      const results = await Promise.all(
+        missingYears.map(async (year) => {
+          try {
+            const payload = await ApiService.getSchoolCalendar(activeEnterpriseId, year);
+            const extracted = extractSchoolCalendarOperationalData(payload, year);
+            return [year, extracted] as const;
+          } catch (error) {
+            console.error(`Erro ao carregar calendário escolar (PDV ${year}):`, error);
+            return [year, { blockedDates: [], eventTitlesByDate: {} as Record<string, string> }] as const;
+          }
+        })
+      );
+
+      if (cancelled) return;
+
+      setSchoolCalendarBlockedDatesByYear((prev) => {
+        const next = { ...prev };
+        results.forEach(([year, extracted]) => {
+          next[year] = Array.isArray(extracted?.blockedDates) ? extracted.blockedDates : [];
+        });
+        return next;
+      });
+
+      setSchoolCalendarEventTitlesByDate((prev) => {
+        const next = { ...prev };
+        results.forEach(([, extracted]) => {
+          const map = extracted?.eventTitlesByDate || {};
+          Object.entries(map).forEach(([dateKey, title]) => {
+            if (dateKey) next[dateKey] = String(title || '').trim() || 'Dia sem funcionamento';
+          });
+        });
+        return next;
+      });
+    };
+
+    void loadSchoolCalendarYears();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeEnterpriseId, schoolCalendarYearsToLoad, schoolCalendarBlockedDatesByYear]);
+
+  const schoolCalendarBlockedDateSetByYear = useMemo(() => {
+    return Object.entries(schoolCalendarBlockedDatesByYear).reduce((acc, [yearKey, dates]) => {
+      acc[Number(yearKey)] = new Set(Array.isArray(dates) ? dates : []);
+      return acc;
+    }, {} as Record<number, Set<string>>);
+  }, [schoolCalendarBlockedDatesByYear]);
+
+  const isSchoolCalendarYearLoaded = (year: number) => schoolCalendarBlockedDatesByYear[year] !== undefined;
+
+  const isSchoolCalendarBlockedDate = (date: Date) => {
+    const dateKey = toDateKey(date);
+    const blockedDates = schoolCalendarBlockedDateSetByYear[date.getFullYear()];
+    return Boolean(blockedDates?.has(dateKey));
+  };
+
+  const getSchoolCalendarBlockTitle = (dateKey: string) =>
+    String(schoolCalendarEventTitlesByDate[dateKey] || 'Dia sem funcionamento').trim();
 
   const studentCreditCalendarMonthLabel = useMemo(() => {
     return studentCreditCalendarMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
@@ -1546,6 +1630,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     for (let day = 1; day <= totalDays; day += 1) {
       const date = new Date(year, month, day);
       if (date.getDay() !== targetJsDay) continue;
+      if (isSchoolCalendarBlockedDate(date)) continue;
       const key = toDateKey(date);
       if (blockedDates?.has(key)) continue;
       result.push(key);
@@ -1575,7 +1660,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
         const currentDates = new Set(prevDates[planId] || []);
         const consumedDates = consumedPlanDatesByPlanId.get(planId) || new Set<string>();
         const registeredDates = registeredPlanDatesByPlanId.get(planId) || new Set<string>();
-        const blockedDates = new Set<string>([...consumedDates, ...registeredDates]);
+        const schoolBlockedDates = schoolCalendarBlockedDateSetByYear[studentCreditCalendarMonth.getFullYear()] || new Set<string>();
+        const blockedDates = new Set<string>([...consumedDates, ...registeredDates, ...schoolBlockedDates]);
         const weekdayDates = getDateKeysForWeekdayInStudentCreditMonth(dayKey, blockedDates);
 
         if (hasDay) {
@@ -1601,6 +1687,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     const dateKey = toDateKey(date);
     const consumedDates = consumedPlanDatesByPlanId.get(planId) || new Set<string>();
     const registeredDates = registeredPlanDatesByPlanId.get(planId) || new Set<string>();
+    if (isSchoolCalendarBlockedDate(date)) return;
     if (consumedDates.has(dateKey) || registeredDates.has(dateKey)) return;
     setStudentCreditPlanDates(prev => {
       const current = prev[planId] || [];
@@ -4377,12 +4464,20 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                     <p className="text-[10px] font-black text-indigo-700 uppercase tracking-widest mb-3">
                                       Calendário de Entregas - Dias da Semana e do Mês
                                     </p>
+                                    {!isSchoolCalendarYearLoaded(studentCreditCalendarMonth.getFullYear()) && (
+                                      <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                                        <p className="text-[9px] font-black text-amber-700 uppercase tracking-wider">
+                                          Carregando calendário escolar do ano {studentCreditCalendarMonth.getFullYear()}...
+                                        </p>
+                                      </div>
+                                    )}
                                     <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mb-4">
                                       {WEEK_DAY_OPTIONS.map(day => {
                                         const active = studentCreditPlanDays[plan.id]?.includes(day.key);
                                         const consumedDatesForPlan = consumedPlanDatesByPlanId.get(plan.id) || new Set<string>();
                                         const registeredDatesForPlan = registeredPlanDatesByPlanId.get(plan.id) || new Set<string>();
-                                        const blockedDatesForPlan = new Set<string>([...consumedDatesForPlan, ...registeredDatesForPlan]);
+                                        const schoolBlockedDates = schoolCalendarBlockedDateSetByYear[studentCreditCalendarMonth.getFullYear()] || new Set<string>();
+                                        const blockedDatesForPlan = new Set<string>([...consumedDatesForPlan, ...registeredDatesForPlan, ...schoolBlockedDates]);
                                         const selectableWeekdayDates = getDateKeysForWeekdayInStudentCreditMonth(day.key, blockedDatesForPlan);
                                         const isWeekdayDisabled = selectableWeekdayDates.length === 0;
                                         return (
@@ -4453,6 +4548,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                             return <div key={`${plan.id}-pdv-empty-${index}`} className="w-full h-9 rounded-lg bg-transparent" />;
                                           }
                                           const dateKey = toDateKey(dateCell);
+                                          const isSchoolBlockedDate = isSchoolCalendarBlockedDate(dateCell);
+                                          const schoolBlockTitle = getSchoolCalendarBlockTitle(dateKey);
                                           const isSelectedDate = (studentCreditPlanDates[plan.id] || []).includes(dateKey);
                                           const consumedDatesForPlan = consumedPlanDatesByPlanId.get(plan.id) || new Set<string>();
                                           const registeredDatesForPlan = registeredPlanDatesByPlanId.get(plan.id) || new Set<string>();
@@ -4464,10 +4561,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                             <button
                                               type="button"
                                               key={`${plan.id}-pdv-${dateKey}`}
-                                              disabled={isDeliveredDate || isRegisteredDate}
+                                              disabled={isSchoolBlockedDate || isDeliveredDate || isRegisteredDate}
                                               onClick={() => toggleStudentCreditPlanDate(plan.id, dateCell)}
                                               className={`relative w-full h-9 rounded-lg border text-[10px] font-black transition-all flex items-center justify-center text-center ${
-                                                isReversedDate && !isSelectedDate
+                                                isSchoolBlockedDate
+                                                  ? 'bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed'
+                                                  : isReversedDate && !isSelectedDate
                                                   ? 'bg-rose-50 border-rose-200 text-rose-700 hover:border-rose-300'
                                                   : isDeliveredDate
                                                   ? 'bg-emerald-50 border-emerald-200 text-emerald-700 cursor-not-allowed'
@@ -4475,9 +4574,14 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                                       ? 'bg-amber-50 border-amber-200 text-amber-700 cursor-not-allowed'
                                                       : (isSelectedDate ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300'))
                                               }`}
-                                              title={isReversedDate ? 'Estornado' : (isDeliveredDate ? 'Entregue' : (isRegisteredDate ? 'Já registrado em crédito anterior' : ''))}
+                                              title={isSchoolBlockedDate ? schoolBlockTitle : (isReversedDate ? 'Estornado' : (isDeliveredDate ? 'Entregue' : (isRegisteredDate ? 'Já registrado em crédito anterior' : '')))}
                                             >
-                                              {isReversedDate && !isSelectedDate ? (
+                                              {isSchoolBlockedDate ? (
+                                                <span className="flex flex-col items-center leading-none">
+                                                  <span>{dateCell.getDate()}</span>
+                                                  <span className="text-[7px] font-black uppercase tracking-wider">Sem aula</span>
+                                                </span>
+                                              ) : isReversedDate && !isSelectedDate ? (
                                                 <span className="flex flex-col items-center leading-none">
                                                   <span>{dateCell.getDate()}</span>
                                                   <span className="text-[7px] font-black uppercase tracking-wider">Estornado</span>
@@ -4503,6 +4607,11 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                               {isRegisteredDate && (
                                                 <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-white text-[9px] leading-none flex items-center justify-center">
                                                   •
+                                                </span>
+                                              )}
+                                              {isSchoolBlockedDate && (
+                                                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-slate-500 text-white text-[9px] leading-none flex items-center justify-center">
+                                                  x
                                                 </span>
                                               )}
                                               {!isDeliveredDate && isReversedDate && !isSelectedDate && (
