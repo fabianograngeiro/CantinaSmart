@@ -11,7 +11,7 @@ import {
   Building, ChevronDown, CheckCircle2, Store, ListFilter,
   Tag, UserCircle, Eye, X, Trash2, Pencil, Undo2, Loader2
 } from 'lucide-react';
-import { Client, Enterprise, TransactionRecord } from '../types';
+import { Client, Enterprise, TransactionRecord, User as UserType } from '../types';
 import { ApiService } from '../services/api';
 import { formatPhoneWithCountryTag } from '../utils/phone';
 import { extractSchoolCalendarOperationalData } from '../utils/schoolCalendar';
@@ -19,6 +19,7 @@ import { extractSchoolCalendarOperationalData } from '../utils/schoolCalendar';
 interface UnitSalesTransactionsPageProps {
   activeEnterprise: Enterprise;
   transactions: TransactionRecord[];
+  currentUser: UserType;
 }
 
 type TimeFilter = 'TODAY' | '7DAYS' | 'MONTH' | 'YEAR' | 'CUSTOM';
@@ -171,7 +172,9 @@ const resolveExecutionSource = (tx: any): 'USUARIO' | 'SISTEMA' => {
   return 'USUARIO';
 };
 
-const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ activeEnterprise, transactions }) => {
+const normalizeRole = (value?: string) => String(value || '').trim().toUpperCase();
+
+const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ activeEnterprise, transactions, currentUser }) => {
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
     return (
@@ -228,6 +231,10 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   const [reverseDate, setReverseDate] = useState('');
   const [isReversingPlanCredit, setIsReversingPlanCredit] = useState(false);
   const [schoolCalendarBlockedDatesByYear, setSchoolCalendarBlockedDatesByYear] = useState<Record<number, string[]>>({});
+  const canHardDeleteTransactions = useMemo(() => {
+    const role = normalizeRole(currentUser?.role);
+    return role === 'SUPERADMIN' || role === 'ADMIN_SISTEMA';
+  }, [currentUser?.role]);
 
   const schoolCalendarYearsToLoad = useMemo(() => {
     const years = [
@@ -1156,6 +1163,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   };
 
   const openDeleteTransactionModal = (row: ExtendedTransactionRecord) => {
+    if (!canHardDeleteTransactions) {
+      alert('Exclusão direta bloqueada para este perfil. Use estorno/correção.');
+      return;
+    }
+
     if (String(row.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO') {
       alert('Registros de auditoria não podem ser excluídos.');
       return;
@@ -2696,62 +2708,70 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
   return (
     <div className="dash-shell transactions-shell">
-      
-      {/* Header Contextual */}
-      <header className="dash-header">
-        <div>
-           <div className="flex items-center gap-2 mb-1.5">
-              <div className="p-2 bg-indigo-600 rounded-lg text-white shadow-md shadow-indigo-100">
-                 <ReceiptText size={18} />
-              </div>
-              <div>
-                 <h1 className="text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight leading-none uppercase">Consumo de Pacotes e Créditos</h1>
-                 <p className="text-[8px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-[0.14em] mt-1 flex items-center gap-1">
-                    <Building size={10} className="text-indigo-400"/> {activeEnterprise.name}
-                 </p>
-              </div>
-           </div>
+      <div className="sticky top-0 z-40 space-y-3 pb-3 mb-3 bg-gradient-to-b from-slate-100/95 to-slate-100/85 backdrop-blur supports-[backdrop-filter]:backdrop-blur-md border-b border-slate-200/80">
+        {/* Header Contextual */}
+        <header className="dash-header">
+          <div>
+             <div className="flex items-center gap-2 mb-1.5">
+                <div className="p-2 bg-indigo-600 rounded-lg text-white shadow-md shadow-indigo-100">
+                   <ReceiptText size={18} />
+                </div>
+                <div>
+                   <h1 className="text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight leading-none uppercase">Consumo de Pacotes e Créditos</h1>
+                   <p className="text-[8px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-[0.14em] mt-1 flex items-center gap-1">
+                      <Building size={10} className="text-indigo-400"/> {activeEnterprise.name}
+                   </p>
+                </div>
+             </div>
+          </div>
+
+          <div className="dash-actions gap-1.5 sm:gap-2">
+             <button
+               onClick={openCreateModal}
+               className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg font-black text-[9px] uppercase tracking-[0.12em] hover:bg-emerald-700 transition-all shadow-md shadow-emerald-100"
+             >
+               <ReceiptText size={12} />
+               Registrar Transação
+             </button>
+             {canHardDeleteTransactions && (
+               <button
+                 onClick={handleClearAllTransactions}
+                 disabled={isClearingTransactions}
+                 className="flex items-center gap-1.5 px-3 py-2 bg-red-600 text-white rounded-lg font-black text-[9px] uppercase tracking-[0.12em] hover:bg-red-700 transition-all shadow-md shadow-red-100 disabled:opacity-60 disabled:cursor-not-allowed"
+               >
+                 <Trash2 size={12} />
+                 {isClearingTransactions ? 'Limpando...' : 'Limpar Transações'}
+               </button>
+             )}
+             <button 
+               onClick={exportToCSV}
+               className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg font-black text-[9px] uppercase tracking-[0.12em] hover:bg-gray-50 transition-all shadow-sm"
+             >
+               <FileSpreadsheet size={12} className="text-emerald-500" /> Exportar CSV
+             </button>
+             <button 
+               onClick={printScreenReport}
+               className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg font-black text-[9px] uppercase tracking-[0.12em] hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100"
+             >
+               <Printer size={12} /> Imprimir
+             </button>
+             <button 
+               onClick={exportToPDF}
+               className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg font-black text-[9px] uppercase tracking-[0.12em] hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100"
+             >
+               <Printer size={12} /> Exportar PDF
+             </button>
+          </div>
+        </header>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 sm:gap-3 animate-in fade-in duration-700">
+           <QuickSummaryCard label="Total Receitas R$" value={`R$ ${totalRevenueFiltered.toFixed(2)}`} sub="Entradas conforme filtros selecionados" icon={<Store />} color="bg-emerald-600" />
+           <QuickSummaryCard label="Total Descontos de Consumos R$" value={`R$ ${totalConsumptionDiscountFiltered.toFixed(2)}`} sub="Saídas de consumo conforme filtros" icon={<Sparkles />} color="bg-indigo-600" />
+           <QuickSummaryCard label="Ticket Médio Mês" value={`R$ ${monthlyTicketAverage.toFixed(2)}`} sub="Vendas do mês (balcão)" icon={<DollarSign />} color="bg-slate-900" />
         </div>
 
-        <div className="dash-actions gap-1.5 sm:gap-2">
-           <button
-             onClick={openCreateModal}
-             className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg font-black text-[9px] uppercase tracking-[0.12em] hover:bg-emerald-700 transition-all shadow-md shadow-emerald-100"
-           >
-             <ReceiptText size={12} />
-             Registrar Transação
-           </button>
-           <button
-             onClick={handleClearAllTransactions}
-             disabled={isClearingTransactions}
-             className="flex items-center gap-1.5 px-3 py-2 bg-red-600 text-white rounded-lg font-black text-[9px] uppercase tracking-[0.12em] hover:bg-red-700 transition-all shadow-md shadow-red-100 disabled:opacity-60 disabled:cursor-not-allowed"
-           >
-             <Trash2 size={12} />
-             {isClearingTransactions ? 'Limpando...' : 'Limpar Transações'}
-           </button>
-           <button 
-             onClick={exportToCSV}
-             className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg font-black text-[9px] uppercase tracking-[0.12em] hover:bg-gray-50 transition-all shadow-sm"
-           >
-             <FileSpreadsheet size={12} className="text-emerald-500" /> Exportar CSV
-           </button>
-           <button 
-             onClick={printScreenReport}
-             className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg font-black text-[9px] uppercase tracking-[0.12em] hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100"
-           >
-             <Printer size={12} /> Imprimir
-           </button>
-           <button 
-             onClick={exportToPDF}
-             className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg font-black text-[9px] uppercase tracking-[0.12em] hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100"
-           >
-             <Printer size={12} /> Exportar PDF
-           </button>
-        </div>
-      </header>
-
-      {/* MOTOR DE FILTRAGEM AVANÇADA UNIFICADO */}
-      <div className="dash-filterbar space-y-4">
+        {/* MOTOR DE FILTRAGEM AVANÇADA UNIFICADO */}
+        <div className="dash-filterbar space-y-4">
          
          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             
@@ -2846,6 +2866,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
               </div>
            </div>
          )}
+        </div>
       </div>
 
       {/* TABELA UNIFICADA DE RESULTADOS */}
@@ -3060,14 +3081,16 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                            >
                               <Eye size={13} />
                            </button>
-                           <button
-                             onClick={() => openDeleteTransactionModal(row)}
-                             disabled={deletingTransactionId === row.id || isAuditDeleteRow}
-                             className={`p-1.5 bg-white border text-red-400 rounded-lg hover:text-red-600 hover:bg-red-50 transition-all shadow-sm flex items-center gap-1 disabled:opacity-50 ${auditActionDisabledClass}`}
-                             title={isAuditDeleteRow ? 'Registro de auditoria (somente leitura)' : 'Excluir Transação'}
-                           >
-                              <Trash2 size={13} />
-                            </button>
+                           {canHardDeleteTransactions && (
+                             <button
+                               onClick={() => openDeleteTransactionModal(row)}
+                               disabled={deletingTransactionId === row.id || isAuditDeleteRow}
+                               className={`p-1.5 bg-white border text-red-400 rounded-lg hover:text-red-600 hover:bg-red-50 transition-all shadow-sm flex items-center gap-1 disabled:opacity-50 ${auditActionDisabledClass}`}
+                               title={isAuditDeleteRow ? 'Registro de auditoria (somente leitura)' : 'Excluir Transação'}
+                             >
+                                <Trash2 size={13} />
+                              </button>
+                           )}
                          </div>
                       </td>
                    </tr>
@@ -3075,13 +3098,6 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
               </tbody>
            </table>
         </div>
-      </div>
-
-      {/* SUMÁRIO RÁPIDO NO RODAPÉ */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3 animate-in fade-in duration-700">
-         <QuickSummaryCard label="Total Receitas R$" value={`R$ ${totalRevenueFiltered.toFixed(2)}`} sub="Entradas conforme filtros selecionados" icon={<Store />} color="bg-emerald-600" />
-         <QuickSummaryCard label="Total Descontos de Consumos R$" value={`R$ ${totalConsumptionDiscountFiltered.toFixed(2)}`} sub="Saídas de consumo conforme filtros" icon={<Sparkles />} color="bg-indigo-600" />
-         <QuickSummaryCard label="Ticket Médio Mês" value={`R$ ${monthlyTicketAverage.toFixed(2)}`} sub="Vendas do mês (balcão)" icon={<DollarSign />} color="bg-slate-900" />
       </div>
 
       {deleteTargetTransaction && (

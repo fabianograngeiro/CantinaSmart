@@ -14,10 +14,7 @@ const resolveRoleLabel = (role?: string) => {
   return normalized.replace(/_/g, ' ');
 };
 
-const canDeleteTransactionByRole = (role?: string) => {
-  const normalized = String(role || '').trim().toUpperCase();
-  return normalized === 'OWNER' || normalized === 'ADMIN' || normalized === 'GERENTE';
-};
+const canDeleteTransactionByRole = (role?: string) => canAccessAllEnterprises(role);
 
 const normalizeToken = (value: unknown) => String(value || '')
   .trim()
@@ -446,6 +443,11 @@ router.get('/:id/delete-preview', (req: AuthRequest, res: Response) => {
   if (!requesterCanAccessEnterprise(req, String((current as any)?.enterpriseId || ''))) {
     return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
+  if (!canDeleteTransactionByRole(req.userRole)) {
+    return res.status(403).json({
+      error: 'Exclusão direta bloqueada para este perfil. Use estorno/correção.',
+    });
+  }
 
   const includeOriginCredit = String(req.query?.includeOriginCredit || '').trim().toLowerCase() === 'true';
   const preview = db.getTransactionDeletePreview(req.params.id, { includeOriginCredit });
@@ -466,7 +468,7 @@ router.delete('/:id', (req: AuthRequest, res: Response) => {
     return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
   if (!canDeleteTransactionByRole(req.userRole)) {
-    return res.status(403).json({ error: 'Apenas owner, admin e gerente podem excluir transações.' });
+    return res.status(403).json({ error: 'Exclusão direta bloqueada para este perfil. Use estorno/correção.' });
   }
 
   const includeOriginCredit = Boolean(req.body?.includeOriginCredit);

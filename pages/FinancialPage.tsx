@@ -17,7 +17,7 @@ import {
   Trash2,
   CreditCard
 } from 'lucide-react';
-import { Client, Enterprise } from '../types';
+import { Client, Enterprise, User as UserType } from '../types';
 import { ApiService } from '../services/api';
 import { formatPhoneWithFlag } from '../utils/phone';
 
@@ -45,10 +45,13 @@ type FinancialTx = {
   rawType?: string;
   userName?: string;
   isAudit?: boolean;
+  auditedItemType?: 'ITEM' | 'PLANO';
+  auditedQuantity?: number;
 };
 
 interface FinancialPageProps {
   activeEnterprise: Enterprise | null;
+  currentUser: UserType;
 }
 
 const defaultRevenueCategories = ['CRÉDITO CANTINA', 'CRÉDITO PLANO', 'VENDA AVULSA PDV'];
@@ -88,6 +91,18 @@ const normalizeUpper = (value?: string) =>
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase();
+
+const inferAuditItemType = (tx: any): 'ITEM' | 'PLANO' => {
+  const plan = normalizeUpper(tx?.plan || tx?.planName);
+  const item = normalizeUpper(tx?.item);
+  const description = normalizeUpper(tx?.description);
+
+  if (plan && plan !== 'AUDITORIA' && plan !== 'VENDA' && plan !== 'CREDITO CANTINA') return 'PLANO';
+  if (item.includes('PLANO') || item.includes('PACOTE')) return 'PLANO';
+  if (description.includes('PLANO') || description.includes('PACOTE')) return 'PLANO';
+
+  return 'ITEM';
+};
 
 const isDeletionAdjustmentTx = (tx: FinancialTx) => {
   const category = normalizeUpper(tx?.category);
@@ -213,6 +228,8 @@ const mapRawTransactionToFinancial = (tx: any): FinancialTx | null => {
       rawType,
       userName,
       isAudit: true,
+      auditedItemType: inferAuditItemType(tx),
+      auditedQuantity: normalizedQuantity,
     };
   }
 
@@ -269,7 +286,7 @@ const mapRawTransactionToFinancial = (tx: any): FinancialTx | null => {
   return null;
 };
 
-const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
+const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, currentUser }) => {
   const [summaryTimeFilter, setSummaryTimeFilter] = useState<TimeFilter>('TODAY');
   const [summarySpecificDate, setSummarySpecificDate] = useState(toLocalDateKey(new Date()));
   const [pendingSearch, setPendingSearch] = useState('');
@@ -290,6 +307,10 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
   const [transactions, setTransactions] = useState<FinancialTx[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const canHardDeleteTransactions = useMemo(() => {
+    const role = normalizeUpper(currentUser?.role);
+    return role === 'SUPERADMIN' || role === 'ADMIN_SISTEMA';
+  }, [currentUser?.role]);
 
   const [isEntryModalOpen, setIsEntryModalOpen] = useState(false);
   const [entryType, setEntryType] = useState<EntryType>('RECEITA');
@@ -568,7 +589,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
       .filter((tx) => tx.isAudit)
       .filter((tx) => {
         if (!term) return true;
-        return normalizeUpper(`${tx.id} ${tx.description} ${tx.category} ${tx.rawType || tx.type} ${tx.client} ${tx.userName || ''}`).includes(term);
+        return normalizeUpper(`${tx.id} ${tx.description} ${tx.category} ${tx.rawType || tx.type} ${tx.client} ${tx.userName || ''} ${tx.auditedItemType || ''} ${tx.auditedQuantity || ''}`).includes(term);
       })
       .sort((a, b) => {
         const left = new Date(`${a.date || ''}T${a.time || '00:00'}`).getTime();
@@ -738,6 +759,11 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
   };
 
   const handleDeleteReminder = async (tx: FinancialTx) => {
+    if (!canHardDeleteTransactions) {
+      alert('Exclusão direta bloqueada para este perfil. Use estorno/correção.');
+      return;
+    }
+
     const confirmed = window.confirm('Excluir este lembrete/despesa?');
     if (!confirmed) return;
 
@@ -1158,12 +1184,14 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
                         >
                           <CheckCircle2 size={12} /> Pago
                         </button>
-                        <button
-                          onClick={() => handleDeleteReminder(tx)}
-                          className="px-2.5 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-widest text-red-600 border-red-200 hover:bg-red-50 flex items-center gap-1"
-                        >
-                          <Trash2 size={12} /> Excluir
-                        </button>
+                        {canHardDeleteTransactions && (
+                          <button
+                            onClick={() => handleDeleteReminder(tx)}
+                            className="px-2.5 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-widest text-red-600 border-red-200 hover:bg-red-50 flex items-center gap-1"
+                          >
+                            <Trash2 size={12} /> Excluir
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1318,6 +1346,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
                 <th className="px-3 py-2.5 text-left">Usuário</th>
                 <th className="px-3 py-2.5 text-left">Categoria</th>
                 <th className="px-3 py-2.5 text-left">Descrição</th>
+                <th className="px-3 py-2.5 text-left">Item/Plano • Qtd Auditada</th>
                 <th className="px-3 py-2.5 text-right">Unitário</th>
                 <th className="px-3 py-2.5 text-right">Valor</th>
               </tr>
@@ -1325,7 +1354,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
             <tbody className="divide-y">
               {filteredAuditTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-400 font-bold uppercase text-xs">Sem registros de auditoria no período</td>
+                  <td colSpan={10} className="px-4 py-8 text-center text-gray-400 font-bold uppercase text-xs">Sem registros de auditoria no período</td>
                 </tr>
               ) : filteredAuditTransactions.map((tx) => (
                 <tr key={`audit_${tx.id}`}>
@@ -1340,6 +1369,16 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise }) => {
                   <td className="px-3 py-2.5 text-gray-700 font-bold">{tx.userName || 'SISTEMA'}</td>
                   <td className="px-3 py-2.5 text-gray-700 font-bold">{tx.category || '-'}</td>
                   <td className="px-3 py-2.5 text-gray-800 font-bold">{tx.description}</td>
+                  <td className="px-3 py-2.5">
+                    <div className="inline-flex items-center gap-2">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${tx.auditedItemType === 'PLANO' ? 'bg-indigo-100 text-indigo-800 border-indigo-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                        {tx.auditedItemType || 'ITEM'}
+                      </span>
+                      <span className="text-[10px] font-black text-gray-700 uppercase tracking-wide">
+                        Qtd: {Number(tx.auditedQuantity || tx.quantity || 1)}
+                      </span>
+                    </div>
+                  </td>
                   <td className="px-3 py-2.5 text-right font-bold text-gray-700">R$ {Number(tx.unitPrice || 0).toFixed(2)}</td>
                   <td className="px-3 py-2.5 text-right font-black text-indigo-700">R$ {Number(tx.amount || 0).toFixed(2)}</td>
                 </tr>

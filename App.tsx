@@ -801,8 +801,8 @@ const AppContent: React.FC<any> = (props) => {
                   <Route path="/error-tickets" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canViewErrorTickets) ? <ErrorTicketsPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/saas-clients" element={isSuperAdmin || (isAdminSistema && currentUser?.systemPermissions?.canManageClients) ? <SaasClientsPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/system-staff" element={isSuperAdmin ? <SystemStaffPage currentUser={currentUser} /> : <Navigate to="/" />} />
-                  <Route path="/unit-sales" element={canAccessReports ? <UnitSalesTransactionsPage activeEnterprise={activeEnterprise} transactions={transactions} /> : <Navigate to="/" />} />
-                  <Route path="/financial" element={canAccessReports ? <FinancialPage activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/unit-sales" element={canAccessReports ? <UnitSalesTransactionsPage activeEnterprise={activeEnterprise} transactions={transactions} currentUser={currentUser} /> : <Navigate to="/" />} />
+                  <Route path="/financial" element={canAccessReports ? <FinancialPage activeEnterprise={activeEnterprise} currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/whatsapp" element={canAccessReports ? <WhatsAppPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/users" element={canAccessUsersRoute ? <UserManagementPage currentUser={currentUser} /> : <Navigate to="/" />} />
                     <Route path="/whatsapp-contacts" element={canAccessReports ? <AdminContactsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
