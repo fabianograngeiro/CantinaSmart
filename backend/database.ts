@@ -3570,6 +3570,58 @@ export class Database {
 
     this.transactions.push(newTransaction);
 
+    // Se for crÃ©dito de plano com datas selecionadas, persistir agenda no aluno
+    const isPlanCredit = normalizedType === 'CREDIT' || normalizedType === 'CREDITO';
+    if (isPlanCredit) {
+      const clientId = String(newTransaction?.clientId || '').trim();
+      if (clientId) {
+        const planId = String(newTransaction?.planId || newTransaction?.originPlanId || '').trim();
+        const planName = String(newTransaction?.plan || newTransaction?.planName || newTransaction?.item || '').trim();
+        const selectedDates = Array.isArray((newTransaction as any)?.selectedDates) ? (newTransaction as any).selectedDates : [];
+        if ((planId || planName) && selectedDates.length > 0) {
+          const clientIndex = this.clients.findIndex((c: any) => String(c?.id || '').trim() === clientId);
+          if (clientIndex >= 0) {
+            const client = { ...this.clients[clientIndex] };
+            const existingConfigs = Array.isArray(client.selectedPlansConfig) ? [...client.selectedPlansConfig] : [];
+            const normalizedPlanToken = this.normalizeToken(planName);
+            const cfgIndex = existingConfigs.findIndex((cfg: any) => {
+              const cfgPlanId = String(cfg?.planId || '').trim();
+              const cfgPlanToken = this.normalizeToken(cfg?.planName || cfg?.name || '');
+              if (planId && cfgPlanId && cfgPlanId === planId) return true;
+              if (normalizedPlanToken && cfgPlanToken && normalizedPlanToken === cfgPlanToken) return true;
+              return false;
+            });
+            const mergedDates = (current: string[] = []) => Array.from(
+              new Set([...current, ...selectedDates.map((d: any) => String(d || '').slice(0, 10)).filter(Boolean)])
+            ).sort();
+
+            if (cfgIndex >= 0) {
+              const current = existingConfigs[cfgIndex];
+              existingConfigs[cfgIndex] = {
+                ...current,
+                planId: current.planId || planId,
+                planName: current.planName || planName,
+                selectedDates: mergedDates(current.selectedDates),
+                subtotal: Number(current.subtotal || 0),
+              };
+            } else {
+              existingConfigs.push({
+                planId,
+                planName,
+                selectedDates: mergedDates([]),
+                daysOfWeek: [],
+                deliveryShifts: [],
+                subtotal: Number(newTransaction?.total || newTransaction?.amount || 0),
+              });
+            }
+
+            client.selectedPlansConfig = existingConfigs;
+            this.clients[clientIndex] = client;
+          }
+        }
+      }
+    }
+
     const stockEffectsApplied = this.transactionAffectsStock(newTransaction);
     if (stockEffectsApplied) {
       // Venda/consumo com itens reduz estoque no momento da criação.
