@@ -16,6 +16,13 @@ import { ApiService } from '../services/api';
 import { formatPhoneWithCountryTag } from '../utils/phone';
 import { extractSchoolCalendarOperationalData } from '../utils/schoolCalendar';
 
+const toDateKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 interface UnitSalesTransactionsPageProps {
   activeEnterprise: Enterprise;
   transactions: TransactionRecord[];
@@ -219,6 +226,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   const [showCreateClientSuggestions, setShowCreateClientSuggestions] = useState(false);
   const [createDate, setCreateDate] = useState('');
   const [createTime, setCreateTime] = useState('');
+  const [createSelectedPlanId, setCreateSelectedPlanId] = useState<string | null>(null);
+  const [createSelectedPlan, setCreateSelectedPlan] = useState<any | null>(null);
+  const [createPlanDatesByPlanId, setCreatePlanDatesByPlanId] = useState<Record<string, string[]>>({});
+  const [createPlanCalendarMonth, setCreatePlanCalendarMonth] = useState<Date>(new Date());
+  const [isPlanCalendarOpen, setIsPlanCalendarOpen] = useState(false);
   const [hasLoadedBackendTransactions, setHasLoadedBackendTransactions] = useState(false);
   const [isClearingTransactions, setIsClearingTransactions] = useState(false);
   const [reloadTransactionsKey, setReloadTransactionsKey] = useState(0);
@@ -248,6 +260,17 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   useEffect(() => {
     setSchoolCalendarBlockedDatesByYear({});
   }, [activeEnterprise?.id]);
+
+  // Quando o modal de criação abre, pré-preenche data/hora iguais ao PDV
+  useEffect(() => {
+    if (!isCreateModalOpen) return;
+    const now = new Date();
+    const dateKey = toDateKey(now);
+    const timeKey = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
+    setCreateDate((prev) => prev || dateKey);
+    setCreateTime((prev) => prev || timeKey);
+    setCreatePlanCalendarMonth((prev) => prev || now);
+  }, [isCreateModalOpen]);
 
   useEffect(() => {
     const enterpriseId = String(activeEnterprise?.id || '').trim();
@@ -304,6 +327,10 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     const year = Number(key.slice(0, 4));
     const blocked = schoolCalendarBlockedDateSetByYear[year];
     return !(blocked?.has(key));
+  };
+  const isSchoolCalendarBlockedDate = (date: Date) => {
+    const blocked = schoolCalendarBlockedDateSetByYear[date.getFullYear()];
+    return Boolean(blocked?.has(toDateKey(date)));
   };
 
   const isCreateDateBlocked = Boolean(createDate) && !isSchoolDateAllowed(createDate);
@@ -1058,25 +1085,97 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     });
   };
 
-  const addPlanToCreateCart = (plan: any) => {
-    setCreateCart((prev) => {
-      const lineId = `PLAN_${plan.id}`;
-      const idx = prev.findIndex((i) => i.id === lineId);
-      if (idx >= 0) {
-        return prev.map((i, n) => n === idx ? { ...i, quantity: i.quantity + 1 } : i);
-      }
-      return [
-        ...prev,
-        {
-          id: lineId,
-          name: `Consumo plano ${String(plan.name || 'PLANO')}`,
-          price: Number(plan.price || 0),
-          quantity: 1,
-          type: 'PLAN',
-          planId: String(plan.id)
-        }
-      ];
+  const openPlanCalendar = (plan: any) => {
+    setCreateSelectedPlanId(String(plan.id));
+    setCreateSelectedPlan(plan);
+    const existingDates = createPlanDatesByPlanId[String(plan.id)] || [];
+    setCreatePlanCalendarMonth(existingDates[0] ? new Date(existingDates[0]) : new Date());
+    setIsPlanCalendarOpen(true);
+  };
+
+  const togglePlanDateSelection = (date: Date) => {
+    if (isSchoolCalendarBlockedDate(date)) return;
+    const dateKey = toDateKey(date);
+    setCreatePlanDatesByPlanId((prev) => {
+      if (!createSelectedPlanId) return prev;
+      const current = new Set(prev[createSelectedPlanId] || []);
+      if (current.has(dateKey)) current.delete(dateKey); else current.add(dateKey);
+      return { ...prev, [createSelectedPlanId]: Array.from(current).sort() };
     });
+  };
+
+  const handleConfirmPlanDates = () => {
+    if (!createSelectedPlanId || !createSelectedPlan) {
+      setIsPlanCalendarOpen(false);
+      return;
+    }
+    const dates = createPlanDatesByPlanId[createSelectedPlanId] || [];
+    if (dates.length === 0) {
+      alert('Selecione pelo menos uma data para o plano.');
+      return;
+    }
+
+    setCreateCart((prev) => {
+      const lineId = `PLAN_${createSelectedPlanId}`;
+      const idx = prev.findIndex((i) => i.id === lineId);
+      const quantity = dates.length;
+      const baseItem = {
+        id: lineId,
+        name: `Consumo plano ${String(createSelectedPlan.name || 'PLANO')}`,
+        price: Number(createSelectedPlan.price || 0),
+        quantity,
+        type: 'PLAN' as const,
+        planId: String(createSelectedPlanId)
+      };
+      if (idx >= 0) {
+        return prev.map((i, n) => n === idx ? { ...i, ...baseItem } : i);
+      }
+      return [...prev, baseItem];
+    });
+
+    setIsPlanCalendarOpen(false);
+  };
+
+  const planCalendarGrid = useMemo(() => {
+    const year = createPlanCalendarMonth.getFullYear();
+    const month = createPlanCalendarMonth.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    const startOffset = (firstDay.getDay() + 6) % 7; // convert Sunday=0 to start Monday
+    const cells: Array<Date | null> = [];
+    for (let i = 0; i < startOffset; i += 1) cells.push(null);
+    for (let day = 1; day <= totalDays; day += 1) {
+      cells.push(new Date(year, month, day));
+    }
+    return cells;
+  }, [createPlanCalendarMonth]);
+
+  const isPlanDateSelected = (date: Date) => {
+    if (!createSelectedPlanId) return false;
+    const list = createPlanDatesByPlanId[createSelectedPlanId] || [];
+    return list.includes(toDateKey(date));
+  };
+
+  const toggleWeekdayColumn = (jsDay: number) => {
+    if (!createSelectedPlanId) return;
+    const selectableDates = planCalendarGrid
+      .filter((cell) => cell && cell.getDay() === jsDay && !isSchoolCalendarBlockedDate(cell))
+      .map((cell) => cell as Date);
+    if (selectableDates.length === 0) return;
+
+    const current = new Set(createPlanDatesByPlanId[createSelectedPlanId] || []);
+    const hasUnselected = selectableDates.some((d) => !current.has(toDateKey(d)));
+
+    if (hasUnselected) {
+      selectableDates.forEach((d) => current.add(toDateKey(d)));
+    } else {
+      selectableDates.forEach((d) => current.delete(toDateKey(d)));
+    }
+
+    setCreatePlanDatesByPlanId((prev) => ({
+      ...prev,
+      [createSelectedPlanId]: Array.from(current).sort(),
+    }));
   };
 
   const updateCreateCartQuantity = (id: string, nextQty: number) => {
@@ -1088,6 +1187,10 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
   const removeCreateCartItem = (id: string) => {
     setCreateCart((prev) => prev.filter((item) => item.id !== id));
+    if (createSelectedPlanId && id === `PLAN_${createSelectedPlanId}`) {
+      setCreateSelectedPlanId(null);
+      setCreateSelectedPlan(null);
+    }
   };
 
   const handleCreateTransaction = async () => {
@@ -1113,6 +1216,13 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     const itemDescription = createCart.map((item) => `${item.quantity}x ${item.name}`).join(', ');
     const firstPlanItem = createCart.find((item) => item.type === 'PLAN');
     const isPlanConsumption = Boolean(firstPlanItem);
+    if (isPlanConsumption) {
+      const planDates = firstPlanItem ? (createPlanDatesByPlanId[String(firstPlanItem.planId || firstPlanItem.id.replace(/^PLAN_/, ''))] || []) : [];
+      if (planDates.length === 0) {
+        alert('Selecione pelo menos uma data de consumo para o plano.');
+        return;
+      }
+    }
     if (!isSchoolDateAllowed(createDate)) {
       alert('Dia sem aula (feriado/recesso) não está disponível para lançamento.');
       return;
@@ -1141,6 +1251,9 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       date: toLocalDateKey(txDate),
       time: createTime,
       timestamp: txDate.toISOString(),
+      selectedDates: isPlanConsumption
+        ? (firstPlanItem ? (createPlanDatesByPlanId[String(firstPlanItem.planId || firstPlanItem.id.replace(/^PLAN_/, ''))] || []) : [])
+        : [],
       items: createCart.map((item) => ({
         productId: item.id,
         name: item.name,
@@ -3778,7 +3891,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                     {String(createActiveCategory).toUpperCase() === 'PLANOS' && filteredCreatePlans.map((plan: any) => (
                       <button
                         key={`create_plan_${plan.id}`}
-                        onClick={() => addPlanToCreateCart(plan)}
+                        onClick={() => openPlanCalendar(plan)}
                         className="w-full p-3 bg-white border rounded-xl text-left hover:border-emerald-300 transition-colors"
                       >
                         <p className="text-sm font-black text-gray-800 uppercase">{plan.name}</p>
@@ -3794,29 +3907,46 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
                 <div className="bg-gray-50 border rounded-2xl p-3">
                   <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Carrinho</p>
-                  <div className="max-h-[280px] overflow-y-auto space-y-2">
-                    {createCart.length === 0 ? (
-                      <p className="text-xs font-black text-gray-300 uppercase tracking-widest text-center py-8">Carrinho vazio</p>
-                    ) : createCart.map((item) => (
-                      <div key={item.id} className="p-3 bg-white border rounded-xl">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-black text-gray-800">{item.name}</p>
-                          <button onClick={() => removeCreateCartItem(item.id)} className="text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
-                        </div>
-                        <p className="text-[10px] font-bold text-gray-400 uppercase">{item.type === 'PLAN' ? 'PLANO' : 'PRODUTO'}</p>
-                        <div className="mt-2 flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <button onClick={() => updateCreateCartQuantity(item.id, item.quantity - 1)} className="w-6 h-6 rounded border text-xs font-black">-</button>
-                            <span className="text-xs font-black">{item.quantity}</span>
-                            <button onClick={() => updateCreateCartQuantity(item.id, item.quantity + 1)} className="w-6 h-6 rounded border text-xs font-black">+</button>
+                    <div className="max-h-[280px] overflow-y-auto space-y-2">
+                      {createCart.length === 0 ? (
+                        <p className="text-xs font-black text-gray-300 uppercase tracking-widest text-center py-8">Carrinho vazio</p>
+                      ) : createCart.map((item) => (
+                        <div key={item.id} className="p-3 bg-white border rounded-xl">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-black text-gray-800">{item.name}</p>
+                            <button onClick={() => removeCreateCartItem(item.id)} className="text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
                           </div>
-                          <p className="text-xs font-black text-emerald-700">R$ {(item.quantity * item.price).toFixed(2)}</p>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase">{item.type === 'PLAN' ? 'PLANO' : 'PRODUTO'}</p>
+                          <div className="mt-2 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <button
+                                disabled={item.type === 'PLAN'}
+                                onClick={() => updateCreateCartQuantity(item.id, item.quantity - 1)}
+                                className={`w-6 h-6 rounded border text-xs font-black ${item.type === 'PLAN' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              >
+                                -
+                              </button>
+                              <span className="text-xs font-black">{item.quantity}</span>
+                              <button
+                                disabled={item.type === 'PLAN'}
+                                onClick={() => updateCreateCartQuantity(item.id, item.quantity + 1)}
+                                className={`w-6 h-6 rounded border text-xs font-black ${item.type === 'PLAN' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              >
+                                +
+                              </button>
+                            </div>
+                            <p className="text-xs font-black text-emerald-700">R$ {(item.quantity * item.price).toFixed(2)}</p>
+                          </div>
+                          {item.type === 'PLAN' && (
+                            <p className="mt-2 text-[10px] font-bold text-gray-500 uppercase">
+                              {(createPlanDatesByPlanId[String(item.planId || item.id.replace(/^PLAN_/, ''))] || []).length} dia(s) selecionado(s)
+                            </p>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
 
               <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex items-center justify-between">
                 <p className="text-xs font-black text-emerald-600 uppercase tracking-widest">Valor Total</p>
@@ -3835,6 +3965,99 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
               </button>
             </div>
           </div>
+
+          {isPlanCalendarOpen && createSelectedPlan && (
+            <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-black/60" onClick={() => setIsPlanCalendarOpen(false)}></div>
+              <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95">
+                <div className="px-4 py-3 bg-emerald-600 text-white flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest">Selecionar datas do plano</p>
+                    <p className="text-sm font-black">{createSelectedPlan.name}</p>
+                  </div>
+                  <button onClick={() => setIsPlanCalendarOpen(false)} className="p-2 hover:bg-white/10 rounded-full"><X size={18} /></button>
+                </div>
+
+                <div className="p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setCreatePlanCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                      className="w-9 h-9 rounded-lg border border-gray-200 text-sm font-black text-gray-600 hover:border-emerald-300"
+                    >
+                      {'<'}
+                    </button>
+                    <p className="text-sm font-black text-gray-800 uppercase">
+                      {createPlanCalendarMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setCreatePlanCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                      className="w-9 h-9 rounded-lg border border-gray-200 text-sm font-black text-gray-600 hover:border-emerald-300"
+                    >
+                      {'>'}
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-7 gap-2 text-[10px] font-black uppercase text-gray-400">
+                    {['Seg','Ter','Qua','Qui','Sex','Sab','Dom'].map((d, idx) => {
+                      // idx: 0 => Seg (JS Monday = 1), ... , 6 => Dom (JS Sunday = 0)
+                      const jsDay = idx === 6 ? 0 : idx + 1;
+                      return (
+                        <button
+                          key={`hdr-${d}`}
+                          type="button"
+                          onClick={() => toggleWeekdayColumn(jsDay)}
+                          className="h-8 flex items-center justify-center rounded-lg border border-transparent hover:border-emerald-200 hover:bg-emerald-50 text-gray-500"
+                          title="Selecionar/remover todos deste dia da semana"
+                        >
+                          {d}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="grid grid-cols-7 gap-2">
+                    {planCalendarGrid.map((cell, idx) => {
+                      if (!cell) return <div key={`empty-${idx}`} className="h-10" />;
+                      const dateKey = toDateKey(cell);
+                      const isBlocked = isSchoolCalendarBlockedDate(cell);
+                      const isSelected = isPlanDateSelected(cell);
+                      return (
+                        <button
+                          key={dateKey}
+                          disabled={isBlocked}
+                          onClick={() => togglePlanDateSelection(cell)}
+                          className={`h-10 rounded-lg border text-xs font-black transition-all flex flex-col items-center justify-center
+                            ${isBlocked ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                              : isSelected ? 'bg-emerald-600 border-emerald-600 text-white'
+                              : 'bg-white border-gray-200 text-gray-700 hover:border-emerald-300'}`}
+                          title={isBlocked ? 'Dia sem aula (feriado/recesso)' : 'Clique para selecionar'}
+                        >
+                          <span>{cell.getDate()}</span>
+                          {isBlocked && <span className="text-[7px] font-black uppercase tracking-wider">Sem aula</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex items-center justify-between text-sm font-black text-gray-700">
+                    <span>{(createPlanDatesByPlanId[createSelectedPlanId] || []).length} dia(s) selecionado(s)</span>
+                    <span>
+                      Unit.: R$ {Number(createSelectedPlan.price || 0).toFixed(2)} • Total: R$ {Number((createPlanDatesByPlanId[createSelectedPlanId] || []).length * Number(createSelectedPlan.price || 0)).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-4 border-t bg-gray-50 flex justify-end gap-2">
+                  <button onClick={() => setIsPlanCalendarOpen(false)} className="px-4 py-2 rounded-xl border text-[10px] font-black uppercase tracking-widest text-gray-600">Cancelar</button>
+                  <button onClick={handleConfirmPlanDates} className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700">
+                    Confirmar datas
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
