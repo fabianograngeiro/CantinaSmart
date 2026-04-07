@@ -7,8 +7,19 @@ import { NUTRITIONAL_BASE_SEED } from './data/nutritionalBaseSeed.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DATA_DIR = path.join(__dirname, 'data');
-const DATABASE_FILE = path.join(DATA_DIR, 'database.json');
+const DEFAULT_DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = path.resolve(
+  process.env.DATA_DIR_PATH
+  || process.env.DATABASE_DIR
+  || process.env.DATA_DIR
+  || DEFAULT_DATA_DIR
+);
+const LEGACY_DATA_DIR = DEFAULT_DATA_DIR;
+const DATABASE_FILE = path.resolve(
+  process.env.DATABASE_FILE
+  || path.join(DATA_DIR, 'database.json')
+);
+const LEGACY_DATABASE_FILE = path.join(LEGACY_DATA_DIR, 'database.json');
 const CURRENT_SCHEMA_VERSION = 2;
 const NATIVE_INGREDIENT_CATEGORIES = ['Proteinas', 'Carboidratos', 'Legumes', 'Verduras', 'Frutas', 'Laticinios', 'Bebidas', 'Outros'];
 
@@ -1465,7 +1476,7 @@ export class Database {
 
   private readLegacyData(): DatabaseShape {
     const readArrayFile = (fileName: string): any[] => {
-      const filePath = path.join(DATA_DIR, fileName);
+      const filePath = path.join(LEGACY_DATA_DIR, fileName);
       if (!fs.existsSync(filePath)) return [];
 
       try {
@@ -1636,6 +1647,12 @@ export class Database {
       console.log('📂 [DB] Loading data from database.json...');
 
       let data: DatabaseShape;
+
+      if (!fs.existsSync(DATABASE_FILE) && fs.existsSync(LEGACY_DATABASE_FILE) && DATABASE_FILE !== LEGACY_DATABASE_FILE) {
+        console.log('ℹ️ [DB] database.json not found in DATA_DIR, copying from legacy location...');
+        fs.mkdirSync(path.dirname(DATABASE_FILE), { recursive: true });
+        fs.copyFileSync(LEGACY_DATABASE_FILE, DATABASE_FILE);
+      }
 
       if (fs.existsSync(DATABASE_FILE)) {
         const parsed = JSON.parse(fs.readFileSync(DATABASE_FILE, 'utf-8'));
@@ -3774,6 +3791,27 @@ export class Database {
       return Boolean(txId) && idsToDelete.has(txId);
     });
 
+    // CrÃ©ditos de plano com datas selecionadas: usado para remover agendamentos pendentes
+    const planCreditDatesByClient = new Map<string, Array<{ planId: string; planToken: string; dates: Set<string> }>>();
+    removedTransactions.forEach((tx: any) => {
+      const txType = this.normalizeToken(tx?.type);
+      if (txType !== 'CREDIT' && txType !== 'CREDITO') return;
+      const clientId = String(tx?.clientId || '').trim();
+      if (!clientId) return;
+      const rawDates = Array.isArray(tx?.selectedDates) ? tx.selectedDates : [];
+      const dates = new Set<string>(
+        rawDates
+          .map((raw: unknown) => String(raw || '').trim().slice(0, 10))
+          .filter((date: string) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+      );
+      if (dates.size === 0) return;
+      const planId = String(tx?.planId || tx?.originPlanId || '').trim();
+      const planToken = this.normalizeToken(tx?.plan || tx?.planName || tx?.item);
+      const entries = planCreditDatesByClient.get(clientId) || [];
+      entries.push({ planId, planToken, dates });
+      planCreditDatesByClient.set(clientId, entries);
+    });
+
     const amountFromTx = (tx: any) => {
       const n = this.resolveTransactionAmount(tx);
       return Number.isFinite(n) ? n : 0;
@@ -3876,6 +3914,47 @@ export class Database {
     this.removeOrphanTransactionReferences();
 
     this.clients = this.clients.map((client) => {
+      const clientId = String((client as any)?.id || '').trim();
+      const planDatesEntries = clientId ? planCreditDatesByClient.get(clientId) || [] : [];
+      if (planDatesEntries.length > 0) {
+        const selectedConfigs = Array.isArray((client as any)?.selectedPlansConfig)
+          ? ((client as any).selectedPlansConfig as any[])
+          : [];
+
+        const nextConfigs = selectedConfigs
+          .map((cfg: any) => {
+            const cfgPlanId = String(cfg?.planId || '').trim();
+            const cfgPlanToken = this.normalizeToken(cfg?.planName || cfg?.name || '');
+            const matchingEntries = planDatesEntries.filter((entry) => {
+              if (entry.planId && cfgPlanId && entry.planId === cfgPlanId) return true;
+              if (entry.planToken && cfgPlanToken && entry.planToken === cfgPlanToken) return true;
+              return false;
+            });
+            if (matchingEntries.length === 0) return cfg;
+
+            const datesToRemove = new Set<string>();
+            matchingEntries.forEach((entry) => entry.dates.forEach((d) => datesToRemove.add(d)));
+
+            const currentDates = Array.isArray(cfg?.selectedDates) ? cfg.selectedDates : [];
+            const keptDates = currentDates
+              .map((raw: unknown) => String(raw || '').trim().slice(0, 10))
+              .filter((date: string) => !datesToRemove.has(date));
+
+            const nextCfg = {
+              ...cfg,
+              selectedDates: keptDates,
+            };
+
+            const hasDaysOfWeek = Array.isArray(cfg?.daysOfWeek) && cfg.daysOfWeek.length > 0;
+            const hasDates = keptDates.length > 0;
+            if (!hasDaysOfWeek && !hasDates) return null;
+            return nextCfg;
+          })
+          .filter(Boolean);
+
+        (client as any).selectedPlansConfig = nextConfigs;
+      }
+
       const normalized = this.normalizeClientPlanBalances(client);
       const rebuilt = this.rebuildClientPlanBalancesFromTransactions(normalized);
       return this.pruneClientPlanReferencesToActivePlans(rebuilt);
