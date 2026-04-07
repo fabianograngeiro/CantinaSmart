@@ -441,9 +441,9 @@ const AppContent: React.FC<any> = (props) => {
   const canManageStaff = isOwnerUnitPanel ? true : resolvedPermissions.canManageStaff;
   const canAccessUsersRoute = isSuperAdmin || (isOwner ? !isOwnerUnitPanel : canManageStaff);
   const canAccessSystemSettingsRoute = isSuperAdmin || isAdminSistema || (isOwner && !isOwnerUnitPanel);
-  const activeSchoolUnitName = String(activeEnterprise?.attachedSchoolName || activeEnterprise?.name || '').trim();
-  const collaboratorSidebarLabel = activeSchoolUnitName ? `COLABORADOR ${activeSchoolUnitName}` : 'COLABORADOR';
-  const studentsSidebarLabel = activeSchoolUnitName ? `ALUNOS ${activeSchoolUnitName}` : 'ALUNOS';
+  // Labels fixos (sem nome da unidade) conforme solicitado
+  const collaboratorSidebarLabel = 'FUNC.ESCOLA';
+  const studentsSidebarLabel = 'ALUNOS';
 
   // Verificar se está na página de enterprises
   const isOnEnterprisesPage = location.pathname === '/enterprises';
