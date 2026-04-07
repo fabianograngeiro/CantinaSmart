@@ -3964,22 +3964,30 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                       <button
                         key={`create_prod_${product.id}`}
                         onClick={() => addProductToCreateCart(product)}
-                        className="w-full p-3 bg-white border rounded-xl text-left hover:border-emerald-300 transition-colors"
+                        className="w-full p-3 bg-white border rounded-xl hover:border-emerald-300 transition-colors text-left"
                       >
-                        <p className="text-sm font-black text-gray-800 uppercase">{product.name}</p>
-                        <p className="text-[10px] font-bold text-gray-400 uppercase">{product.category}</p>
-                        <p className="text-xs font-black text-emerald-600 mt-1">R$ {Number(product.price || 0).toFixed(2)}</p>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-black text-gray-800 uppercase truncate">{product.name}</p>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase truncate">{product.category}</p>
+                          </div>
+                          <p className="text-sm font-black text-emerald-600 whitespace-nowrap">R$ {Number(product.price || 0).toFixed(2)}</p>
+                        </div>
                       </button>
                     ))}
                     {String(createActiveCategory).toUpperCase() === 'PLANOS' && filteredCreatePlans.map((plan: any) => (
                       <button
                         key={`create_plan_${plan.id}`}
                         onClick={() => openPlanCalendar(plan)}
-                        className="w-full p-3 bg-white border rounded-xl text-left hover:border-emerald-300 transition-colors"
+                        className="w-full p-3 bg-white border rounded-xl hover:border-emerald-300 transition-colors text-left"
                       >
-                        <p className="text-sm font-black text-gray-800 uppercase">{plan.name}</p>
-                        <p className="text-[10px] font-bold text-indigo-400 uppercase">Plano</p>
-                        <p className="text-xs font-black text-emerald-600 mt-1">R$ {Number(plan.price || 0).toFixed(2)}</p>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-black text-gray-800 uppercase truncate">{plan.name}</p>
+                            <p className="text-[10px] font-bold text-indigo-400 uppercase truncate">Plano</p>
+                          </div>
+                          <p className="text-sm font-black text-emerald-600 whitespace-nowrap">R$ {Number(plan.price || 0).toFixed(2)}</p>
+                        </div>
                       </button>
                     ))}
                     {filteredCreateProducts.length === 0 && filteredCreatePlans.length === 0 && (
