@@ -17,7 +17,7 @@ export const normalizeRole = (value?: string) => {
 
 export const canAccessAllEnterprises = (role?: string) => {
   const normalized = normalizeRole(role);
-  return normalized === 'SUPERADMIN' || normalized === 'ADMIN_SISTEMA';
+  return normalized === 'SUPERADMIN' || normalized === 'ADMIN_SISTEMA' || normalized === 'ADMIN';
 };
 
 export const getRequesterUser = (req: AuthRequest) => {
