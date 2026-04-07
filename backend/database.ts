@@ -3622,6 +3622,51 @@ export class Database {
       }
     }
 
+    // Consumos retroativos vinculados ao crÃ©dito do plano (datas jÃ¡ passadas)
+    if (isPlanCredit) {
+      const retroDates: string[] = Array.isArray((newTransaction as any)?.retroactiveConsumedDates)
+        ? (newTransaction as any).retroactiveConsumedDates
+        : [];
+      if (retroDates.length > 0) {
+        const unitPrice = this.resolvePlanUnitValue(
+          String(newTransaction?.planId || newTransaction?.originPlanId || ''),
+          String(newTransaction?.plan || newTransaction?.planName || newTransaction?.item || ''),
+          String(newTransaction?.enterpriseId || ''),
+          [newTransaction?.unitPrice, newTransaction?.planPrice, newTransaction?.amount]
+        ) || 0;
+
+        retroDates
+          .map((d) => String(d || '').slice(0, 10))
+          .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+          .forEach((dateIso) => {
+            const retroTx = {
+              id: `t_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+              enterpriseId: String(newTransaction?.enterpriseId || '').trim(),
+              clientId: String(newTransaction?.clientId || '').trim(),
+              clientName: String(newTransaction?.clientName || newTransaction?.client || '').trim(),
+              planId: String(newTransaction?.planId || newTransaction?.originPlanId || '').trim(),
+              plan: String(newTransaction?.plan || newTransaction?.planName || newTransaction?.item || '').trim(),
+              type: 'CONSUMO',
+              description: `Entrega do dia (retroativo do plano)`,
+              item: String(newTransaction?.plan || newTransaction?.planName || newTransaction?.item || '').trim(),
+              deliveryDate: dateIso,
+              date: dateIso,
+              time: '00:00',
+              method: 'PLANO',
+              paymentMethod: 'PLANO',
+              amount: unitPrice,
+              total: unitPrice,
+              status: 'ENTREGUE',
+              executionSource: 'SISTEMA',
+              originTransactionId: String(newTransaction?.id || '').trim(),
+              timestamp: `${dateIso}T00:00:00`,
+              selectedDates: [dateIso],
+            };
+            this.transactions.push(retroTx as any);
+          });
+      }
+    }
+
     const stockEffectsApplied = this.transactionAffectsStock(newTransaction);
     if (stockEffectsApplied) {
       // Venda/consumo com itens reduz estoque no momento da criação.
@@ -3675,6 +3720,12 @@ export class Database {
       }
     }
 
+    // Recalcula saldos/agenda de planos para refletir novos crÃ©ditos/consumos
+    this.clients = this.clients.map((client) => {
+      const normalized = this.normalizeClientPlanBalances(client);
+      const rebuilt = this.rebuildClientPlanBalancesFromTransactions(normalized);
+      return this.pruneClientPlanReferencesToActivePlans(rebuilt);
+    });
 
     this.saveData();
     return newTransaction;
