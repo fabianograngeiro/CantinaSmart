@@ -3358,11 +3358,17 @@ export class Database {
           || (targetPlanName && txPlanName && targetPlanName === txPlanName);
         if (!samePlan) return;
 
-        // Hardening: só remove consumos automáticos com vínculo forte.
         const txOrigin = String(tx?.originTransactionId || '').trim();
         const txPurchaseRef = String(tx?.purchaseRefCode || '').trim();
         const hasStrongLink = (targetId && txOrigin === targetId)
           || (targetPurchaseRef && txPurchaseRef && targetPurchaseRef === txPurchaseRef);
+
+        // Se não houver vínculo direto, ainda assim remove consumos por referência de compra
+        if (!hasStrongLink && targetPurchaseRef && txPurchaseRef === targetPurchaseRef) {
+          idsToDelete.add(txId);
+          return;
+        }
+
         if (!hasStrongLink) return;
 
         idsToDelete.add(txId);
