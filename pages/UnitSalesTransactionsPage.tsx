@@ -1286,6 +1286,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       return;
     }
 
+    if (!isDeletableTransaction(row)) {
+      alert('Só é permitido excluir Venda Balcão e Créditos (cantina/planos).');
+      return;
+    }
+
     const isCreditPlanTx = String(row.type || '').toUpperCase() === 'CREDITO'
       && (String(row.plan || '').trim().toUpperCase() !== 'PREPAGO' || String(row.raw?.description || '').includes('Crédito plano'));
     
@@ -1328,6 +1333,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
       await ApiService.deleteTransaction(row.id, {
         deleteReason: normalizedReason,
+        includeOriginCredit: true,
       });
       
       if (selectedTransaction?.id === row.id) setSelectedTransaction(null);
@@ -1378,6 +1384,14 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       const descriptor = String(tx.description || tx.item || tx.raw?.description || tx.raw?.item || '').toUpperCase();
       return descriptor.includes(`REF: ${rowId}`) || descriptor.includes(`REF ${rowId}`);
     });
+  };
+
+  const isDeletableTransaction = (row: ExtendedTransactionRecord | null) => {
+    if (!row) return false;
+    const type = String(row.type || '').toUpperCase();
+    if (type === 'VENDA_BALCAO') return true;
+    if (type === 'CREDITO') return true; // créditos cantina e planos
+    return false;
   };
 
   const isReversibleTransaction = (row: ExtendedTransactionRecord | null) => {
@@ -3194,10 +3208,10 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                            >
                               <Eye size={13} />
                            </button>
-                           {canHardDeleteTransactions && (
+                          {canHardDeleteTransactions && (
                              <button
                                onClick={() => openDeleteTransactionModal(row)}
-                               disabled={deletingTransactionId === row.id || isAuditDeleteRow}
+                               disabled={deletingTransactionId === row.id || isAuditDeleteRow || !isDeletableTransaction(row)}
                                className={`p-1.5 bg-white border text-red-400 rounded-lg hover:text-red-600 hover:bg-red-50 transition-all shadow-sm flex items-center gap-1 disabled:opacity-50 ${auditActionDisabledClass}`}
                                title={isAuditDeleteRow ? 'Registro de auditoria (somente leitura)' : 'Excluir Transação'}
                              >
