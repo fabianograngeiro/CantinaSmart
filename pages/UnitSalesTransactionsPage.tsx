@@ -1392,6 +1392,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     const type = String(row.type || '').toUpperCase();
     if (type === 'VENDA_BALCAO') return true;
     if (type === 'CREDITO') return true; // créditos cantina e planos
+    if (type === 'CONSUMO') return true; // permitir exclusão de consumo (ajusta saldo)
     return false;
   };
 
