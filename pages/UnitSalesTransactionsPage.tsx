@@ -245,7 +245,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   const [schoolCalendarBlockedDatesByYear, setSchoolCalendarBlockedDatesByYear] = useState<Record<number, string[]>>({});
   const canHardDeleteTransactions = useMemo(() => {
     const role = normalizeRole(currentUser?.role);
-    return role === 'SUPERADMIN' || role === 'ADMIN_SISTEMA';
+    return role === 'SUPERADMIN' || role === 'ADMIN_SISTEMA' || role === 'ADMIN';
   }, [currentUser?.role]);
 
   const schoolCalendarYearsToLoad = useMemo(() => {
