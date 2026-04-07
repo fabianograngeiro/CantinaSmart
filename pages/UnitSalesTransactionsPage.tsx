@@ -206,6 +206,8 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   const [editingTransaction, setEditingTransaction] = useState<ExtendedTransactionRecord | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [showCreateNatureModal, setShowCreateNatureModal] = useState(false);
+  const [createTransactionNature, setCreateTransactionNature] = useState<'CREDIT' | 'DESPESA' | null>(null);
   const [isSavingCreate, setIsSavingCreate] = useState(false);
   const [editProducts, setEditProducts] = useState<any[]>([]);
   const [editPlans, setEditPlans] = useState<any[]>([]);
@@ -926,7 +928,17 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     setShowCreateClientSuggestions(false);
     setCreateDate(nowDate);
     setCreateTime(nowTime);
+    setCreateTransactionNature(null);
+    setShowCreateNatureModal(false);
     setIsCreateModalOpen(true);
+  };
+
+  const handleTriggerCreateTransaction = () => {
+    if (!createTransactionNature) {
+      setShowCreateNatureModal(true);
+      return;
+    }
+    handleCreateTransaction();
   };
 
   const closeCreateModal = () => {
@@ -936,6 +948,8 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     setCreateActiveCategory('TODOS');
     setCreateCart([]);
     setShowCreateClientSuggestions(false);
+    setCreateTransactionNature(null);
+    setShowCreateNatureModal(false);
   };
 
   const editCategories = useMemo(() => {
@@ -1231,9 +1245,14 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     const parsedDate = new Date(`${createDate}T${createTime}:00`);
     const txDate = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
 
+    const resolvedNature = createTransactionNature || 'CREDIT';
+    const resolvedType = isPlanConsumption
+      ? 'CONSUMO'
+      : (resolvedNature === 'CREDIT' ? 'CREDITO' : 'DEBITO');
+
     const payload: any = {
       enterpriseId: activeEnterprise.id,
-      type: isPlanConsumption ? 'CONSUMO' : 'VENDA_BALCAO',
+      type: resolvedType,
       client: normalizedClientName,
       clientName: normalizedClientName,
       plan: isPlanConsumption
@@ -1244,6 +1263,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       description: itemDescription,
       method: createPaymentMethod,
       paymentMethod: createPaymentMethod,
+      financeKind: resolvedNature === 'CREDIT' ? 'RECEITA' : 'DESPESA',
       quantity: totalQuantity,
       unitPrice: totalQuantity > 0 ? Number((total / totalQuantity).toFixed(2)) : 0,
       amount: total,
@@ -3286,6 +3306,53 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
         </div>
       )}
 
+      {showCreateNatureModal && (
+        <div className="fixed inset-0 z-[1150] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" onClick={() => setShowCreateNatureModal(false)}></div>
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95">
+            <div className="p-4 bg-gray-100 border-b flex items-center justify-between">
+              <p className="text-xs font-black text-gray-600 uppercase tracking-widest">Escolha o tipo do registro</p>
+              <button onClick={() => setShowCreateNatureModal(false)} className="p-1 rounded-full hover:bg-gray-200 transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <button
+                className={`w-full p-4 border rounded-xl text-left transition-all ${
+                  createTransactionNature === 'CREDIT'
+                    ? 'border-emerald-500 bg-emerald-50'
+                    : 'border-gray-200 hover:border-emerald-200'
+                }`}
+                onClick={() => {
+                  setCreateTransactionNature('CREDIT');
+                  setShowCreateNatureModal(false);
+                  handleCreateTransaction();
+                }}
+              >
+                <p className="text-sm font-black text-emerald-700 uppercase">Crédito</p>
+                <p className="text-[11px] font-semibold text-gray-500 mt-1">Lançar entrada/recarga para o aluno ou colaborador.</p>
+              </button>
+
+              <button
+                className={`w-full p-4 border rounded-xl text-left transition-all ${
+                  createTransactionNature === 'DESPESA'
+                    ? 'border-rose-500 bg-rose-50'
+                    : 'border-gray-200 hover:border-rose-200'
+                }`}
+                onClick={() => {
+                  setCreateTransactionNature('DESPESA');
+                  setShowCreateNatureModal(false);
+                  handleCreateTransaction();
+                }}
+              >
+                <p className="text-sm font-black text-rose-700 uppercase">Despesa</p>
+                <p className="text-[11px] font-semibold text-gray-500 mt-1">Lançar saída/cobrança a débito do aluno ou colaborador.</p>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL DE DETALHES DA VENDA */}
       {selectedTransaction && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 animate-in fade-in">
@@ -3973,7 +4040,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
             <div className="p-5 bg-gray-50 border-t flex justify-end gap-2">
               <button onClick={closeCreateModal} className="px-5 py-3 bg-white border rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-500">Cancelar</button>
               <button
-                onClick={handleCreateTransaction}
+                onClick={handleTriggerCreateTransaction}
                 disabled={isSavingCreate}
                 className="px-5 py-3 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
               >
