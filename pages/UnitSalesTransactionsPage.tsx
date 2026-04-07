@@ -1226,9 +1226,9 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       return;
     }
 
-    const total = Number(createCartTotal.toFixed(2));
-    const totalQuantity = createCart.reduce((sum, item) => sum + item.quantity, 0);
-    const itemDescription = createCart.map((item) => `${item.quantity}x ${item.name}`).join(', ');
+    let total = Number(createCartTotal.toFixed(2));
+    let totalQuantity = createCart.reduce((sum, item) => sum + item.quantity, 0);
+    let itemDescription = createCart.map((item) => `${item.quantity}x ${item.name}`).join(', ');
     const firstPlanItem = createCart.find((item) => item.type === 'PLAN');
     const isPlanConsumption = Boolean(firstPlanItem);
     if (isPlanConsumption) {
@@ -1246,9 +1246,25 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     const txDate = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
 
     const resolvedNature = createTransactionNature || 'CREDIT';
-    const resolvedType = isPlanConsumption
+    const resolvedType = isPlanConsumption && resolvedNature === 'DESPESA'
       ? 'CONSUMO'
       : (resolvedNature === 'CREDIT' ? 'CREDITO' : 'DEBITO');
+
+    // Para crédito de plano: cobra pelas datas selecionadas e já marca retroativo
+    let retroactiveConsumedDates: string[] = [];
+    if (resolvedNature === 'CREDIT' && isPlanConsumption && firstPlanItem) {
+      const planIdKey = String(firstPlanItem.planId || firstPlanItem.id.replace(/^PLAN_/, ''));
+      const planDates = createPlanDatesByPlanId[planIdKey] || [];
+      const unitPrice = Number(firstPlanItem.price || 0);
+      const units = planDates.length || 1;
+      total = Number((unitPrice * units).toFixed(2));
+      totalQuantity = units;
+      itemDescription = `${units}x ${firstPlanItem.name}`;
+      retroactiveConsumedDates = planDates.filter((d) => {
+        const todayKey = toLocalDateKey(new Date());
+        return d < todayKey;
+      });
+    }
 
     const payload: any = {
       enterpriseId: activeEnterprise.id,
@@ -1275,6 +1291,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       selectedDates: isPlanConsumption
         ? (firstPlanItem ? (createPlanDatesByPlanId[String(firstPlanItem.planId || firstPlanItem.id.replace(/^PLAN_/, ''))] || []) : [])
         : [],
+      retroactiveConsumedDates,
       items: createCart.map((item) => ({
         productId: item.id,
         name: item.name,
