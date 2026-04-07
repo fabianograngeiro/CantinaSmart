@@ -13,6 +13,7 @@ import {
 import { ApiService } from '../services/api';
 import { Client, Product, SaleItem, PaymentMethod, PaymentEntry, SuspendedSale, Role, User as UserType, Enterprise, TransactionRecord, Plan } from '../types';
 import { resolveUserAvatar } from '../utils/avatar';
+import { extractSchoolCalendarOperationalData } from '../utils/schoolCalendar';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace(/\/api\/?$/, '');
 const toAbsoluteProductImageUrl = (imageUrl?: string, productName?: string) => {

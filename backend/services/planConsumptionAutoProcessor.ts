@@ -253,6 +253,24 @@ const findMostRecentPlanCreditTransaction = (
   return creditTx || null;
 };
 
+const hasAvailablePlanBalance = (client: any, planId: string, planName: string) => {
+  const balances = client?.planCreditBalances;
+  if (!balances || typeof balances !== 'object' || Array.isArray(balances)) return false;
+
+  const normalizedTargetName = normalizeToken(planName);
+
+  return Object.values(balances).some((entry: any) => {
+    const entryPlanId = String(entry?.planId || '').trim();
+    const entryPlanName = normalizeToken(entry?.planName);
+    const balanceUnits = Number(entry?.balanceUnits || 0);
+
+    if (balanceUnits <= 0) return false;
+    if (planId && entryPlanId === planId) return true;
+    if (normalizedTargetName && entryPlanName === normalizedTargetName) return true;
+    return false;
+  });
+};
+
 const runAutoProcessForEnterprise = (enterpriseId: string, now: Date) => {
   const enterprise = db.getEnterprise(enterpriseId);
   if (!enterprise) return 0;
@@ -290,6 +308,7 @@ const runAutoProcessForEnterprise = (enterpriseId: string, now: Date) => {
 
       if (!resolvedPlanName || !plan || BLOCKED_PLAN_NAMES.has(normalizedPlanName)) return;
       if (configuredPlanIds.size > 0 && (!resolvedPlanId || !configuredPlanIds.has(resolvedPlanId))) return;
+      if (!hasAvailablePlanBalance(client, resolvedPlanId, resolvedPlanName)) return; // só baixa se houver saldo de plano
 
       const dueDates = getDueDatesForConfig(config, enterpriseId, cutoffTime, now, schoolCalendarCache);
       dueDates.forEach((scheduledDate, index) => {
