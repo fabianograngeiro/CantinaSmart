@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useTransition } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { 
@@ -238,6 +238,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   const [deleteTargetTransaction, setDeleteTargetTransaction] = useState<ExtendedTransactionRecord | null>(null);
   const [deletePromptMessage, setDeletePromptMessage] = useState('');
   const [deleteAuditReason, setDeleteAuditReason] = useState('');
+  const [isDeleteReasonPending, startDeleteReasonTransition] = useTransition();
   const [reversingTransaction, setReversingTransaction] = useState<ExtendedTransactionRecord | null>(null);
   const [reverseMode, setReverseMode] = useState<'OPEN' | 'RESCHEDULE'>('OPEN');
   const [reverseDate, setReverseDate] = useState('');
@@ -3254,7 +3255,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Motivo da exclusão *</label>
                 <textarea
                   value={deleteAuditReason}
-                  onChange={(e) => setDeleteAuditReason(e.target.value)}
+                  onChange={(e) => startDeleteReasonTransition(() => setDeleteAuditReason(e.target.value))}
                   placeholder="Descreva o motivo da exclusão"
                   rows={4}
                   className="w-full px-3 py-2.5 bg-gray-50 border-2 border-transparent focus:border-rose-500 rounded-xl outline-none text-xs font-bold resize-none"
