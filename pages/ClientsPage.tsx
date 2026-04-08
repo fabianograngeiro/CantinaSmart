@@ -2441,6 +2441,24 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     return result;
   }, [viewingClient, clientPlanBalances, activePlansInView, planRequiredUnitsById]);
 
+  const detailPlanBalances = useMemo(() => {
+    if (!viewingClient) return [] as Array<{
+      planId?: string;
+      planName: string;
+      total: number;
+      remaining: number;
+      remainingValue: number;
+    }>;
+    const balances = clientPlanBalances.get(viewingClient.id) || [];
+    return balances.map((entry: any) => ({
+      planId: String(entry?.planId || '').trim(),
+      planName: String(entry?.planName || '').trim(),
+      total: Math.max(0, Number(entry?.total || 0)),
+      remaining: Math.max(0, Number(entry?.remaining || 0)),
+      remainingValue: Math.max(0, Number(entry?.remainingValue || 0)),
+    }));
+  }, [viewingClient, clientPlanBalances]);
+
   const planAdjustmentStatus = useMemo(() => {
     return activePlansInView.map((plan) => {
       const selectedCount = (selectedPlanDates[plan.planId] || []).length;
