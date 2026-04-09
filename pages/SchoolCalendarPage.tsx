@@ -3,6 +3,7 @@ import { CalendarDays, Plus, Trash2, Save, Download, Tags, School, Edit3, X } fr
 import jsPDF from 'jspdf';
 import { Enterprise, User } from '../types';
 import { ApiService } from '../services/api';
+import { drawEnterpriseLogoOnPdf } from '../utils/enterpriseBranding';
 
 interface SchoolCalendarPageProps {
   currentUser: User;
@@ -624,6 +625,7 @@ const SchoolCalendarPage: React.FC<SchoolCalendarPageProps> = ({ currentUser, ac
 
     doc.setFillColor(sundayPurple[0], sundayPurple[1], sundayPurple[2]);
     doc.rect(marginX, headerY, pageWidth - marginX * 2, 9, 'F');
+    drawEnterpriseLogoOnPdf(doc, String(activeEnterprise?.logo || '').trim(), marginX + 1, headerY + 0.8, 7.2, 'CS');
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);

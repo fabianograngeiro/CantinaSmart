@@ -20,6 +20,7 @@ import {
 import { Client, Enterprise, User as UserType } from '../types';
 import { ApiService } from '../services/api';
 import { formatPhoneWithFlag } from '../utils/phone';
+import { drawEnterpriseLogoOnPdf } from '../utils/enterpriseBranding';
 
 type TimeFilter = 'TODAY' | 'MONTH' | 'YEAR' | 'DATE';
 type EntryType = 'RECEITA' | 'DESPESA';
@@ -534,11 +535,13 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
     }
 
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const leftStartX = 26;
+    drawEnterpriseLogoOnPdf(doc, String(activeEnterprise?.logo || '').trim(), 14, 8, 9, 'CS');
     doc.setFontSize(14);
-    doc.text(`Pendências e Saldos Negativos - ${activeEnterprise?.name || 'Unidade'}`, 14, 14);
+    doc.text(`Pendências e Saldos Negativos - ${activeEnterprise?.name || 'Unidade'}`, leftStartX, 14);
     doc.setFontSize(9);
-    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, 20);
-    doc.text(`Filtro tipo: ${pendingTypeFilter} | Busca: ${pendingSearch || 'SEM FILTRO'} | Selecionados: ${selectedRows.length}`, 14, 25);
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, leftStartX, 20);
+    doc.text(`Filtro tipo: ${pendingTypeFilter} | Busca: ${pendingSearch || 'SEM FILTRO'} | Selecionados: ${selectedRows.length}`, leftStartX, 25);
 
     autoTable(doc, {
       startY: 30,
@@ -807,11 +810,13 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
 
   const exportToPDF = () => {
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const leftStartX = 26;
+    drawEnterpriseLogoOnPdf(doc, String(activeEnterprise?.logo || '').trim(), 14, 9, 9, 'CS');
     doc.setFontSize(16);
-    doc.text(`Relatório Financeiro - ${activeEnterprise?.name || 'Unidade'}`, 14, 15);
+    doc.text(`Relatório Financeiro - ${activeEnterprise?.name || 'Unidade'}`, leftStartX, 15);
     doc.setFontSize(10);
-    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, 22);
-    doc.text(`Receita: R$ ${totalRevenue.toFixed(2)} | Despesa: R$ ${totalExpense.toFixed(2)} | Lucro: R$ ${netProfit.toFixed(2)}`, 14, 28);
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, leftStartX, 22);
+    doc.text(`Receita: R$ ${totalRevenue.toFixed(2)} | Despesa: R$ ${totalExpense.toFixed(2)} | Lucro: R$ ${netProfit.toFixed(2)}`, leftStartX, 28);
 
     autoTable(doc, {
       head: [['Data', 'Tipo', 'Categoria', 'Descrição', 'Qtd', 'Unitário', 'Total', 'Vencimento', 'Lembrete']],

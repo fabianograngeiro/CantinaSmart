@@ -167,6 +167,7 @@ export type IngredientUnit = 'g' | 'ml' | 'un';
 export type Ingredient = {
   id: string;
   name: string;
+  sourceIngredientId?: string;
   category: string; // Adicionado para categorização
   unit: IngredientUnit;
   calories: number;

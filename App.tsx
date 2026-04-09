@@ -1,4 +1,4 @@
-
+﻿
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Link, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { 
@@ -42,6 +42,8 @@ import SchoolCalendarPage from './pages/SchoolCalendarPage';
 import OrdersPage from './pages/OrdersPage';
 import RegistrationPage from './pages/RegistrationPage';
 import NutritionalInfoPage from './pages/NutritionalInfoPage';
+import OwnerDashboardPage from './pages/OwnerDashboardPage';
+import OwnerMatrixDataPage from './pages/OwnerMatrixDataPage';
 import UnitSalesTransactionsPage from './pages/UnitSalesTransactionsPage';
 import PlansPage from './pages/PlansPage';
 import DailyDeliveryPage from './pages/DailyDeliveryPage';
@@ -82,7 +84,7 @@ const App: React.FC = () => {
         setNeedsSetup(response.needsSetup);
       } catch (err) {
         console.error('Erro ao verificar setup:', err);
-        setNeedsSetup(false); // Assume que já está configurado em caso de erro
+        setNeedsSetup(false); // Assume que jÃ¡ estÃ¡ configurado em caso de erro
       }
     };
     checkSetup();
@@ -130,7 +132,7 @@ const App: React.FC = () => {
 
         setActiveEnterprise(parsedEnterprise);
       } catch (err) {
-        console.error('Erro ao restaurar sessão:', err);
+        console.error('Erro ao restaurar sessÃ£o:', err);
         ApiService.clearToken();
         localStorage.removeItem(AUTH_USER_STORAGE_KEY);
         localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
@@ -163,8 +165,8 @@ const App: React.FC = () => {
         window.location.hash = '#/';
       }
       notificationService.critico(
-        'Sessão expirada',
-        'Sua sessão expirou. Faça login novamente.'
+        'SessÃ£o expirada',
+        'Sua sessÃ£o expirou. FaÃ§a login novamente.'
       );
     };
     window.addEventListener('canteen:session-expired', onSessionExpired);
@@ -192,10 +194,15 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // Recarregar empresas quando usuário autenticado não tiver empresa selecionada
+  // Recarregar empresas quando usuÃ¡rio autenticado nÃ£o tiver empresa selecionada
   useEffect(() => {
     const loadEnterprises = async () => {
-      if (isAuthenticated && currentUser && !isSuperAdminRole(String(currentUser.role)) && !activeEnterprise) {
+      const shouldLoadOwnerList = isAuthenticated
+        && currentUser
+        && normalizeRole(String(currentUser.role || '')) === Role.OWNER
+        && availableEnterprises.length === 0;
+
+      if (isAuthenticated && currentUser && !isSuperAdminRole(String(currentUser.role)) && (!activeEnterprise || shouldLoadOwnerList)) {
         try {
           const enterprises = await ApiService.getEnterprises();
           setAvailableEnterprises(enterprises);
@@ -215,18 +222,18 @@ const App: React.FC = () => {
       }
     };
     loadEnterprises();
-  }, [isAuthenticated, currentUser, activeEnterprise]);
+  }, [isAuthenticated, currentUser, activeEnterprise, availableEnterprises.length]);
 
   const handleLogin = async (user: User) => {
     try {
-      // Usuário já foi autenticado em LoginPage, apenas atualiza estado
+      // UsuÃ¡rio jÃ¡ foi autenticado em LoginPage, apenas atualiza estado
       setCurrentUser(user);
       setIsAuthenticated(true);
       setActiveEnterprise(null);
       localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user));
       localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
       
-      // Para SUPERADMIN, não precisa de activeEnterprise
+      // Para SUPERADMIN, nÃ£o precisa de activeEnterprise
       if (isSuperAdminRole(String(user.role))) {
         return;
       }
@@ -235,17 +242,17 @@ const App: React.FC = () => {
       const enterprises = await ApiService.getEnterprises();
       setAvailableEnterprises(enterprises);
       
-      // Se tem enterpriseIds específicos, usa o primeiro
+      // Se tem enterpriseIds especÃ­ficos, usa o primeiro
       if (user.enterpriseIds && user.enterpriseIds.length > 0) {
         const ent = enterprises.find((e: any) => e.id === user.enterpriseIds?.[0]);
         if (ent) setActiveEnterprise(ent);
       } 
-      // Se é OWNER, NÃO auto-seleciona - deixa ele escolher via modal
+      // Se Ã© OWNER, NÃƒO auto-seleciona - deixa ele escolher via modal
       else if (user.role === 'OWNER') {
-        // Não seta activeEnterprise, o modal será mostrado quando necessário
+        // NÃ£o seta activeEnterprise, o modal serÃ¡ mostrado quando necessÃ¡rio
         setActiveEnterprise(null);
       }
-      // Para outros usuários sem empresa, carrega a primeira disponível
+      // Para outros usuÃ¡rios sem empresa, carrega a primeira disponÃ­vel
       else if (enterprises.length > 0) {
         setActiveEnterprise(enterprises[0]);
       }
@@ -360,6 +367,7 @@ const App: React.FC = () => {
         availableEnterprises={availableEnterprises}
         showEnterpriseSelector={showEnterpriseSelector}
         setShowEnterpriseSelector={setShowEnterpriseSelector}
+        setCurrentUser={setCurrentUser}
         resolvedPermissions={resolvedPermissions}
       />
     </HashRouter>
@@ -393,7 +401,7 @@ const AppContent: React.FC<any> = (props) => {
     isSidebarOpen, setIsSidebarOpen, activeEnterprise, setActiveEnterprise,
     handleLogout, handleLogin, transactions, setTransactions,
     availableEnterprises,
-    showEnterpriseSelector, setShowEnterpriseSelector, resolvedPermissions
+    showEnterpriseSelector, setShowEnterpriseSelector, setCurrentUser, resolvedPermissions
   } = props;
   const [trialBanner, setTrialBanner] = React.useState<{ show: boolean; expiresAt: string; daysLeft: number }>({
     show: false,
@@ -432,7 +440,10 @@ const AppContent: React.FC<any> = (props) => {
         };
   const isPortalAccessRoute = location.pathname === '/portal-access';
   const isResetPasswordRoute = location.pathname === '/reset-password';
-  const isOwnerUnitPanel = isOwner && Boolean(activeEnterprise?.id) && location.pathname !== '/enterprises';
+  const ownerNetworkRoutes = new Set(['/','/enterprises','/users','/system-settings','/owner-matriz']);
+  const isOwnerUnitPanel = isOwner
+    && Boolean(activeEnterprise?.id)
+    && !ownerNetworkRoutes.has(location.pathname);
   const isUnitPanelUser = isAdminUnit || isOwnerUnitPanel;
   const canAccessInventory = isOwnerUnitPanel ? true : resolvedPermissions.canAccessInventory;
   const canAccessReports = isOwnerUnitPanel ? true : resolvedPermissions.canAccessReports;
@@ -441,14 +452,16 @@ const AppContent: React.FC<any> = (props) => {
   const canManageStaff = isOwnerUnitPanel ? true : resolvedPermissions.canManageStaff;
   const canAccessUsersRoute = isSuperAdmin || (isOwner ? !isOwnerUnitPanel : canManageStaff);
   const canAccessSystemSettingsRoute = isSuperAdmin || isAdminSistema || (isOwner && !isOwnerUnitPanel);
+  const ownerMatrixLogo = String((currentUser as any)?.matrizLogo || '').trim();
+  const ownerMatrixName = String((currentUser as any)?.matrizName || '').trim();
   // Labels fixos (sem nome da unidade) conforme solicitado
   const collaboratorSidebarLabel = 'FUNC.ESCOLA';
   const studentsSidebarLabel = 'ALUNOS';
 
-  // Verificar se está na página de enterprises
+  // Verificar se estÃ¡ na pÃ¡gina de enterprises
   const isOnEnterprisesPage = location.pathname === '/enterprises';
   
-  // Redirecionar usuários RESPONSAVEL, COLABORADOR e CLIENTE para /portal
+  // Redirecionar usuÃ¡rios RESPONSAVEL, COLABORADOR e CLIENTE para /portal
   const isPortalUser = currentUser?.role === 'RESPONSAVEL' || currentUser?.role === 'COLABORADOR' || currentUser?.role === 'CLIENTE';
   React.useEffect(() => {
     if (isAuthenticated && isPortalUser && !location.pathname.startsWith('/portal')) {
@@ -463,8 +476,8 @@ const AppContent: React.FC<any> = (props) => {
     const hasLinkedEnterprise = Array.isArray(currentUser.enterpriseIds) && currentUser.enterpriseIds.length > 0;
     if (!hasLinkedEnterprise && location.pathname !== '/enterprises') {
       notificationService.alerta(
-        'Configuração inicial necessária',
-        'Cadastre sua primeira unidade para concluir a configuração da conta.'
+        'ConfiguraÃ§Ã£o inicial necessÃ¡ria',
+        'Cadastre sua primeira unidade para concluir a configuraÃ§Ã£o da conta.'
       );
       navigate('/enterprises');
     }
@@ -551,16 +564,16 @@ const AppContent: React.FC<any> = (props) => {
                 {trialBanner.daysLeft > 0 ? (
                   <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide">
                     {trialBanner.daysLeft <= 3
-                      ? `Atenção: seu período de teste termina em ${trialBanner.daysLeft} dia${trialBanner.daysLeft === 1 ? '' : 's'}. Renove agora para não ficar sem acesso.`
-                      : `Seu período de teste termina em ${trialBanner.daysLeft} dia${trialBanner.daysLeft === 1 ? '' : 's'}. Renove para não ficar sem acesso.`}
+                      ? `AtenÃ§Ã£o: seu perÃ­odo de teste termina em ${trialBanner.daysLeft} dia${trialBanner.daysLeft === 1 ? '' : 's'}. Renove agora para nÃ£o ficar sem acesso.`
+                      : `Seu perÃ­odo de teste termina em ${trialBanner.daysLeft} dia${trialBanner.daysLeft === 1 ? '' : 's'}. Renove para nÃ£o ficar sem acesso.`}
                   </p>
                 ) : trialBanner.daysLeft === 0 ? (
                   <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide">
-                    Seu período de teste termina hoje. Renove agora para não ficar sem acesso.
+                    Seu perÃ­odo de teste termina hoje. Renove agora para nÃ£o ficar sem acesso.
                   </p>
                 ) : (
                   <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide">
-                    Seu período de teste expirou há {Math.abs(trialBanner.daysLeft)} dia{Math.abs(trialBanner.daysLeft) === 1 ? '' : 's'}. Renove para evitar bloqueio de acesso.
+                    Seu perÃ­odo de teste expirou hÃ¡ {Math.abs(trialBanner.daysLeft)} dia{Math.abs(trialBanner.daysLeft) === 1 ? '' : 's'}. Renove para evitar bloqueio de acesso.
                   </p>
                 )}
               </div>
@@ -627,11 +640,11 @@ const AppContent: React.FC<any> = (props) => {
               </div>
 
               <nav className="flex-1 mt-4 px-3 space-y-1 overflow-y-auto overflow-x-visible scrollbar-hide pb-10">
-                <SidebarItem icon={<LayoutDashboard size={20} />} label="Início" to="/" isOpen={isSidebarOpen} />
+                <SidebarItem icon={<LayoutDashboard size={20} />} label="Inicio" to="/" isOpen={isSidebarOpen} />
 
                 {isOwnerUnitPanel && (
                   <div className="pt-2 pb-2 space-y-1">
-                    <SidebarItem icon={<ShieldCheck size={20} />} label="PAINEL ADMIN" to="/enterprises" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<ShieldCheck size={20} />} label="VOLTAR AO PAINEL CHEFE" to="/" isOpen={isSidebarOpen} />
                   </div>
                 )}
                 
@@ -641,12 +654,12 @@ const AppContent: React.FC<any> = (props) => {
                     <SidebarItem icon={<Shield size={20} />} label="Equipe Interna" to="/system-staff" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Sparkles size={20} />} label="Clientes/Planos" to="/saas-plans" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<BadgeDollarSign size={20} />} label="Planos" to="/saas-planos" isOpen={isSidebarOpen} />
-                    <SidebarItem icon={<DollarSign size={20} />} label="Cobranças SaaS" to="/saas-billing" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<DollarSign size={20} />} label="Cobrancas SaaS" to="/saas-billing" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<ReceiptText size={20} />} label="Financeiro SaaS" to="/saas-financial" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp SaaS" to="/saas-whatsapp" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<ClipboardList size={20} />} label="Auditoria SaaS" to="/saas-audit" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<AlertTriangle size={20} />} label="TICKET ERRO" to="/error-tickets" isOpen={isSidebarOpen} />
-                    <SidebarItem icon={<Settings size={20} />} label="Configurações" to="/system-settings" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<Settings size={20} />} label="Configuracoes" to="/system-settings" isOpen={isSidebarOpen} />
                   </div>
                 )}
 
@@ -660,7 +673,7 @@ const AppContent: React.FC<any> = (props) => {
                       <SidebarItem icon={<BadgeDollarSign size={20} />} label="Planos" to="/saas-planos" isOpen={isSidebarOpen} />
                     )}
                     {currentUser?.systemPermissions?.canViewBilling && (
-                      <SidebarItem icon={<DollarSign size={20} />} label="Cobranças SaaS" to="/saas-billing" isOpen={isSidebarOpen} />
+                      <SidebarItem icon={<DollarSign size={20} />} label="Cobrancas SaaS" to="/saas-billing" isOpen={isSidebarOpen} />
                     )}
                     {currentUser?.systemPermissions?.canViewFinancial && (
                       <SidebarItem icon={<ReceiptText size={20} />} label="Financeiro SaaS" to="/saas-financial" isOpen={isSidebarOpen} />
@@ -686,11 +699,11 @@ const AppContent: React.FC<any> = (props) => {
                       <SidebarItem icon={<Truck size={20} />} label="Entrega do Dia" to="/daily-delivery" isOpen={isSidebarOpen} />
                     )}
 
-                    {canAccessInventory && <SidebarItem icon={<Calendar size={20} />} label="Cardápio Local" to="/menu-lunch" isOpen={isSidebarOpen} />}
-                    {canAccessInventory && <SidebarItem icon={<CalendarDays size={20} />} label="Calendário Escolar" to="/school-calendar" isOpen={isSidebarOpen} />}
+                    {canAccessInventory && <SidebarItem icon={<Calendar size={20} />} label="Cardapio Local" to="/menu-lunch" isOpen={isSidebarOpen} />}
+                    {canAccessInventory && <SidebarItem icon={<CalendarDays size={20} />} label="Calendario Escolar" to="/school-calendar" isOpen={isSidebarOpen} />}
                     {canAccessInventory && <SidebarItem icon={<Beef size={20} />} label="Base Nutricional" to="/nutritional-info" isOpen={isSidebarOpen} />}
                     {canAccessInventory && <SidebarItem icon={<Sparkles size={20} />} label="Planos Ativos" to={`/plans/${activeEnterprise?.id}`} isOpen={isSidebarOpen} />}
-                    {canAccessReports && <SidebarItem icon={<ReceiptText size={20} />} label="Transações" to="/unit-sales" isOpen={isSidebarOpen} />}
+                    {canAccessReports && <SidebarItem icon={<ReceiptText size={20} />} label="Transacoes" to="/unit-sales" isOpen={isSidebarOpen} />}
                     {canAccessReports && <SidebarItem icon={<DollarSign size={20} />} label="Financeiro" to="/financial" isOpen={isSidebarOpen} />}
                     {canAccessReports && <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp" to="/whatsapp" isOpen={isSidebarOpen} />}
                     {canAccessInventory && <SidebarItem icon={<ArrowRightLeft size={20} />} label="Estoque Unidade" to="/inventory" isOpen={isSidebarOpen} />}
@@ -702,14 +715,15 @@ const AppContent: React.FC<any> = (props) => {
 
                 {isOwner && !isOwnerUnitPanel && (
                   <div className="pt-4 pb-2 space-y-1">
-                    <p className={`text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Administração</p>
+                    <p className={`text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Administracao</p>
                     <SidebarItem icon={<Building2 size={20} />} label="Minhas Unidades" to="/enterprises" isOpen={isSidebarOpen} />
-                    <SidebarItem icon={<Users size={20} />} label="Usuários da Rede" to="/users" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<Building size={20} />} label="Dados Matriz" to="/owner-matriz" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<Users size={20} />} label="Usuarios da Rede" to="/users" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<ArrowRightLeft size={20} />} label="Estoque Geral" to="/inventory" isOpen={isSidebarOpen} />
                   </div>
                 )}
 
-                {!isSuperAdmin && (
+                {!isSuperAdmin && !isOwner && (
                   <div className="py-4 border-t border-slate-800/50 dark:border-white/5 mt-4 space-y-1">
                     <p className={`text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Operacional</p>
                     {canAccessPOS && <SidebarItem icon={<ShoppingCart size={20} />} label="Vender (PDV)" to="/pos" isOpen={isSidebarOpen} />}
@@ -724,7 +738,7 @@ const AppContent: React.FC<any> = (props) => {
               </nav>
 
               <div className="px-2 py-1.5 border-t border-slate-800/50 dark:border-white/5 space-y-1">
-                {/* Botão para trocar unidade (apenas para OWNER) */}
+                {/* BotÃ£o para trocar unidade (apenas para OWNER) */}
                 {isOwner && (
                   <button 
                     onClick={() => {
@@ -756,8 +770,32 @@ const AppContent: React.FC<any> = (props) => {
                 <h2 className="text-[10px] font-black text-gray-800 dark:text-slate-200 uppercase tracking-[3px] flex items-center gap-2">
                   {isSuperAdmin ? (
                     <><Globe size={14} className="text-indigo-600" /> Console Global</>
+                  ) : isOwner && !isOwnerUnitPanel ? (
+                    <>
+                      {ownerMatrixLogo ? (
+                        <img
+                          src={ownerMatrixLogo}
+                          alt="Logo da matriz"
+                          className="h-6 w-6 rounded-md object-cover border border-indigo-100"
+                        />
+                      ) : (
+                        <Building size={14} className="text-indigo-600" />
+                      )}
+                      {ownerMatrixName || currentUser?.name || 'MATRIZ'}
+                    </>
                   ) : (
-                    <><Building size={14} className="text-indigo-600" /> {activeEnterprise?.name || 'Carregando...'}</>
+                    <>
+                      {String(activeEnterprise?.logo || '').trim() ? (
+                        <img
+                          src={String(activeEnterprise?.logo || '').trim()}
+                          alt="Logo da empresa"
+                          className="h-6 w-6 rounded-md object-cover border border-indigo-100"
+                        />
+                      ) : (
+                        <Building size={14} className="text-indigo-600" />
+                      )}
+                      {activeEnterprise?.name || 'Carregando...'}
+                    </>
                   )}
                 </h2>
                 <div className="flex items-center space-x-3">
@@ -770,8 +808,8 @@ const AppContent: React.FC<any> = (props) => {
                     {isDark ? <Moon size={18} /> : <Sun size={18} />}
                   </button>
                   <div className="text-right">
-                    <p className="text-xs font-black text-gray-900 dark:text-slate-100 leading-none uppercase">{currentUser?.name || 'Usuário'}</p>
-                    <p className="text-[9px] text-indigo-600 font-black uppercase mt-1 tracking-widest">{currentUser?.role.replace('_', ' ') || 'CARREGANDO'}</p>
+                    <p className="text-xs font-black text-gray-900 dark:text-slate-100 leading-none uppercase">{currentUser?.name || 'Usuario'}</p>
+                    <p className="text-[9px] text-indigo-600 font-black uppercase mt-1 tracking-widest">{String(currentUser?.role || 'CARREGANDO').replace('_', ' ')}</p>
                   </div>
                   <img 
                     src={currentUser?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser?.name || 'User')}&background=4f46e5&color=fff&bold=true`} 
@@ -784,7 +822,23 @@ const AppContent: React.FC<any> = (props) => {
               <div className="flex-1 min-w-0 overflow-auto bg-gray-50 dark:bg-zinc-900/50">
                 <Routes>
                   <Route path="/menu-calendar" element={<MenuCalendarPage activeEnterprise={activeEnterprise} currentUser={currentUser} />} />
-                  <Route path="/" element={<DashboardPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
+                  <Route
+                    path="/"
+                    element={
+                      isOwner
+                        ? (
+                          <OwnerDashboardPage
+                            currentUser={currentUser}
+                            enterprises={availableEnterprises}
+                            onSelectEnterprise={(enterprise) => {
+                              setActiveEnterprise(enterprise);
+                              setShowEnterpriseSelector(false);
+                            }}
+                          />
+                        )
+                        : <DashboardPage currentUser={currentUser} activeEnterprise={activeEnterprise} />
+                    }
+                  />
                   <Route path="/pos" element={canAccessPOS ? (isRestaurant ? <RestaurantPOSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <POSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} />) : <Navigate to="/" />} />
                   <Route path="/clients" element={canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="ALUNOS" /> : <Navigate to="/" />} />
                   <Route path="/clients-responsaveis" element={canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="CLIENTES_RESPONSAVEIS" /> : <Navigate to="/" />} />
@@ -828,6 +882,25 @@ const AppContent: React.FC<any> = (props) => {
                   <Route path="/plans/:enterpriseId" element={canAccessInventory ? <PlansPage activeEnterprise={activeEnterprise} currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/daily-delivery" element={canAccessReports ? <DailyDeliveryPage activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <Navigate to="/" />} />
                   <Route path="/settings" element={canManageStaff ? <SettingsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route
+                    path="/enterprise-data"
+                    element={isOwner ? <Navigate to="/enterprises" replace /> : <Navigate to="/" />}
+                  />
+                  <Route
+                    path="/owner-matriz"
+                    element={isOwner && !isOwnerUnitPanel && currentUser ? (
+                      <OwnerMatrixDataPage
+                        currentUser={currentUser}
+                        onUserUpdated={(updatedUser) => {
+                          setCurrentUser((prev: User | null) => {
+                            const mergedUser = { ...(prev || {}), ...(updatedUser || {}) } as User;
+                            localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(mergedUser));
+                            return mergedUser;
+                          });
+                        }}
+                      />
+                    ) : <Navigate to="/" />}
+                  />
                   <Route path="*" element={<Navigate to="/" />} />
                 </Routes>
               </div>
@@ -835,7 +908,7 @@ const AppContent: React.FC<any> = (props) => {
           </>
         )}
 
-        {/* Modal de Seleção de Empresa para OWNER */}
+        {/* Modal de SeleÃ§Ã£o de Empresa para OWNER */}
         {isAuthenticated && isOwner && (showEnterpriseSelector || (!activeEnterprise && !isOnEnterprisesPage)) && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-2xl w-full shadow-2xl border border-slate-200 dark:border-slate-700 animate-in zoom-in-95 duration-200">
@@ -846,7 +919,7 @@ const AppContent: React.FC<any> = (props) => {
                 </div>
                 <div>
                   <h3 className="text-xl font-black text-gray-800 dark:text-slate-100">{showEnterpriseSelector ? 'Trocar Unidade' : 'Selecione uma Unidade'}</h3>
-                  <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Escolha qual unidade você deseja acessar</p>
+                  <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Escolha qual unidade vocÃª deseja acessar</p>
                 </div>
                 </div>
                 {activeEnterprise && (
@@ -868,7 +941,7 @@ const AppContent: React.FC<any> = (props) => {
                   </div>
                   <h4 className="text-lg font-black text-gray-800 dark:text-slate-100 mb-2">Nenhuma Unidade Cadastrada</h4>
                   <p className="text-sm text-gray-600 dark:text-slate-300 mb-6">
-                    Você ainda não possui nenhuma unidade cadastrada no sistema.
+                    VocÃª ainda nÃ£o possui nenhuma unidade cadastrada no sistema.
                   </p>
                   <Link
                     to="/enterprises"
@@ -903,7 +976,7 @@ const AppContent: React.FC<any> = (props) => {
                             <h4 className="text-base font-black text-gray-800 dark:text-slate-100">{enterprise.name}</h4>
                             <p className="text-xs text-gray-500 dark:text-slate-400 font-bold uppercase tracking-wider">
                               {enterprise.type === 'RESTAURANTE' ? 'Restaurante' : 'Cantina'}
-                              {enterprise.attachedSchoolName && ` • ${enterprise.attachedSchoolName}`}
+                              {enterprise.attachedSchoolName && ` â€¢ ${enterprise.attachedSchoolName}`}
                             </p>
                           </div>
                           <Check className="text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity" size={20} />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
 import jsPDF from 'jspdf';
 import { 
   Plus, Trash2, Save,
@@ -11,6 +11,7 @@ import { MenuDay, MenuItem, Ingredient, User, Enterprise, Role, Plan } from '../
 import ApiService from '../services/api';
 import notificationService from '../services/notificationService';
 import { extractSchoolCalendarOperationalData } from '../utils/schoolCalendar';
+import { drawEnterpriseLogoOnPdf } from '../utils/enterpriseBranding';
 
 const DAYS_OF_WEEK: ('SEGUNDA' | 'TERCA' | 'QUARTA' | 'QUINTA' | 'SEXTA' | 'SABADO')[] = [
   'SEGUNDA', 'TERCA', 'QUARTA', 'QUINTA', 'SEXTA', 'SABADO'
@@ -43,13 +44,13 @@ const SHORT_DAY_LABEL: Record<(typeof DAYS_OF_WEEK)[number], string> = {
   SEXTA: 'SEX',
   SABADO: 'SAB',
 };
-const DAY_OF_WEEK_TO_JS: Record<DayOfWeek, number> = {
-  SEGUNDA: 1,
-  TERCA: 2,
-  QUARTA: 3,
-  QUINTA: 4,
-  SEXTA: 5,
-  SABADO: 6,
+const DAY_OF_WEEK_TO_GRID_INDEX: Record<DayOfWeek, number> = {
+  SEGUNDA: 0,
+  TERCA: 1,
+  QUARTA: 2,
+  QUINTA: 3,
+  SEXTA: 4,
+  SABADO: 5,
 };
 const DAY_KEY_ALIASES: Record<DayOfWeek, string[]> = {
   SEGUNDA: ['SEGUNDA', 'segunda', 'MONDAY', 'monday'],
@@ -88,14 +89,14 @@ const getDateForWeekAndDay = (monthKey: string, weekIndex: number, dayOfWeek: Da
   if (!year || !month || month < 1 || month > 12) return null;
 
   const firstDay = new Date(year, month - 1, 1);
-  const firstJsDay = firstDay.getDay(); // 0=DOM ... 6=SAB
-  const targetJsDay = DAY_OF_WEEK_TO_JS[dayOfWeek];
-  const offset = (targetJsDay - firstJsDay + 7) % 7;
-  const dayOfMonth = 1 + offset + (Math.max(1, Number(weekIndex || 1)) - 1) * 7;
+  const firstWeekdayGridIndex = (firstDay.getDay() + 6) % 7; // SEG=0 ... DOM=6
+  const week = Math.max(1, Number(weekIndex || 1));
+  const targetGridIndex = DAY_OF_WEEK_TO_GRID_INDEX[dayOfWeek];
+  const dayOfMonth = 1 + ((week - 1) * 7) + targetGridIndex - firstWeekdayGridIndex;
+  if (dayOfMonth < 1) return null;
 
   const resolved = new Date(year, month - 1, dayOfMonth);
-  if (resolved.getMonth() !== month - 1) return null;
-  return resolved;
+  return resolved.getMonth() === month - 1 ? resolved : null;
 };
 const formatDateFullBr = (value: Date | null) => {
   if (!value) return '--';
@@ -259,6 +260,28 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
         : [],
     }));
 
+  const cloneMenuItemsPreserveIds = (items: MenuItem[]): MenuItem[] =>
+    (Array.isArray(items) ? items : []).map((item) => ({
+      ...item,
+      ingredients: Array.isArray(item.ingredients)
+        ? item.ingredients.map((ing) => ({ ...ing }))
+        : [],
+    }));
+
+  const mirrorWeekDaysFromWeek2 = (week2Days: MenuDay[], currentWeek5Days: MenuDay[]): MenuDay[] => {
+    const normalizedWeek2 = normalizeMenuDays(week2Days || []);
+    const normalizedWeek5 = normalizeMenuDays(currentWeek5Days || []);
+    return DAYS_OF_WEEK.map((dayKey) => {
+      const sourceDay = normalizedWeek2.find((day) => day.dayOfWeek === dayKey);
+      const currentDay = normalizedWeek5.find((day) => day.dayOfWeek === dayKey);
+      return {
+        id: currentDay?.id || sourceDay?.id || Math.random().toString(36).substr(2, 9),
+        dayOfWeek: dayKey,
+        items: cloneMenuItemsPreserveIds(sourceDay?.items || []),
+      };
+    });
+  };
+
   const buildInitialWeeklyMenuByWeek = () =>
     WEEK_OPTIONS.reduce((acc, week) => {
       acc[week] = generateInitialMenu();
@@ -280,6 +303,11 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     sourceDayOfWeek: DayOfWeek;
     targetWeek: number;
     targetDayOfWeek: DayOfWeek;
+  } | null>(null);
+  const [dayPlanActionModal, setDayPlanActionModal] = useState<{
+    week: number;
+    dayId: string;
+    mode: 'EDIT' | 'DELETE';
   } | null>(null);
 
   const isOwner = currentUser.role === Role.OWNER;
@@ -317,6 +345,28 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
 
     loadAllWeeklyMenus();
   }, [selectedUnitId, type, selectedMonth]);
+
+  useEffect(() => {
+    setWeeklyMenuByWeek((prev) => {
+      const week2 = normalizeMenuDays(prev[2] || generateInitialMenu());
+      const week5 = normalizeMenuDays(prev[5] || generateInitialMenu());
+      const mirroredWeek5 = mirrorWeekDaysFromWeek2(week2, week5);
+
+      const stripComparable = (days: MenuDay[]) => days.map((day) => ({
+        dayOfWeek: day.dayOfWeek,
+        items: day.items || [],
+      }));
+
+      const currentComparable = JSON.stringify(stripComparable(week5));
+      const mirroredComparable = JSON.stringify(stripComparable(mirroredWeek5));
+      if (currentComparable === mirroredComparable) return prev;
+
+      return {
+        ...prev,
+        5: mirroredWeek5,
+      };
+    });
+  }, [weeklyMenuByWeek[2], weeklyMenuByWeek[5]]);
 
   useEffect(() => {
     if (!menuLoaded || !selectedUnitId) return;
@@ -589,6 +639,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     const ingredientToAdd: Ingredient = {
       id: Math.random().toString(36).substr(2, 9),
       name: quickIngredientGramsEnabled ? `${base.name} (${suffix})` : base.name,
+      sourceIngredientId: resolvedIngredient ? String(resolvedIngredient.id || '').trim() : undefined,
       category: base.category,
       unit: base.unit,
       calories: Number((Number(base.calories || 0) * factor).toFixed(2)),
@@ -666,6 +717,25 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
     return weekMenu
       .map((day) => day.dayOfWeek as DayOfWeek)
       .filter((dayKey) => Boolean(getDayDateForWeek(week, dayKey)));
+  };
+
+  const openDayPlanActionModal = (week: number, dayId: string, mode: 'EDIT' | 'DELETE') => {
+    const day = (weeklyMenuByWeek[week] || []).find((entry) => entry.id === dayId);
+    const items = Array.isArray(day?.items) ? day.items : [];
+    if (items.length === 0) {
+      notificationService.informativo('Sem cardápio no dia', 'Esse dia ainda não possui planos cadastrados.');
+      return;
+    }
+    if (items.length === 1) {
+      const item = items[0];
+      if (mode === 'EDIT') {
+        setEditingItem({ week, dayId, item });
+      } else {
+        removeItemFromDay(week, dayId, item.id);
+      }
+      return;
+    }
+    setDayPlanActionModal({ week, dayId, mode });
   };
 
   const PLAN_CARD_COLORS = [
@@ -1246,12 +1316,7 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       doc.setFillColor(30, 41, 59);
       doc.rect(0, 0, pageWidth, 16, 'F');
 
-      doc.setFillColor(255, 255, 255);
-      doc.roundedRect(11.5, 4.2, 8.5, 8.5, 1.6, 1.6, 'F');
-      doc.setTextColor(30, 41, 59);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.8);
-      doc.text('CA', 13.55, 9.95);
+      drawEnterpriseLogoOnPdf(doc, String(activeEnterprise?.logo || '').trim(), 11.5, 4.2, 8.5, 'CA');
 
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold');
@@ -1795,18 +1860,20 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
       try {
         const fallbackDoc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
         const fallbackDate = new Date();
+        const fallbackLeftX = 26;
+        drawEnterpriseLogoOnPdf(fallbackDoc, String(activeEnterprise?.logo || '').trim(), 14, 7, 9, 'CA');
         fallbackDoc.setFont('helvetica', 'bold');
         fallbackDoc.setFontSize(16);
-        fallbackDoc.text('Calendário Escolar - Cardápio Mensal', 14, 16);
+        fallbackDoc.text('Calendário Escolar - Cardápio Mensal', fallbackLeftX, 16);
         fallbackDoc.setFont('helvetica', 'normal');
         fallbackDoc.setFontSize(11);
-        fallbackDoc.text(`Unidade: ${selectedEnterpriseName || 'Unidade'}`, 14, 24);
-        fallbackDoc.text(`Mês: ${formatMonthLabel(selectedMonth)}`, 14, 31);
-        fallbackDoc.text(`Tipo: ${type === 'ALMOCO' ? 'Almoço' : 'Lanche'}`, 14, 38);
-        fallbackDoc.text(`Emitido em: ${fallbackDate.toLocaleDateString('pt-BR')} ${fallbackDate.toLocaleTimeString('pt-BR')}`, 14, 45);
+        fallbackDoc.text(`Unidade: ${selectedEnterpriseName || 'Unidade'}`, fallbackLeftX, 24);
+        fallbackDoc.text(`Mês: ${formatMonthLabel(selectedMonth)}`, fallbackLeftX, 31);
+        fallbackDoc.text(`Tipo: ${type === 'ALMOCO' ? 'Almoço' : 'Lanche'}`, fallbackLeftX, 38);
+        fallbackDoc.text(`Emitido em: ${fallbackDate.toLocaleDateString('pt-BR')} ${fallbackDate.toLocaleTimeString('pt-BR')}`, fallbackLeftX, 45);
         fallbackDoc.setFont('helvetica', 'bold');
         fallbackDoc.setFontSize(10);
-        fallbackDoc.text('Obs.: O layout avançado falhou e este PDF simplificado foi gerado automaticamente.', 14, 56);
+        fallbackDoc.text('Obs.: O layout avançado falhou e este PDF simplificado foi gerado automaticamente.', fallbackLeftX, 56);
 
         const fallbackSafeName = String(selectedEnterpriseName || 'unidade')
           .normalize('NFD')
@@ -2063,14 +2130,14 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
                     <Plus size={12} />
                   </button>
                   <button
-                    onClick={() => setEditingItem({ week, dayId: day.id, item: day.items[0] })}
+                    onClick={() => openDayPlanActionModal(week, day.id, 'EDIT')}
                     className="w-6 h-6 bg-blue-50 dark:bg-blue-950/35 text-blue-600 dark:text-blue-300 rounded-md flex items-center justify-center hover:bg-blue-600 dark:hover:bg-blue-500 hover:text-white transition-all shadow-inner flex-shrink-0"
                     title="Editar ficha"
                   >
                     <Edit3 size={12} />
                   </button>
                   <button
-                    onClick={() => removeItemFromDay(week, day.id, day.items[0]?.id)}
+                    onClick={() => openDayPlanActionModal(week, day.id, 'DELETE')}
                     className="w-6 h-6 bg-red-50 dark:bg-red-950/35 text-red-600 dark:text-red-300 rounded-md flex items-center justify-center hover:bg-red-600 dark:hover:bg-red-500 hover:text-white transition-all shadow-inner flex-shrink-0"
                     title="Remover opção"
                   >
@@ -2254,6 +2321,54 @@ const MenuManagementPage: React.FC<MenuManagementPageProps> = ({ type, currentUs
           })}
         </div>
       )}
+
+      {dayPlanActionModal && (() => {
+        const targetDay = (weeklyMenuByWeek[dayPlanActionModal.week] || []).find((day) => day.id === dayPlanActionModal.dayId);
+        const dayItems = Array.isArray(targetDay?.items) ? targetDay.items : [];
+        const actionLabel = dayPlanActionModal.mode === 'EDIT' ? 'Editar' : 'Apagar';
+        return (
+          <div className="fixed inset-0 z-[620] flex items-center justify-center p-4 animate-in fade-in duration-200">
+            <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-sm" onClick={() => setDayPlanActionModal(null)}></div>
+            <div className="relative w-full max-w-xl bg-white dark:bg-zinc-950 rounded-2xl shadow-2xl overflow-hidden">
+              <div className="px-5 py-4 bg-indigo-900 text-white flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-widest">{actionLabel} plano do dia</h3>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-indigo-200 mt-1">
+                    Selecione o plano criado nesse dia
+                  </p>
+                </div>
+                <button onClick={() => setDayPlanActionModal(null)} className="p-2 rounded-full hover:bg-white/10 transition-colors">
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="p-4 space-y-2 max-h-[55vh] overflow-y-auto">
+                {dayItems.map((item) => {
+                  const planName = item.planId
+                    ? (plansCatalog.find((plan) => plan.id === item.planId)?.name || 'Plano vinculado')
+                    : 'Sem plano vinculado';
+                  return (
+                    <button
+                      key={`day-plan-action-${item.id}`}
+                      onClick={() => {
+                        if (dayPlanActionModal.mode === 'EDIT') {
+                          setEditingItem({ week: dayPlanActionModal.week, dayId: dayPlanActionModal.dayId, item });
+                        } else {
+                          removeItemFromDay(dayPlanActionModal.week, dayPlanActionModal.dayId, item.id);
+                        }
+                        setDayPlanActionModal(null);
+                      }}
+                      className="w-full text-left px-3 py-3 rounded-xl border border-gray-200 dark:border-zinc-700 hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors bg-white dark:bg-zinc-900"
+                    >
+                      <p className="text-xs font-black text-gray-800 dark:text-zinc-100 uppercase tracking-wide">{item.name}</p>
+                      <p className="text-[10px] font-bold text-gray-500 dark:text-zinc-400 uppercase tracking-wider mt-1">{planName}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {editingItem && (
         <div className="fixed inset-0 z-[600] flex justify-end animate-in fade-in duration-300">
@@ -2620,3 +2735,4 @@ const TotalNutrient = ({ label, value, unit, color }: any) => (
 );
 
 export default MenuManagementPage;
+

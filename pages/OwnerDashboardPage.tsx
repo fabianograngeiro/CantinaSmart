@@ -51,6 +51,29 @@ interface TopProduct {
   enterprise: string;
 }
 
+const normalizeToken = (value: unknown) =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toUpperCase();
+
+const parseDate = (value: unknown): Date | null => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  if (!Number.isFinite(parsed.getTime())) return null;
+  return parsed;
+};
+
+const isWithinLastDays = (value: unknown, days: number) => {
+  const parsed = parseDate(value);
+  if (!parsed) return false;
+  const now = Date.now();
+  const diff = now - parsed.getTime();
+  return diff >= 0 && diff <= (days * 24 * 60 * 60 * 1000);
+};
+
 const OwnerDashboardPage: React.FC<OwnerDashboardPageProps> = ({ currentUser, enterprises, onSelectEnterprise }) => {
   const navigate = useNavigate();
   const [metrics, setMetrics] = useState<ConsolidatedMetrics>({
@@ -93,6 +116,7 @@ const OwnerDashboardPage: React.FC<OwnerDashboardPageProps> = ({ currentUser, en
         let expiredProducts = 0;
 
         const chartDataMap: { [key: string]: ChartData } = {};
+        const topProductsMap = new Map<string, TopProduct>();
 
         for (const enterprise of enterprises) {
           try {
@@ -111,6 +135,45 @@ const OwnerDashboardPage: React.FC<OwnerDashboardPageProps> = ({ currentUser, en
 
             totalSales += enterpriseSales;
             totalTransactions += transactions.length;
+
+            transactions.forEach((tx: any) => {
+              const txDateRef = tx?.timestamp || tx?.date;
+              if (!isWithinLastDays(txDateRef, 30)) return;
+
+              const items = Array.isArray(tx?.items) ? tx.items : [];
+              if (items.length === 0) return;
+
+              items.forEach((item: any) => {
+                if (!item || typeof item !== 'object') return;
+                const serviceAction = String(item?.serviceAction || '').trim().toUpperCase();
+                const productId = String(item?.productId || item?.id || '').trim().toUpperCase();
+                if (serviceAction || productId.startsWith('SERVICE_')) return;
+
+                const itemName = String(item?.name || item?.productName || '').trim();
+                if (!itemName) return;
+
+                const quantity = Math.max(0, Number(item?.quantity || 0));
+                if (!Number.isFinite(quantity) || quantity <= 0) return;
+
+                const unitPrice = Number(item?.price ?? item?.unitPrice ?? 0);
+                const explicitTotal = Number(item?.total);
+                const lineTotal = Number.isFinite(explicitTotal)
+                  ? explicitTotal
+                  : (Number.isFinite(unitPrice) ? unitPrice * quantity : 0);
+
+                const key = `${enterprise.id}::${normalizeToken(itemName)}`;
+                const current = topProductsMap.get(key) || {
+                  name: itemName,
+                  sales: 0,
+                  quantity: 0,
+                  enterprise: enterprise.name,
+                };
+
+                current.quantity += quantity;
+                current.sales += Number.isFinite(lineTotal) ? Math.max(0, lineTotal) : 0;
+                topProductsMap.set(key, current);
+              });
+            });
 
             // Initialize chart data for this enterprise
             if (!chartDataMap[enterprise.id]) {
@@ -186,15 +249,14 @@ const OwnerDashboardPage: React.FC<OwnerDashboardPageProps> = ({ currentUser, en
           { name: 'Outros', value: Math.round(totalSales * 0.15), color: '#8b5cf6' },
         ];
         setCategorySales(categories);
+        const realTopProducts = Array.from(topProductsMap.values())
+          .sort((a, b) => {
+            if (b.quantity !== a.quantity) return b.quantity - a.quantity;
+            return b.sales - a.sales;
+          })
+          .slice(0, 8);
 
-        // Mock top products
-        setTopProducts([
-          { name: 'Almoço Executivo', sales: 450, quantity: 85, enterprise: enterprises[0]?.name || 'Filial 1' },
-          { name: 'Refrigerante', sales: 320, quantity: 220, enterprise: enterprises[0]?.name || 'Filial 1' },
-          { name: 'Sobremesa do Dia', sales: 280, quantity: 95, enterprise: enterprises[1]?.name || 'Filial 2' },
-          { name: 'Suco Natural', sales: 240, quantity: 180, enterprise: enterprises[1]?.name || 'Filial 2' },
-          { name: 'Marmita Vegetariana', sales: 180, quantity: 60, enterprise: enterprises[0]?.name || 'Filial 1' },
-        ]);
+        setTopProducts(realTopProducts);
       } catch (err) {
         console.error('Error loading consolidated dashboard:', err);
       } finally {
@@ -372,6 +434,11 @@ const OwnerDashboardPage: React.FC<OwnerDashboardPageProps> = ({ currentUser, en
       <div className="bg-white dark:bg-zinc-800 rounded-xl p-6 border border-gray-100 dark:border-white/5">
         <h3 className="text-sm font-black text-gray-900 dark:text-white uppercase tracking-wider mb-4">Produtos Mais Vendidos (Últimos 30 Dias)</h3>
         <div className="space-y-3">
+          {topProducts.length === 0 && (
+            <div className="p-4 rounded-lg border border-dashed border-gray-200 dark:border-white/10 text-xs font-semibold text-gray-500 dark:text-gray-400">
+              Nenhuma venda de produto registrada nos ultimos 30 dias.
+            </div>
+          )}
           {topProducts.map((product, idx) => (
             <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-zinc-700/30 rounded-lg">
               <div className="flex items-center gap-3">
@@ -379,8 +446,10 @@ const OwnerDashboardPage: React.FC<OwnerDashboardPageProps> = ({ currentUser, en
                   {idx + 1}
                 </div>
                 <div>
-                  <p className="font-black text-sm text-gray-900 dark:text-white">{product.name}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{product.enterprise}</p>
+                  <p className="font-black text-sm text-gray-900 dark:text-white">
+                    {product.name}
+                    <span className="ml-2 text-xs font-semibold text-gray-500 dark:text-gray-400">- {product.enterprise}</span>
+                  </p>
                 </div>
               </div>
               <div className="text-right">

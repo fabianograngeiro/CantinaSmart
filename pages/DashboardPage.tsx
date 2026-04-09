@@ -13,6 +13,7 @@ import autoTable from 'jspdf-autotable';
 import { Role, User, Enterprise, Product } from '../types';
 import ApiService from '../services/api';
 import { resolveUserAvatar } from '../utils/avatar';
+import { drawEnterpriseLogoOnPdf } from '../utils/enterpriseBranding';
 import { useTheme } from '../components/ThemeProvider';
 
 interface DashboardProps {
@@ -875,17 +876,19 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
 
       const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
       const generatedAt = new Date();
+      const leftStartX = 88;
+      drawEnterpriseLogoOnPdf(doc, String(activeEnterprise?.logo || '').trim(), 40, 24, 36, 'CS');
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(16);
-      doc.text('RELATÓRIO DE PLANO ATIVO', 40, 40);
+      doc.text('RELATÓRIO DE PLANO ATIVO', leftStartX, 40);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(11);
-      doc.text(`Empresa: ${activeEnterprise?.name || '-'}`, 40, 62);
-      doc.text(`Plano: ${selectedPlan.planName}`, 40, 78);
-      doc.text(`Total de alunos ativos: ${selectedPlan.studentsCount}`, 40, 94);
-      doc.text(`Saldo total do plano: R$ ${selectedPlan.totalBalance.toFixed(2)}`, 40, 110);
-      doc.text(`Gerado em: ${generatedAt.toLocaleString('pt-BR')}`, 40, 126);
+      doc.text(`Empresa: ${activeEnterprise?.name || '-'}`, leftStartX, 62);
+      doc.text(`Plano: ${selectedPlan.planName}`, leftStartX, 78);
+      doc.text(`Total de alunos ativos: ${selectedPlan.studentsCount}`, leftStartX, 94);
+      doc.text(`Saldo total do plano: R$ ${selectedPlan.totalBalance.toFixed(2)}`, leftStartX, 110);
+      doc.text(`Gerado em: ${generatedAt.toLocaleString('pt-BR')}`, leftStartX, 126);
 
       const bodyRows = (selectedPlan.members || []).map((member, index) => [
         String(index + 1),
@@ -919,17 +922,19 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
     try {
       const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
       const generatedAt = new Date();
+      const leftStartX = 88;
+      drawEnterpriseLogoOnPdf(doc, String(activeEnterprise?.logo || '').trim(), 40, 24, 36, 'CS');
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(16);
-      doc.text('RELATÓRIO DE ENTREGA DO DIA', 40, 40);
+      doc.text('RELATÓRIO DE ENTREGA DO DIA', leftStartX, 40);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(11);
-      doc.text(`Empresa: ${activeEnterprise?.name || '-'}`, 40, 62);
-      doc.text(`Dia: ${day.label}`, 40, 78);
-      doc.text(`Data: ${day.dateLabel}`, 40, 94);
-      doc.text(`Total programado: ${day.count}`, 40, 110);
-      doc.text(`Gerado em: ${generatedAt.toLocaleString('pt-BR')}`, 40, 126);
+      doc.text(`Empresa: ${activeEnterprise?.name || '-'}`, leftStartX, 62);
+      doc.text(`Dia: ${day.label}`, leftStartX, 78);
+      doc.text(`Data: ${day.dateLabel}`, leftStartX, 94);
+      doc.text(`Total programado: ${day.count}`, leftStartX, 110);
+      doc.text(`Gerado em: ${generatedAt.toLocaleString('pt-BR')}`, leftStartX, 126);
 
       const bodyRows = (day.plans || []).map((plan, index) => [
         String(index + 1),

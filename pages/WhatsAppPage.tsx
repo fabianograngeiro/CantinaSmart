@@ -36,6 +36,7 @@ import ApiService from '../services/api';
 import WhatsAppQrConnector from '../components/WhatsAppQrConnector';
 import notificationService from '../services/notificationService';
 import { formatPhoneWithCountryTag } from '../utils/phone';
+import { drawEnterpriseLogoOnPdf } from '../utils/enterpriseBranding';
 import CentralDisparos from '../components/whatsapp-disparos/CentralDisparos';
 
 interface WhatsAppPageProps {
@@ -1995,18 +1996,21 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
       const pageWidth = doc.internal.pageSize.getWidth();
       const marginX = 40;
+      const logoSize = 26;
+      const textStartX = marginX + logoSize + 10;
+      drawEnterpriseLogoOnPdf(doc, String(activeEnterprise?.logo || '').trim(), marginX, 18, logoSize, 'CS');
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(15);
-      doc.text('Relatório de Movimentações - WhatsApp', marginX, 36);
+      doc.text('Relatório de Movimentações - WhatsApp', textStartX, 36);
 
       doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');
-      doc.text(`Empresa: ${activeEnterprise.name || '-'}`, marginX, 56);
-      doc.text(`Escola: ${activeEnterprise.attachedSchoolName || '-'}`, marginX, 72);
-      doc.text(`Contato: ${reportClient.name || '-'}`, marginX, 88);
-      doc.text(`Tipo: ${contactType}`, marginX, 104);
-      doc.text(`Período: ${periodLabel}`, marginX, 120);
+      doc.text(`Empresa: ${activeEnterprise.name || '-'}`, textStartX, 56);
+      doc.text(`Escola: ${activeEnterprise.attachedSchoolName || '-'}`, textStartX, 72);
+      doc.text(`Contato: ${reportClient.name || '-'}`, textStartX, 88);
+      doc.text(`Tipo: ${contactType}`, textStartX, 104);
+      doc.text(`Período: ${periodLabel}`, textStartX, 120);
 
       doc.text(`Telefone: ${clientPhone}`, 320, 88);
       doc.text(`Perfil: ${perfilLabel}`, 320, 104);
@@ -3426,6 +3430,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
     const generatedAt = new Date();
+    const logoSize = 18;
 
     const formatNumber = (value: number) => Number(value || 0).toLocaleString('pt-BR', {
       minimumFractionDigits: Number.isInteger(Number(value || 0)) ? 0 : 2,
@@ -3454,10 +3459,11 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
     doc.setFillColor(37, 99, 235);
     doc.rect(0, 0, pageWidth, 20, 'F');
+    drawEnterpriseLogoOnPdf(doc, String(activeEnterprise?.logo || '').trim(), leftX, 1.5, logoSize, 'CS');
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11.5);
-    doc.text('EXTRATO DE TRANSAÇÕES DA UNIDADE', leftX, 14);
+    doc.text('EXTRATO DE TRANSAÇÕES DA UNIDADE', leftX + logoSize + 6, 14);
 
     doc.setTextColor(31, 41, 55);
     doc.setFont('helvetica', 'bold');

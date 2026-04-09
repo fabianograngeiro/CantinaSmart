@@ -32,6 +32,12 @@ const normalizeFoodKey = (value?: string) =>
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]/g, '');
+const normalizeSearchText = (value?: string) =>
+  String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
 
 
 const normalizeCategoryLabel = (value?: string) => {
@@ -55,6 +61,7 @@ const normalizeCategoryLabel = (value?: string) => {
   };
   return aliases[key] || raw;
 };
+const toUpperText = (value?: string) => String(value || '').toLocaleUpperCase('pt-BR');
 
 const AUTH_USER_STORAGE_KEY = 'canteen_auth_user';
 const ACTIVE_ENTERPRISE_STORAGE_KEY = 'canteen_active_enterprise';
@@ -123,7 +130,7 @@ const NutritionalInfoPage: React.FC = () => {
 
   const [formData, setFormData] = useState({
     name: '',
-    category: 'Proteínas',
+    category: 'PROTEÍNAS',
     unit: 'g' as IngredientUnit,
     calories: 0,
     proteins: 0,
@@ -182,12 +189,12 @@ const NutritionalInfoPage: React.FC = () => {
   }, [mergedReferenceRows]);
 
   const filteredGroupedReferenceRows = useMemo<Record<string, NutrientReferenceRow[]>>(() => {
-    const search = String(searchTerm || '').trim().toLowerCase();
+    const search = normalizeSearchText(searchTerm);
     const rows = mergedReferenceRows.filter((row) => {
       const matchesSearch =
         !search
-        || String(row.food || '').toLowerCase().includes(search)
-        || String(row.group || '').toLowerCase().includes(search);
+        || normalizeSearchText(row.food).includes(search)
+        || normalizeSearchText(row.group).includes(search);
       const matchesCategory = selectedCategory === 'TODOS' || String(row.group || '') === selectedCategory;
       return matchesSearch && matchesCategory;
     });
@@ -243,8 +250,8 @@ const NutritionalInfoPage: React.FC = () => {
       setAiReplyInput('');
       setAiPendingQuestion(false);
       setFormData({
-        name: ing.name,
-        category: normalizeCategoryLabel(ing.category) || ing.category,
+        name: toUpperText(ing.name),
+        category: toUpperText(normalizeCategoryLabel(ing.category) || ing.category),
         unit: ing.unit,
         calories: ing.calories,
         proteins: ing.proteins,
@@ -262,7 +269,7 @@ const NutritionalInfoPage: React.FC = () => {
       setAiPendingQuestion(false);
       setFormData({ 
         name: '', 
-        category: availableCategories[0] || 'Proteínas',
+        category: toUpperText(availableCategories[0] || 'Proteínas'),
         unit: 'g', 
         calories: 0, 
         proteins: 0, 
@@ -280,8 +287,8 @@ const NutritionalInfoPage: React.FC = () => {
     e.preventDefault();
     const payload: Ingredient = {
       id: editingIngredient?.id || Math.random().toString(36).substr(2, 9),
-      name: formData.name,
-      category: normalizeCategoryLabel(formData.category) || formData.category,
+      name: toUpperText(formData.name),
+      category: toUpperText(normalizeCategoryLabel(formData.category) || formData.category),
       unit: formData.unit,
       calories: Number(formData.calories),
       proteins: Number(formData.proteins),
@@ -308,7 +315,7 @@ const NutritionalInfoPage: React.FC = () => {
         setAiPendingQuestion(false);
         setFormData({
           name: '',
-          category: availableCategories[0] || 'Proteínas',
+          category: toUpperText(availableCategories[0] || 'Proteínas'),
           unit: 'g',
           calories: 0,
           proteins: 0,
@@ -376,7 +383,7 @@ const NutritionalInfoPage: React.FC = () => {
       const ironMg = Number(aiData.ferro_mg || aiData.iron_mg || aiData.ferro || 0);
       setFormData((prev) => ({
         ...prev,
-        category: aiCategory || prev.category,
+        category: toUpperText(aiCategory || prev.category),
         calories,
         carbs,
         proteins,
@@ -410,7 +417,7 @@ const NutritionalInfoPage: React.FC = () => {
   const applyReferenceValues = (row: NutrientReferenceRow) => {
     setFormData((prev) => ({
       ...prev,
-      category: normalizeCategoryLabel(row.group) || prev.category,
+      category: toUpperText(normalizeCategoryLabel(row.group) || prev.category),
       calories: Number(row.kcal || 0),
       carbs: Number(row.carbs || 0),
       proteins: Number(row.protein || 0),
@@ -585,6 +592,18 @@ const NutritionalInfoPage: React.FC = () => {
       .filter((item) => String(item.name || '').trim().length > 0);
   };
 
+  const buildIngredientNameKey = (value?: string) => normalizeFoodKey(value);
+
+  const dedupeIngredientsByName = (items: Ingredient[]) => {
+    const byName = new Map<string, Ingredient>();
+    items.forEach((item) => {
+      const key = buildIngredientNameKey(item?.name);
+      if (!key) return;
+      byName.set(key, item);
+    });
+    return Array.from(byName.values());
+  };
+
   const handleRestoreBackupFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -600,12 +619,80 @@ const NutritionalInfoPage: React.FC = () => {
         return;
       }
 
-      if (!window.confirm(`Restaurar backup com ${items.length} item(ns)? Esta ação substituirá toda a tabela atual.`)) {
+      const backupUniqueItems = dedupeIngredientsByName(items);
+      const duplicatedInBackupCount = items.length - backupUniqueItems.length;
+      if (duplicatedInBackupCount > 0) {
+        notificationService.informativo(
+          'Itens repetidos no backup',
+          `${duplicatedInBackupCount} item(ns) com nome repetido no arquivo foram consolidados automaticamente (mantido o último).`
+        );
+      }
+
+      const currentByNameKey = (Array.isArray(ingredients) ? ingredients : []).reduce((acc, item) => {
+        const key = buildIngredientNameKey(item?.name);
+        if (!key) return acc;
+        const list = acc.get(key) || [];
+        list.push(item);
+        acc.set(key, list);
+        return acc;
+      }, new Map<string, Ingredient[]>());
+
+      const backupByNameKey = backupUniqueItems.reduce((acc, item) => {
+        const key = buildIngredientNameKey(item?.name);
+        if (!key) return acc;
+        acc.set(key, item);
+        return acc;
+      }, new Map<string, Ingredient>());
+
+      const duplicateKeys = Array.from(backupByNameKey.keys()).filter((key) => currentByNameKey.has(key));
+      const duplicateKeySet = new Set(duplicateKeys);
+
+      let finalRestoreItems = backupUniqueItems;
+      if (duplicateKeys.length > 0) {
+        const overwriteAllDuplicates = window.confirm(
+          `Foram encontrados ${duplicateKeys.length} item(ns) com o mesmo nome da base atual.\n\n` +
+          'Clique OK para sobrescrever todos os duplicados.\n' +
+          'Clique Cancelar para analisar item por item.'
+        );
+
+        const overwriteKeys = new Set<string>();
+        if (overwriteAllDuplicates) {
+          duplicateKeys.forEach((key) => overwriteKeys.add(key));
+        } else {
+          duplicateKeys.forEach((key) => {
+            const currentNames = (currentByNameKey.get(key) || []).map((item) => String(item?.name || '').trim()).filter(Boolean);
+            const backupName = String(backupByNameKey.get(key)?.name || '').trim() || 'ITEM';
+            const shouldOverwrite = window.confirm(
+              `Duplicado encontrado: ${backupName}\n` +
+              `Atual: ${currentNames.join(' | ') || 'N/A'}\n` +
+              `Backup: ${backupName}\n\n` +
+              'Deseja sobrescrever este item?'
+            );
+            if (shouldOverwrite) overwriteKeys.add(key);
+          });
+        }
+
+        const keptCurrentItems = (Array.isArray(ingredients) ? ingredients : []).filter((item) => {
+          const key = buildIngredientNameKey(item?.name);
+          if (!key) return true;
+          if (!duplicateKeySet.has(key)) return true;
+          return !overwriteKeys.has(key);
+        });
+        const selectedBackupItems = backupUniqueItems.filter((item) => {
+          const key = buildIngredientNameKey(item?.name);
+          if (!key) return false;
+          if (!duplicateKeySet.has(key)) return true;
+          return overwriteKeys.has(key);
+        });
+        finalRestoreItems = [...keptCurrentItems, ...selectedBackupItems];
+      }
+
+      if (!window.confirm(`Restaurar backup com ${finalRestoreItems.length} item(ns)? Esta ação substituirá toda a tabela atual.`)) {
         return;
       }
 
-      const result = await ApiService.restoreIngredientsTable(items);
-      const restoredItems = Array.isArray(result?.items) ? result.items : items;
+      const result = await ApiService.restoreIngredientsTable(finalRestoreItems);
+      const restoredItems = Array.isArray(result?.items) ? result.items : finalRestoreItems;
       setIngredients(restoredItems);
       setSelectedCategory('TODOS');
       setCustomCategories((prev) => {
@@ -761,7 +848,7 @@ const NutritionalInfoPage: React.FC = () => {
                       const rowIngredient = row.ingredientId ? ingredientsById.get(row.ingredientId) : null;
                       return (
                         <tr
-                          key={`${group}-${row.food}`}
+                          key={`${group}-${row.ingredientId || row.food}-${index}`}
                           className={`border-t border-gray-100 dark:border-zinc-700 ${index % 2 === 0 ? 'bg-white dark:bg-zinc-900' : 'bg-slate-50 dark:bg-zinc-800/80'} ${row.isActive === false ? 'opacity-70' : ''}`}
                         >
                           <td className="px-2.5 py-2 text-[10px] font-black text-gray-700 dark:text-zinc-100 uppercase">{highlightMatch(row.food)}</td>
@@ -872,8 +959,8 @@ const NutritionalInfoPage: React.FC = () => {
                   <input 
                     required
                     value={formData.name}
-                    onChange={e => setFormData({...formData, name: e.target.value})}
-                    className="w-full px-3 py-2 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-xl outline-none font-black text-gray-800 text-sm shadow-inner transition-all"
+                    onChange={e => setFormData({...formData, name: toUpperText(e.target.value)})}
+                    className="w-full px-3 py-2 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-xl outline-none font-black text-gray-800 text-sm shadow-inner transition-all uppercase"
                     placeholder="Ex: Peito de Frango Desfiado"
                   />
                   <div className="mt-1.5 space-y-1.5">

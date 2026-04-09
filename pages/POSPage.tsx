@@ -2231,7 +2231,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
         const consumedDatesForPlan = consumedPlanDatesByPlanId.get(parsedPlanId) || new Set<string>();
         const todayDateKey = toDateKey(now);
         const retroactiveConsumedDates = selectedDates
-          .filter((dateKey) => dateKey < todayDateKey && !consumedDatesForPlan.has(dateKey))
+          .filter((dateKey) => dateKey <= todayDateKey && !consumedDatesForPlan.has(dateKey))
           .sort();
         const remainingDates = selectedDates
           .filter((dateKey) => !retroactiveConsumedDates.includes(dateKey))

@@ -35,13 +35,13 @@ interface MenuDay {
 }
 
 const WEEK_OPTIONS = [1, 2, 3, 4, 5] as const;
-const DAY_OF_WEEK_TO_JS: Record<DayOfWeek, number> = {
-  SEGUNDA: 1,
-  TERCA: 2,
-  QUARTA: 3,
-  QUINTA: 4,
-  SEXTA: 5,
-  SABADO: 6,
+const DAY_OF_WEEK_TO_GRID_INDEX: Record<DayOfWeek, number> = {
+  SEGUNDA: 0,
+  TERCA: 1,
+  QUARTA: 2,
+  QUINTA: 3,
+  SEXTA: 4,
+  SABADO: 5,
 };
 
 const normalizeMenuDays = (rawDays: any[]): MenuDay[] => {
@@ -63,10 +63,9 @@ const normalizeMenuDays = (rawDays: any[]): MenuDay[] => {
 
 const resolveMonthWeekIndexForDate = (date: Date, dayOfWeek: DayOfWeek): number => {
   const firstDay = new Date(date.getFullYear(), date.getMonth(), 1);
-  const firstJsDay = firstDay.getDay();
-  const targetJsDay = DAY_OF_WEEK_TO_JS[dayOfWeek];
-  const firstOccurrenceDay = 1 + ((targetJsDay - firstJsDay + 7) % 7);
-  const weekIndex = Math.floor((date.getDate() - firstOccurrenceDay) / 7) + 1;
+  const firstWeekdayGridIndex = (firstDay.getDay() + 6) % 7; // SEG=0 ... DOM=6
+  const targetGridIndex = DAY_OF_WEEK_TO_GRID_INDEX[dayOfWeek];
+  const weekIndex = Math.floor((date.getDate() + firstWeekdayGridIndex - targetGridIndex - 1) / 7) + 1;
   return Math.max(1, Math.min(5, weekIndex));
 };
 

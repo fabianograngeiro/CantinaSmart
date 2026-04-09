@@ -15,6 +15,7 @@ import {
 import ApiService from '../services/api';
 import { formatPhoneWithFlag } from '../utils/phone';
 import { extractSchoolCalendarOperationalData } from '../utils/schoolCalendar';
+import { drawEnterpriseLogoOnPdf } from '../utils/enterpriseBranding';
 
 type PeriodFilter = 'ALL' | 'MORNING' | 'AFTERNOON' | 'NIGHT';
 type DeliveryStatus = 'PENDENTE' | 'PREPARANDO' | 'PRONTO' | 'SERVIDO';
@@ -935,6 +936,9 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const marginX = 12;
+    const logoSize = 12;
+    const logoX = marginX;
+    const logoY = 5.7;
 
     const sanitizePlanName = (value?: string) => String(value || 'PLANO').replace(/_/g, ' ').toUpperCase();
     const periodLabel = periodFilter === 'ALL' ? 'Todos' : periodFilter === 'MORNING' ? 'Manhã' : periodFilter === 'AFTERNOON' ? 'Tarde' : 'Noite';
@@ -965,13 +969,14 @@ const DailyDeliveryPage: React.FC<DailyDeliveryPageProps> = ({ activeEnterprise,
 
     doc.setFillColor(15, 23, 42);
     doc.rect(0, 0, pageWidth, 24, 'F');
+    drawEnterpriseLogoOnPdf(doc, String(activeEnterprise?.logo || '').trim(), logoX, logoY, logoSize, 'CS');
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(15);
-    doc.text('RELATÓRIO ESCOLAR • CARDÁPIO DO DIA', marginX, 10.5);
+    doc.text('RELATÓRIO ESCOLAR • CARDÁPIO DO DIA', marginX + logoSize + 3, 10.5);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.text(activeEnterprise?.name || 'CantinaSmart', marginX, 16.8);
+    doc.text(activeEnterprise?.name || 'CantinaSmart', marginX + logoSize + 3, 16.8);
     doc.text(`Emitido em ${generatedAt.toLocaleDateString('pt-BR')} ${generatedAt.toLocaleTimeString('pt-BR')}`, pageWidth - marginX, 16.8, { align: 'right' });
 
     doc.setFillColor(248, 250, 252);

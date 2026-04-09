@@ -687,6 +687,31 @@ export class Database {
       .toUpperCase();
   }
 
+  private resolvePlanConsumptionCutoffTime(enterpriseId?: string) {
+    const normalizedEnterpriseId = String(enterpriseId || '').trim();
+    if (!normalizedEnterpriseId) return '18:00';
+
+    const enterprise = this.getEnterprise(normalizedEnterpriseId) as any;
+    const processingProfile = enterprise?.planConsumptionProcessingProfile || {};
+    const cutoffRaw = String(processingProfile?.cutoffTime || '').trim();
+    return /^([01]\d|2[0-3]):([0-5]\d)$/.test(cutoffRaw) ? cutoffRaw : '18:00';
+  }
+
+  private isPastCutoffForDate(dateIso: string, cutoffTime: string, now: Date) {
+    const [hourRaw, minuteRaw] = String(cutoffTime || '18:00').split(':');
+    const cutoffHour = Number(hourRaw);
+    const cutoffMinute = Number(minuteRaw);
+    const base = new Date(`${dateIso}T00:00:00`);
+    if (Number.isNaN(base.getTime())) return false;
+    base.setHours(
+      Number.isFinite(cutoffHour) ? cutoffHour : 18,
+      Number.isFinite(cutoffMinute) ? cutoffMinute : 0,
+      0,
+      0
+    );
+    return now.getTime() > base.getTime();
+  }
+
   private findPlanByReference(planId: string, planName: string, enterpriseId?: string) {
     if (planId) {
       const byId = this.plans.find((plan: any) => String(plan?.id || '').trim() === planId);
@@ -3624,10 +3649,23 @@ export class Database {
 
     // Consumos retroativos vinculados ao crÃ©dito do plano (datas jÃ¡ passadas)
     if (isPlanCredit) {
-      const retroDates: string[] = Array.isArray((newTransaction as any)?.retroactiveConsumedDates)
+      const retroDatesFromPayload: string[] = Array.isArray((newTransaction as any)?.retroactiveConsumedDates)
         ? (newTransaction as any).retroactiveConsumedDates
         : [];
-      if (retroDates.length > 0) {
+      const selectedDatesFromPayload: string[] = Array.isArray((newTransaction as any)?.selectedDates)
+        ? (newTransaction as any).selectedDates
+        : [];
+      const nowLocal = new Date();
+      const cutoffTime = this.resolvePlanConsumptionCutoffTime(String(newTransaction?.enterpriseId || '').trim());
+      const todayDateKey = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth() + 1).padStart(2, '0')}-${String(nowLocal.getDate()).padStart(2, '0')}`;
+      const dueDates = Array.from(new Set(
+        [...retroDatesFromPayload, ...selectedDatesFromPayload]
+          .map((d) => String(d || '').slice(0, 10))
+          .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+          .filter((d) => this.isPastCutoffForDate(d, cutoffTime, nowLocal))
+      ));
+
+      if (dueDates.length > 0) {
         const unitPrice = this.resolvePlanUnitValue(
           String(newTransaction?.planId || newTransaction?.originPlanId || ''),
           String(newTransaction?.plan || newTransaction?.planName || newTransaction?.item || ''),
@@ -3635,35 +3673,56 @@ export class Database {
           [newTransaction?.unitPrice, newTransaction?.planPrice, newTransaction?.amount]
         ) || 0;
 
-        retroDates
-          .map((d) => String(d || '').slice(0, 10))
-          .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
-          .forEach((dateIso) => {
-            const retroTx = {
-              id: `t_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-              enterpriseId: String(newTransaction?.enterpriseId || '').trim(),
-              clientId: String(newTransaction?.clientId || '').trim(),
-              clientName: String(newTransaction?.clientName || newTransaction?.client || '').trim(),
-              planId: String(newTransaction?.planId || newTransaction?.originPlanId || '').trim(),
-              plan: String(newTransaction?.plan || newTransaction?.planName || newTransaction?.item || '').trim(),
-              type: 'CONSUMO',
-              description: `Entrega do dia (retroativo do plano)`,
-              item: String(newTransaction?.plan || newTransaction?.planName || newTransaction?.item || '').trim(),
-              deliveryDate: dateIso,
-              date: dateIso,
-              time: '00:00',
-              method: 'PLANO',
-              paymentMethod: 'PLANO',
-              amount: unitPrice,
-              total: unitPrice,
-              status: 'ENTREGUE',
-              executionSource: 'SISTEMA',
-              originTransactionId: String(newTransaction?.id || '').trim(),
-              timestamp: `${dateIso}T00:00:00`,
-              selectedDates: [dateIso],
-            };
-            this.transactions.push(retroTx as any);
+        dueDates.forEach((dateIso) => {
+          const hasExistingDelivery = this.transactions.some((tx: any) => {
+            const txClientId = String(tx?.clientId || '').trim();
+            const txPlanId = String(tx?.planId || tx?.originPlanId || '').trim();
+            const txPlanName = this.normalizeToken(tx?.plan || tx?.planName || tx?.item || '');
+            const thisPlanId = String(newTransaction?.planId || newTransaction?.originPlanId || '').trim();
+            const thisPlanName = this.normalizeToken(newTransaction?.plan || newTransaction?.planName || newTransaction?.item || '');
+            const txDate = String(tx?.deliveryDate || tx?.scheduledDate || tx?.mealDate || tx?.date || '').slice(0, 10);
+            const txType = this.normalizeToken(tx?.type);
+            const txDesc = this.normalizeToken(tx?.description || tx?.item || '');
+            const isReversal = txType === 'CREDITO' || txDesc.includes('ESTORNO');
+            const samePlan = (thisPlanId && txPlanId && thisPlanId === txPlanId)
+              || (thisPlanName && txPlanName && thisPlanName === txPlanName);
+            return txClientId === String(newTransaction?.clientId || '').trim()
+              && samePlan
+              && txDate === dateIso
+              && txType === 'CONSUMO'
+              && !isReversal;
           });
+          if (hasExistingDelivery) return;
+
+          const isToday = dateIso === todayDateKey;
+          const nowIso = new Date().toISOString();
+          const retroTx = {
+            id: `t_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            enterpriseId: String(newTransaction?.enterpriseId || '').trim(),
+            clientId: String(newTransaction?.clientId || '').trim(),
+            clientName: String(newTransaction?.clientName || newTransaction?.client || '').trim(),
+            planId: String(newTransaction?.planId || newTransaction?.originPlanId || '').trim(),
+            plan: String(newTransaction?.plan || newTransaction?.planName || newTransaction?.item || '').trim(),
+            type: 'CONSUMO',
+            description: `Entrega do dia (retroativo do plano)`,
+            item: String(newTransaction?.plan || newTransaction?.planName || newTransaction?.item || '').trim(),
+            deliveryDate: dateIso,
+            date: dateIso,
+            time: isToday
+              ? new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false })
+              : '00:00',
+            method: 'PLANO',
+            paymentMethod: 'PLANO',
+            amount: unitPrice,
+            total: unitPrice,
+            status: 'ENTREGUE',
+            executionSource: 'SISTEMA',
+            originTransactionId: String(newTransaction?.id || '').trim(),
+            timestamp: isToday ? nowIso : `${dateIso}T00:00:00`,
+            selectedDates: [dateIso],
+          };
+          this.transactions.push(retroTx as any);
+        });
       }
     }
 
@@ -4214,16 +4273,32 @@ export class Database {
 
   // ===== INGREDIENTS =====
   private normalizeIngredientRecord(record: any) {
+    const normalizeText = (value: any) => {
+      const raw = String(value || '').trim();
+      if (!raw) return '';
+      if (!/[ÃÂ]/.test(raw)) return raw;
+      try {
+        const repaired = Buffer.from(raw, 'latin1').toString('utf8').trim();
+        return repaired || raw;
+      } catch {
+        return raw;
+      }
+    };
+
     const unit = String(record?.unit || 'g').trim().toLowerCase();
     const safeUnit = unit === 'ml' || unit === 'un' ? unit : 'g';
     const normalizedSource = String(record?.source || '').trim().toUpperCase();
-    const requestedCategory = String(record?.category || '').trim();
-    const resolvedCategory = NATIVE_INGREDIENT_CATEGORIES.includes(requestedCategory) ? requestedCategory : 'Outros';
+    const requestedCategory = normalizeText(record?.category);
+    const requestedCategoryToken = this.normalizeToken(requestedCategory);
+    const nativeCategory = NATIVE_INGREDIENT_CATEGORIES.find(
+      (category) => this.normalizeToken(category) === requestedCategoryToken
+    );
+    const resolvedCategory = nativeCategory || requestedCategory || 'Outros';
     return {
       ...record,
       id: String(record?.id || this.generateEntityId('ing')).trim(),
-      name: String(record?.name || '').trim(),
-      category: resolvedCategory,
+      name: normalizeText(record?.name).toLocaleUpperCase('pt-BR'),
+      category: String(resolvedCategory || '').toLocaleUpperCase('pt-BR'),
       unit: safeUnit,
       calories: this.roundValue(this.toFiniteNumber(record?.calories, 0), 2),
       proteins: this.roundValue(this.toFiniteNumber(record?.proteins, 0), 2),
@@ -4235,6 +4310,36 @@ export class Database {
       isActive: record?.isActive !== false,
       source: normalizedSource === 'NATIVE' ? 'NATIVE' : 'CUSTOM',
     };
+  }
+
+  private normalizeIngredientNameForMatch(value: any) {
+    const base = String(value || '')
+      .replace(/\s*\([^)]*\)\s*$/g, '')
+      .trim();
+    return this.normalizeToken(base);
+  }
+
+  private removeIngredientFromMenus(ingredient: any) {
+    const ingredientId = String(ingredient?.id || '').trim();
+    const ingredientNameKey = this.normalizeIngredientNameForMatch(ingredient?.name);
+    if (!ingredientId && !ingredientNameKey) return;
+
+    this.menus = (Array.isArray(this.menus) ? this.menus : []).map((menu: any) => ({
+      ...menu,
+      days: (Array.isArray(menu?.days) ? menu.days : []).map((day: any) => ({
+        ...day,
+        items: (Array.isArray(day?.items) ? day.items : []).map((item: any) => ({
+          ...item,
+          ingredients: (Array.isArray(item?.ingredients) ? item.ingredients : []).filter((entry: any) => {
+            const sourceIngredientId = String(entry?.sourceIngredientId || '').trim();
+            const entryNameKey = this.normalizeIngredientNameForMatch(entry?.name);
+            if (ingredientId && sourceIngredientId && sourceIngredientId === ingredientId) return false;
+            if (!sourceIngredientId && ingredientNameKey && entryNameKey === ingredientNameKey) return false;
+            return true;
+          }),
+        })),
+      })),
+    }));
   }
 
   private ensureNutritionalBaseSeed() {
@@ -4281,9 +4386,66 @@ export class Database {
   updateIngredient(id: string, data: any) {
     const index = this.ingredients.findIndex(i => i.id === id);
     if (index > -1) {
-      this.ingredients[index] = this.normalizeIngredientRecord({ ...this.ingredients[index], ...data });
+      const previous = this.ingredients[index];
+      const updated = this.normalizeIngredientRecord({ ...previous, ...data });
+      this.ingredients[index] = updated;
+
+      const oldNameKey = this.normalizeIngredientNameForMatch(previous?.name);
+      const newName = String(updated?.name || '').trim();
+
+      this.menus = (Array.isArray(this.menus) ? this.menus : []).map((menu: any) => {
+        const days = Array.isArray(menu?.days) ? menu.days : [];
+        const nextDays = days.map((day: any) => {
+          const items = Array.isArray(day?.items) ? day.items : [];
+          const nextItems = items.map((item: any) => {
+            const ingredients = Array.isArray(item?.ingredients) ? item.ingredients : [];
+            const nextIngredients = ingredients.map((ingredient: any) => {
+              const sourceIngredientId = String((ingredient as any)?.sourceIngredientId || '').trim();
+              const ingredientNameKey = this.normalizeIngredientNameForMatch(ingredient?.name);
+              const matchesById = sourceIngredientId === id;
+              const matchesByName = !sourceIngredientId && oldNameKey && ingredientNameKey === oldNameKey;
+              if (!matchesById && !matchesByName) return ingredient;
+
+              const currentName = String(ingredient?.name || '').trim();
+              const nameMatch = currentName.match(/^(.*?)(\s*\([^)]*\)\s*)$/);
+              const nextName = nameMatch
+                ? `${newName}${nameMatch[2]}`
+                : newName;
+
+              return {
+                ...ingredient,
+                sourceIngredientId: id,
+                name: nextName,
+                category: String(updated?.category || ingredient?.category || '').trim(),
+                unit: updated?.unit || ingredient?.unit,
+                calories: this.roundValue(this.toFiniteNumber(updated?.calories, ingredient?.calories || 0), 2),
+                proteins: this.roundValue(this.toFiniteNumber(updated?.proteins, ingredient?.proteins || 0), 2),
+                carbs: this.roundValue(this.toFiniteNumber(updated?.carbs, ingredient?.carbs || 0), 2),
+                fats: this.roundValue(this.toFiniteNumber(updated?.fats, ingredient?.fats || 0), 2),
+                fiber: this.roundValue(this.toFiniteNumber(updated?.fiber, ingredient?.fiber || 0), 2),
+                calciumMg: this.roundValue(this.toFiniteNumber(updated?.calciumMg, ingredient?.calciumMg || 0), 2),
+                ironMg: this.roundValue(this.toFiniteNumber(updated?.ironMg, ingredient?.ironMg || 0), 2),
+                isActive: updated?.isActive !== false,
+              };
+            });
+            return {
+              ...item,
+              ingredients: nextIngredients,
+            };
+          });
+          return {
+            ...day,
+            items: nextItems,
+          };
+        });
+        return {
+          ...menu,
+          days: nextDays,
+        };
+      });
+
       this.saveData();
-      return this.ingredients[index];
+      return updated;
     }
     return null;
   }
@@ -4291,7 +4453,9 @@ export class Database {
   deleteIngredient(id: string) {
     const index = this.ingredients.findIndex(i => i.id === id);
     if (index > -1) {
+      const removed = this.ingredients[index];
       this.ingredients.splice(index, 1);
+      this.removeIngredientFromMenus(removed);
       this.saveData();
       return true;
     }

@@ -1,4 +1,4 @@
-
+﻿
 import React, { useState, useMemo, useEffect, useTransition } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -15,6 +15,7 @@ import { Client, Enterprise, TransactionRecord, User as UserType } from '../type
 import { ApiService } from '../services/api';
 import { formatPhoneWithCountryTag } from '../utils/phone';
 import { extractSchoolCalendarOperationalData } from '../utils/schoolCalendar';
+import { buildEnterpriseLogoHtml } from '../utils/enterpriseBranding';
 
 const toDateKey = (date: Date) => {
   const year = date.getFullYear();
@@ -240,6 +241,9 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   const [deleteTargetTransaction, setDeleteTargetTransaction] = useState<ExtendedTransactionRecord | null>(null);
   const [deletePromptMessage, setDeletePromptMessage] = useState('');
   const [deleteAuditReason, setDeleteAuditReason] = useState('');
+  const [selectedTransactionIds, setSelectedTransactionIds] = useState<string[]>([]);
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [bulkDeleteReason, setBulkDeleteReason] = useState('');
   const [isDeleteReasonPending, startDeleteReasonTransition] = useTransition();
   const [reversingTransaction, setReversingTransaction] = useState<ExtendedTransactionRecord | null>(null);
   const [reverseMode, setReverseMode] = useState<'OPEN' | 'RESCHEDULE'>('OPEN');
@@ -1262,7 +1266,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       itemDescription = `${units}x ${firstPlanItem.name}`;
       retroactiveConsumedDates = planDates.filter((d) => {
         const todayKey = toLocalDateKey(new Date());
-        return d < todayKey;
+        return d <= todayKey;
       });
     }
 
@@ -1381,6 +1385,91 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     } catch (error) {
       console.error('Erro ao excluir transação:', error);
       alert('Erro ao excluir transação.');
+    } finally {
+      setDeletingTransactionId(null);
+    }
+  };
+
+  const toggleRowSelection = (rowId: string) => {
+    const normalizedId = String(rowId || '').trim();
+    if (!normalizedId) return;
+    setSelectedTransactionIds((prev) => (
+      prev.includes(normalizedId)
+        ? prev.filter((id) => id !== normalizedId)
+        : [...prev, normalizedId]
+    ));
+  };
+
+  const toggleSelectAllFiltered = () => {
+    if (deletableFilteredIds.length === 0) return;
+    setSelectedTransactionIds((prev) => {
+      if (allFilteredDeletableSelected) return [];
+      const merged = new Set<string>([...prev, ...deletableFilteredIds]);
+      return Array.from(merged.values());
+    });
+  };
+
+  const openBulkDeleteModal = () => {
+    if (!canHardDeleteTransactions) return;
+    if (selectedDeletableIds.length === 0) {
+      alert('Selecione pelo menos uma transação para excluir.');
+      return;
+    }
+    setBulkDeleteReason('');
+    setIsBulkDeleteModalOpen(true);
+  };
+
+  const closeBulkDeleteModal = () => {
+    if (deletingTransactionId === '__bulk__') return;
+    setIsBulkDeleteModalOpen(false);
+    setBulkDeleteReason('');
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (selectedDeletableIds.length === 0) {
+      alert('Nenhuma transação selecionada para excluir.');
+      return;
+    }
+
+    const normalizedReason = String(bulkDeleteReason || '').trim();
+    if (!normalizedReason) {
+      alert('Informe o motivo da exclusão em lote.');
+      return;
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+
+    try {
+      setDeletingTransactionId('__bulk__');
+
+      for (const txId of selectedDeletableIds) {
+        try {
+          await ApiService.deleteTransaction(txId, {
+            deleteReason: normalizedReason,
+            includeOriginCredit: true,
+          });
+          successCount += 1;
+          if (selectedTransaction?.id === txId) setSelectedTransaction(null);
+          if (editingTransaction?.id === txId) closeEditModal();
+        } catch (error) {
+          console.error(`Erro ao excluir transação em lote (${txId}):`, error);
+          failCount += 1;
+        }
+      }
+
+      if (successCount > 0) {
+        setReloadTransactionsKey((prev) => prev + 1);
+      }
+
+      setSelectedTransactionIds([]);
+      closeBulkDeleteModal();
+
+      if (failCount > 0) {
+        alert(`Exclusão em lote finalizada com falhas.\nSucesso: ${successCount}\nFalhas: ${failCount}`);
+      } else {
+        alert(`${successCount} transação(ões) excluída(s) com sucesso.`);
+      }
     } finally {
       setDeletingTransactionId(null);
     }
@@ -1846,6 +1935,29 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     });
   }, [normalizedTransactions, searchTerm, typeFilter, planFilter, timeFilter, startDate, endDate]);
 
+  const deletableFilteredIds = useMemo(() => {
+    if (!canHardDeleteTransactions) return [] as string[];
+    return filteredTransactions
+      .filter((row) => String(row.type || '').toUpperCase() !== 'AUDITORIA_EXCLUSAO' && isDeletableTransaction(row))
+      .map((row) => String(row.id || '').trim())
+      .filter(Boolean);
+  }, [filteredTransactions, canHardDeleteTransactions]);
+
+  const selectedDeletableIds = useMemo(() => {
+    if (selectedTransactionIds.length === 0) return [] as string[];
+    const allowed = new Set(deletableFilteredIds);
+    return selectedTransactionIds.filter((id) => allowed.has(id));
+  }, [selectedTransactionIds, deletableFilteredIds]);
+
+  const allFilteredDeletableSelected = deletableFilteredIds.length > 0
+    && selectedDeletableIds.length === deletableFilteredIds.length;
+
+  useEffect(() => {
+    if (selectedTransactionIds.length === 0) return;
+    const allowed = new Set(deletableFilteredIds);
+    setSelectedTransactionIds((prev) => prev.filter((id) => allowed.has(id)));
+  }, [deletableFilteredIds]);
+
   const totalRevenueFiltered = useMemo(() => {
     return filteredTransactions
       .filter((t) => t.type === 'CREDITO' || t.type === 'VENDA_BALCAO')
@@ -2228,6 +2340,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       alert('Não foi possível abrir a janela de impressão.');
       return;
     }
+    const enterpriseLogoHtml = buildEnterpriseLogoHtml(String(activeEnterprise?.logo || '').trim());
 
     printWindow.document.write(`
       <html>
@@ -2235,6 +2348,8 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
           <title>Relatório de Transações</title>
           <style>
             body { font-family: Arial, sans-serif; color: #0f172a; margin: 20px; }
+            .header-line { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+            .report-logo { width: 36px; height: 36px; border-radius: 8px; object-fit: cover; border: 1px solid #cbd5e1; background: #fff; }
             h1 { font-size: 20px; margin: 0 0 4px; }
             h2 { font-size: 12px; margin: 0 0 12px; color: #475569; }
             h3 { font-size: 13px; margin: 0 0 8px; }
@@ -2254,7 +2369,10 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
           </style>
         </head>
         <body>
-          <h1>${escapeHtml(activeEnterprise.name)}</h1>
+          <div class="header-line">
+            ${enterpriseLogoHtml}
+            <h1>${escapeHtml(activeEnterprise.name)}</h1>
+          </div>
           <h2>Relatório de transações • Gerado em ${escapeHtml(new Date().toLocaleString('pt-BR'))}</h2>
           <div class="box">
             ${relationHtml}
@@ -3044,15 +3162,37 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
               </h3>
               <p className="text-[8px] sm:text-[9px] text-gray-400 font-bold uppercase tracking-[0.14em] mt-1">Auditória de baixas automáticas, créditos e vendas diretas</p>
            </div>
-           <div className="bg-indigo-50 px-3 py-1.5 rounded-lg text-[10px] font-black text-indigo-600 border border-indigo-100 uppercase whitespace-nowrap">
-              Total: {filteredTransactions.length} Operações
+           <div className="flex items-center gap-2">
+             {canHardDeleteTransactions && selectedDeletableIds.length > 0 && (
+               <button
+                 onClick={openBulkDeleteModal}
+                 className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase whitespace-nowrap bg-rose-600 text-white hover:bg-rose-700 transition-colors inline-flex items-center gap-1.5"
+               >
+                 <Trash2 size={12} />
+                 Apagar selecionados ({selectedDeletableIds.length})
+               </button>
+             )}
+             <div className="bg-indigo-50 px-3 py-1.5 rounded-lg text-[10px] font-black text-indigo-600 border border-indigo-100 uppercase whitespace-nowrap">
+                Total: {filteredTransactions.length} Operações
+             </div>
            </div>
         </div>
 
         <div className="overflow-x-auto">
-            <table className="w-full text-left table-fixed min-w-[1160px]">
+            <table className="w-full text-left table-fixed min-w-[1210px]">
               <thead className="bg-gray-50 text-[8px] sm:text-[9px] font-black text-gray-400 uppercase tracking-[0.12em] border-b">
                  <tr>
+                    <th className="px-2 py-3.5 w-[3%] text-center">
+                      <input
+                        type="checkbox"
+                        checked={allFilteredDeletableSelected}
+                        onChange={toggleSelectAllFiltered}
+                        disabled={!canHardDeleteTransactions || deletableFilteredIds.length === 0}
+                        className="w-3.5 h-3.5 rounded border-gray-300 text-rose-600 focus:ring-rose-500 disabled:opacity-40"
+                        title="Selecionar todos"
+                        aria-label="Selecionar todas as transações visíveis"
+                      />
+                    </th>
                     <th className="px-3 py-3.5 w-[6%] text-center">Data</th>
                     <th className="px-3 py-3.5 w-[12%] text-center">Cliente</th>
                     <th className="px-3 py-3.5 w-[8%] text-center">Plano / Origem</th>
@@ -3068,7 +3208,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
               <tbody className="divide-y divide-gray-50 text-xs">
                  {filteredTransactions.length === 0 ? (
                    <tr>
-                     <td colSpan={10} className="px-8 py-20 text-center text-gray-300 font-black uppercase text-xs tracking-widest">Nenhum registro corresponde aos filtros</td>
+                     <td colSpan={11} className="px-8 py-20 text-center text-gray-300 font-black uppercase text-xs tracking-widest">Nenhum registro corresponde aos filtros</td>
                    </tr>
                  ) : filteredTransactions.map(row => {
                    const rowUnitsProgress = resolveRowUnitsProgress(row);
@@ -3135,6 +3275,8 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                      ? `${auditDeleteReason ? `Motivo: ${auditDeleteReason}` : 'Motivo: NÃO INFORMADO'}${auditDeletedBy ? ` • Excluído por: ${auditDeletedBy}` : ''}`
                      : '';
                    const auditActionDisabledClass = 'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-gray-400';
+                   const isSelectableRow = canHardDeleteTransactions && !isAuditDeleteRow && isDeletableTransaction(row);
+                   const isRowChecked = selectedDeletableIds.includes(String(row.id || '').trim());
                    return (
                    <tr
                      key={row.id}
@@ -3142,6 +3284,16 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                        ? 'bg-slate-100/80 hover:bg-slate-100 transition-colors group border-y border-slate-200'
                        : 'hover:bg-indigo-50/30 transition-colors group'}
                    >
+                      <td className="px-2 py-3.5 align-top text-center">
+                        <input
+                          type="checkbox"
+                          checked={isRowChecked}
+                          onChange={() => toggleRowSelection(String(row.id || '').trim())}
+                          disabled={!isSelectableRow}
+                          className="mt-0.5 w-3.5 h-3.5 rounded border-gray-300 text-rose-600 focus:ring-rose-500 disabled:opacity-30"
+                          aria-label={`Selecionar transação ${row.id}`}
+                        />
+                      </td>
                       <td className="px-3 py-3.5 align-top">
                         <span className="text-[9px] font-bold text-gray-400 flex items-center gap-1 uppercase tracking-tighter">
                           <Calendar size={10}/>
@@ -3265,6 +3417,65 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
            </table>
         </div>
       </div>
+
+      {isBulkDeleteModalOpen && (
+        <div className="fixed inset-0 z-[1150] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="absolute inset-0 bg-indigo-950/80 backdrop-blur-md" onClick={closeBulkDeleteModal}></div>
+          <div className="relative w-full max-w-lg bg-white rounded-[28px] shadow-2xl overflow-hidden animate-in zoom-in-95">
+            <div className="bg-rose-600 p-5 text-white flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-black uppercase tracking-widest">Excluir Selecionados</h2>
+                <p className="text-[10px] font-bold text-rose-100 uppercase tracking-wider mt-1">Auditoria obrigatória da exclusão em lote</p>
+              </div>
+              <button
+                onClick={closeBulkDeleteModal}
+                className="p-2 hover:bg-white/10 rounded-full transition-colors"
+                disabled={deletingTransactionId === '__bulk__'}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="rounded-xl border border-rose-100 bg-rose-50 p-3">
+                <p className="text-[11px] font-black text-rose-700 uppercase tracking-wider">
+                  Excluir {selectedDeletableIds.length} transação(ões) selecionada(s)? Esta ação não pode ser desfeita.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Motivo da exclusão *</label>
+                <textarea
+                  value={bulkDeleteReason}
+                  onChange={(e) => setBulkDeleteReason(e.target.value)}
+                  placeholder="Descreva o motivo da exclusão em lote"
+                  rows={4}
+                  className="w-full px-3 py-2.5 bg-gray-50 border-2 border-transparent focus:border-rose-500 rounded-xl outline-none text-xs font-bold resize-none"
+                  disabled={deletingTransactionId === '__bulk__'}
+                />
+              </div>
+            </div>
+
+            <div className="p-5 bg-gray-50 border-t flex justify-end gap-2">
+              <button
+                onClick={closeBulkDeleteModal}
+                disabled={deletingTransactionId === '__bulk__'}
+                className="px-4 py-2.5 bg-white border rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-500 disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmBulkDelete}
+                disabled={deletingTransactionId === '__bulk__'}
+                className="px-4 py-2.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-700 disabled:opacity-60 inline-flex items-center gap-2"
+              >
+                {deletingTransactionId === '__bulk__' ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                {deletingTransactionId === '__bulk__' ? 'Excluindo...' : 'Confirmar Exclusão'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {deleteTargetTransaction && (
         <div className="fixed inset-0 z-[1150] flex items-center justify-center p-4 animate-in fade-in">
@@ -4188,3 +4399,5 @@ const QuickSummaryCard = ({ label, value, sub, icon, color }: any) => (
 );
 
 export default UnitSalesTransactionsPage;
+
+
