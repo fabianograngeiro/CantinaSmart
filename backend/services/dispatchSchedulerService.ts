@@ -6,6 +6,11 @@ import {
   DispatchProfileType,
 } from './dispatchAudienceService.js';
 import { whatsappSession } from '../utils/whatsappSession.js';
+import {
+  reserveDispatchIdempotency,
+  markDispatchIdempotencySent,
+  clearDispatchIdempotencyReservation,
+} from './whatsappIdempotencyService.js';
 
 type RuntimeStatus = 'EM_DISPARO' | null;
 type DispatchSendMode = 'TEXT_ONLY' | 'TEXT_AND_REPORT_PDF' | 'TEXT_AND_UPLOAD_PDF';
@@ -46,7 +51,7 @@ type PersistedLogEntry = {
   nome: string;
   telefone: string;
   perfil: 'Responsavel' | 'Colaborador';
-  status: 'Sucesso' | 'Erro' | 'Simulado' | 'Invalido';
+  status: 'Sucesso' | 'Erro' | 'Simulado' | 'Invalido' | 'Duplicado';
   detalhe?: string;
   timestamp: string;
 };
@@ -475,7 +480,33 @@ const executeProfileDispatch = async (enterpriseId: string, profile: SchedulerPr
           timestamp: new Date().toISOString(),
         });
       } else {
+        let fingerprint = '';
         try {
+          const reservation = reserveDispatchIdempotency({
+            source: 'SCHEDULER',
+            enterpriseId,
+            phone: telefone,
+            message,
+            profileId,
+            slotKey,
+            ttlSeconds: 7 * 24 * 60 * 60,
+          });
+
+          if (reservation.duplicate) {
+            entries.push({
+              id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+              nome,
+              telefone,
+              perfil,
+              status: 'Duplicado',
+              detalhe: 'Disparo duplicado bloqueado por idempotencia (slot ja processado).',
+              timestamp: new Date().toISOString(),
+            });
+            continue;
+          }
+          fingerprint = reservation.fingerprint;
+
+          let sentResult: any = null;
           if (safeSendMode === 'TEXT_AND_UPLOAD_PDF') {
             const uploadPdf = profile?.uploadPdfAttachment && typeof profile.uploadPdfAttachment === 'object'
               ? {
@@ -489,7 +520,7 @@ const executeProfileDispatch = async (enterpriseId: string, profile: SchedulerPr
               throw new Error('Perfil em modo texto + PDF upload sem PDF salvo no perfil.');
             }
 
-            await whatsappSession.sendMediaToChat(telefone, {
+            sentResult = await whatsappSession.sendMediaToChat(telefone, {
               mediaType: 'document',
               base64Data: uploadPdf.base64Data,
               mimeType: uploadPdf.mimeType || 'application/pdf',
@@ -497,15 +528,26 @@ const executeProfileDispatch = async (enterpriseId: string, profile: SchedulerPr
             }, message);
           } else if (safeSendMode === 'TEXT_AND_REPORT_PDF') {
             const reportPdf = buildRecipientReportPdfAttachment(recipient, enterpriseId, profileName);
-            await whatsappSession.sendMediaToChat(telefone, {
+            sentResult = await whatsappSession.sendMediaToChat(telefone, {
               mediaType: 'document',
               base64Data: reportPdf.base64Data,
               mimeType: reportPdf.mimeType,
               fileName: reportPdf.fileName,
             }, message);
           } else {
-            await whatsappSession.sendMessage(telefone, message);
+            sentResult = await whatsappSession.sendMessage(telefone, message);
           }
+
+          markDispatchIdempotencySent({
+            enterpriseId,
+            fingerprint,
+            messageId: String(sentResult?.messageId || sentResult?.key?.id || '').trim(),
+            detail: {
+              profileId,
+              slotKey,
+              sendMode: safeSendMode,
+            },
+          });
 
           entries.push({
             id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -516,6 +558,12 @@ const executeProfileDispatch = async (enterpriseId: string, profile: SchedulerPr
             timestamp: new Date().toISOString(),
           });
         } catch (err) {
+          if (fingerprint) {
+            clearDispatchIdempotencyReservation({
+              enterpriseId,
+              fingerprint,
+            });
+          }
           entries.push({
             id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             nome,

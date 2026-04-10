@@ -8,12 +8,46 @@ import {
   DispatchProfileType,
   DispatchPeriodMode,
 } from '../services/dispatchAudienceService.js';
+import {
+  reserveDispatchIdempotency,
+  markDispatchIdempotencySent,
+  clearDispatchIdempotencyReservation,
+} from '../services/whatsappIdempotencyService.js';
 import { db } from '../database.js';
 
 const router = Router();
 router.use(authMiddleware);
 
 const normalizePhoneDigits = (value: unknown) => String(value ?? '').replace(/\D/g, '');
+const normalizeTextToken = (value: unknown) => String(value || '')
+  .trim()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toUpperCase();
+
+const normalizeImportedClientType = (value: unknown) => {
+  const token = normalizeTextToken(value);
+  if (token === 'COLABORADOR' || token === 'RESPONSAVEL' || token === 'ALUNO') return token;
+  return 'ALUNO';
+};
+
+const normalizeImportedPhone = (value: unknown) => {
+  const digits = normalizePhoneDigits(value);
+  if (!digits) return '';
+  return digits.startsWith('55') ? digits : `55${digits}`;
+};
+
+const parseIdempotencyTtlSeconds = (value: unknown) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  return Math.max(30, Math.min(24 * 60 * 60, Math.floor(parsed)));
+};
+
+const isImportedStatusActive = (value: unknown) => {
+  const token = normalizeTextToken(value);
+  if (!token) return true;
+  return !['INATIVO', 'INACTIVE', 'FALSE', '0', 'NAO', 'NAO_ATIVO', 'DESATIVADO'].includes(token);
+};
 
 const getRequestedEnterpriseId = (req: AuthRequest) => {
   const queryEnterpriseId = String(req.query?.enterpriseId || '').trim();
@@ -845,10 +879,15 @@ router.post('/stop', async (_req: Request, res: Response) => {
 });
 
 router.post('/send', async (req: AuthRequest, res: Response) => {
+  let reservedFingerprint = '';
+  let reservedEnterpriseId = '';
   try {
     const enterpriseId = resolveEnterpriseIdOrReject(req, res);
     if (!enterpriseId) return;
+    reservedEnterpriseId = enterpriseId;
     const { phone, message } = req.body || {};
+    const idempotencyKey = String(req.body?.idempotencyKey || '').trim();
+    const idempotencyTtlSeconds = parseIdempotencyTtlSeconds(req.body?.idempotencyTtlSeconds);
     if (!phone || !message) {
       return res.status(400).json({
         success: false,
@@ -862,9 +901,43 @@ router.post('/send', async (req: AuthRequest, res: Response) => {
       });
     }
 
+    const reservation = reserveDispatchIdempotency({
+      source: 'MANUAL_SEND',
+      enterpriseId,
+      phone: String(phone),
+      message: String(message),
+      idempotencyKey,
+      ttlSeconds: idempotencyTtlSeconds,
+    });
+
+    if (reservation.duplicate) {
+      return res.status(409).json({
+        success: false,
+        duplicate: true,
+        message: 'Disparo duplicado bloqueado por idempotencia.',
+        fingerprint: reservation.fingerprint,
+        previous: reservation.existing,
+      });
+    }
+    reservedFingerprint = reservation.fingerprint;
+
     const result = await whatsappSession.sendMessage(String(phone), String(message));
+    markDispatchIdempotencySent({
+      enterpriseId,
+      fingerprint: reservation.fingerprint,
+      messageId: String((result as any)?.messageId || '').trim(),
+      detail: {
+        endpoint: '/send',
+      },
+    });
     res.json(result);
   } catch (err) {
+    if (reservedEnterpriseId && reservedFingerprint) {
+      clearDispatchIdempotencyReservation({
+        enterpriseId: reservedEnterpriseId,
+        fingerprint: reservedFingerprint,
+      });
+    }
     console.error('❌ [WHATSAPP] Erro no envio:', err);
     res.status(400).json({
       success: false,
@@ -878,6 +951,8 @@ router.post('/send-bulk', async (req: AuthRequest, res: Response) => {
     const enterpriseId = resolveEnterpriseIdOrReject(req, res);
     if (!enterpriseId) return;
     const { recipients, message } = req.body || {};
+    const idempotencyKey = String(req.body?.idempotencyKey || '').trim();
+    const idempotencyTtlSeconds = parseIdempotencyTtlSeconds(req.body?.idempotencyTtlSeconds);
     const list = Array.isArray(recipients) ? recipients : [];
     if (list.length === 0 || !message) {
       return res.status(400).json({
@@ -897,10 +972,46 @@ router.post('/send-bulk', async (req: AuthRequest, res: Response) => {
 
     const results: Array<any> = [];
     for (const rawPhone of list) {
+      let fingerprint = '';
       try {
+        const reservation = reserveDispatchIdempotency({
+          source: 'MANUAL_BULK',
+          enterpriseId,
+          phone: String(rawPhone),
+          message: String(message),
+          idempotencyKey: idempotencyKey ? `${idempotencyKey}:${normalizePhoneDigits(rawPhone)}` : '',
+          ttlSeconds: idempotencyTtlSeconds,
+        });
+
+        if (reservation.duplicate) {
+          results.push({
+            success: false,
+            duplicate: true,
+            phone: String(rawPhone),
+            message: 'Disparo duplicado bloqueado por idempotencia.',
+            previous: reservation.existing,
+          });
+          continue;
+        }
+        fingerprint = reservation.fingerprint;
+
         const sent = await whatsappSession.sendMessage(String(rawPhone), String(message));
+        markDispatchIdempotencySent({
+          enterpriseId,
+          fingerprint,
+          messageId: String((sent as any)?.messageId || '').trim(),
+          detail: {
+            endpoint: '/send-bulk',
+          },
+        });
         results.push({ ...sent, success: true });
       } catch (err) {
+        if (fingerprint) {
+          clearDispatchIdempotencyReservation({
+            enterpriseId,
+            fingerprint,
+          });
+        }
         results.push({
           success: false,
           phone: String(rawPhone),
@@ -910,9 +1021,11 @@ router.post('/send-bulk', async (req: AuthRequest, res: Response) => {
     }
 
     const successCount = results.filter((r) => r.success).length;
+    const duplicateCount = results.filter((r) => r.duplicate).length;
     res.json({
       success: true,
       successCount,
+      duplicateCount,
       total: results.length,
       results
     });
@@ -996,6 +1109,223 @@ router.post('/agenda/sync', async (req: AuthRequest, res: Response) => {
     return res.status(500).json({
       success: false,
       message: err instanceof Error ? err.message : 'Falha ao sincronizar agenda WPP.',
+    });
+  }
+});
+
+router.post('/contacts/import', async (req: AuthRequest, res: Response) => {
+  try {
+    const enterpriseId = resolveEnterpriseIdOrReject(req, res);
+    if (!enterpriseId) return;
+
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    const dryRun = Boolean(req.body?.dryRun);
+    const strict = Boolean(req.body?.strict);
+    const transactional = req.body?.transactional !== false;
+    if (rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'rows e obrigatorio.',
+      });
+    }
+
+    const existingClients = db.getClients(enterpriseId);
+    const existingPhoneSet = new Set<string>();
+    const existingNamePhoneSet = new Set<string>();
+    (Array.isArray(existingClients) ? existingClients : []).forEach((client: any) => {
+      const phone = normalizeImportedPhone(client?.phone || client?.parentWhatsapp);
+      const nameKey = normalizeTextToken(client?.name);
+      if (phone) existingPhoneSet.add(phone);
+      if (nameKey && phone) existingNamePhoneSet.add(`${nameKey}|${phone}`);
+    });
+
+    const batchPhoneSet = new Set<string>();
+    const batchNamePhoneSet = new Set<string>();
+    const report = rows.map((rawRow: any, idx: number) => {
+      const lineNumber = Number(rawRow?.lineNumber || idx + 1);
+      const name = String(rawRow?.name || '').trim();
+      const phone = normalizeImportedPhone(rawRow?.phone || '');
+      const email = String(rawRow?.email || '').trim();
+      const type = normalizeImportedClientType(rawRow?.type);
+      const active = isImportedStatusActive(rawRow?.status);
+      const responsibleName = String(rawRow?.responsibleName || '').trim();
+
+      const errors: string[] = [];
+      if (name.length < 2) errors.push('nome_invalido');
+      if (phone.length < 12) errors.push('telefone_invalido');
+
+      const namePhoneKey = `${normalizeTextToken(name)}|${phone}`;
+      if (phone && existingPhoneSet.has(phone)) {
+        errors.push('duplicado_telefone_base');
+      } else if (phone && batchPhoneSet.has(phone)) {
+        errors.push('duplicado_telefone_arquivo');
+      }
+      if (normalizeTextToken(name) && phone && existingNamePhoneSet.has(namePhoneKey)) {
+        errors.push('duplicado_nome_telefone_base');
+      } else if (normalizeTextToken(name) && phone && batchNamePhoneSet.has(namePhoneKey)) {
+        errors.push('duplicado_nome_telefone_arquivo');
+      }
+
+      if (phone) batchPhoneSet.add(phone);
+      if (normalizeTextToken(name) && phone) batchNamePhoneSet.add(namePhoneKey);
+
+      return {
+        rowIndex: idx,
+        lineNumber,
+        input: {
+          name,
+          phone,
+          email,
+          type,
+          status: active ? 'ATIVO' : 'INATIVO',
+          responsibleName,
+        },
+        canCreate: errors.length === 0,
+        errors,
+      };
+    });
+
+    const hasBlockingErrors = report.some((item: any) => !item.canCreate);
+    if (!dryRun && (strict || transactional) && hasBlockingErrors) {
+      return res.status(409).json({
+        success: false,
+        message: transactional
+          ? 'Importacao transacional interrompida: existem linhas invalidas.'
+          : 'Importacao interrompida (strict=true): existem linhas invalidas.',
+        summary: {
+          total: report.length,
+          valid: report.filter((item: any) => item.canCreate).length,
+          errors: report.filter((item: any) => !item.canCreate).length,
+          created: 0,
+          skipped: report.filter((item: any) => !item.canCreate).length,
+          dryRun: false,
+          strict,
+          transactional,
+        },
+        report: report.map((item: any) => ({
+          lineNumber: item.lineNumber,
+          status: item.canCreate ? 'WOULD_CREATE' : 'ERROR',
+          reason: item.errors.join(',') || null,
+          input: item.input,
+        })),
+      });
+    }
+
+    let created = 0;
+    const createdClientIds: string[] = [];
+    let runtimeCreationError: string | null = null;
+    const finalReport = report.map((item: any) => {
+      if (!item.canCreate) {
+        return {
+          lineNumber: item.lineNumber,
+          status: 'ERROR',
+          reason: item.errors.join(','),
+          input: item.input,
+        };
+      }
+      if (dryRun) {
+        return {
+          lineNumber: item.lineNumber,
+          status: 'WOULD_CREATE',
+          reason: null,
+          input: item.input,
+        };
+      }
+
+      try {
+        const createdClient = db.createClient({
+          registrationId: `CRMIMP${Date.now()}${item.rowIndex}`,
+          name: item.input.name,
+          type: item.input.type,
+          enterpriseId,
+          phone: item.input.phone,
+          email: item.input.email || undefined,
+          parentWhatsappCountryCode: '55',
+          parentWhatsapp: item.input.phone,
+          parentName: item.input.responsibleName || undefined,
+          servicePlans: [],
+          balance: 0,
+          spentToday: 0,
+          isBlocked: item.input.status !== 'ATIVO',
+          restrictions: [],
+          guardians: [],
+          dietaryNotes: '',
+        });
+        createdClientIds.push(String((createdClient as any)?.id || '').trim());
+        created += 1;
+        return {
+          lineNumber: item.lineNumber,
+          status: 'CREATED',
+          reason: null,
+          input: item.input,
+        };
+      } catch (error) {
+        runtimeCreationError = error instanceof Error ? error.message : 'erro_criacao';
+        return {
+          lineNumber: item.lineNumber,
+          status: 'ERROR',
+          reason: runtimeCreationError,
+          input: item.input,
+        };
+      }
+    });
+
+    if (!dryRun && transactional && runtimeCreationError) {
+      createdClientIds.forEach((clientId) => {
+        if (!clientId) return;
+        db.deleteClient(clientId);
+      });
+
+      const rolledBackReport = finalReport.map((item: any) => {
+        if (item.status !== 'CREATED') return item;
+        return {
+          ...item,
+          status: 'ROLLED_BACK' as const,
+          reason: 'rollback_transacao',
+        };
+      });
+
+      const errorCount = rolledBackReport.filter((item: any) => item.status === 'ERROR').length;
+      const rolledBackCount = rolledBackReport.filter((item: any) => item.status === 'ROLLED_BACK').length;
+      return res.status(500).json({
+        success: false,
+        dryRun,
+        strict,
+        transactional,
+        message: 'Falha durante criacao de cliente. Operacao revertida por transacao.',
+        summary: {
+          total: rolledBackReport.length,
+          valid: report.filter((item: any) => item.canCreate).length,
+          errors: errorCount,
+          created: 0,
+          rolledBack: rolledBackCount,
+          skipped: errorCount,
+        },
+        report: rolledBackReport,
+      });
+    }
+
+    const errorCount = finalReport.filter((item: any) => item.status === 'ERROR').length;
+    const skipped = dryRun ? 0 : errorCount;
+
+    return res.json({
+      success: true,
+      dryRun,
+      strict,
+      transactional,
+      summary: {
+        total: finalReport.length,
+        valid: report.filter((item: any) => item.canCreate).length,
+        errors: errorCount,
+        created,
+        skipped,
+      },
+      report: finalReport,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao importar contatos.',
     });
   }
 });

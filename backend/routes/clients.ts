@@ -40,6 +40,46 @@ const normalizeComparableToken = (value?: string) =>
     .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase();
 const normalizeDigits = (value?: string) => String(value || '').replace(/\D/g, '');
+const CLIENT_CREATE_IDEMPOTENCY_TTL_MS = 2 * 60 * 1000;
+type ClientCreateIdempotencyRecord = {
+  status: 'PENDING' | 'DONE';
+  createdAt: number;
+  responseBody?: any;
+};
+const clientCreateIdempotencyStore = new Map<string, ClientCreateIdempotencyRecord>();
+
+const cleanupClientCreateIdempotencyStore = () => {
+  const now = Date.now();
+  for (const [key, entry] of clientCreateIdempotencyStore.entries()) {
+    if ((now - Number(entry?.createdAt || 0)) > CLIENT_CREATE_IDEMPOTENCY_TTL_MS) {
+      clientCreateIdempotencyStore.delete(key);
+    }
+  }
+};
+
+const buildClientCreateIdempotencyKey = (req: AuthRequest, payload: any) => {
+  const requesterUserId = String((req as any)?.userId || '').trim() || 'anonymous';
+  const enterpriseId = String(payload?.enterpriseId || '').trim();
+  const explicitRaw = String(req.header('x-idempotency-key') || '').trim();
+  if (explicitRaw) {
+    return `EXPLICIT:${requesterUserId}:${enterpriseId}:${explicitRaw.slice(0, 160)}`;
+  }
+
+  const normalizedPayloadType = String(payload?.type || '').trim().toUpperCase();
+  const fingerprintParts = [
+    normalizedPayloadType,
+    normalizeComparableToken(payload?.name),
+    normalizeDigits(payload?.phone || payload?.parentWhatsapp),
+    normalizeDigits(payload?.cpf || payload?.parentCpf),
+    normalizeComparableToken(payload?.email || payload?.parentEmail),
+    normalizeComparableToken(payload?.parentName),
+    normalizeComparableToken(payload?.class),
+    String(payload?.responsibleCollaboratorId || '').trim(),
+    String(payload?.responsibleClientId || '').trim(),
+  ];
+
+  return `DERIVED:${requesterUserId}:${enterpriseId}:${fingerprintParts.join('|')}`;
+};
 
 const findDuplicateStudent = (params: { enterpriseId: string; payload: any; ignoreClientId?: string }) => {
   const enterpriseId = String(params.enterpriseId || '').trim();
@@ -248,43 +288,68 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
 // Create client
 router.post('/', (req: AuthRequest, res: Response) => {
-  console.log('➕ [CLIENTS] POST /clients - User:', (req as any).userId);
-  console.log('📝 [CLIENTS] Request body:', req.body);
+  console.log('[CLIENTS] POST /clients - User:', (req as any).userId);
+  console.log('[CLIENTS] Request body:', req.body);
   
   // Validate input
   const validation = validateClient(req.body);
   if (!validation.valid) {
-    console.log('❌ [CLIENTS] Validation errors:', validation.errors);
-    return res.status(400).json({ error: 'Validação falhou', details: validation.errors });
+    console.log('[CLIENTS] Validation errors:', validation.errors);
+    return res.status(400).json({ error: 'Validacao falhou', details: validation.errors });
   }
   const enterpriseId = String(req.body?.enterpriseId || '').trim();
   if (!enterpriseId) {
-    return res.status(400).json({ error: 'enterpriseId é obrigatório' });
+    return res.status(400).json({ error: 'enterpriseId e obrigatorio' });
   }
   if (!requesterCanAccessEnterprise(req, enterpriseId)) {
     return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
 
+  const idempotencyKey = buildClientCreateIdempotencyKey(req, req.body || {});
+
   try {
+    cleanupClientCreateIdempotencyStore();
+    const existingIdempotencyEntry = clientCreateIdempotencyStore.get(idempotencyKey);
+    if (existingIdempotencyEntry?.status === 'DONE' && existingIdempotencyEntry.responseBody) {
+      return res.status(200).json(existingIdempotencyEntry.responseBody);
+    }
+    if (existingIdempotencyEntry?.status === 'PENDING') {
+      return res.status(409).json({
+        error: 'Cadastro ja esta em processamento para esta mesma solicitacao. Aguarde alguns segundos.',
+      });
+    }
+
+    clientCreateIdempotencyStore.set(idempotencyKey, {
+      status: 'PENDING',
+      createdAt: Date.now(),
+    });
+
     const duplicate = findDuplicateStudent({ enterpriseId, payload: req.body });
     if (duplicate) {
+      clientCreateIdempotencyStore.delete(idempotencyKey);
       return res.status(409).json({
         error: `Aluno duplicado detectado por ${duplicate.reason}.`,
         details: [
-          `Já existe um aluno com ${duplicate.reason.toLowerCase()} igual nesta unidade.`,
-          `Aluno existente: ${String(duplicate.existing?.name || 'Não informado').trim()} (${String(duplicate.existing?.registrationId || '-').trim()})`,
+          `Ja existe um aluno com ${duplicate.reason.toLowerCase()} igual nesta unidade.`,
+          `Aluno existente: ${String(duplicate.existing?.name || 'Nao informado').trim()} (${String(duplicate.existing?.registrationId || '-').trim()})`,
         ],
       });
     }
+
     const newClient = db.createClient(req.body);
-    console.log('✅ [CLIENTS] Client created successfully:', newClient.id);
-    res.status(201).json(newClient);
+    clientCreateIdempotencyStore.set(idempotencyKey, {
+      status: 'DONE',
+      createdAt: Date.now(),
+      responseBody: newClient,
+    });
+    console.log('[CLIENTS] Client created successfully:', newClient.id);
+    return res.status(201).json(newClient);
   } catch (error) {
-    console.error('❌ [CLIENTS] Error creating client:', (error as Error).message);
-    res.status(500).json({ error: 'Erro ao criar cliente' });
+    clientCreateIdempotencyStore.delete(idempotencyKey);
+    console.error('[CLIENTS] Error creating client:', (error as Error).message);
+    return res.status(500).json({ error: 'Erro ao criar cliente' });
   }
 });
-
 // Update client
 router.put('/:id', (req: AuthRequest, res: Response) => {
   console.log('✏️ [CLIENTS] PUT /clients/:id -', req.params.id);
@@ -324,6 +389,17 @@ router.put('/:id', (req: AuthRequest, res: Response) => {
     if (nextEnterpriseId && !requesterCanAccessEnterprise(req, nextEnterpriseId)) {
       return res.status(403).json({ error: 'Acesso negado para esta empresa' });
     }
+    const expectedUpdatedAt = String(payload?.expectedUpdatedAt || '').trim();
+    const currentUpdatedAt = String((current as any)?.updatedAt || '').trim();
+    if (expectedUpdatedAt && currentUpdatedAt && expectedUpdatedAt !== currentUpdatedAt) {
+      return res.status(409).json({
+        error: 'Conflito de atualização: este cliente foi alterado por outra operação. Atualize a tela e tente novamente.',
+        details: [
+          `Versão esperada: ${expectedUpdatedAt}`,
+          `Versão atual: ${currentUpdatedAt}`,
+        ],
+      });
+    }
     const currentBalance = Number(current?.balance || 0);
     const hasBalanceField = hasOwnField(payload, 'balance');
     const requestedBalance = Number(payload?.balance);
@@ -350,6 +426,7 @@ router.put('/:id', (req: AuthRequest, res: Response) => {
 
     const updatePayload = { ...payload };
     delete (updatePayload as any).balanceAdjustment;
+    delete (updatePayload as any).expectedUpdatedAt;
     const duplicate = findDuplicateStudent({
       enterpriseId: nextEnterpriseId || String((current as any)?.enterpriseId || '').trim(),
       payload: { ...current, ...updatePayload },
@@ -448,3 +525,4 @@ router.delete('/:id', (req: AuthRequest, res: Response) => {
 });
 
 export default router;
+

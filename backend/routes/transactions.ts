@@ -3,6 +3,11 @@ import { db } from '../database.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { processOverduePlanConsumptions } from '../services/planConsumptionAutoProcessor.js';
 import { canAccessAllEnterprises, getRequesterEnterpriseIds, requesterCanAccessEnterprise } from '../utils/enterpriseAccess.js';
+import {
+  appendDestructiveActionAudit,
+  createDestructivePayloadFingerprint,
+  requireDestructiveActionConfirmation,
+} from '../utils/destructiveActionGuard.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -34,6 +39,106 @@ const normalizeDateKey = (value: unknown) => {
   const month = `${parsed.getMonth() + 1}`.padStart(2, '0');
   const day = `${parsed.getDate()}`.padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+const TRANSACTION_CREATE_IDEMPOTENCY_TTL_MS = 2 * 60 * 1000;
+type TransactionCreateIdempotencyRecord = {
+  status: 'PENDING' | 'DONE';
+  createdAt: number;
+  responseBody?: any;
+};
+const transactionCreateIdempotencyStore = new Map<string, TransactionCreateIdempotencyRecord>();
+
+const TRANSACTION_CREATE_REPLAY_GUARD_WINDOW_MS = 12 * 1000;
+type TransactionCreateReplayGuardRecord = {
+  createdAt: number;
+  responseBody: any;
+};
+const transactionCreateReplayGuardStore = new Map<string, TransactionCreateReplayGuardRecord>();
+
+const cleanupTransactionCreateIdempotencyStore = () => {
+  const now = Date.now();
+  for (const [key, entry] of transactionCreateIdempotencyStore.entries()) {
+    if ((now - Number(entry?.createdAt || 0)) > TRANSACTION_CREATE_IDEMPOTENCY_TTL_MS) {
+      transactionCreateIdempotencyStore.delete(key);
+    }
+  }
+};
+
+const cleanupTransactionCreateReplayGuardStore = () => {
+  const now = Date.now();
+  for (const [key, entry] of transactionCreateReplayGuardStore.entries()) {
+    if ((now - Number(entry?.createdAt || 0)) > TRANSACTION_CREATE_REPLAY_GUARD_WINDOW_MS) {
+      transactionCreateReplayGuardStore.delete(key);
+    }
+  }
+};
+
+const buildTransactionCreateIdempotencyKey = (req: AuthRequest, payload: any) => {
+  const requesterUserId = String((req as any)?.userId || '').trim() || 'anonymous';
+  const enterpriseId = String(payload?.enterpriseId || '').trim();
+  const explicitRaw = String(req.header('x-idempotency-key') || '').trim();
+  if (explicitRaw) {
+    return `EXPLICIT:${requesterUserId}:${enterpriseId}:${explicitRaw.slice(0, 160)}`;
+  }
+
+  const selectedDates = Array.from(new Set(
+    (Array.isArray(payload?.selectedDates) ? payload.selectedDates : [])
+      .map((value: unknown) => normalizeDateKey(value))
+      .filter(Boolean)
+  )).sort();
+
+  const fingerprintParts = [
+    normalizeToken(payload?.kind),
+    normalizeToken(payload?.type),
+    String(payload?.clientId || '').trim(),
+    normalizeToken(payload?.clientName),
+    String(Number(payload?.amount ?? 0)),
+    String(Number(payload?.total ?? 0)),
+    normalizeToken(payload?.plan || payload?.planName),
+    String(payload?.planId || payload?.originPlanId || '').trim(),
+    normalizeToken(payload?.paymentMethod || payload?.method),
+    normalizeToken(payload?.item),
+    normalizeToken(payload?.description),
+    normalizeDateKey(payload?.date || payload?.deliveryDate || payload?.scheduledDate || payload?.referenceDate || payload?.timestamp),
+    selectedDates.join(','),
+  ];
+
+  return `DERIVED:${requesterUserId}:${enterpriseId}:${fingerprintParts.join('|')}`;
+};
+
+const buildTransactionCreateReplayGuardKey = (req: AuthRequest, payload: any) => {
+  const requesterUserId = String((req as any)?.userId || '').trim() || 'anonymous';
+  const enterpriseId = String(payload?.enterpriseId || '').trim();
+
+  const selectedDates = Array.from(new Set(
+    (Array.isArray(payload?.selectedDates) ? payload.selectedDates : [])
+      .map((value: unknown) => normalizeDateKey(value))
+      .filter(Boolean)
+  )).sort();
+
+  const fingerprintParts = [
+    requesterUserId,
+    enterpriseId,
+    normalizeToken(payload?.kind),
+    normalizeToken(payload?.type),
+    String(payload?.clientId || '').trim(),
+    normalizeToken(payload?.clientName),
+    String(Number(payload?.amount ?? 0)),
+    String(Number(payload?.total ?? 0)),
+    String(Number(payload?.planUnits ?? 0)),
+    normalizeToken(payload?.plan || payload?.planName),
+    String(payload?.planId || payload?.originPlanId || '').trim(),
+    normalizeToken(payload?.paymentMethod || payload?.method),
+    normalizeToken(payload?.item),
+    normalizeToken(payload?.description),
+    normalizeDateKey(payload?.date || payload?.deliveryDate || payload?.scheduledDate || payload?.referenceDate),
+    normalizeToken(payload?.purchaseRefCode),
+    normalizeToken(payload?.originTransactionId),
+    selectedDates.join(','),
+  ];
+
+  return `REPLAY:${fingerprintParts.join('|')}`;
 };
 
 const getPlanCreditValidationPreview = (args: {
@@ -324,6 +429,8 @@ router.post('/', (req: AuthRequest, res: Response) => {
   if (!requesterCanAccessEnterprise(req, enterpriseId)) {
     return res.status(403).json({ error: 'Acesso negado para esta empresa' });
   }
+  const idempotencyKey = buildTransactionCreateIdempotencyKey(req, payload);
+  const replayGuardKey = buildTransactionCreateReplayGuardKey(req, payload);
   const clientId = String(payload.clientId || '').trim();
   let clientRecord: any = null;
   if (clientId) {
@@ -371,18 +478,54 @@ router.post('/', (req: AuthRequest, res: Response) => {
   const requesterRole = String(req.userRole || '').trim().toUpperCase();
   const requesterRoleLabel = resolveRoleLabel(requesterRole);
 
-  const newTransaction = db.createTransaction({
-    ...payload,
-    createdByUserId: String(req.userId || '').trim(),
-    createdByName: requesterName,
-    createdByRole: requesterRole,
-    createdByRoleLabel: requesterRoleLabel,
-    kind: String(payload?.kind || '').trim().toUpperCase(),
-    sessionUserName: requesterName,
-    sessionUserRole: requesterRole,
-    sessionUserRoleLabel: requesterRoleLabel,
+  cleanupTransactionCreateIdempotencyStore();
+  cleanupTransactionCreateReplayGuardStore();
+  const existingIdempotencyEntry = transactionCreateIdempotencyStore.get(idempotencyKey);
+  if (existingIdempotencyEntry?.status === 'DONE' && existingIdempotencyEntry.responseBody) {
+    return res.status(200).json(existingIdempotencyEntry.responseBody);
+  }
+  if (existingIdempotencyEntry?.status === 'PENDING') {
+    return res.status(409).json({
+      error: 'Transacao ja esta em processamento para esta mesma solicitacao. Aguarde alguns segundos.',
+    });
+  }
+  const existingReplayGuardEntry = transactionCreateReplayGuardStore.get(replayGuardKey);
+  if (existingReplayGuardEntry?.responseBody) {
+    return res.status(200).json(existingReplayGuardEntry.responseBody);
+  }
+
+  transactionCreateIdempotencyStore.set(idempotencyKey, {
+    status: 'PENDING',
+    createdAt: Date.now(),
   });
-  res.status(201).json(newTransaction);
+
+  try {
+    const newTransaction = db.createTransaction({
+      ...payload,
+      createdByUserId: String(req.userId || '').trim(),
+      createdByName: requesterName,
+      createdByRole: requesterRole,
+      createdByRoleLabel: requesterRoleLabel,
+      kind: String(payload?.kind || '').trim().toUpperCase(),
+      sessionUserName: requesterName,
+      sessionUserRole: requesterRole,
+      sessionUserRoleLabel: requesterRoleLabel,
+    });
+    transactionCreateIdempotencyStore.set(idempotencyKey, {
+      status: 'DONE',
+      createdAt: Date.now(),
+      responseBody: newTransaction,
+    });
+    transactionCreateReplayGuardStore.set(replayGuardKey, {
+      createdAt: Date.now(),
+      responseBody: newTransaction,
+    });
+    return res.status(201).json(newTransaction);
+  } catch (error) {
+    transactionCreateIdempotencyStore.delete(idempotencyKey);
+    console.error('❌ [TRANSACTIONS] Error creating transaction:', (error as Error).message);
+    return res.status(500).json({ error: 'Erro ao criar transação' });
+  }
 });
 
 // Update transaction
@@ -423,16 +566,70 @@ router.put('/:id', (req: AuthRequest, res: Response) => {
 });
 
 // Clear all transactions
-router.delete('/clear-all', (req: AuthRequest, res: Response) => {
+router.delete('/clear-all', async (req: AuthRequest, res: Response) => {
   if (!canAccessAllEnterprises(req.userRole)) {
-    return res.status(403).json({ error: 'Apenas SUPERADMIN/ADMIN_SISTEMA podem limpar todas as transações.' });
+    return res.status(403).json({ error: 'Apenas SUPERADMIN/ADMIN_SISTEMA podem limpar todas as transacoes.' });
   }
-  const removedCount = db.clearTransactions();
-  res.json({
-    success: true,
-    message: 'Todas as transações foram removidas.',
-    removedCount
+
+  const payloadFingerprint = createDestructivePayloadFingerprint({
+    scope: 'ALL_TRANSACTIONS',
+    includeKinds: Array.isArray(req.body?.includeKinds) ? req.body.includeKinds : [],
   });
+  const confirmation = requireDestructiveActionConfirmation({
+    userId: String(req.userId || '').trim(),
+    userRole: String(req.userRole || '').trim(),
+    actionKey: 'TRANSACTIONS_CLEAR_ALL',
+    actionLabel: 'LIMPAR_TRANSACOES',
+    payloadFingerprint,
+    confirmationChallengeId: req.body?.confirmationChallengeId,
+    confirmationPhrase: req.body?.confirmationPhrase,
+    confirmationReason: req.body?.confirmationReason,
+  });
+  if (!confirmation.approved) {
+    return res.status(confirmation.status).json(confirmation.body);
+  }
+
+  await appendDestructiveActionAudit({
+    actionKey: 'TRANSACTIONS_CLEAR_ALL',
+    actionLabel: 'LIMPAR_TRANSACOES',
+    userId: String(req.userId || '').trim(),
+    userRole: String(req.userRole || '').trim(),
+    confirmationReason: confirmation.confirmationReason,
+    payloadFingerprint,
+    status: 'APPROVED',
+  });
+
+  try {
+    const removedCount = db.clearTransactions();
+    await appendDestructiveActionAudit({
+      actionKey: 'TRANSACTIONS_CLEAR_ALL',
+      actionLabel: 'LIMPAR_TRANSACOES',
+      userId: String(req.userId || '').trim(),
+      userRole: String(req.userRole || '').trim(),
+      confirmationReason: confirmation.confirmationReason,
+      payloadFingerprint,
+      status: 'EXECUTED',
+      details: { removedCount },
+    });
+
+    return res.json({
+      success: true,
+      message: 'Todas as transacoes foram removidas.',
+      removedCount
+    });
+  } catch (error) {
+    await appendDestructiveActionAudit({
+      actionKey: 'TRANSACTIONS_CLEAR_ALL',
+      actionLabel: 'LIMPAR_TRANSACOES',
+      userId: String(req.userId || '').trim(),
+      userRole: String(req.userRole || '').trim(),
+      confirmationReason: confirmation.confirmationReason,
+      payloadFingerprint,
+      status: 'FAILED',
+      details: { message: (error as Error)?.message || 'Erro desconhecido' },
+    });
+    return res.status(500).json({ error: 'Erro ao limpar transacoes.' });
+  }
 });
 
 router.get('/:id/delete-preview', (req: AuthRequest, res: Response) => {

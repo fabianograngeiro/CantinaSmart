@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ClipboardList,
   Plus,
@@ -40,6 +40,8 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
 
   const [viewOrder, setViewOrder] = useState<Order | null>(null);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
+  const isSavingOrderRef = useRef(false);
 
   const formatOrderStatus = (status: Order['status'] | string) => {
     if (String(status || '').trim().toUpperCase() === 'AGUARDANDO_APROVACAO_OWNER') {
@@ -158,6 +160,7 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
 
   const saveOrder = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (isSavingOrderRef.current) return;
     if (!selectedSupplier || orderItems.length === 0) {
       alert('Selecione fornecedor e adicione itens ao pedido.');
       return;
@@ -190,6 +193,8 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
     };
 
     try {
+      isSavingOrderRef.current = true;
+      setIsSavingOrder(true);
       if (editingOrder?.id) {
         await ApiService.updateOrder(editingOrder.id, payload);
       } else {
@@ -199,7 +204,10 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
       setIsOrderModalOpen(false);
     } catch (err) {
       console.error('Erro ao salvar pedido:', err);
-      alert('Nao foi possivel salvar o pedido.');
+      alert(err instanceof Error ? err.message : 'Nao foi possivel salvar o pedido.');
+    } finally {
+      isSavingOrderRef.current = false;
+      setIsSavingOrder(false);
     }
   };
 
@@ -213,7 +221,7 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
       await loadOrders();
     } catch (err) {
       console.error('Erro ao receber pedido:', err);
-      alert('Nao foi possivel concluir o recebimento.');
+      alert(err instanceof Error ? err.message : 'Nao foi possivel concluir o recebimento.');
     }
   };
 
@@ -229,7 +237,7 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
       await loadOrders();
     } catch (err) {
       console.error('Erro ao aprovar pedido:', err);
-      alert('Nao foi possivel aprovar o pedido.');
+      alert(err instanceof Error ? err.message : 'Nao foi possivel aprovar o pedido.');
     }
   };
 
@@ -241,7 +249,7 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
       await loadOrders();
     } catch (err) {
       console.error('Erro ao cancelar pedido:', err);
-      alert('Nao foi possivel cancelar o pedido.');
+      alert(err instanceof Error ? err.message : 'Nao foi possivel cancelar o pedido.');
     }
   };
 
@@ -412,14 +420,14 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
 
       {isOrderModalOpen && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-indigo-950/50 backdrop-blur-sm" onClick={() => setIsOrderModalOpen(false)} />
+          <div className="absolute inset-0 bg-indigo-950/50 backdrop-blur-sm" onClick={() => { if (!isSavingOrder) setIsOrderModalOpen(false); }} />
           <form onSubmit={saveOrder} className="relative w-full max-w-5xl bg-white rounded-2xl shadow-2xl overflow-hidden h-[88vh] flex flex-col">
             <div className="bg-indigo-600 text-white px-5 py-4 flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-black">{editingOrder ? `Editar ${editingOrder.id}` : 'Novo Pedido de Compra'}</h2>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-200">Owner aprova, gerente executa e acompanha</p>
               </div>
-              <button type="button" onClick={() => setIsOrderModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full">
+              <button type="button" disabled={isSavingOrder} onClick={() => setIsOrderModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full disabled:opacity-50">
                 <X size={18} />
               </button>
             </div>
@@ -532,9 +540,9 @@ const OrdersPage: React.FC<OrdersPageProps> = ({ currentUser, activeEnterprise }
             </div>
 
             <div className="px-5 py-4 bg-gray-50 border-t flex items-center gap-3">
-              <button type="button" onClick={() => setIsOrderModalOpen(false)} className="flex-1 py-3 text-[11px] font-black text-gray-400 uppercase tracking-widest">Cancelar</button>
-              <button type="submit" className="flex-[2] py-3 bg-indigo-600 text-white rounded-xl font-black uppercase tracking-widest text-xs hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
-                <Save size={14} /> Salvar Pedido
+              <button type="button" disabled={isSavingOrder} onClick={() => setIsOrderModalOpen(false)} className="flex-1 py-3 text-[11px] font-black text-gray-400 uppercase tracking-widest disabled:opacity-50">Cancelar</button>
+              <button type="submit" disabled={isSavingOrder} className="flex-[2] py-3 bg-indigo-600 text-white rounded-xl font-black uppercase tracking-widest text-xs hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 disabled:bg-gray-300 disabled:cursor-not-allowed">
+                <Save size={14} /> {isSavingOrder ? 'Salvando...' : 'Salvar Pedido'}
               </button>
             </div>
           </form>

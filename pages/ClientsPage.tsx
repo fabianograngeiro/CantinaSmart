@@ -184,6 +184,27 @@ const formatCurrencyBRL = (value: number) => {
   return safeValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
+const formatClientCreatedAtShort = (client: Client) => {
+  const explicitDate = String((client as any)?.createdAt || '').trim();
+  const sourceDate = explicitDate
+    ? new Date(explicitDate)
+    : (() => {
+        const id = String(client?.id || '').trim();
+        const match = id.match(/^c_(\d{10,13})_/i);
+        if (!match?.[1]) return null;
+        const raw = match[1];
+        const timestamp = raw.length === 10 ? Number(raw) * 1000 : Number(raw);
+        return Number.isFinite(timestamp) ? new Date(timestamp) : null;
+      })();
+
+  if (!sourceDate || Number.isNaN(sourceDate.getTime())) return '--/--/--';
+
+  const day = String(sourceDate.getDate()).padStart(2, '0');
+  const month = String(sourceDate.getMonth() + 1).padStart(2, '0');
+  const year = String(sourceDate.getFullYear()).slice(-2);
+  return `${day}/${month}/${year}`;
+};
+
 const fileToBase64 = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -196,29 +217,9 @@ const fileToBase64 = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
-const renderHighlightedText = (value: string, query: string) => {
+const renderHighlightedText = (value: string, _query: string) => {
   const safeValue = String(value || '');
-  const safeQuery = String(query || '').trim();
-
-  if (!safeQuery) return safeValue;
-
-  const lowerValue = safeValue.toLowerCase();
-  const lowerQuery = safeQuery.toLowerCase();
-  const startIndex = lowerValue.indexOf(lowerQuery);
-
-  if (startIndex === -1) return safeValue;
-
-  const before = safeValue.slice(0, startIndex);
-  const match = safeValue.slice(startIndex, startIndex + safeQuery.length);
-  const after = safeValue.slice(startIndex + safeQuery.length);
-
-  return (
-    <>
-      {before}
-      <mark className="bg-amber-200 text-gray-900 rounded px-0.5">{match}</mark>
-      {after}
-    </>
-  );
+  return safeValue;
 };
 
 const normalizeSearchText = (value?: string) =>
@@ -282,6 +283,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const [clientPhotoPreview, setClientPhotoPreview] = useState('');
   const [isSavingPlanView, setIsSavingPlanView] = useState(false);
   const [isSubmittingClientForm, setIsSubmittingClientForm] = useState(false);
+  const isSubmittingClientFormRef = useRef(false);
   const [isRestoringClientsBackup, setIsRestoringClientsBackup] = useState(false);
   const [planViewNotice, setPlanViewNotice] = useState<{ type: 'warning' | 'success' | 'error'; message: string } | null>(null);
   const [isGeneratingPortalLink, setIsGeneratingPortalLink] = useState(false);
@@ -306,6 +308,20 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     window.setTimeout(() => {
       setPlanViewNotice((prev) => (prev?.message === message ? null : prev));
     }, 3500);
+  };
+
+  const isClientVersionConflictError = (error: unknown) => {
+    const message = String((error as any)?.message || '').toLowerCase();
+    return message.includes('conflito de atualiza') || message.includes('versao esperada');
+  };
+
+  const reloadClientSnapshot = async (clientId: string) => {
+    const freshClient = await ApiService.getClient(clientId);
+    setClients((prev) => prev.map((client) => (client.id === clientId ? freshClient : client)));
+    if (String(viewingClient?.id || '') === clientId) setViewingClient(freshClient);
+    if (String(rechargingClient?.id || '') === clientId) setRechargingClient(freshClient);
+    if (String(editingClient?.id || '') === clientId) setEditingClient(freshClient);
+    return freshClient;
   };
 
   useEffect(() => {
@@ -494,8 +510,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
   const gradeOptions = {
     INFANTIL: ['1', '2', '3', '4', '5'],
-    FUNDAMENTAL: ['1Âº ano', '2Âº ano', '3Âº ano', '4Âº ano', '5Âº ano', '6Âº ano', '7Âº ano', '8Âº ano', '9Âº ano'],
-    MEDIO: ['1Âº ano', '2Âº ano', '3Âº ano'],
+    FUNDAMENTAL: ['1? ano', '2? ano', '3? ano', '4? ano', '5? ano', '6? ano', '7? ano', '8? ano', '9? ano'],
+    MEDIO: ['1? ano', '2? ano', '3? ano'],
     INTEGRAL: []
   };
   const collaboratorCandidates = useMemo(() => {
@@ -1559,6 +1575,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       const updated = await ApiService.updateClient(viewingClient.id, {
         selectedPlansConfig: nextSelectedPlans,
         servicePlans: nextServicePlans,
+      }, {
+        expectedUpdatedAt: String((viewingClient as any)?.updatedAt || '').trim() || undefined,
       });
 
       if (removedDates.length > 0 || addedDates.length > 0) {
@@ -1606,6 +1624,15 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       showPlanNotice(`Plano ${targetPlan.planName} confirmado e salvo.`, 'success');
     } catch (error) {
       console.error('Erro ao confirmar datas do plano:', error);
+      if (isClientVersionConflictError(error)) {
+        try {
+          await reloadClientSnapshot(viewingClient.id);
+        } catch (refreshError) {
+          console.error('Erro ao recarregar cliente após conflito de versão:', refreshError);
+        }
+        showPlanNotice('Cadastro atualizado em outro ponto. Recarregamos os dados deste cliente.', 'warning');
+        return;
+      }
       showPlanNotice('Não foi possível confirmar as datas deste plano.', 'error');
     } finally {
       setIsSavingPlanView(false);
@@ -1859,7 +1886,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   }, [rechargeSelectedPlanId, rechargePlanDays, rechargePlanDates, plans, activeEnterpriseId]);
 
   const handleFinishRegistration = async () => {
-    if (isSubmittingClientForm) return;
+    if (isSubmittingClientForm || isSubmittingClientFormRef.current) return;
 
     const classValue = formData.type === 'ALUNO'
       ? (
@@ -1959,6 +1986,9 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         ? (responsibleClientCpf || formData.parentCpf)
         : formData.parentCpf;
     
+    isSubmittingClientFormRef.current = true;
+    setIsSubmittingClientForm(true);
+
     let finalPhoto = formData.photo || editingClient?.photo || `https://api.dicebear.com/7.x/avataaars/svg?seed=${formData.name}`;
 
     if (clientPhotoFile) {
@@ -1973,6 +2003,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       } catch (err) {
         console.error('Erro ao enviar foto do cliente:', err);
         alert('Erro ao enviar foto do cliente. Tente novamente.');
+        isSubmittingClientFormRef.current = false;
+        setIsSubmittingClientForm(false);
         return;
       }
     }
@@ -2028,10 +2060,11 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
           balance: Number.isFinite(parsedFormBalance) ? parsedFormBalance : 0,
         };
 
-    setIsSubmittingClientForm(true);
     try {
       if (editingClient) {
-        const updatedClient = await ApiService.updateClient(editingClient.id, clientPayload);
+        const updatedClient = await ApiService.updateClient(editingClient.id, clientPayload, {
+          expectedUpdatedAt: String((editingClient as any)?.updatedAt || '').trim() || undefined,
+        });
         setClients(prev => prev.map(c => (c.id === editingClient.id ? updatedClient : c)));
         if (viewingClient?.id === editingClient.id) setViewingClient(updatedClient);
       } else {
@@ -2047,11 +2080,21 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       alert(editingClient ? 'Cadastro atualizado com sucesso!' : 'Matrícula concluída com sucesso!');
     } catch (err) {
       console.error('Erro ao salvar cliente:', err);
+      if (editingClient && isClientVersionConflictError(err)) {
+        try {
+          await reloadClientSnapshot(editingClient.id);
+        } catch (refreshError) {
+          console.error('Erro ao recarregar cliente após conflito de versão:', refreshError);
+        }
+        alert('Este cadastro foi atualizado em outra operação. Dados recarregados; revise e salve novamente.');
+        return;
+      }
       const errorMessage = err instanceof Error && err.message
         ? err.message
         : 'Erro ao salvar cliente. Tente novamente.';
       alert(errorMessage);
     } finally {
+      isSubmittingClientFormRef.current = false;
       setIsSubmittingClientForm(false);
     }
   };
@@ -2172,6 +2215,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         servicePlans: newPlans,
         selectedPlansConfig: nextSelectedPlans,
         ...(isPlanRecharge ? { planCreditBalances: nextPlanCreditBalances } : {}),
+      }, {
+        expectedUpdatedAt: String((rechargingClient as any)?.updatedAt || '').trim() || undefined,
       });
       const createdTransaction = await ApiService.createTransaction({
         clientId: rechargingClient.id,
@@ -2202,6 +2247,15 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       alert(`Recarga de R$ ${amount.toFixed(2)} ${planName ? `para o plano ${planName} ` : ''}realizada com sucesso para ${rechargingClient.name}!`);
     } catch (err) {
       console.error('Erro ao recarregar cliente:', err);
+      if (isClientVersionConflictError(err)) {
+        try {
+          await reloadClientSnapshot(rechargingClient.id);
+        } catch (refreshError) {
+          console.error('Erro ao recarregar cliente após conflito de versão:', refreshError);
+        }
+        alert('Este cliente foi atualizado em outra operação. Dados recarregados; confirme e tente novamente.');
+        return;
+      }
       alert('Erro ao recarregar cliente. Tente novamente.');
     }
   };
@@ -2252,6 +2306,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
           requestedByUserId: String((currentUser as any)?.id || ''),
           requestedByName: String((currentUser as any)?.name || (currentUser as any)?.username || ''),
         },
+      }, {
+        expectedUpdatedAt: String((viewingClient as any)?.updatedAt || '').trim() || undefined,
       });
 
       setClients(prev => prev.map(c => (c.id === viewingClient.id ? updated : c)));
@@ -2259,6 +2315,15 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       alert(`Ajuste aplicado com sucesso. Novo saldo: R$ ${nextBalance.toFixed(2)}.`);
     } catch (error: any) {
       console.error('Erro ao ajustar saldo manualmente:', error);
+      if (isClientVersionConflictError(error)) {
+        try {
+          await reloadClientSnapshot(viewingClient.id);
+        } catch (refreshError) {
+          console.error('Erro ao recarregar cliente após conflito de versão:', refreshError);
+        }
+        alert('Este cliente foi atualizado em outra operação. Dados recarregados; revise o saldo e tente novamente.');
+        return;
+      }
       alert(error?.message || 'Erro ao ajustar saldo. Tente novamente.');
     }
   };
@@ -2470,7 +2535,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     activePlansInView.forEach((plan) => {
       const byId = balances.find((entry: any) => String(entry?.planId || '') === String(plan.planId));
       const byName = balances.find((entry: any) => normalizeSearchText(entry?.planName) === normalizeSearchText(plan.planName));
-      const resolved = Math.max(0, Number(byId?.remaining ?? byName?.remaining ?? planRequiredUnitsById[plan.planId] ?? 0));
+        const resolved = Math.max(0, Number(byId?.remaining ?? byName?.remaining ?? planRequiredUnitsById[plan.planId] ?? 0));
       if (nextRequired[plan.planId] !== resolved) {
         nextRequired[plan.planId] = resolved;
         hasChanges = true;
@@ -2526,10 +2591,10 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   }, [viewingClient, clientPlanBalances]);
 
   const planAdjustmentStatus = useMemo(() => {
-    return activePlansInView.map((plan) => {
-      const selectedCount = (selectedPlanDates[plan.planId] || []).length;
-      const requiredCount = requiredUnitsByPlanId.get(plan.planId) ?? selectedCount;
-      return {
+      return activePlansInView.map((plan) => {
+        const selectedCount = (selectedPlanDates[plan.planId] || []).length;
+        const requiredCount = requiredUnitsByPlanId.get(plan.planId) ?? selectedCount;
+        return {
         planId: plan.planId,
         planName: plan.planName,
         selectedCount,
@@ -2585,6 +2650,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       const updated = await ApiService.updateClient(viewingClient.id, {
         selectedPlansConfig: activeConfigs,
         servicePlans: nextServicePlans,
+      }, {
+        expectedUpdatedAt: String((viewingClient as any)?.updatedAt || '').trim() || undefined,
       });
 
       const changedPlans = activeConfigs
@@ -2656,6 +2723,15 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       showPlanNotice('Planos e dias de refeição atualizados com sucesso.', 'success');
     } catch (error) {
       console.error('Erro ao salvar alterações dos planos:', error);
+      if (isClientVersionConflictError(error)) {
+        try {
+          await reloadClientSnapshot(viewingClient.id);
+        } catch (refreshError) {
+          console.error('Erro ao recarregar cliente após conflito de versão:', refreshError);
+        }
+        showPlanNotice('Cadastro atualizado em outro ponto. Recarregamos os dados deste cliente.', 'warning');
+        return;
+      }
       showPlanNotice('Não foi possível salvar as alterações dos planos.', 'error');
     } finally {
       setIsSavingPlanView(false);
@@ -2827,7 +2903,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         && isTransactionFromClient(candidate, historyClient)
       ) as any;
 
-      const amount = Number(move?.amount ?? getTransactionAmount(tx));
+        const amount = Number(move?.amount ?? getTransactionAmount(tx));
       const safeAmount = Number.isFinite(amount) ? amount : 0;
       const units = resolveUnits(tx, String(move?.description || ''), safeAmount);
       const isPlan = isPlanMovement(tx, move);
@@ -3899,10 +3975,11 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
       <div className="bg-white rounded-[24px] sm:rounded-[32px] shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto scrollbar-thin">
-          <table className={`w-full text-left ${viewMode === 'ALUNOS' ? 'min-w-[1060px] lg:min-w-[1160px]' : 'min-w-[980px] lg:min-w-[1080px]'}`}>
+          <table className={`w-full text-left ${viewMode === 'ALUNOS' ? 'min-w-[1140px] lg:min-w-[1240px]' : 'min-w-[980px] lg:min-w-[1080px]'}`}>
             <thead className="bg-gray-50 text-[8px] sm:text-[9px] font-black text-gray-500 uppercase tracking-[0.14em] border-b">
               <tr>
                 <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">ID</th>
+                {viewMode === 'ALUNOS' && <th className="px-2.5 sm:px-4 py-2.5 sm:py-3 whitespace-nowrap">Cad.</th>}
                 <th className="px-2.5 sm:px-4 py-2.5 sm:py-3">{viewMode === 'ALUNOS' ? 'Aluno' : 'Cliente / Responsável'}</th>
                 {viewMode === 'ALUNOS' ? (
                   <>
@@ -3926,7 +4003,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
             <tbody className="divide-y divide-gray-100">
               {(viewMode === 'ALUNOS' ? filteredClients.length : responsibleOrCollaboratorRows.length) === 0 ? (
                 <tr>
-                  <td colSpan={viewMode === 'ALUNOS' ? 8 : 7} className="px-4 sm:px-6 py-20 text-center text-gray-400 font-bold uppercase text-xs tracking-widest opacity-40">
+                  <td colSpan={viewMode === 'ALUNOS' ? 9 : 7} className="px-4 sm:px-6 py-20 text-center text-gray-400 font-bold uppercase text-xs tracking-widest opacity-40">
                     {viewMode === 'ALUNOS' ? 'Nenhum aluno na base' : 'Nenhum responsável ou colaborador na base'}
                   </td>
                 </tr>
@@ -3952,6 +4029,11 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                 return (
                   <tr key={client.id} className="hover:bg-indigo-50/30 transition-all group">
                     <td className="px-2.5 sm:px-4 py-2.5 sm:py-3 font-mono text-[10px] sm:text-[11px] font-black text-indigo-600">#{client.registrationId}</td>
+                    <td className="px-2.5 sm:px-4 py-2.5 sm:py-3">
+                      <span className="text-[10px] sm:text-[11px] font-black text-gray-500 uppercase tracking-wider">
+                        {formatClientCreatedAtShort(client)}
+                      </span>
+                    </td>
                     <td className="px-2.5 sm:px-4 py-2.5 sm:py-3">
                       <div className="flex items-center gap-2.5">
                         <img src={resolveClientPhotoUrl(client.photo, client.name)} className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg object-cover border-2 border-white shadow-sm" />
