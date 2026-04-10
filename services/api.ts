@@ -517,22 +517,37 @@ export class ApiService {
   }
 
   static async createClient(data: any) {
-    
     const response = await fetch(`${API_URL}/clients`, {
       method: 'POST',
       headers: this.getHeaders(),
       body: JSON.stringify(data),
     });
     this.handleUnauthorized(response);
-    
+
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Erro na resposta:', errorText);
-      throw new Error(`Falha ao criar cliente: ${response.status} - ${errorText}`);
+      let message = 'Falha ao criar cliente';
+      try {
+        const payload = await response.json();
+        const errorMessage = String(payload?.error || '').trim();
+        const details = Array.isArray(payload?.details)
+          ? payload.details.map((item: any) => String(item || '').trim()).filter(Boolean)
+          : [];
+        if (errorMessage) {
+          message = errorMessage;
+        }
+        if (details.length > 0) {
+          message = `${message}: ${details.join(', ')}`;
+        }
+      } catch {
+        const errorText = await response.text();
+        if (errorText) {
+          message = `${message}: ${errorText}`;
+        }
+      }
+      throw new Error(message);
     }
-    
-    const result = await response.json();
-    return result;
+
+    return response.json();
   }
 
   static async uploadClientPhoto(payload: { fileName: string; mimeType: string; dataBase64: string }) {

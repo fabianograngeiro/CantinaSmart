@@ -33,6 +33,61 @@ const resolveRoleLabel = (role?: string) => {
 };
 
 const hasOwnField = (payload: any, key: string) => Object.prototype.hasOwnProperty.call(payload || {}, key);
+const normalizeComparableToken = (value?: string) =>
+  String(value || '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase();
+const normalizeDigits = (value?: string) => String(value || '').replace(/\D/g, '');
+
+const findDuplicateStudent = (params: { enterpriseId: string; payload: any; ignoreClientId?: string }) => {
+  const enterpriseId = String(params.enterpriseId || '').trim();
+  if (!enterpriseId) return null;
+
+  const payload = params.payload || {};
+  if (String(payload?.type || '').trim().toUpperCase() !== 'ALUNO') return null;
+
+  const ignoreClientId = String(params.ignoreClientId || '').trim();
+  const candidateName = normalizeComparableToken(payload?.name);
+  const candidatePhone = normalizeDigits(payload?.phone || payload?.parentWhatsapp);
+  const candidateCpf = normalizeDigits(payload?.cpf || payload?.parentCpf);
+  const candidateRegistrationId = normalizeComparableToken(payload?.registrationId);
+  const candidateId = String(payload?.id || '').trim();
+
+  if (!candidateName && !candidatePhone && !candidateCpf && !candidateRegistrationId && !candidateId) {
+    return null;
+  }
+
+  const students = db.getClients(enterpriseId).filter((item: any) => String(item?.type || '').trim().toUpperCase() === 'ALUNO');
+  for (const student of students) {
+    const studentId = String(student?.id || '').trim();
+    if (ignoreClientId && studentId === ignoreClientId) continue;
+
+    const existingName = normalizeComparableToken(student?.name);
+    const existingPhone = normalizeDigits(student?.phone || student?.parentWhatsapp);
+    const existingCpf = normalizeDigits(student?.cpf || student?.parentCpf);
+    const existingRegistrationId = normalizeComparableToken(student?.registrationId);
+
+    if (candidateId && studentId && candidateId === studentId) {
+      return { reason: 'ID interno', field: 'id', existing: student };
+    }
+    if (candidateRegistrationId && existingRegistrationId && candidateRegistrationId === existingRegistrationId) {
+      return { reason: 'Matrícula/ID', field: 'registrationId', existing: student };
+    }
+    if (candidateCpf && existingCpf && candidateCpf === existingCpf) {
+      return { reason: 'CPF', field: 'cpf', existing: student };
+    }
+    if (candidatePhone && existingPhone && candidatePhone === existingPhone) {
+      return { reason: 'Telefone', field: 'phone', existing: student };
+    }
+    if (candidateName && existingName && candidateName === existingName) {
+      return { reason: 'Nome completo', field: 'name', existing: student };
+    }
+  }
+
+  return null;
+};
 
 const hasActiveAiTemporaryPatchForPhoneValidation = () => {
   const tickets = db.getErrorTickets({ status: 'OPEN' });
@@ -211,6 +266,16 @@ router.post('/', (req: AuthRequest, res: Response) => {
   }
 
   try {
+    const duplicate = findDuplicateStudent({ enterpriseId, payload: req.body });
+    if (duplicate) {
+      return res.status(409).json({
+        error: `Aluno duplicado detectado por ${duplicate.reason}.`,
+        details: [
+          `Já existe um aluno com ${duplicate.reason.toLowerCase()} igual nesta unidade.`,
+          `Aluno existente: ${String(duplicate.existing?.name || 'Não informado').trim()} (${String(duplicate.existing?.registrationId || '-').trim()})`,
+        ],
+      });
+    }
     const newClient = db.createClient(req.body);
     console.log('✅ [CLIENTS] Client created successfully:', newClient.id);
     res.status(201).json(newClient);
@@ -285,6 +350,20 @@ router.put('/:id', (req: AuthRequest, res: Response) => {
 
     const updatePayload = { ...payload };
     delete (updatePayload as any).balanceAdjustment;
+    const duplicate = findDuplicateStudent({
+      enterpriseId: nextEnterpriseId || String((current as any)?.enterpriseId || '').trim(),
+      payload: { ...current, ...updatePayload },
+      ignoreClientId: String(current?.id || '').trim(),
+    });
+    if (duplicate) {
+      return res.status(409).json({
+        error: `Aluno duplicado detectado por ${duplicate.reason}.`,
+        details: [
+          `Já existe um aluno com ${duplicate.reason.toLowerCase()} igual nesta unidade.`,
+          `Aluno existente: ${String(duplicate.existing?.name || 'Não informado').trim()} (${String(duplicate.existing?.registrationId || '-').trim()})`,
+        ],
+      });
+    }
 
     const updated = db.updateClient(req.params.id, updatePayload);
     if (!updated) return res.status(404).json({ error: 'Cliente não encontrado' });

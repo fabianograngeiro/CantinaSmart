@@ -281,6 +281,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const [clientPhotoFile, setClientPhotoFile] = useState<File | null>(null);
   const [clientPhotoPreview, setClientPhotoPreview] = useState('');
   const [isSavingPlanView, setIsSavingPlanView] = useState(false);
+  const [isSubmittingClientForm, setIsSubmittingClientForm] = useState(false);
   const [isRestoringClientsBackup, setIsRestoringClientsBackup] = useState(false);
   const [planViewNotice, setPlanViewNotice] = useState<{ type: 'warning' | 'success' | 'error'; message: string } | null>(null);
   const [isGeneratingPortalLink, setIsGeneratingPortalLink] = useState(false);
@@ -289,6 +290,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const [portalLinkTargetName, setPortalLinkTargetName] = useState('');
   const [isGeneratingExistingPortalLinks, setIsGeneratingExistingPortalLinks] = useState(false);
   const [portalLinksByRowId, setPortalLinksByRowId] = useState<Record<string, string>>({});
+  const [pendingResolveIntent, setPendingResolveIntent] = useState<any>(null);
+  const [resolveNowHelper, setResolveNowHelper] = useState<{ message: string; focusFields?: string[]; studentName?: string } | null>(null);
 
   const isUnitAdmin = currentUser?.role === Role.ADMIN
     || currentUser?.role === Role.ADMIN_RESTAURANTE
@@ -346,6 +349,25 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     };
     loadData();
   }, [activeEnterpriseId, isSystemWideAdmin]);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('canteen_resolve_now_intent');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setPendingResolveIntent(parsed);
+        sessionStorage.removeItem('canteen_resolve_now_intent');
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isClientModalOpen) {
+      setResolveNowHelper(null);
+    }
+  }, [isClientModalOpen]);
 
   const schoolCalendarYearsToLoad = useMemo(() => {
     return Array.from(new Set([
@@ -1229,6 +1251,33 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     setIsClientModalOpen(true);
   };
 
+  useEffect(() => {
+    if (!pendingResolveIntent || clients.length === 0) return;
+    const targetClient = clients.find(c => String(c.id || '') === String(pendingResolveIntent.clientId || ''));
+    if (targetClient) {
+      setResolveNowHelper({
+        message: pendingResolveIntent.message || 'Complete o cadastro para liberar a venda no PDV.',
+        focusFields: pendingResolveIntent.focusFields || [],
+        studentName: targetClient.name,
+      });
+      handleOpenEditModal(targetClient);
+      window.setTimeout(() => {
+        const focusOrder = pendingResolveIntent.focusFields || [];
+        const selectorMap: Record<string, string> = {
+          classType: '[data-resolve-target=\"classType\"]',
+          classGrade: '[data-resolve-target=\"classGrade\"]',
+        };
+        const selector = focusOrder.map((key: string) => selectorMap[key]).find(Boolean) || selectorMap.classType;
+        const el = selector ? (document.querySelector(selector) as HTMLElement | null) : null;
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          (el as HTMLInputElement).focus?.();
+        }
+      }, 350);
+    }
+    setPendingResolveIntent(null);
+  }, [pendingResolveIntent, clients]);
+
   const handleOpenDetail = (client: Client) => {
     setViewingClient(client);
     setPlanViewNotice(null);
@@ -1810,6 +1859,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   }, [rechargeSelectedPlanId, rechargePlanDays, rechargePlanDates, plans, activeEnterpriseId]);
 
   const handleFinishRegistration = async () => {
+    if (isSubmittingClientForm) return;
+
     const classValue = formData.type === 'ALUNO'
       ? (
         formData.classType === 'INTEGRAL'
@@ -1977,6 +2028,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
           balance: Number.isFinite(parsedFormBalance) ? parsedFormBalance : 0,
         };
 
+    setIsSubmittingClientForm(true);
     try {
       if (editingClient) {
         const updatedClient = await ApiService.updateClient(editingClient.id, clientPayload);
@@ -1984,7 +2036,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         if (viewingClient?.id === editingClient.id) setViewingClient(updatedClient);
       } else {
         const newClient = await ApiService.createClient(clientPayload);
-        setClients([newClient, ...clients]);
+        setClients(prev => [newClient, ...prev]);
       }
       setEditingClient(null);
       setIsStudentOnlyMode(false);
@@ -1995,7 +2047,12 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       alert(editingClient ? 'Cadastro atualizado com sucesso!' : 'Matrícula concluída com sucesso!');
     } catch (err) {
       console.error('Erro ao salvar cliente:', err);
-      alert('Erro ao salvar cliente. Tente novamente.');
+      const errorMessage = err instanceof Error && err.message
+        ? err.message
+        : 'Erro ao salvar cliente. Tente novamente.';
+      alert(errorMessage);
+    } finally {
+      setIsSubmittingClientForm(false);
     }
   };
 
@@ -4506,12 +4563,18 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       {/* MODAL DE CADASTRO (EXISTENTE) */}
       {isClientModalOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 animate-in fade-in">
-           <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-sm" onClick={() => setIsClientModalOpen(false)}></div>
-           <div className="relative w-full max-w-4xl bg-white rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[92vh]">
-              
-              <div className="bg-indigo-600 p-8 text-white flex items-center justify-between shrink-0 shadow-lg">
-                 <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center"><UserPlus size={28} /></div>
+          <div
+            className="absolute inset-0 bg-indigo-950/60 backdrop-blur-sm"
+            onClick={() => {
+              setIsClientModalOpen(false);
+              setResolveNowHelper(null);
+            }}
+          ></div>
+          <div className="relative w-full max-w-4xl bg-white rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[92vh]">
+            
+            <div className="bg-indigo-600 p-8 text-white flex items-center justify-between shrink-0 shadow-lg">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center"><UserPlus size={28} /></div>
                     <div>
                        <h2 className="text-xl font-black uppercase tracking-tight">{editingClient ? 'Editar Cliente' : (isResponsibleView ? 'Novo Responsável/Colaborador' : 'Novo Cadastro de Cliente')}</h2>
                        <p className="text-[10px] font-bold text-indigo-200 uppercase tracking-widest mt-0.5">
@@ -4519,11 +4582,27 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                        </p>
                     </div>
                  </div>
-                 <button type="button" onClick={() => setIsClientModalOpen(false)} className="p-3 hover:bg-white/10 rounded-full transition-all"><X size={28} /></button>
-              </div>
+                 <button
+                   type="button"
+                   onClick={() => {
+                     setIsClientModalOpen(false);
+                     setResolveNowHelper(null);
+                   }}
+                   className="p-3 hover:bg-white/10 rounded-full transition-all"
+                 ><X size={28} /></button>
+             </div>
 
-              <div className="flex-1 overflow-y-auto bg-slate-50/60 p-6 sm:p-8 lg:p-10 space-y-6 scrollbar-hide">
-                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+             <div className="flex-1 overflow-y-auto bg-slate-50/60 p-6 sm:p-8 lg:p-10 space-y-6 scrollbar-hide">
+               {resolveNowHelper && (
+                 <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl p-4">
+                   <p className="text-[11px] font-black uppercase tracking-widest text-emerald-700">Correção rápida</p>
+                   <p className="text-sm font-bold mt-1">
+                     {resolveNowHelper.message}
+                   </p>
+                   <p className="text-[11px] font-semibold text-emerald-700 mt-1">Preencha os campos de turma/ano e salve para retomar a venda.</p>
+                 </div>
+               )}
+               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                     <section className="xl:col-span-2 bg-white rounded-[28px] border border-slate-200 shadow-sm p-6 sm:p-7 space-y-5">
                       <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-4">
                         <div className="flex items-center gap-2.5">
@@ -4631,6 +4710,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                             <div className="space-y-1.5">
                               <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Nível de Ensino</label>
                               <select
+                                data-resolve-target="classType"
                                 value={formData.classType}
                                 onChange={e => setFormData({ ...formData, classType: e.target.value as '' | 'INFANTIL' | 'FUNDAMENTAL' | 'MEDIO' | 'INTEGRAL', classGrade: '' })}
                                 className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
@@ -4646,6 +4726,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                               <div className="space-y-1.5 animate-in fade-in">
                                 <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Série / Ano</label>
                                 <select
+                                  data-resolve-target="classGrade"
                                   value={formData.classGrade}
                                   onChange={e => setFormData({ ...formData, classGrade: e.target.value })}
                                   className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
@@ -5095,11 +5176,11 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                    Cancelar
                  </button>
                  <button
-                   disabled={!formData.name}
+                   disabled={!formData.name || isSubmittingClientForm}
                    onClick={handleFinishRegistration}
                    className="sm:flex-[1.8] py-3.5 px-6 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest text-sm shadow-lg shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.99] transition-all flex items-center justify-center gap-2"
                  >
-                   <CheckCircle2 size={20} /> {editingClient ? 'Salvar Alterações' : 'Concluir Cadastro'}
+                   <CheckCircle2 size={20} /> {isSubmittingClientForm ? 'Salvando...' : (editingClient ? 'Salvar Alterações' : 'Concluir Cadastro')}
                  </button>
               </div>
            </div>

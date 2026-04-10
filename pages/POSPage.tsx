@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Search, ShoppingCart, User, Trash2, CreditCard, X, 
   QrCode, Smartphone, PauseCircle, Clock, 
@@ -435,6 +436,7 @@ const AlertItem = ({ label, value, color, onClick }: any) => {
 
 /* --- INTERFACE PADRÃO (VUE OPERADOR) --- */
 const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: Enterprise; onRegisterTransaction?: (transaction: TransactionRecord) => void }> = ({ currentUser, activeEnterprise, onRegisterTransaction }) => {
+  const navigate = useNavigate();
   const activeEnterpriseId = activeEnterprise.id;
   const formatCurrencyBRL = (value: number) => {
     const safe = Number.isFinite(Number(value)) ? Number(value) : 0;
@@ -2871,6 +2873,17 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   const handleResolveNowWithAi = async () => {
     if (!saleErrorMessage) return;
 
+    if (selfServiceResolution?.intent) {
+      try {
+        sessionStorage.setItem('canteen_resolve_now_intent', JSON.stringify(selfServiceResolution.intent));
+      } catch {
+        // best effort
+      }
+      setIsSaleErrorModalOpen(false);
+      navigate('/clients');
+      return;
+    }
+
     setIsResolvingNow(true);
     setResolveProgress(8);
     setResolveProgressMessage('Enviando ticket para o DEV Assistant...');
@@ -2908,6 +2921,32 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       window.clearInterval(intervalId);
     }
   };
+
+  const selfServiceResolution = useMemo(() => {
+    const rawMessage = String(saleErrorMessage || '');
+    const normalizedMessage = normalizeSearchText(rawMessage);
+    const isMissingClass =
+      normalizedMessage.includes('turma e obrigatoria') ||
+      rawMessage.toLowerCase().includes('turma Ã© obrigat');
+
+    if (isMissingClass && selectedClient && String(selectedClient.type || '').toUpperCase() === 'ALUNO') {
+      const intent = {
+        clientId: selectedClient.id,
+        studentName: selectedClient.name,
+        message: 'Complete a Turma/ano do aluno para liberar novas vendas.',
+        focusFields: ['classType', 'classGrade'],
+        source: 'POS_RESOLVE_NOW',
+        createdAt: new Date().toISOString(),
+      };
+
+      return {
+        intent,
+        description: `Vamos abrir o cadastro do aluno "${selectedClient.name}" para preencher Turma/Ano.`,
+      };
+    }
+
+    return null;
+  }, [saleErrorMessage, selectedClient]);
 
   const handleResume = (id: string) => {
     const sale = suspendedSales.find(s => s.id === id);
@@ -4811,6 +4850,14 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                   <pre className="text-[11px] leading-5 text-gray-700 whitespace-pre-wrap break-words max-h-48 overflow-auto">
                     {saleErrorDetails}
                   </pre>
+                </div>
+              )}
+
+              {selfServiceResolution && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
+                  <p className="text-xs font-black uppercase tracking-widest text-emerald-700">Correção rápida</p>
+                  <p className="text-sm font-bold text-emerald-800 mt-1">{selfServiceResolution.description}</p>
+                  <p className="text-[11px] font-semibold text-emerald-600 mt-1">Ao clicar em "Resolver agora" vamos abrir o cadastro para ajuste manual.</p>
                 </div>
               )}
 
