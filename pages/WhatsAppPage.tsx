@@ -5309,7 +5309,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     event.target.value = '';
     if (!file) return;
     if (!activeEnterprise?.id) {
-      setFeedback('Empresa ativa não encontrada.');
+      setFeedback('Empresa ativa nao encontrada.');
       return;
     }
 
@@ -5331,15 +5331,22 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       const emailIndex = getIndex(['email', 'e-mail']);
       const typeIndex = getIndex(['tipo', 'type']);
       const statusIndex = getIndex(['status', 'ativo']);
-      const responsibleIndex = getIndex(['responsavel', 'responsável', 'parentname', 'guardian']);
+      const responsibleIndex = getIndex(['responsavel', 'responsavel', 'parentname', 'guardian']);
 
       if (nameIndex < 0 || phoneIndex < 0) {
         setFeedback('CSV deve conter as colunas nome e telefone.');
         return;
       }
 
-      let createdCount = 0;
-      let skippedCount = 0;
+      const rows: Array<{
+        lineNumber: number;
+        name: string;
+        phone: string;
+        email?: string;
+        type?: string;
+        status?: string;
+        responsibleName?: string;
+      }> = [];
 
       for (let index = 1; index < lines.length; index += 1) {
         const cells = parseCsvRow(lines[index], delimiter);
@@ -5349,53 +5356,71 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         const rawType = typeIndex >= 0 ? String(cells[typeIndex] || '').trim().toUpperCase() : 'ALUNO';
         const rawStatus = statusIndex >= 0 ? normalizeSearchValue(cells[statusIndex] || '') : 'ativo';
         const responsibleName = responsibleIndex >= 0 ? String(cells[responsibleIndex] || '').trim() : '';
-
-        if (!name || digits.length < 10) {
-          skippedCount += 1;
-          continue;
-        }
-
         const normalizedType = ['ALUNO', 'COLABORADOR', 'RESPONSAVEL'].includes(rawType) ? rawType : 'ALUNO';
-        const isActive = !['inativo', 'inactive', 'false', '0', 'nao', 'não'].includes(rawStatus);
         const withCountry = digits.startsWith('55') ? digits : `55${digits}`;
 
-        const payload = {
-          registrationId: `CRM${Date.now()}${index}`,
+        rows.push({
+          lineNumber: index + 1,
           name,
-          type: normalizedType,
-          enterpriseId: activeEnterprise.id,
           phone: withCountry,
           email: email || undefined,
-          parentWhatsappCountryCode: '55',
-          parentWhatsapp: withCountry,
-          parentName: responsibleName || undefined,
-          servicePlans: [],
-          balance: 0,
-          spentToday: 0,
-          isBlocked: !isActive,
-          restrictions: [],
-          guardians: [],
-          dietaryNotes: '',
-        };
-
-        try {
-          await ApiService.createClient(payload);
-          createdCount += 1;
-        } catch {
-          skippedCount += 1;
-        }
+          type: normalizedType,
+          status: rawStatus || 'ativo',
+          responsibleName,
+        });
       }
+
+      const dryRunResult = await ApiService.importWhatsAppContacts({
+        enterpriseId: activeEnterprise.id,
+        rows,
+        dryRun: true,
+        strict: false,
+      });
+      const drySummary = dryRunResult?.summary || {};
+      const errorRows = Array.isArray(dryRunResult?.report)
+        ? dryRunResult.report.filter((item: any) => String(item?.status || '').toUpperCase() === 'ERROR')
+        : [];
+
+      if (Number(drySummary.valid || 0) <= 0) {
+        const firstError = String(errorRows?.[0]?.reason || 'nenhuma_linha_valida').trim();
+        setFeedback(`Importacao cancelada: nenhuma linha valida. Primeiro erro: ${firstError}.`);
+        return;
+      }
+
+      const previewMessage = [
+        'Pre-validacao concluida.',
+        `Total: ${Number(drySummary.total || 0)}`,
+        `Validas: ${Number(drySummary.valid || 0)}`,
+        `Com erro: ${Number(drySummary.errors || 0)}`,
+        errorRows.length > 0
+          ? `Primeiro erro (linha ${String(errorRows[0]?.lineNumber || '?')}): ${String(errorRows[0]?.reason || 'erro_desconhecido')}`
+          : 'Sem erros de validacao.',
+        'Deseja continuar e importar as linhas validas agora?',
+      ].join('\n');
+
+      const shouldCommit = window.confirm(previewMessage);
+      if (!shouldCommit) {
+        setFeedback('Importacao cancelada apos pre-validacao.');
+        return;
+      }
+
+      const commitResult = await ApiService.importWhatsAppContacts({
+        enterpriseId: activeEnterprise.id,
+        rows,
+        dryRun: false,
+        strict: false,
+      });
+      const commitSummary = commitResult?.summary || {};
 
       const refreshed = await ApiService.getClients(activeEnterprise.id);
       setClients(Array.isArray(refreshed) ? refreshed : []);
-      setFeedback(`Importação finalizada: ${createdCount} criado(s), ${skippedCount} ignorado(s).`);
+      setFeedback(`Importacao finalizada: ${Number(commitSummary.created || 0)} criado(s), ${Number(commitSummary.errors || 0)} com erro.`);
     } catch (err) {
       setFeedback(err instanceof Error ? err.message : 'Erro ao importar contatos.');
     } finally {
       setIsImportingContacts(false);
     }
   };
-
   if (!activeEnterprise) {
     return (
       <div className="flex items-center justify-center h-96">

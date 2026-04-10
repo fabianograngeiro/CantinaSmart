@@ -8,6 +8,16 @@ import { db } from '../database.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { hashPassword, generateToken } from '../utils/security.js';
 import { requesterCanAccessEnterprise } from '../utils/enterpriseAccess.js';
+import {
+  appendDestructiveActionAudit,
+  createDestructivePayloadFingerprint,
+  requireDestructiveActionConfirmation,
+} from '../utils/destructiveActionGuard.js';
+import {
+  appendAdminSettingsAudit,
+  listAdminSettingsAudit,
+  requireAuditReason,
+} from '../utils/adminSettingsAudit.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -21,6 +31,11 @@ const isSystemAdmin = (role?: string) => {
 const canManageUnitSettings = (role?: string) => {
   const normalized = String(role || '').trim().toUpperCase();
   return ['SUPERADMIN', 'ADMIN_SISTEMA', 'OWNER', 'ADMIN', 'GERENTE'].includes(normalized);
+};
+
+const resolveRequesterName = (req: AuthRequest) => {
+  const requester = req.userId ? db.getUser(String(req.userId || '').trim()) : null;
+  return String((requester as any)?.name || '').trim();
 };
 
 const COLLAB_MIGRATION_TAG = 'COLLAB_CONSUMPTION_MIGRATION_V1';
@@ -279,20 +294,83 @@ router.post('/restore', authMiddleware, async (req: AuthRequest, res: Response) 
   if (!isSystemAdmin(req.userRole)) {
     return res.status(403).json({ success: false, message: 'Acesso restrito ao SUPERADMIN/ADMIN_SISTEMA.' });
   }
+  const restorePayload = (req.body?.backup && typeof req.body.backup === 'object') ? req.body.backup : req.body;
+  let normalizedBackup: DatabaseBackupShape;
   try {
-    const normalizedBackup = normalizeBackupPayload(req.body);
+    normalizedBackup = normalizeBackupPayload(restorePayload);
+  } catch (err) {
+    return res.status(400).json({
+      success: false,
+      message: 'Erro ao validar backup da database',
+      error: err instanceof Error ? err.message : 'Erro desconhecido'
+    });
+  }
+  const payloadFingerprint = createDestructivePayloadFingerprint({
+    enterprises: normalizedBackup.enterprises.length,
+    users: normalizedBackup.users.length,
+    products: normalizedBackup.products.length,
+    clients: normalizedBackup.clients.length,
+    plans: normalizedBackup.plans.length,
+    suppliers: normalizedBackup.suppliers.length,
+    transactions: normalizedBackup.transactions.length,
+    orders: normalizedBackup.orders.length,
+    ingredients: normalizedBackup.ingredients.length,
+  });
+  const confirmation = requireDestructiveActionConfirmation({
+    userId: String(req.userId || '').trim(),
+    userRole: String(req.userRole || '').trim(),
+    actionKey: 'SYSTEM_RESTORE_DATABASE',
+    actionLabel: 'RESTAURAR_DATABASE',
+    payloadFingerprint,
+    confirmationChallengeId: req.body?.confirmationChallengeId,
+    confirmationPhrase: req.body?.confirmationPhrase,
+    confirmationReason: req.body?.confirmationReason,
+  });
+  if (!confirmation.approved) {
+    return res.status(confirmation.status).json(confirmation.body);
+  }
+  await appendDestructiveActionAudit({
+    actionKey: 'SYSTEM_RESTORE_DATABASE',
+    actionLabel: 'RESTAURAR_DATABASE',
+    userId: String(req.userId || '').trim(),
+    userRole: String(req.userRole || '').trim(),
+    confirmationReason: confirmation.confirmationReason,
+    payloadFingerprint,
+    status: 'APPROVED',
+  });
+  try {
     const databasePath = path.resolve(__dirname, '../data/database.json');
     await fs.writeFile(databasePath, JSON.stringify(normalizedBackup, null, 2), 'utf-8');
     db.reload();
+    await appendDestructiveActionAudit({
+      actionKey: 'SYSTEM_RESTORE_DATABASE',
+      actionLabel: 'RESTAURAR_DATABASE',
+      userId: String(req.userId || '').trim(),
+      userRole: String(req.userRole || '').trim(),
+      confirmationReason: confirmation.confirmationReason,
+      payloadFingerprint,
+      status: 'EXECUTED',
+      details: { stats: db.getStats() },
+    });
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Backup restaurado com sucesso.',
       stats: db.getStats()
     });
   } catch (err) {
+    await appendDestructiveActionAudit({
+      actionKey: 'SYSTEM_RESTORE_DATABASE',
+      actionLabel: 'RESTAURAR_DATABASE',
+      userId: String(req.userId || '').trim(),
+      userRole: String(req.userRole || '').trim(),
+      confirmationReason: confirmation.confirmationReason,
+      payloadFingerprint,
+      status: 'FAILED',
+      details: { message: err instanceof Error ? err.message : 'Erro desconhecido' },
+    });
     console.error('❌ [SYSTEM] Erro ao restaurar backup da database:', err);
-    res.status(400).json({
+    return res.status(400).json({
       success: false,
       message: 'Erro ao restaurar backup da database',
       error: err instanceof Error ? err.message : 'Erro desconhecido'
@@ -301,18 +379,53 @@ router.post('/restore', authMiddleware, async (req: AuthRequest, res: Response) 
 });
 
 // Reset completo da database - apaga todos os dados
-router.post('/reset', authMiddleware, (req: AuthRequest, res: Response) => {
+router.post('/reset', authMiddleware, async (req: AuthRequest, res: Response) => {
   if (!isSystemAdmin(req.userRole)) {
     return res.status(403).json({ success: false, message: 'Acesso restrito ao SUPERADMIN/ADMIN_SISTEMA.' });
   }
+  const payloadFingerprint = createDestructivePayloadFingerprint({ scope: 'FULL_DATABASE_RESET' });
+  const confirmation = requireDestructiveActionConfirmation({
+    userId: String(req.userId || '').trim(),
+    userRole: String(req.userRole || '').trim(),
+    actionKey: 'SYSTEM_RESET_DATABASE',
+    actionLabel: 'RESETAR_DATABASE',
+    payloadFingerprint,
+    confirmationChallengeId: req.body?.confirmationChallengeId,
+    confirmationPhrase: req.body?.confirmationPhrase,
+    confirmationReason: req.body?.confirmationReason,
+  });
+  if (!confirmation.approved) {
+    return res.status(confirmation.status).json(confirmation.body);
+  }
+
+  await appendDestructiveActionAudit({
+    actionKey: 'SYSTEM_RESET_DATABASE',
+    actionLabel: 'RESETAR_DATABASE',
+    userId: String(req.userId || '').trim(),
+    userRole: String(req.userRole || '').trim(),
+    confirmationReason: confirmation.confirmationReason,
+    payloadFingerprint,
+    status: 'APPROVED',
+  });
+
   console.log('\n🔥 [SYSTEM] RESET DATABASE REQUEST RECEIVED');
   
   try {
     db.reset();
 
     console.log('🔥 [SYSTEM] DATABASE RESET COMPLETO - Todos os dados foram apagados');
+    await appendDestructiveActionAudit({
+      actionKey: 'SYSTEM_RESET_DATABASE',
+      actionLabel: 'RESETAR_DATABASE',
+      userId: String(req.userId || '').trim(),
+      userRole: String(req.userRole || '').trim(),
+      confirmationReason: confirmation.confirmationReason,
+      payloadFingerprint,
+      status: 'EXECUTED',
+      details: { filesReset: 1, file: 'database.json' },
+    });
     
-    res.json({ 
+    return res.json({ 
       success: true, 
       message: 'Database resetada com sucesso. Todos os dados foram apagados.',
       filesReset: 1,
@@ -320,8 +433,18 @@ router.post('/reset', authMiddleware, (req: AuthRequest, res: Response) => {
     });
     
   } catch (err) {
+    await appendDestructiveActionAudit({
+      actionKey: 'SYSTEM_RESET_DATABASE',
+      actionLabel: 'RESETAR_DATABASE',
+      userId: String(req.userId || '').trim(),
+      userRole: String(req.userRole || '').trim(),
+      confirmationReason: confirmation.confirmationReason,
+      payloadFingerprint,
+      status: 'FAILED',
+      details: { message: err instanceof Error ? err.message : 'Erro desconhecido' },
+    });
     console.error('❌ [SYSTEM] Erro ao resetar database:', err);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Erro ao resetar database',
       error: err instanceof Error ? err.message : 'Erro desconhecido'
@@ -347,15 +470,63 @@ router.get('/settings', authMiddleware, (_req: AuthRequest, res: Response) => {
   });
 });
 
-router.put('/settings', authMiddleware, (req: AuthRequest, res: Response) => {
+router.get('/settings-audit', authMiddleware, async (req: AuthRequest, res: Response) => {
+  if (!canManageUnitSettings(req.userRole)) {
+    return res.status(403).json({ success: false, message: 'Acesso negado para auditoria.' });
+  }
+
+  const scope = String(req.query?.scope || '').trim();
+  const enterpriseId = String(req.query?.enterpriseId || '').trim();
+  if (enterpriseId && !requesterCanAccessEnterprise(req, enterpriseId)) {
+    return res.status(403).json({ success: false, message: 'Acesso negado para esta empresa.' });
+  }
+
+  try {
+    const entries = await listAdminSettingsAudit({
+      limit: Number(req.query?.limit || 200),
+      scope,
+      enterpriseId,
+    });
+    return res.json({
+      success: true,
+      entries,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao carregar auditoria de configuracoes.',
+    });
+  }
+});
+
+router.put('/settings', authMiddleware, async (req: AuthRequest, res: Response) => {
   if (!canManageUnitSettings(req.userRole)) {
     return res.status(403).json({ success: false, message: 'Acesso negado para atualizar ajustes.' });
   }
+  const reasonValidation = requireAuditReason(req.body?.reason || req.body?.auditReason);
+
+  const before = db.getSystemSettings();
   const next = db.updateSystemSettings({
     ...(req.body && typeof req.body === 'object' ? req.body : {}),
     updatedByUserId: String(req.userId || '').trim(),
     updatedByRole: String(req.userRole || '').trim().toUpperCase(),
   });
+
+  await appendAdminSettingsAudit({
+    actionKey: 'SYSTEM_SETTINGS_UPDATE',
+    scope: 'SYSTEM_SETTINGS',
+    userId: String(req.userId || '').trim(),
+    userRole: String(req.userRole || '').trim(),
+    userName: resolveRequesterName(req),
+    reason: reasonValidation.reason,
+    before,
+    after: next,
+    meta: {
+      ip: req.ip,
+      userAgent: req.get('user-agent') || '',
+    },
+  });
+
   return res.json({ success: true, settings: next });
 });
 
@@ -373,7 +544,7 @@ router.get('/financial-settings', authMiddleware, (req: AuthRequest, res: Respon
   });
 });
 
-router.put('/financial-settings', authMiddleware, (req: AuthRequest, res: Response) => {
+router.put('/financial-settings', authMiddleware, async (req: AuthRequest, res: Response) => {
   if (!canManageUnitSettings(req.userRole)) {
     return res.status(403).json({ success: false, message: 'Acesso negado para atualizar financeiro.' });
   }
@@ -384,12 +555,32 @@ router.put('/financial-settings', authMiddleware, (req: AuthRequest, res: Respon
   if (!requesterCanAccessEnterprise(req, enterpriseId)) {
     return res.status(403).json({ success: false, message: 'Acesso negado para esta empresa.' });
   }
+  const reasonValidation = requireAuditReason(req.body?.reason || req.body?.auditReason);
+
+  const before = db.getFinancialSettings(enterpriseId);
   const patch = req.body?.settings && typeof req.body.settings === 'object' ? req.body.settings : {};
   const next = db.updateFinancialSettings(enterpriseId, {
     ...patch,
     updatedByUserId: String(req.userId || '').trim(),
     updatedByRole: String(req.userRole || '').trim().toUpperCase(),
   });
+
+  await appendAdminSettingsAudit({
+    actionKey: 'FINANCIAL_SETTINGS_UPDATE',
+    scope: 'FINANCIAL_SETTINGS',
+    enterpriseId,
+    userId: String(req.userId || '').trim(),
+    userRole: String(req.userRole || '').trim(),
+    userName: resolveRequesterName(req),
+    reason: reasonValidation.reason,
+    before,
+    after: next || {},
+    meta: {
+      ip: req.ip,
+      userAgent: req.get('user-agent') || '',
+    },
+  });
+
   return res.json({ success: true, settings: next || {} });
 });
 
@@ -441,15 +632,33 @@ router.get('/dev-assistant-config', authMiddleware, (req: AuthRequest, res: Resp
   });
 });
 
-router.put('/dev-assistant-config', authMiddleware, (req: AuthRequest, res: Response) => {
+router.put('/dev-assistant-config', authMiddleware, async (req: AuthRequest, res: Response) => {
   const role = String(req.userRole || '').trim().toUpperCase();
   if (role !== 'SUPERADMIN') {
     return res.status(403).json({ success: false, message: 'Acesso restrito ao SUPERADMIN.' });
   }
+  const reasonValidation = requireAuditReason(req.body?.reason || req.body?.auditReason);
+
+  const before = db.getDevAssistantConfig();
 
   const next = db.updateDevAssistantConfig({
     autoPatchEnabled: req.body?.autoPatchEnabled !== undefined ? Boolean(req.body.autoPatchEnabled) : undefined,
     updatedBy: String(req.userId || '').trim(),
+  });
+
+  await appendAdminSettingsAudit({
+    actionKey: 'DEV_ASSISTANT_CONFIG_UPDATE',
+    scope: 'DEV_ASSISTANT_CONFIG',
+    userId: String(req.userId || '').trim(),
+    userRole: String(req.userRole || '').trim(),
+    userName: resolveRequesterName(req),
+    reason: reasonValidation.reason,
+    before,
+    after: next,
+    meta: {
+      ip: req.ip,
+      userAgent: req.get('user-agent') || '',
+    },
   });
 
   return res.json({
@@ -638,7 +847,7 @@ router.post('/migrate-collaborator-consumption', authMiddleware, (req: AuthReque
 });
 
 // Limpa todos os dados de uma empresa específica
-router.post('/clear-enterprise-data', authMiddleware, (req: AuthRequest, res: Response) => {
+router.post('/clear-enterprise-data', authMiddleware, async (req: AuthRequest, res: Response) => {
   if (!isSystemAdmin(req.userRole)) {
     return res.status(403).json({ success: false, message: 'Acesso restrito ao SUPERADMIN/ADMIN_SISTEMA.' });
   }
@@ -667,6 +876,34 @@ router.post('/clear-enterprise-data', authMiddleware, (req: AuthRequest, res: Re
     }
 
     const eId = targetEnterprise.id;
+    const payloadFingerprint = createDestructivePayloadFingerprint({
+      enterpriseId: eId,
+      enterpriseName: targetEnterprise.name,
+      operation: 'CLEAR_ENTERPRISE_DATA',
+    });
+    const confirmation = requireDestructiveActionConfirmation({
+      userId: String(req.userId || '').trim(),
+      userRole: String(req.userRole || '').trim(),
+      actionKey: 'SYSTEM_CLEAR_ENTERPRISE_DATA',
+      actionLabel: 'LIMPAR_EMPRESA',
+      payloadFingerprint,
+      confirmationChallengeId: req.body?.confirmationChallengeId,
+      confirmationPhrase: req.body?.confirmationPhrase,
+      confirmationReason: req.body?.confirmationReason,
+    });
+    if (!confirmation.approved) {
+      return res.status(confirmation.status).json(confirmation.body);
+    }
+    await appendDestructiveActionAudit({
+      actionKey: 'SYSTEM_CLEAR_ENTERPRISE_DATA',
+      actionLabel: 'LIMPAR_EMPRESA',
+      userId: String(req.userId || '').trim(),
+      userRole: String(req.userRole || '').trim(),
+      confirmationReason: confirmation.confirmationReason,
+      payloadFingerprint,
+      status: 'APPROVED',
+    });
+
     console.log(`🗑️  [SYSTEM] Limpando dados da empresa: ${targetEnterprise.name} (${eId})`);
 
     // Deleta todos os clientes da empresa (transações são deletadas em cascata)
@@ -726,7 +963,29 @@ router.post('/clear-enterprise-data', authMiddleware, (req: AuthRequest, res: Re
     console.log(`   • Planos deletados: ${deletedPlansCount}`);
     console.log(`   • Pedidos deletados: ${deletedOrdersCount}`);
 
-    res.json({
+    await appendDestructiveActionAudit({
+      actionKey: 'SYSTEM_CLEAR_ENTERPRISE_DATA',
+      actionLabel: 'LIMPAR_EMPRESA',
+      userId: String(req.userId || '').trim(),
+      userRole: String(req.userRole || '').trim(),
+      confirmationReason: confirmation.confirmationReason,
+      payloadFingerprint,
+      status: 'EXECUTED',
+      details: {
+        enterpriseId: eId,
+        enterpriseName: targetEnterprise.name,
+        deleted: {
+          clients: deletedClientsCount,
+          products: deletedProductsCount,
+          categories: deletedCategoriesCount,
+          plans: deletedPlansCount,
+          orders: deletedOrdersCount,
+          total: deletedClientsCount + deletedProductsCount + deletedCategoriesCount + deletedPlansCount + deletedOrdersCount,
+        },
+      },
+    });
+
+    return res.json({
       success: true,
       message: `Dados da empresa "${targetEnterprise.name}" removidos com sucesso`,
       enterprise: {
@@ -743,8 +1002,21 @@ router.post('/clear-enterprise-data', authMiddleware, (req: AuthRequest, res: Re
       }
     });
   } catch (err) {
+    await appendDestructiveActionAudit({
+      actionKey: 'SYSTEM_CLEAR_ENTERPRISE_DATA',
+      actionLabel: 'LIMPAR_EMPRESA',
+      userId: String(req.userId || '').trim(),
+      userRole: String(req.userRole || '').trim(),
+      confirmationReason: String(req.body?.confirmationReason || '').trim(),
+      payloadFingerprint: createDestructivePayloadFingerprint({
+        enterpriseName: String(req.body?.enterpriseName || '').trim(),
+        enterpriseId: String(req.body?.enterpriseId || '').trim(),
+      }),
+      status: 'FAILED',
+      details: { message: err instanceof Error ? err.message : 'Erro desconhecido' },
+    });
     console.error('❌ [SYSTEM] Erro ao limpar dados da empresa:', err);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Erro ao limpar dados da empresa',
       error: err instanceof Error ? err.message : 'Erro desconhecido'

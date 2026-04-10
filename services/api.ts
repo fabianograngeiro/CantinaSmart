@@ -38,6 +38,114 @@ export class ApiService {
     return headers;
   }
 
+  private static normalizeIdempotencyToken(value: unknown) {
+    return String(value || '')
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase();
+  }
+
+  private static normalizeIdempotencyDigits(value: unknown) {
+    return String(value || '').replace(/\D/g, '');
+  }
+
+  private static hashIdempotencyKey(input: string) {
+    let hash = 2166136261;
+    for (let i = 0; i < input.length; i += 1) {
+      hash ^= input.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  private static buildClientCreateIdempotencyKey(data: any) {
+    const payload = data || {};
+    const fingerprint = [
+      this.normalizeIdempotencyToken(payload?.enterpriseId),
+      this.normalizeIdempotencyToken(payload?.type),
+      this.normalizeIdempotencyToken(payload?.name),
+      this.normalizeIdempotencyDigits(payload?.phone || payload?.parentWhatsapp),
+      this.normalizeIdempotencyDigits(payload?.cpf || payload?.parentCpf),
+      this.normalizeIdempotencyToken(payload?.parentName),
+      this.normalizeIdempotencyToken(payload?.class),
+      this.normalizeIdempotencyToken(payload?.responsibleCollaboratorId),
+      this.normalizeIdempotencyToken(payload?.responsibleClientId),
+    ].join('|');
+
+    return `client-create:${this.hashIdempotencyKey(fingerprint)}`;
+  }
+
+  private static normalizeIdempotencyDateKey(value: unknown) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const br = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (br) return `${br[3]}-${br[2]}-${br[1]}`;
+    const parsed = new Date(raw);
+    if (!Number.isFinite(parsed.getTime())) return '';
+    const year = parsed.getFullYear();
+    const month = `${parsed.getMonth() + 1}`.padStart(2, '0');
+    const day = `${parsed.getDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  private static buildTransactionCreateIdempotencyKey(data: any) {
+    const payload = data || {};
+    const selectedDates = Array.from(new Set(
+      (Array.isArray(payload?.selectedDates) ? payload.selectedDates : [])
+        .map((value: unknown) => this.normalizeIdempotencyDateKey(value))
+        .filter(Boolean)
+    )).sort();
+
+    const fingerprint = [
+      this.normalizeIdempotencyToken(payload?.enterpriseId),
+      this.normalizeIdempotencyToken(payload?.kind),
+      this.normalizeIdempotencyToken(payload?.type),
+      this.normalizeIdempotencyToken(payload?.clientId),
+      this.normalizeIdempotencyToken(payload?.clientName),
+      String(Number(payload?.amount ?? 0)),
+      String(Number(payload?.total ?? 0)),
+      this.normalizeIdempotencyToken(payload?.plan || payload?.planName),
+      this.normalizeIdempotencyToken(payload?.planId || payload?.originPlanId),
+      this.normalizeIdempotencyToken(payload?.paymentMethod || payload?.method),
+      this.normalizeIdempotencyToken(payload?.item),
+      this.normalizeIdempotencyToken(payload?.description),
+      this.normalizeIdempotencyDateKey(payload?.date || payload?.deliveryDate || payload?.scheduledDate || payload?.referenceDate || payload?.timestamp),
+      selectedDates.join(','),
+    ].join('|');
+
+    return `tx-create:${this.hashIdempotencyKey(fingerprint)}`;
+  }
+
+  private static buildOrderCreateIdempotencyKey(data: any) {
+    const payload = data || {};
+    const normalizedItems = (Array.isArray(payload?.items) ? payload.items : [])
+      .map((item: any) => ({
+        productName: this.normalizeIdempotencyToken(item?.productName),
+        quantity: Number(item?.quantity ?? 0),
+        cost: Number(item?.cost ?? 0),
+      }))
+      .sort((a: any, b: any) => `${a.productName}|${a.quantity}|${a.cost}`.localeCompare(`${b.productName}|${b.quantity}|${b.cost}`));
+
+    const itemsKey = normalizedItems
+      .map((item: any) => `${item.productName}:${item.quantity}:${item.cost}`)
+      .join(',');
+
+    const fingerprint = [
+      this.normalizeIdempotencyToken(payload?.enterpriseId),
+      this.normalizeIdempotencyToken(payload?.supplierId),
+      this.normalizeIdempotencyToken(payload?.supplierName),
+      this.normalizeIdempotencyDateKey(payload?.date),
+      String(Number(payload?.total ?? 0)),
+      this.normalizeIdempotencyToken(payload?.status),
+      this.normalizeIdempotencyToken(payload?.trackingNote),
+      itemsKey,
+    ].join('|');
+
+    return `order-create:${this.hashIdempotencyKey(fingerprint)}`;
+  }
+
   private static handleUnauthorized(response: Response) {
     if (response.status !== 401) return;
     this.clearToken();
@@ -50,6 +158,29 @@ export class ApiService {
     try {
       const payload = await response.json();
       if (payload?.error) return payload.error;
+    } catch {
+      // no-op
+    }
+    return fallback;
+  }
+
+  private static async readDestructiveActionError(response: Response, fallback: string) {
+    try {
+      const payload = await response.json();
+      if (payload?.confirmationRequired && payload?.challenge) {
+        const challengeId = String(payload.challenge?.challengeId || '').trim();
+        const phrase = String(payload.challenge?.phrase || '').trim();
+        const expiresIn = Number(payload.challenge?.expiresInSeconds || 0);
+        const actionLabel = String(payload.challenge?.actionLabel || 'OPERACAO').trim();
+        return [
+          `Confirmacao obrigatoria para ${actionLabel}.`,
+          challengeId ? `challengeId: ${challengeId}` : '',
+          phrase ? `phrase: ${phrase}` : '',
+          expiresIn > 0 ? `expira em ${expiresIn}s` : '',
+          'Repita a acao enviando confirmationChallengeId, confirmationPhrase e confirmationReason.',
+        ].filter(Boolean).join(' ');
+      }
+      if (payload?.error) return String(payload.error);
     } catch {
       // no-op
     }
@@ -516,10 +647,15 @@ export class ApiService {
     return response.json();
   }
 
-  static async createClient(data: any) {
+  static async createClient(data: any, options?: { idempotencyKey?: string }) {
+    const headers = this.getHeaders() as Record<string, string>;
+    const providedKey = String(options?.idempotencyKey || '').trim();
+    const idempotencyKey = providedKey || this.buildClientCreateIdempotencyKey(data);
+    headers['x-idempotency-key'] = idempotencyKey;
+
     const response = await fetch(`${API_URL}/clients`, {
       method: 'POST',
-      headers: this.getHeaders(),
+      headers,
       body: JSON.stringify(data),
     });
     this.handleUnauthorized(response);
@@ -561,11 +697,19 @@ export class ApiService {
     return response.json();
   }
 
-  static async updateClient(id: string, data: any) {
+  static async updateClient(id: string, data: any, options?: { expectedUpdatedAt?: string }) {
+    const expectedUpdatedAt = String(
+      options?.expectedUpdatedAt
+      || data?.expectedUpdatedAt
+      || ''
+    ).trim();
+    const payload = expectedUpdatedAt
+      ? { ...(data || {}), expectedUpdatedAt }
+      : (data || {});
     const response = await fetch(`${API_URL}/clients/${id}`, {
       method: 'PUT',
       headers: this.getHeaders(),
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     });
     this.handleUnauthorized(response);
     if (!response.ok) {
@@ -802,10 +946,15 @@ export class ApiService {
     return response.json();
   }
 
-  static async createTransaction(data: any) {
+  static async createTransaction(data: any, options?: { idempotencyKey?: string }) {
+    const headers = this.getHeaders() as Record<string, string>;
+    const providedKey = String(options?.idempotencyKey || '').trim();
+    const idempotencyKey = providedKey || this.buildTransactionCreateIdempotencyKey(data);
+    headers['x-idempotency-key'] = idempotencyKey;
+
     const response = await fetch(`${API_URL}/transactions`, {
       method: 'POST',
-      headers: this.getHeaders(),
+      headers,
       body: JSON.stringify(data),
     });
     if (!response.ok) throw new Error('Falha ao criar transação');
@@ -875,12 +1024,21 @@ export class ApiService {
     return response.json();
   }
 
-  static async clearAllTransactions() {
+  static async clearAllTransactions(confirmation?: {
+    confirmationChallengeId?: string;
+    confirmationPhrase?: string;
+    confirmationReason?: string;
+  }) {
     const response = await fetch(`${API_URL}/transactions/clear-all`, {
       method: 'DELETE',
       headers: this.getHeaders(),
+      body: JSON.stringify({
+        confirmationChallengeId: String(confirmation?.confirmationChallengeId || '').trim(),
+        confirmationPhrase: String(confirmation?.confirmationPhrase || '').trim(),
+        confirmationReason: String(confirmation?.confirmationReason || '').trim(),
+      }),
     });
-    if (!response.ok) throw new Error('Falha ao limpar transações');
+    if (!response.ok) throw new Error(await this.readDestructiveActionError(response, 'Falha ao limpar transacoes'));
     return response.json();
   }
 
@@ -903,13 +1061,18 @@ export class ApiService {
     return response.json();
   }
 
-  static async createOrder(data: any) {
+  static async createOrder(data: any, options?: { idempotencyKey?: string }) {
+    const headers = this.getHeaders() as Record<string, string>;
+    const providedKey = String(options?.idempotencyKey || '').trim();
+    const idempotencyKey = providedKey || this.buildOrderCreateIdempotencyKey(data);
+    headers['x-idempotency-key'] = idempotencyKey;
+
     const response = await fetch(`${API_URL}/orders`, {
       method: 'POST',
-      headers: this.getHeaders(),
+      headers,
       body: JSON.stringify(data),
     });
-    if (!response.ok) throw new Error('Falha ao criar pedido');
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao criar pedido'));
     return response.json();
   }
 
@@ -919,7 +1082,7 @@ export class ApiService {
       headers: this.getHeaders(),
       body: JSON.stringify(data),
     });
-    if (!response.ok) throw new Error('Falha ao atualizar pedido');
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao atualizar pedido'));
     return response.json();
   }
 
@@ -1093,12 +1256,21 @@ export class ApiService {
   }
 
   // ===== SYSTEM =====
-  static async resetDatabase() {
+  static async resetDatabase(confirmation?: {
+    confirmationChallengeId?: string;
+    confirmationPhrase?: string;
+    confirmationReason?: string;
+  }) {
     const response = await fetch(`${API_URL}/system/reset`, {
       method: 'POST',
       headers: this.getHeaders(),
+      body: JSON.stringify({
+        confirmationChallengeId: String(confirmation?.confirmationChallengeId || '').trim(),
+        confirmationPhrase: String(confirmation?.confirmationPhrase || '').trim(),
+        confirmationReason: String(confirmation?.confirmationReason || '').trim(),
+      }),
     });
-    if (!response.ok) throw new Error('Falha ao resetar database');
+    if (!response.ok) throw new Error(await this.readDestructiveActionError(response, 'Falha ao resetar database'));
     return response.json();
   }
 
@@ -1117,15 +1289,23 @@ export class ApiService {
     return { blob, filename };
   }
 
-  static async restoreDatabaseBackup(backupData: any) {
+  static async restoreDatabaseBackup(backupData: any, confirmation?: {
+    confirmationChallengeId?: string;
+    confirmationPhrase?: string;
+    confirmationReason?: string;
+  }) {
     const response = await fetch(`${API_URL}/system/restore`, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify(backupData),
+      body: JSON.stringify({
+        backup: backupData,
+        confirmationChallengeId: String(confirmation?.confirmationChallengeId || '').trim(),
+        confirmationPhrase: String(confirmation?.confirmationPhrase || '').trim(),
+        confirmationReason: String(confirmation?.confirmationReason || '').trim(),
+      }),
     });
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(errorText || 'Falha ao restaurar backup da database');
+      throw new Error(await this.readDestructiveActionError(response, 'Falha ao restaurar backup da database'));
     }
     return response.json();
   }
@@ -1494,6 +1674,32 @@ export class ApiService {
       headers: this.getHeaders(),
     });
     if (!response.ok) throw new Error('Falha ao carregar conversas do WhatsApp');
+    return response.json();
+  }
+
+  static async importWhatsAppContacts(payload: {
+    enterpriseId: string;
+    rows: Array<{
+      lineNumber: number;
+      name: string;
+      phone: string;
+      email?: string;
+      type?: string;
+      status?: string;
+      responsibleName?: string;
+    }>;
+    dryRun?: boolean;
+    strict?: boolean;
+  }) {
+    const response = await fetch(`${API_URL}/whatsapp/contacts/import`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload || {}),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao importar contatos');
+    }
     return response.json();
   }
 

@@ -494,6 +494,9 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   const [resolveProgress, setResolveProgress] = useState(0);
   const [resolveProgressMessage, setResolveProgressMessage] = useState('');
   const [patchResolvedNotice, setPatchResolvedNotice] = useState('');
+  const [isFinalizingSale, setIsFinalizingSale] = useState(false);
+  const isFinalizingSaleRef = useRef(false);
+  const isCreatingQuickClientRef = useRef(false);
 
   const consumeTemporaryCheckoutTestErrorFlag = () => {
     try {
@@ -505,6 +508,20 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     } catch {
       return false;
     }
+  };
+
+  const isClientVersionConflictError = (error: unknown) => {
+    const message = String((error as any)?.message || '').toLowerCase();
+    return message.includes('conflito de atualiza') || message.includes('versao esperada');
+  };
+
+  const refreshClientInPOS = async (clientId: string) => {
+    const freshClient = await ApiService.getClient(clientId);
+    setClients((prev) => prev.map((client) => (client.id === clientId ? freshClient : client)));
+    if (String(selectedClient?.id || '') === clientId) {
+      setSelectedClient(freshClient);
+    }
+    return freshClient;
   };
   const [quickClientForm, setQuickClientForm] = useState<{
     type: 'ALUNO' | 'COLABORADOR';
@@ -802,7 +819,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   };
 
   const closeQuickClientModal = () => {
-    if (isCreatingQuickClient) return;
+    if (isCreatingQuickClient || isCreatingQuickClientRef.current) return;
     setIsQuickClientModalOpen(false);
   };
 
@@ -820,6 +837,9 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   };
 
   const createQuickClient = async () => {
+    if (isCreatingQuickClientRef.current) {
+      return;
+    }
     const normalizedName = String(quickClientForm.name || '').trim();
     if (normalizedName.length < 2) {
       alert('Informe o nome completo do cliente.');
@@ -959,6 +979,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     };
 
     try {
+      isCreatingQuickClientRef.current = true;
       setIsCreatingQuickClient(true);
       const createdClient = await ApiService.createClient(payload);
       setClients((prev) => [createdClient, ...prev]);
@@ -968,6 +989,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       console.error('Erro ao criar cliente rápido no PDV:', error);
       alert(error instanceof Error ? error.message : 'Não foi possível criar o cliente no PDV.');
     } finally {
+      isCreatingQuickClientRef.current = false;
       setIsCreatingQuickClient(false);
     }
   };
@@ -2148,6 +2170,11 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   };
 
   const finalizeSale = async () => {
+    if (isFinalizingSaleRef.current) {
+      return;
+    }
+    isFinalizingSaleRef.current = true;
+    setIsFinalizingSale(true);
     try {
       if (consumeTemporaryCheckoutTestErrorFlag()) {
         throw new Error('ERRO TEMPORÁRIO DE TESTE (DEV Assistant): falha simulada ao registrar compra.');
@@ -2182,6 +2209,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           const updatedClient = await ApiService.updateClient(selectedClient.id, {
             amountDue: nextAmountDue,
             monthlyConsumption: nextMonthlyConsumption
+          }, {
+            expectedUpdatedAt: String(((updatedSelectedClient || selectedClient) as any)?.updatedAt || '').trim() || undefined
           });
           updatedSelectedClient = updatedClient;
 
@@ -2200,6 +2229,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
               requestedByName: String((currentUser as any)?.name || (currentUser as any)?.username || ''),
             },
             spentToday: (selectedClient.spentToday || 0) + saldoPaid
+          }, {
+            expectedUpdatedAt: String(((updatedSelectedClient || selectedClient) as any)?.updatedAt || '').trim() || undefined
           });
           updatedSelectedClient = updatedClient;
 
@@ -2431,6 +2462,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           selectedPlansConfig: existingSelectedPlans,
           servicePlans: existingServicePlans,
           planCreditBalances: existingPlanCreditBalances
+        }, {
+          expectedUpdatedAt: String(((updatedSelectedClient || selectedClient) as any)?.updatedAt || '').trim() || undefined
         });
         updatedSelectedClient = creditedClient;
         setClients(prev => prev.map(client => (
@@ -2538,6 +2571,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
         const paidClient = await ApiService.updateClient(selectedClient.id, {
           amountDue: Math.max(0, (updatedSelectedClient?.amountDue || 0) - collaboratorPayTotal),
           monthlyConsumption: Math.max(0, (updatedSelectedClient?.monthlyConsumption || 0) - collaboratorPayTotal)
+        }, {
+          expectedUpdatedAt: String(((updatedSelectedClient || selectedClient) as any)?.updatedAt || '').trim() || undefined
         });
         updatedSelectedClient = paidClient;
         setClients(prev => prev.map(client => (
@@ -2607,6 +2642,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
         const clientAfterPlanConsumption = await ApiService.updateClient(selectedClient.id, {
           planCreditBalances: existingPlanCreditBalances
+        }, {
+          expectedUpdatedAt: String(((updatedSelectedClient || selectedClient) as any)?.updatedAt || '').trim() || undefined
         });
         updatedSelectedClient = clientAfterPlanConsumption;
         setClients(prev => prev.map(client => (
@@ -2737,6 +2774,18 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       setSaleReference(createPOSSaleReference());
     } catch (error) {
       console.error('Erro ao finalizar venda:', error);
+      if (selectedClient?.id && isClientVersionConflictError(error)) {
+        try {
+          await refreshClientInPOS(selectedClient.id);
+        } catch (refreshError) {
+          console.error('Erro ao recarregar cliente após conflito de versão no PDV:', refreshError);
+        }
+        const conflictMessage = 'Este cliente foi atualizado em outra operação. Dados recarregados; confirme os valores e finalize novamente.';
+        setSaleErrorMessage(conflictMessage);
+        setSaleErrorDetails('');
+        setIsSaleErrorModalOpen(true);
+        return;
+      }
       const message = error instanceof Error
         ? error.message
         : 'Não foi possível finalizar a venda. Tente novamente.';
@@ -2746,6 +2795,9 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       setSaleErrorMessage(message);
       setSaleErrorDetails(details);
       setIsSaleErrorModalOpen(true);
+    } finally {
+      isFinalizingSaleRef.current = false;
+      setIsFinalizingSale(false);
     }
   };
 
@@ -2793,6 +2845,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   };
 
   const handleCheckout = async () => {
+    if (isFinalizingSale) return;
     if (Math.abs(cartTotal - totalPaid) > 0.01) return alert('Pagamento incompleto!');
     if (!selectedClient && !isFinalConsumer) return alert('Identifique o cliente!');
     await finalizeSale();
@@ -2927,7 +2980,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     const normalizedMessage = normalizeSearchText(rawMessage);
     const isMissingClass =
       normalizedMessage.includes('turma e obrigatoria') ||
-      rawMessage.toLowerCase().includes('turma Ã© obrigat');
+      rawMessage.toLowerCase().includes('turma ? obrigat');
 
     if (isMissingClass && selectedClient && String(selectedClient.type || '').toUpperCase() === 'ALUNO') {
       const intent = {
@@ -3011,8 +3064,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     const isPaymentIncomplete = remainingToPay > 0.01;
     const noClientIdentified = !selectedClient && !isFinalConsumer;
     const clientIsBlocked = selectedClient?.isBlocked || false;
-    return isCartEmpty || isPaymentIncomplete || noClientIdentified || clientIsBlocked;
-  }, [cart, remainingToPay, selectedClient, isFinalConsumer]);
+    return isCartEmpty || isPaymentIncomplete || noClientIdentified || clientIsBlocked || isFinalizingSale;
+  }, [cart, remainingToPay, selectedClient, isFinalConsumer, isFinalizingSale]);
 
   const serviceActionAmountNumeric = useMemo(() => {
     const parsed = Number(String(serviceActionAmount || '').replace(',', '.'));
@@ -3581,7 +3634,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                               </div>
                             ) : item.serviceAction === 'CREDIT_STUDENT_PLAN' && item.planUnitPrice ? (
                               <p className="text-xs font-black mt-1">
-                                <span className="text-indigo-600">{item.planSelectedCount ?? item.quantity}x</span>
+                                  <span className="text-indigo-600">{(item.planSelectedCount ?? item.quantity)}x</span>
                                 <span className="text-gray-400 mx-1">•</span>
                                 <span className="text-emerald-600">R$ {Number(item.planUnitPrice).toFixed(2)}</span>
                               </p>
@@ -3814,7 +3867,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                 className={`py-3 rounded-xl font-black transition-all text-xs uppercase ${
                   isFinalizeDisabled ? 'bg-gray-800 text-gray-600 cursor-not-allowed' : 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40 hover:bg-indigo-700 active:scale-95'
                 }`}
-              >Finalizar</button>
+              >{isFinalizingSale ? 'Finalizando...' : 'Finalizar'}</button>
             </div>
           </div>
         </div>

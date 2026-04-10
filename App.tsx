@@ -84,7 +84,7 @@ const App: React.FC = () => {
         setNeedsSetup(response.needsSetup);
       } catch (err) {
         console.error('Erro ao verificar setup:', err);
-        setNeedsSetup(false); // Assume que jÃ¡ estÃ¡ configurado em caso de erro
+        setNeedsSetup(false); // Assume que j? est? configurado em caso de erro
       }
     };
     checkSetup();
@@ -132,7 +132,7 @@ const App: React.FC = () => {
 
         setActiveEnterprise(parsedEnterprise);
       } catch (err) {
-        console.error('Erro ao restaurar sessÃ£o:', err);
+        console.error('Erro ao restaurar sess?o:', err);
         ApiService.clearToken();
         localStorage.removeItem(AUTH_USER_STORAGE_KEY);
         localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
@@ -165,8 +165,8 @@ const App: React.FC = () => {
         window.location.hash = '#/';
       }
       notificationService.critico(
-        'SessÃ£o expirada',
-        'Sua sessÃ£o expirou. FaÃ§a login novamente.'
+        'Sess?o expirada',
+        'Sua sess?o expirou. Fa?a login novamente.'
       );
     };
     window.addEventListener('canteen:session-expired', onSessionExpired);
@@ -194,7 +194,7 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // Recarregar empresas quando usuÃ¡rio autenticado nÃ£o tiver empresa selecionada
+  // Recarregar empresas quando usu?rio autenticado n?o tiver empresa selecionada
   useEffect(() => {
     const loadEnterprises = async () => {
       const shouldLoadOwnerList = isAuthenticated
@@ -226,14 +226,14 @@ const App: React.FC = () => {
 
   const handleLogin = async (user: User) => {
     try {
-      // UsuÃ¡rio jÃ¡ foi autenticado em LoginPage, apenas atualiza estado
+      // Usu?rio j? foi autenticado em LoginPage, apenas atualiza estado
       setCurrentUser(user);
       setIsAuthenticated(true);
       setActiveEnterprise(null);
       localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user));
       localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
       
-      // Para SUPERADMIN, nÃ£o precisa de activeEnterprise
+      // Para SUPERADMIN, n?o precisa de activeEnterprise
       if (isSuperAdminRole(String(user.role))) {
         return;
       }
@@ -242,17 +242,17 @@ const App: React.FC = () => {
       const enterprises = await ApiService.getEnterprises();
       setAvailableEnterprises(enterprises);
       
-      // Se tem enterpriseIds especÃ­ficos, usa o primeiro
+      // Se tem enterpriseIds espec?ficos, usa o primeiro
       if (user.enterpriseIds && user.enterpriseIds.length > 0) {
         const ent = enterprises.find((e: any) => e.id === user.enterpriseIds?.[0]);
         if (ent) setActiveEnterprise(ent);
       } 
-      // Se Ã© OWNER, NÃƒO auto-seleciona - deixa ele escolher via modal
+      // Se ? OWNER, NÃƒO auto-seleciona - deixa ele escolher via modal
       else if (user.role === 'OWNER') {
-        // NÃ£o seta activeEnterprise, o modal serÃ¡ mostrado quando necessÃ¡rio
+        // N?o seta activeEnterprise, o modal ser? mostrado quando necess?rio
         setActiveEnterprise(null);
       }
-      // Para outros usuÃ¡rios sem empresa, carrega a primeira disponÃ­vel
+      // Para outros usu?rios sem empresa, carrega a primeira dispon?vel
       else if (enterprises.length > 0) {
         setActiveEnterprise(enterprises[0]);
       }
@@ -458,10 +458,10 @@ const AppContent: React.FC<any> = (props) => {
   const collaboratorSidebarLabel = 'FUNC.ESCOLA';
   const studentsSidebarLabel = 'ALUNOS';
 
-  // Verificar se estÃ¡ na pÃ¡gina de enterprises
+  // Verificar se est? na p?gina de enterprises
   const isOnEnterprisesPage = location.pathname === '/enterprises';
   
-  // Redirecionar usuÃ¡rios RESPONSAVEL, COLABORADOR e CLIENTE para /portal
+  // Redirecionar usu?rios RESPONSAVEL, COLABORADOR e CLIENTE para /portal
   const isPortalUser = currentUser?.role === 'RESPONSAVEL' || currentUser?.role === 'COLABORADOR' || currentUser?.role === 'CLIENTE';
   React.useEffect(() => {
     if (isAuthenticated && isPortalUser && !location.pathname.startsWith('/portal')) {
@@ -476,8 +476,8 @@ const AppContent: React.FC<any> = (props) => {
     const hasLinkedEnterprise = Array.isArray(currentUser.enterpriseIds) && currentUser.enterpriseIds.length > 0;
     if (!hasLinkedEnterprise && location.pathname !== '/enterprises') {
       notificationService.alerta(
-        'ConfiguraÃ§Ã£o inicial necessÃ¡ria',
-        'Cadastre sua primeira unidade para concluir a configuraÃ§Ã£o da conta.'
+        'Configura??o inicial necess?ria',
+        'Cadastre sua primeira unidade para concluir a configura??o da conta.'
       );
       navigate('/enterprises');
     }
@@ -564,16 +564,16 @@ const AppContent: React.FC<any> = (props) => {
                 {trialBanner.daysLeft > 0 ? (
                   <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide">
                     {trialBanner.daysLeft <= 3
-                      ? `AtenÃ§Ã£o: seu perÃ­odo de teste termina em ${trialBanner.daysLeft} dia${trialBanner.daysLeft === 1 ? '' : 's'}. Renove agora para nÃ£o ficar sem acesso.`
-                      : `Seu perÃ­odo de teste termina em ${trialBanner.daysLeft} dia${trialBanner.daysLeft === 1 ? '' : 's'}. Renove para nÃ£o ficar sem acesso.`}
+                      ? `Aten??o: seu per?odo de teste termina em ${trialBanner.daysLeft} dia${trialBanner.daysLeft === 1 ? '' : 's'}. Renove agora para n?o ficar sem acesso.`
+                      : `Seu per?odo de teste termina em ${trialBanner.daysLeft} dia${trialBanner.daysLeft === 1 ? '' : 's'}. Renove para n?o ficar sem acesso.`}
                   </p>
                 ) : trialBanner.daysLeft === 0 ? (
                   <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide">
-                    Seu perÃ­odo de teste termina hoje. Renove agora para nÃ£o ficar sem acesso.
+                    Seu per?odo de teste termina hoje. Renove agora para n?o ficar sem acesso.
                   </p>
                 ) : (
                   <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide">
-                    Seu perÃ­odo de teste expirou hÃ¡ {Math.abs(trialBanner.daysLeft)} dia{Math.abs(trialBanner.daysLeft) === 1 ? '' : 's'}. Renove para evitar bloqueio de acesso.
+                    Seu per?odo de teste expirou h? {Math.abs(trialBanner.daysLeft)} dia{Math.abs(trialBanner.daysLeft) === 1 ? '' : 's'}. Renove para evitar bloqueio de acesso.
                   </p>
                 )}
               </div>
@@ -738,7 +738,7 @@ const AppContent: React.FC<any> = (props) => {
               </nav>
 
               <div className="px-2 py-1.5 border-t border-slate-800/50 dark:border-white/5 space-y-1">
-                {/* BotÃ£o para trocar unidade (apenas para OWNER) */}
+                {/* Bot?o para trocar unidade (apenas para OWNER) */}
                 {isOwner && (
                   <button 
                     onClick={() => {
@@ -908,7 +908,7 @@ const AppContent: React.FC<any> = (props) => {
           </>
         )}
 
-        {/* Modal de SeleÃ§Ã£o de Empresa para OWNER */}
+        {/* Modal de Sele??o de Empresa para OWNER */}
         {isAuthenticated && isOwner && (showEnterpriseSelector || (!activeEnterprise && !isOnEnterprisesPage)) && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-2xl w-full shadow-2xl border border-slate-200 dark:border-slate-700 animate-in zoom-in-95 duration-200">
@@ -919,7 +919,7 @@ const AppContent: React.FC<any> = (props) => {
                 </div>
                 <div>
                   <h3 className="text-xl font-black text-gray-800 dark:text-slate-100">{showEnterpriseSelector ? 'Trocar Unidade' : 'Selecione uma Unidade'}</h3>
-                  <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Escolha qual unidade vocÃª deseja acessar</p>
+                  <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Escolha qual unidade voc? deseja acessar</p>
                 </div>
                 </div>
                 {activeEnterprise && (
@@ -941,7 +941,7 @@ const AppContent: React.FC<any> = (props) => {
                   </div>
                   <h4 className="text-lg font-black text-gray-800 dark:text-slate-100 mb-2">Nenhuma Unidade Cadastrada</h4>
                   <p className="text-sm text-gray-600 dark:text-slate-300 mb-6">
-                    VocÃª ainda nÃ£o possui nenhuma unidade cadastrada no sistema.
+                    Voc? ainda n?o possui nenhuma unidade cadastrada no sistema.
                   </p>
                   <Link
                     to="/enterprises"
@@ -976,7 +976,7 @@ const AppContent: React.FC<any> = (props) => {
                             <h4 className="text-base font-black text-gray-800 dark:text-slate-100">{enterprise.name}</h4>
                             <p className="text-xs text-gray-500 dark:text-slate-400 font-bold uppercase tracking-wider">
                               {enterprise.type === 'RESTAURANTE' ? 'Restaurante' : 'Cantina'}
-                              {enterprise.attachedSchoolName && ` â€¢ ${enterprise.attachedSchoolName}`}
+                              {enterprise.attachedSchoolName && ` ? ${enterprise.attachedSchoolName}`}
                             </p>
                           </div>
                           <Check className="text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity" size={20} />

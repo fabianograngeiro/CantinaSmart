@@ -58,6 +58,7 @@ interface DatabaseShape {
     dispatchAutomationsByEnterprise?: Record<string, any>;
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
+    dispatchIdempotencyByEnterprise?: Record<string, any[]>;
     sessionBoundEnterpriseId?: string;
     sessionBoundAt?: string;
     updatedAt?: string;
@@ -134,6 +135,7 @@ export class Database {
     dispatchAutomationsByEnterprise?: Record<string, any>;
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
+    dispatchIdempotencyByEnterprise?: Record<string, any[]>;
     sessionBoundEnterpriseId?: string;
     sessionBoundAt?: string;
     updatedAt?: string;
@@ -2493,6 +2495,7 @@ export class Database {
     dispatchAutomationsByEnterprise?: Record<string, any>;
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
+    dispatchIdempotencyByEnterprise?: Record<string, any[]>;
     sessionBoundEnterpriseId?: string;
     sessionBoundAt?: string;
   }) {
@@ -2820,8 +2823,9 @@ export class Database {
   updateClient(id: string, data: any) {
     const index = this.clients.findIndex(c => c.id === id);
     if (index > -1) {
+      const nowIso = new Date().toISOString();
       this.clients[index] = this.normalizeClientPlanBalances(
-        this.normalizeContactFields({ ...this.clients[index], ...data })
+        this.normalizeContactFields({ ...this.clients[index], ...data, updatedAt: nowIso })
       );
       const updatedClient = this.clients[index];
       const isCollaborator = String(updatedClient?.type || '').trim().toUpperCase() === 'COLABORADOR';
@@ -3595,7 +3599,7 @@ export class Database {
 
     this.transactions.push(newTransaction);
 
-    // Se for crÃ©dito de plano com datas selecionadas, persistir agenda no aluno
+    // Se for cr?dito de plano com datas selecionadas, persistir agenda no aluno
     const isPlanCredit = normalizedType === 'CREDIT' || normalizedType === 'CREDITO';
     if (isPlanCredit) {
       const clientId = String(newTransaction?.clientId || '').trim();
@@ -3647,7 +3651,7 @@ export class Database {
       }
     }
 
-    // Consumos retroativos vinculados ao crÃ©dito do plano (datas jÃ¡ passadas)
+    // Consumos retroativos vinculados ao cr?dito do plano (datas j? passadas)
     if (isPlanCredit) {
       const retroDatesFromPayload: string[] = Array.isArray((newTransaction as any)?.retroactiveConsumedDates)
         ? (newTransaction as any).retroactiveConsumedDates
@@ -3779,7 +3783,7 @@ export class Database {
       }
     }
 
-    // Recalcula saldos/agenda de planos para refletir novos crÃ©ditos/consumos
+    // Recalcula saldos/agenda de planos para refletir novos cr?ditos/consumos
     this.clients = this.clients.map((client) => {
       const normalized = this.normalizeClientPlanBalances(client);
       const rebuilt = this.rebuildClientPlanBalancesFromTransactions(normalized);
@@ -3953,7 +3957,7 @@ export class Database {
       return Boolean(txId) && idsToDelete.has(txId);
     });
 
-    // CrÃ©ditos de plano com datas selecionadas: usado para remover agendamentos pendentes
+    // Cr?ditos de plano com datas selecionadas: usado para remover agendamentos pendentes
     const planCreditDatesByClient = new Map<string, Array<{ planId: string; planToken: string; dates: Set<string> }>>();
     removedTransactions.forEach((tx: any) => {
       const txType = this.normalizeToken(tx?.type);
