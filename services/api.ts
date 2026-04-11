@@ -1274,8 +1274,12 @@ export class ApiService {
     return response.json();
   }
 
-  static async downloadDatabaseBackup(): Promise<{ blob: Blob; filename: string }> {
-    const response = await fetch(`${API_URL}/system/backup`, {
+  static async downloadDatabaseBackup(options?: { scope?: 'GLOBAL' | 'REDE' | 'UNIDADE'; enterpriseId?: string; includeProductImages?: boolean }): Promise<{ blob: Blob; filename: string }> {
+    const response = await fetch(this.buildApiUrl('/system/backup', {
+      scope: String(options?.scope || '').trim() || undefined,
+      enterpriseId: String(options?.enterpriseId || '').trim() || undefined,
+      includeProductImages: options?.includeProductImages === false ? 'false' : undefined,
+    }), {
       headers: this.getHeaders(),
     });
 

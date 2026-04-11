@@ -1544,6 +1544,103 @@ export class Database {
   private normalizeIncomingData(raw: any): DatabaseShape {
     const safeRaw = raw && typeof raw === 'object' ? raw : {};
     const ensureArray = (value: any) => (Array.isArray(value) ? value : []);
+    const normalizeToken = (value: any) =>
+      String(value || '')
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase();
+    const normalizePhone = (value: any) => String(value || '').replace(/\D/g, '');
+    const parseClientTimestamp = (client: any) => {
+      const parsed = Date.parse(String(client?.updatedAt || client?.createdAt || ''));
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const buildStudentIdentityKey = (client: any) => {
+      const type = normalizeToken(client?.type);
+      if (type !== 'ALUNO') return '';
+
+      const enterpriseId = String(client?.enterpriseId || '').trim();
+      const registrationId = normalizeToken(client?.registrationId);
+      const name = normalizeToken(client?.name);
+      const phone = normalizePhone(client?.phone || client?.parentWhatsapp || '');
+
+      // Matricula is authoritative when present. Fallback to name+phone.
+      if (registrationId) return [enterpriseId, 'REG', registrationId].join('|');
+      if (name && phone) return [enterpriseId, 'NAME_PHONE', name, phone].join('|');
+      return '';
+    };
+    const resolveCanonicalClientId = (candidateId: string, remap: Map<string, string>) => {
+      let current = String(candidateId || '').trim();
+      const visited = new Set<string>();
+      while (current && remap.has(current) && !visited.has(current)) {
+        visited.add(current);
+        current = String(remap.get(current) || '').trim();
+      }
+      return current;
+    };
+
+    const rawClients = ensureArray(safeRaw.clients);
+    const rawTransactions = ensureArray(safeRaw.transactions);
+    const rawOrders = ensureArray(safeRaw.orders);
+    const duplicateGroups = new Map<string, any[]>();
+    rawClients.forEach((client: any) => {
+      const key = buildStudentIdentityKey(client);
+      if (!key) return;
+      if (!duplicateGroups.has(key)) duplicateGroups.set(key, []);
+      duplicateGroups.get(key)?.push(client);
+    });
+
+    const removedClientIdToCanonicalId = new Map<string, string>();
+    const canonicalByIdentityKey = new Map<string, string>();
+    for (const [key, group] of duplicateGroups.entries()) {
+      if (!Array.isArray(group) || group.length <= 1) continue;
+      const sorted = [...group].sort((a: any, b: any) => parseClientTimestamp(b) - parseClientTimestamp(a));
+      const winner = sorted[0];
+      const winnerId = String(winner?.id || '').trim();
+      if (!winnerId) continue;
+
+      canonicalByIdentityKey.set(key, winnerId);
+      sorted.slice(1).forEach((client: any) => {
+        const loserId = String(client?.id || '').trim();
+        if (!loserId || loserId === winnerId) return;
+        removedClientIdToCanonicalId.set(loserId, winnerId);
+      });
+    }
+
+    const dedupedClients: any[] = [];
+    const seenClientIds = new Set<string>();
+    rawClients.forEach((client: any) => {
+      const clientId = String(client?.id || '').trim();
+      const identityKey = buildStudentIdentityKey(client);
+      const canonicalId = identityKey ? String(canonicalByIdentityKey.get(identityKey) || '').trim() : '';
+      if (identityKey && canonicalId && clientId && clientId !== canonicalId) return;
+      if (clientId && seenClientIds.has(clientId)) return;
+      if (clientId) seenClientIds.add(clientId);
+      dedupedClients.push(client);
+    });
+
+    const remappedTransactions = rawTransactions.map((item: any) => {
+      const currentClientId = String(item?.clientId || '').trim();
+      if (!currentClientId) return item;
+      const canonicalClientId = resolveCanonicalClientId(currentClientId, removedClientIdToCanonicalId);
+      if (!canonicalClientId || canonicalClientId === currentClientId) return item;
+      return {
+        ...item,
+        clientId: canonicalClientId,
+      };
+    });
+
+    const remappedOrders = rawOrders.map((item: any) => {
+      const currentClientId = String(item?.clientId || '').trim();
+      if (!currentClientId) return item;
+      const canonicalClientId = resolveCanonicalClientId(currentClientId, removedClientIdToCanonicalId);
+      if (!canonicalClientId || canonicalClientId === currentClientId) return item;
+      return {
+        ...item,
+        clientId: canonicalClientId,
+      };
+    });
+
     const rawVersion = Number(safeRaw.schemaVersion);
     const detectedVersion = Number.isFinite(rawVersion) && rawVersion > 0
       ? Math.trunc(rawVersion)
@@ -1555,11 +1652,11 @@ export class Database {
       users: ensureArray(safeRaw.users),
       products: ensureArray(safeRaw.products),
       categories: ensureArray(safeRaw.categories),
-      clients: ensureArray(safeRaw.clients),
+      clients: dedupedClients,
       plans: ensureArray(safeRaw.plans),
       suppliers: ensureArray(safeRaw.suppliers),
-      transactions: ensureArray(safeRaw.transactions),
-      orders: ensureArray(safeRaw.orders),
+      transactions: remappedTransactions,
+      orders: remappedOrders,
       ingredients: ensureArray(safeRaw.ingredients),
       errorTickets: ensureArray((safeRaw as any).errorTickets),
       financialEntries: ensureArray((safeRaw as any).financialEntries),
