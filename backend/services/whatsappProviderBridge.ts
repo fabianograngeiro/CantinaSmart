@@ -336,6 +336,42 @@ const buildSendPayload = (config: WhatsAppExternalProviderConfig, target: string
   };
 };
 
+const UAZAPI_MAX_PRESENCE_DELAY_MS = 300000;
+const UAZAPI_DEFAULT_PRESENCE_DELAY_MS = 30000;
+
+const resolvePresenceDelayMs = (commonFields: Record<string, unknown>) => {
+  const raw = Number((commonFields as any)?.delay);
+  if (!Number.isFinite(raw) || raw <= 0) return UAZAPI_DEFAULT_PRESENCE_DELAY_MS;
+  return Math.max(1000, Math.min(UAZAPI_MAX_PRESENCE_DELAY_MS, Math.floor(raw)));
+};
+
+const shouldSkipPresenceTarget = (target: string) => {
+  const normalized = String(target || '').trim().toLowerCase();
+  if (!normalized) return true;
+  if (normalized.includes('@newsletter')) return true;
+  return false;
+};
+
+const triggerUazapiPresenceUpdate = async (config: WhatsAppExternalProviderConfig, target: string, presence: 'composing' | 'recording' | 'paused' = 'composing') => {
+  const providerCode = String(config.providerCode || '').trim().toUpperCase();
+  if (providerCode !== 'UAZAPI') return;
+  if (shouldSkipPresenceTarget(target)) return;
+
+  const commonFields = normalizeObjectRecord(config.commonFields, {});
+  const delay = resolvePresenceDelayMs(commonFields);
+
+  await callExternalEndpoint(
+    config,
+    'POST',
+    '/message/presence',
+    {
+      number: normalizeExternalTarget(providerCode, target),
+      presence,
+      delay,
+    }
+  );
+};
+
 const resolveMediaFileValue = (base64Data: string, mimeType?: string) => {
   const raw = String(base64Data || '').trim();
   if (!raw) return '';
@@ -403,6 +439,8 @@ export const sendByConfiguredProvider = async (params: {
     };
   }
 
+  void triggerUazapiPresenceUpdate(config.external, normalizedPhone, 'composing').catch(() => {});
+
   const response = await callExternalEndpoint(
     config.external,
     config.external.sendMethod,
@@ -451,6 +489,7 @@ export const sendBulkByConfiguredProvider = async (params: {
     const results: Array<{ success: boolean; phone: string; messageId?: string; payload?: unknown; error?: string }> = [];
     for (const target of recipients) {
       try {
+        void triggerUazapiPresenceUpdate(config.external, target, 'composing').catch(() => {});
         const sent = await callExternalEndpoint(
           config.external,
           config.external.sendMethod,
@@ -544,6 +583,8 @@ export const sendMediaByConfiguredProvider = async (params: {
       result: null,
     };
   }
+
+  void triggerUazapiPresenceUpdate(config.external, String(params.target || ''), 'composing').catch(() => {});
 
   const response = await callExternalEndpoint(
     config.external,
