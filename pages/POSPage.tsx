@@ -12,6 +12,7 @@ import {
   ArrowLeft, ChevronDown, Plus
 } from 'lucide-react';
 import { ApiService } from '../services/api';
+import UnitSalesTransactionsPage from './UnitSalesTransactionsPage';
 import { Client, Product, SaleItem, PaymentMethod, PaymentEntry, SuspendedSale, Role, User as UserType, Enterprise, TransactionRecord, Plan } from '../types';
 import { resolveUserAvatar } from '../utils/avatar';
 import { extractSchoolCalendarOperationalData } from '../utils/schoolCalendar';
@@ -463,6 +464,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
   // Estado de pagamento split inline (sem modal)
   const [isServiceActionModalOpen, setIsServiceActionModalOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [serviceActionType, setServiceActionType] = useState<'CREDIT_STUDENT' | 'PAY_COLLAB' | null>(null);
   const [serviceActionAmount, setServiceActionAmount] = useState<string>('');
   const [activeSplitMethod, setActiveSplitMethod] = useState<PaymentMethod | null>(null);
@@ -3512,6 +3514,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                    >
                      Pagar Consumo MÃªs
                    </button>
+                    <button
+                      onClick={() => setIsHistoryModalOpen(true)}
+                      className="w-full px-2 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest bg-indigo-600 text-white hover:bg-indigo-700 transition-all"
+                    >
+                      HISTORICO
+                    </button>
                  </div>
                </div>
                {selectedClient.type !== 'COLABORADOR' && (
@@ -3869,6 +3877,33 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           </div>
         </div>
       </div>
+
+      {isHistoryModalOpen && (
+        <div className="fixed inset-0 z-[120] bg-black/55 backdrop-blur-sm p-3 md:p-6">
+          <div className="w-full h-full bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+            <div className="h-12 px-4 border-b bg-slate-50 flex items-center justify-between">
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-600">
+                Histórico de Compras
+              </p>
+              <button
+                type="button"
+                onClick={() => setIsHistoryModalOpen(false)}
+                className="h-8 w-8 rounded-lg border border-slate-200 text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-all flex items-center justify-center"
+                aria-label="Fechar histórico"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-auto">
+              <UnitSalesTransactionsPage
+                activeEnterprise={activeEnterprise}
+                transactions={(Array.isArray(posTransactions) ? posTransactions : []) as any}
+                currentUser={currentUser}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {isQuickClientModalOpen && (
         <div className="fixed inset-0 z-[102] flex items-center justify-center p-4 overflow-y-auto">
