@@ -75,6 +75,7 @@ type WhatsAppProviderConfigState = {
     sendMethod: ExternalProviderHttpMethod;
     bulkPath: string;
     bulkMethod: ExternalProviderHttpMethod;
+    commonFieldsJson: string;
   };
 };
 
@@ -734,6 +735,7 @@ const getDefaultWhatsAppProviderConfig = (): WhatsAppProviderConfigState => ({
     sendMethod: 'POST',
     bulkPath: '/message/send-bulk',
     bulkMethod: 'POST',
+    commonFieldsJson: '{}',
   },
 });
 
@@ -1345,11 +1347,13 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     try {
       const result = await ApiService.getWhatsAppProviderConfig();
       const incoming = result?.config && typeof result.config === 'object' ? result.config : {};
+      const incomingProviderCode = String(incoming?.external?.providerCode || 'CUSTOM').trim().toUpperCase() || 'CUSTOM';
+      const useUazapiDefaults = incomingProviderCode === 'UAZAPI';
       setProviderConfig({
         mode: String(incoming.mode || '').toUpperCase() === 'EXTERNAL' ? 'EXTERNAL' : 'NATIVE',
         external: {
           enabled: Boolean(incoming?.external?.enabled),
-          providerCode: String(incoming?.external?.providerCode || 'CUSTOM').trim().toUpperCase() || 'CUSTOM',
+          providerCode: incomingProviderCode,
           baseUrl: String(incoming?.external?.baseUrl || '').trim(),
           subdomain: String(incoming?.external?.subdomain || '').trim(),
           token: '',
@@ -1363,18 +1367,28 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
             : String(incoming?.external?.testMethod || 'POST').toUpperCase() === 'PUT'
               ? 'PUT'
               : 'POST',
-          sendPath: String(incoming?.external?.sendPath || '/message/send').trim() || '/message/send',
+          sendPath: String(incoming?.external?.sendPath || (useUazapiDefaults ? '/send/text' : '/message/send')).trim() || (useUazapiDefaults ? '/send/text' : '/message/send'),
           sendMethod: String(incoming?.external?.sendMethod || 'POST').toUpperCase() === 'GET'
             ? 'GET'
             : String(incoming?.external?.sendMethod || 'POST').toUpperCase() === 'PUT'
               ? 'PUT'
               : 'POST',
-          bulkPath: String(incoming?.external?.bulkPath || '/message/send-bulk').trim() || '/message/send-bulk',
+          bulkPath: String(incoming?.external?.bulkPath || (useUazapiDefaults ? '/send/text' : '/message/send-bulk')).trim() || (useUazapiDefaults ? '/send/text' : '/message/send-bulk'),
           bulkMethod: String(incoming?.external?.bulkMethod || 'POST').toUpperCase() === 'GET'
             ? 'GET'
             : String(incoming?.external?.bulkMethod || 'POST').toUpperCase() === 'PUT'
               ? 'PUT'
               : 'POST',
+          commonFieldsJson: (() => {
+            try {
+              const safeObj = incoming?.external?.commonFields && typeof incoming.external.commonFields === 'object'
+                ? incoming.external.commonFields
+                : {};
+              return JSON.stringify(safeObj, null, 2);
+            } catch {
+              return '{}';
+            }
+          })(),
         },
       });
     } catch (err) {
@@ -1386,6 +1400,17 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const handleSaveProviderConfig = async () => {
     setIsSavingProviderConfig(true);
     try {
+      let parsedCommonFields: Record<string, unknown> = {};
+      try {
+        const raw = String(providerConfig.external.commonFieldsJson || '{}').trim() || '{}';
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('Campos comuns devem ser um objeto JSON.');
+        }
+        parsedCommonFields = parsed as Record<string, unknown>;
+      } catch (parseErr) {
+        throw new Error(parseErr instanceof Error ? parseErr.message : 'JSON inválido em campos comuns.');
+      }
       const payload = {
         mode: providerConfig.mode,
         external: {
@@ -1402,6 +1427,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           sendMethod: providerConfig.external.sendMethod,
           bulkPath: providerConfig.external.bulkPath,
           bulkMethod: providerConfig.external.bulkMethod,
+          commonFields: parsedCommonFields,
         },
       };
       await ApiService.saveWhatsAppProviderConfig(payload);
@@ -8487,6 +8513,12 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                               external: {
                                 ...prev.external,
                                 providerCode: String(e.target.value || '').toUpperCase(),
+                                sendPath: String(e.target.value || '').toUpperCase() === 'UAZAPI'
+                                  ? '/send/text'
+                                  : prev.external.sendPath,
+                                bulkPath: String(e.target.value || '').toUpperCase() === 'UAZAPI'
+                                  ? '/send/text'
+                                  : prev.external.bulkPath,
                               },
                             }))}
                             className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
@@ -8629,6 +8661,22 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             }))}
                             className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
                             placeholder="/message/send-bulk"
+                          />
+                        </label>
+                        <label className="md:col-span-2 space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Campos comuns JSON (delay, readchat, readmessages, replyid, mentions, forward, track_source, track_id, placeholders)</span>
+                          <textarea
+                            value={providerConfig.external.commonFieldsJson}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                commonFieldsJson: e.target.value,
+                              },
+                            }))}
+                            rows={6}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-xs font-mono"
+                            placeholder="{\n  \"delay\": 1000,\n  \"readchat\": true\n}"
                           />
                         </label>
                       </div>

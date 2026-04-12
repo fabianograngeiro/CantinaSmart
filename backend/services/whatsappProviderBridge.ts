@@ -18,6 +18,7 @@ export type WhatsAppExternalProviderConfig = {
   sendMethod: ExternalProviderHttpMethod;
   bulkPath: string;
   bulkMethod: ExternalProviderHttpMethod;
+  commonFields: Record<string, unknown>;
 };
 
 export type WhatsAppProviderConfig = {
@@ -46,6 +47,7 @@ const DEFAULT_EXTERNAL_CONFIG: WhatsAppExternalProviderConfig = {
   sendMethod: 'POST',
   bulkPath: '/message/send-bulk',
   bulkMethod: 'POST',
+  commonFields: {},
 };
 
 const DEFAULT_PROVIDER_CONFIG: WhatsAppProviderConfig = {
@@ -66,6 +68,11 @@ const normalizePath = (value: unknown, fallback: string) => {
   return text.startsWith('/') ? text : `/${text}`;
 };
 
+const normalizeObjectRecord = (value: unknown, fallback: Record<string, unknown>) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return fallback;
+  return value as Record<string, unknown>;
+};
+
 const normalizeExternalConfig = (value: any, existing?: WhatsAppExternalProviderConfig): WhatsAppExternalProviderConfig => {
   const safeExisting = existing || DEFAULT_EXTERNAL_CONFIG;
   const incoming = value && typeof value === 'object' ? value : {};
@@ -73,9 +80,13 @@ const normalizeExternalConfig = (value: any, existing?: WhatsAppExternalProvider
   const incomingToken = String(incoming.token || '').trim();
   const resolvedToken = incomingToken || String(safeExisting.token || '').trim();
 
+  const providerCode = String(incoming.providerCode || safeExisting.providerCode || 'CUSTOM').trim().toUpperCase() || 'CUSTOM';
+  const defaultSendPath = providerCode === 'UAZAPI' ? '/send/text' : DEFAULT_EXTERNAL_CONFIG.sendPath;
+  const defaultBulkPath = providerCode === 'UAZAPI' ? '/send/text' : DEFAULT_EXTERNAL_CONFIG.bulkPath;
+
   return {
     enabled: incoming.enabled !== undefined ? Boolean(incoming.enabled) : Boolean(safeExisting.enabled),
-    providerCode: String(incoming.providerCode || safeExisting.providerCode || 'CUSTOM').trim().toUpperCase() || 'CUSTOM',
+    providerCode,
     baseUrl: String(incoming.baseUrl || safeExisting.baseUrl || '').trim().replace(/\/+$/, ''),
     subdomain: String(incoming.subdomain || safeExisting.subdomain || '').trim(),
     token: resolvedToken,
@@ -83,10 +94,11 @@ const normalizeExternalConfig = (value: any, existing?: WhatsAppExternalProvider
     tokenPrefix: String(incoming.tokenPrefix || safeExisting.tokenPrefix || 'Bearer').trim(),
     testPath: normalizePath(incoming.testPath, safeExisting.testPath || DEFAULT_EXTERNAL_CONFIG.testPath),
     testMethod: normalizeMethod(incoming.testMethod, safeExisting.testMethod || DEFAULT_EXTERNAL_CONFIG.testMethod),
-    sendPath: normalizePath(incoming.sendPath, safeExisting.sendPath || DEFAULT_EXTERNAL_CONFIG.sendPath),
+    sendPath: normalizePath(incoming.sendPath, safeExisting.sendPath || defaultSendPath),
     sendMethod: normalizeMethod(incoming.sendMethod, safeExisting.sendMethod || DEFAULT_EXTERNAL_CONFIG.sendMethod),
-    bulkPath: normalizePath(incoming.bulkPath, safeExisting.bulkPath || DEFAULT_EXTERNAL_CONFIG.bulkPath),
+    bulkPath: normalizePath(incoming.bulkPath, safeExisting.bulkPath || defaultBulkPath),
     bulkMethod: normalizeMethod(incoming.bulkMethod, safeExisting.bulkMethod || DEFAULT_EXTERNAL_CONFIG.bulkMethod),
+    commonFields: normalizeObjectRecord(incoming.commonFields, normalizeObjectRecord(safeExisting.commonFields, {})),
   };
 };
 
@@ -285,13 +297,45 @@ const extractMessageId = (payload: any) => {
   return '';
 };
 
+const normalizeExternalTarget = (providerCode: string, rawTarget: string) => {
+  const target = String(rawTarget || '').trim();
+  if (!target) return '';
+  const lowered = target.toLowerCase();
+  if (providerCode === 'UAZAPI' && (lowered.includes('@newsletter') || lowered.includes('@g.us') || lowered.includes('@c.us'))) {
+    return target;
+  }
+  return target.replace(/\D/g, '');
+};
+
+const buildSendPayload = (config: WhatsAppExternalProviderConfig, target: string, text: string) => {
+  const providerCode = String(config.providerCode || '').trim().toUpperCase();
+  const normalizedTarget = normalizeExternalTarget(providerCode, target);
+  const safeText = String(text || '');
+  const commonFields = normalizeObjectRecord(config.commonFields, {});
+
+  if (providerCode === 'UAZAPI') {
+    return {
+      ...commonFields,
+      number: normalizedTarget,
+      text: safeText,
+    };
+  }
+
+  return {
+    ...commonFields,
+    subdomain: config.subdomain,
+    phone: normalizedTarget,
+    message: safeText,
+  };
+};
+
 export const sendByConfiguredProvider = async (params: {
   enterpriseId: string;
   phone: string;
   message: string;
 }) => {
   const config = getEnterpriseProviderConfig(params.enterpriseId);
-  const normalizedPhone = String(params.phone || '').replace(/\D/g, '');
+  const normalizedPhone = normalizeExternalTarget(config.external.providerCode, String(params.phone || ''));
   const normalizedMessage = String(params.message || '');
 
   if (config.mode !== 'EXTERNAL' || !config.external.enabled) {
@@ -305,11 +349,7 @@ export const sendByConfiguredProvider = async (params: {
     config.external,
     config.external.sendMethod,
     config.external.sendPath,
-    {
-      subdomain: config.external.subdomain,
-      phone: normalizedPhone,
-      message: normalizedMessage,
-    }
+    buildSendPayload(config.external, normalizedPhone, normalizedMessage)
   );
 
   if (!response.ok) {
@@ -346,14 +386,63 @@ export const sendBulkByConfiguredProvider = async (params: {
   }
 
   const recipients = Array.isArray(params.recipients)
-    ? params.recipients.map((item) => String(item || '').replace(/\D/g, '')).filter(Boolean)
+    ? params.recipients.map((item) => normalizeExternalTarget(config.external.providerCode, String(item || ''))).filter(Boolean)
     : [];
+
+  if (String(config.external.providerCode || '').trim().toUpperCase() === 'UAZAPI') {
+    const results: Array<{ success: boolean; phone: string; messageId?: string; payload?: unknown; error?: string }> = [];
+    for (const target of recipients) {
+      try {
+        const sent = await callExternalEndpoint(
+          config.external,
+          config.external.sendMethod,
+          config.external.sendPath,
+          buildSendPayload(config.external, target, String(params.message || ''))
+        );
+        if (!sent.ok) {
+          const detailText = typeof sent.payload === 'string' ? sent.payload : JSON.stringify(sent.payload);
+          results.push({
+            success: false,
+            phone: target,
+            error: `Falha (${sent.status}): ${detailText || 'erro desconhecido'}`,
+          });
+          continue;
+        }
+        results.push({
+          success: true,
+          phone: target,
+          messageId: extractMessageId(sent.payload),
+          payload: sent.payload,
+        });
+      } catch (err) {
+        results.push({
+          success: false,
+          phone: target,
+          error: err instanceof Error ? err.message : 'falha de envio',
+        });
+      }
+    }
+    const successCount = results.filter((item) => item.success).length;
+    return {
+      handledByExternal: true,
+      result: {
+        success: true,
+        providerMode: 'EXTERNAL',
+        providerCode: config.external.providerCode,
+        total: recipients.length,
+        successCount,
+        failedCount: recipients.length - successCount,
+        results,
+      },
+    };
+  }
 
   const response = await callExternalEndpoint(
     config.external,
     config.external.bulkMethod,
     config.external.bulkPath,
     {
+      ...normalizeObjectRecord(config.external.commonFields, {}),
       subdomain: config.external.subdomain,
       recipients,
       message: String(params.message || ''),
