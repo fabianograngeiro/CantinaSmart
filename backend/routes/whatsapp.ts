@@ -13,6 +13,14 @@ import {
   markDispatchIdempotencySent,
   clearDispatchIdempotencyReservation,
 } from '../services/whatsappIdempotencyService.js';
+import {
+  getEnterpriseProviderConfig,
+  getEnterpriseProviderConfigForView,
+  upsertEnterpriseProviderConfig,
+  testEnterpriseProviderConnection,
+  sendByConfiguredProvider,
+  sendBulkByConfiguredProvider,
+} from '../services/whatsappProviderBridge.js';
 import { db } from '../database.js';
 
 const router = Router();
@@ -753,11 +761,96 @@ router.get('/status', async (_req: Request, res: Response) => {
   const req = _req as AuthRequest;
   const enterpriseId = resolveEnterpriseIdOrReject(req, res);
   if (!enterpriseId) return;
+  const providerConfig = getEnterpriseProviderConfig(enterpriseId);
+  const isExternalConnected = providerConfig.mode === 'EXTERNAL' && providerConfig.external.enabled;
+  const scopedSnapshot = buildScopedSnapshot(enterpriseId) as any;
+  const mergedSnapshot = isExternalConnected
+    ? {
+      ...scopedSnapshot,
+      state: 'CONNECTED',
+      connected: true,
+      qrAvailable: false,
+      qrDataUrl: null,
+      phoneNumber: providerConfig.external.subdomain || scopedSnapshot.phoneNumber,
+      lastError: null,
+      providerMode: providerConfig.mode,
+      providerCode: providerConfig.external.providerCode,
+    }
+    : {
+      ...scopedSnapshot,
+      providerMode: providerConfig.mode,
+      providerCode: providerConfig.external.providerCode,
+    };
   res.json({
     success: true,
     enterpriseId,
-    ...buildScopedSnapshot(enterpriseId)
+    ...mergedSnapshot,
   });
+});
+
+router.get('/provider-config', async (req: AuthRequest, res: Response) => {
+  try {
+    const enterpriseId = resolveEnterpriseIdOrReject(req, res);
+    if (!enterpriseId) return;
+    const config = getEnterpriseProviderConfigForView(enterpriseId);
+    return res.json({
+      success: true,
+      config,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao carregar configuração de provedor WhatsApp.',
+    });
+  }
+});
+
+router.put('/provider-config', async (req: AuthRequest, res: Response) => {
+  try {
+    const enterpriseId = resolveEnterpriseIdOrReject(req, res);
+    if (!enterpriseId) return;
+    const incomingConfig = req.body?.config && typeof req.body.config === 'object' ? req.body.config : null;
+    if (!incomingConfig) {
+      return res.status(400).json({
+        success: false,
+        message: 'config é obrigatório.',
+      });
+    }
+    const requester = req.userId ? db.getUser(String(req.userId || '').trim()) : null;
+    const config = upsertEnterpriseProviderConfig(
+      { enterpriseId },
+      incomingConfig,
+      {
+        userId: String(req.userId || '').trim(),
+        userName: String((requester as any)?.name || '').trim(),
+      }
+    );
+    return res.json({
+      success: true,
+      config,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao salvar configuração de provedor WhatsApp.',
+    });
+  }
+});
+
+router.post('/provider-config/test', async (req: AuthRequest, res: Response) => {
+  try {
+    const enterpriseId = resolveEnterpriseIdOrReject(req, res);
+    if (!enterpriseId) return;
+    const result = await testEnterpriseProviderConnection(enterpriseId);
+    return res.status(result.success ? 200 : 400).json({
+      ...result,
+    });
+  } catch (err) {
+    return res.status(400).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha no teste de conexão do provedor WhatsApp.',
+    });
+  }
 });
 
 router.get('/qr', async (_req: Request, res: Response) => {
@@ -921,7 +1014,14 @@ router.post('/send', async (req: AuthRequest, res: Response) => {
     }
     reservedFingerprint = reservation.fingerprint;
 
-    const result = await whatsappSession.sendMessage(String(phone), String(message));
+    const externalDispatch = await sendByConfiguredProvider({
+      enterpriseId,
+      phone: String(phone),
+      message: String(message),
+    });
+    const result = externalDispatch.handledByExternal
+      ? externalDispatch.result
+      : await whatsappSession.sendMessage(String(phone), String(message));
     markDispatchIdempotencySent({
       enterpriseId,
       fingerprint: reservation.fingerprint,
@@ -967,6 +1067,24 @@ router.post('/send-bulk', async (req: AuthRequest, res: Response) => {
       return res.status(403).json({
         success: false,
         message: `Telefone fora da unidade selecionada: ${String(blockedRecipient)}`,
+      });
+    }
+
+    const externalBulk = await sendBulkByConfiguredProvider({
+      enterpriseId,
+      recipients: list.map((item: any) => String(item || '')),
+      message: String(message),
+    });
+    if (externalBulk.handledByExternal) {
+      const payload = externalBulk.result || {};
+      return res.json({
+        success: true,
+        successCount: Number((payload as any).total || list.length),
+        duplicateCount: 0,
+        total: Number((payload as any).total || list.length),
+        results: Array.isArray((payload as any).results) ? (payload as any).results : [],
+        providerMode: 'EXTERNAL',
+        providerPayload: payload,
       });
     }
 

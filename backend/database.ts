@@ -59,6 +59,7 @@ interface DatabaseShape {
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
     dispatchIdempotencyByEnterprise?: Record<string, any[]>;
+    providerConfigByEnterprise?: Record<string, any>;
     sessionBoundEnterpriseId?: string;
     sessionBoundAt?: string;
     updatedAt?: string;
@@ -93,6 +94,7 @@ const createEmptyDatabase = (): DatabaseShape => ({
   schoolCalendars: [],
   whatsappStore: {
     agendaByEnterprise: {},
+    providerConfigByEnterprise: {},
   },
 });
 
@@ -136,6 +138,7 @@ export class Database {
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
     dispatchIdempotencyByEnterprise?: Record<string, any[]>;
+    providerConfigByEnterprise?: Record<string, any>;
     sessionBoundEnterpriseId?: string;
     sessionBoundAt?: string;
     updatedAt?: string;
@@ -1736,6 +1739,9 @@ export class Database {
     if (!this.whatsappStore.agendaByEnterprise || typeof this.whatsappStore.agendaByEnterprise !== 'object') {
       this.whatsappStore.agendaByEnterprise = {};
     }
+    if (!this.whatsappStore.providerConfigByEnterprise || typeof this.whatsappStore.providerConfigByEnterprise !== 'object') {
+      this.whatsappStore.providerConfigByEnterprise = {};
+    }
   }
 
   private snapshotData(): DatabaseShape {
@@ -2593,6 +2599,7 @@ export class Database {
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
     dispatchIdempotencyByEnterprise?: Record<string, any[]>;
+    providerConfigByEnterprise?: Record<string, any>;
     sessionBoundEnterpriseId?: string;
     sessionBoundAt?: string;
   }) {
@@ -2602,6 +2609,9 @@ export class Database {
       agendaByEnterprise: patch?.agendaByEnterprise && typeof patch.agendaByEnterprise === 'object'
         ? patch.agendaByEnterprise
         : ((this.getWhatsAppStore() as any)?.agendaByEnterprise || {}),
+      providerConfigByEnterprise: patch?.providerConfigByEnterprise && typeof patch.providerConfigByEnterprise === 'object'
+        ? patch.providerConfigByEnterprise
+        : ((this.getWhatsAppStore() as any)?.providerConfigByEnterprise || {}),
       updatedAt: new Date().toISOString(),
     };
     this.saveData();

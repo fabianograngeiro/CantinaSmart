@@ -259,6 +259,7 @@ const scopeWhatsAppStoreByEnterprise = (store: any, allowedEnterpriseIds: Set<st
   const safeStore = store && typeof store === 'object' ? store : {};
   const scopedStore = {
     agendaByEnterprise: pickScopedObjectByEnterpriseIds((safeStore as any)?.agendaByEnterprise, allowedEnterpriseIds),
+    providerConfigByEnterprise: pickScopedObjectByEnterpriseIds((safeStore as any)?.providerConfigByEnterprise, allowedEnterpriseIds),
     dispatchAutomationsByEnterprise: pickScopedObjectByEnterpriseIds((safeStore as any)?.dispatchAutomationsByEnterprise, allowedEnterpriseIds),
     dispatchAutomationProfilesByEnterprise: pickScopedObjectByEnterpriseIds((safeStore as any)?.dispatchAutomationProfilesByEnterprise, allowedEnterpriseIds),
     dispatchLogsByEnterprise: pickScopedObjectByEnterpriseIds((safeStore as any)?.dispatchLogsByEnterprise, allowedEnterpriseIds),

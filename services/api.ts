@@ -1406,6 +1406,49 @@ export class ApiService {
     return response.json();
   }
 
+  static async getWhatsAppProviderConfig() {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(this.buildApiUrl('/whatsapp/provider-config', { enterpriseId }), {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao carregar configuração do provedor WhatsApp');
+    }
+    return response.json();
+  }
+
+  static async saveWhatsAppProviderConfig(config: any) {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(`${API_URL}/whatsapp/provider-config`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify({
+        enterpriseId,
+        config: config || {},
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao salvar configuração do provedor WhatsApp');
+    }
+    return response.json();
+  }
+
+  static async testWhatsAppProviderConnection() {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(`${API_URL}/whatsapp/provider-config/test`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ enterpriseId }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao testar conexão com provedor WhatsApp');
+    }
+    return response.json();
+  }
+
   static async initWhatsAppSession() {
     const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(`${API_URL}/whatsapp/init`, {

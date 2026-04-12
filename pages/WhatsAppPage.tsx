@@ -51,6 +51,31 @@ type WhatsAppStatusSnapshot = {
   qrDataUrl: string | null;
   phoneNumber: string | null;
   lastError: string | null;
+  providerMode?: 'NATIVE' | 'EXTERNAL';
+  providerCode?: string;
+};
+
+type WhatsAppProviderMode = 'NATIVE' | 'EXTERNAL';
+type ExternalProviderHttpMethod = 'GET' | 'POST' | 'PUT';
+type WhatsAppProviderConfigState = {
+  mode: WhatsAppProviderMode;
+  external: {
+    enabled: boolean;
+    providerCode: string;
+    baseUrl: string;
+    subdomain: string;
+    token: string;
+    hasToken: boolean;
+    tokenMasked: string;
+    tokenHeaderName: string;
+    tokenPrefix: string;
+    testPath: string;
+    testMethod: ExternalProviderHttpMethod;
+    sendPath: string;
+    sendMethod: ExternalProviderHttpMethod;
+    bulkPath: string;
+    bulkMethod: ExternalProviderHttpMethod;
+  };
 };
 
 type ChatSummary = {
@@ -691,6 +716,27 @@ const getDefaultAiConfig = (): AiConfigState => ({
   ],
 });
 
+const getDefaultWhatsAppProviderConfig = (): WhatsAppProviderConfigState => ({
+  mode: 'NATIVE',
+  external: {
+    enabled: false,
+    providerCode: 'CUSTOM',
+    baseUrl: '',
+    subdomain: '',
+    token: '',
+    hasToken: false,
+    tokenMasked: '',
+    tokenHeaderName: 'Authorization',
+    tokenPrefix: 'Bearer',
+    testPath: '/connection/test',
+    testMethod: 'POST',
+    sendPath: '/message/send',
+    sendMethod: 'POST',
+    bulkPath: '/message/send-bulk',
+    bulkMethod: 'POST',
+  },
+});
+
 const AI_PROVIDER_MODELS: Record<AiProvider, string[]> = {
   openai: ['gpt-4.1-mini', 'gpt-4.1', 'gpt-4o-mini'],
   gemini: ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-pro'],
@@ -953,6 +999,9 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   });
   const [aiConfig, setAiConfig] = useState<AiConfigState>(getDefaultAiConfig);
   const [savedAiConfig, setSavedAiConfig] = useState<AiConfigState>(getDefaultAiConfig);
+  const [providerConfig, setProviderConfig] = useState<WhatsAppProviderConfigState>(getDefaultWhatsAppProviderConfig);
+  const [isSavingProviderConfig, setIsSavingProviderConfig] = useState(false);
+  const [isTestingProviderConfig, setIsTestingProviderConfig] = useState(false);
   const [selectedAiContextId, setSelectedAiContextId] = useState<number | null>(null);
   const [selectedAiFlowNodeId, setSelectedAiFlowNodeId] = useState<string | null>(null);
   const [aiFlowNodePositions, setAiFlowNodePositions] = useState<Record<string, { x: number; y: number }>>({});
@@ -1159,7 +1208,9 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         qrAvailable: Boolean(data?.qrAvailable),
         qrDataUrl: data?.qrDataUrl || null,
         phoneNumber: data?.phoneNumber || null,
-        lastError: data?.lastError || null
+        lastError: data?.lastError || null,
+        providerMode: String(data?.providerMode || '').toUpperCase() === 'EXTERNAL' ? 'EXTERNAL' : 'NATIVE',
+        providerCode: String(data?.providerCode || '').trim() || 'CUSTOM',
       });
     } catch (err) {
       console.error('Erro ao buscar status do WhatsApp:', err);
@@ -1290,6 +1341,95 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     }
   };
 
+  const loadProviderConfig = async () => {
+    try {
+      const result = await ApiService.getWhatsAppProviderConfig();
+      const incoming = result?.config && typeof result.config === 'object' ? result.config : {};
+      setProviderConfig({
+        mode: String(incoming.mode || '').toUpperCase() === 'EXTERNAL' ? 'EXTERNAL' : 'NATIVE',
+        external: {
+          enabled: Boolean(incoming?.external?.enabled),
+          providerCode: String(incoming?.external?.providerCode || 'CUSTOM').trim().toUpperCase() || 'CUSTOM',
+          baseUrl: String(incoming?.external?.baseUrl || '').trim(),
+          subdomain: String(incoming?.external?.subdomain || '').trim(),
+          token: '',
+          hasToken: Boolean(incoming?.external?.hasToken),
+          tokenMasked: String(incoming?.external?.tokenMasked || '').trim(),
+          tokenHeaderName: String(incoming?.external?.tokenHeaderName || 'Authorization').trim() || 'Authorization',
+          tokenPrefix: String(incoming?.external?.tokenPrefix || 'Bearer').trim(),
+          testPath: String(incoming?.external?.testPath || '/connection/test').trim() || '/connection/test',
+          testMethod: String(incoming?.external?.testMethod || 'POST').toUpperCase() === 'GET'
+            ? 'GET'
+            : String(incoming?.external?.testMethod || 'POST').toUpperCase() === 'PUT'
+              ? 'PUT'
+              : 'POST',
+          sendPath: String(incoming?.external?.sendPath || '/message/send').trim() || '/message/send',
+          sendMethod: String(incoming?.external?.sendMethod || 'POST').toUpperCase() === 'GET'
+            ? 'GET'
+            : String(incoming?.external?.sendMethod || 'POST').toUpperCase() === 'PUT'
+              ? 'PUT'
+              : 'POST',
+          bulkPath: String(incoming?.external?.bulkPath || '/message/send-bulk').trim() || '/message/send-bulk',
+          bulkMethod: String(incoming?.external?.bulkMethod || 'POST').toUpperCase() === 'GET'
+            ? 'GET'
+            : String(incoming?.external?.bulkMethod || 'POST').toUpperCase() === 'PUT'
+              ? 'PUT'
+              : 'POST',
+        },
+      });
+    } catch (err) {
+      console.error('Erro ao carregar configuração do provedor WhatsApp:', err);
+      setProviderConfig(getDefaultWhatsAppProviderConfig());
+    }
+  };
+
+  const handleSaveProviderConfig = async () => {
+    setIsSavingProviderConfig(true);
+    try {
+      const payload = {
+        mode: providerConfig.mode,
+        external: {
+          enabled: providerConfig.external.enabled,
+          providerCode: providerConfig.external.providerCode,
+          baseUrl: providerConfig.external.baseUrl,
+          subdomain: providerConfig.external.subdomain,
+          token: providerConfig.external.token,
+          tokenHeaderName: providerConfig.external.tokenHeaderName,
+          tokenPrefix: providerConfig.external.tokenPrefix,
+          testPath: providerConfig.external.testPath,
+          testMethod: providerConfig.external.testMethod,
+          sendPath: providerConfig.external.sendPath,
+          sendMethod: providerConfig.external.sendMethod,
+          bulkPath: providerConfig.external.bulkPath,
+          bulkMethod: providerConfig.external.bulkMethod,
+        },
+      };
+      await ApiService.saveWhatsAppProviderConfig(payload);
+      await loadProviderConfig();
+      await refreshStatus();
+      setFeedback('Configuração do provedor WhatsApp salva.');
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Falha ao salvar configuração do provedor WhatsApp.');
+    } finally {
+      setIsSavingProviderConfig(false);
+    }
+  };
+
+  const handleTestProviderConnection = async () => {
+    setIsTestingProviderConfig(true);
+    try {
+      const result = await ApiService.testWhatsAppProviderConnection();
+      const statusCode = Number(result?.details?.status || 0);
+      const endpoint = String(result?.details?.endpointUrl || '').trim();
+      setFeedback(`Teste concluído (${statusCode || 200})${endpoint ? ` em ${endpoint}` : ''}.`);
+      await refreshStatus();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Falha ao testar conexão com provedor WhatsApp.');
+    } finally {
+      setIsTestingProviderConfig(false);
+    }
+  };
+
   const handleAiHandoffDecision = async (request: AiHandoffRequest, accept: boolean) => {
     const requestId = String(request?.id || '').trim();
     if (!requestId) return;
@@ -1333,6 +1473,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         refreshStatus(),
         loadAiAudit(20),
         loadAiHandoffRequests(),
+        loadProviderConfig(),
       ]);
       setClients(Array.isArray(clientsData) ? clientsData : []);
       setPlans(Array.isArray(plansData) ? plansData : []);
@@ -4917,6 +5058,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       phone: params.phone,
       name: params.displayName,
       displayName: params.displayName,
+      isKnownClient: true,
       unreadCount: 0,
       lastMessage: '',
       lastTimestamp: Date.now(),
@@ -8293,12 +8435,221 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
               {crmView === 'CONTA' && (
                 <div className="flex-1 p-8 bg-slate-50/60">
-                  <div className="rounded-2xl border border-cyan-100 bg-white p-6 max-w-2xl">
+                  <div className="rounded-2xl border border-cyan-100 bg-white p-6 max-w-4xl">
                     <p className="text-lg font-black text-slate-900">Conta</p>
                     <p className="mt-2 text-sm font-semibold text-slate-500">
                       Esta seção permanece para ajustes de conta e preferências da operação.
                     </p>
-                    <div className="mt-4 flex gap-2">
+                    <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <label className="space-y-1">
+                        <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Modo do provedor</span>
+                        <select
+                          value={providerConfig.mode}
+                          onChange={(e) => setProviderConfig((prev) => ({
+                            ...prev,
+                            mode: e.target.value === 'EXTERNAL' ? 'EXTERNAL' : 'NATIVE',
+                          }))}
+                          className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                        >
+                          <option value="NATIVE">Nativo (QR Code)</option>
+                          <option value="EXTERNAL">Externo (API oficial)</option>
+                        </select>
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Status atual</span>
+                        <div className={`px-3 py-2.5 rounded-xl border text-sm font-black ${status.connected ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+                          {status.connected ? `Conectado (${status.providerMode || 'NATIVE'})` : 'Desconectado'}
+                        </div>
+                      </label>
+                    </div>
+                    {providerConfig.mode === 'EXTERNAL' && (
+                      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <label className="md:col-span-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={providerConfig.external.enabled}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                enabled: e.target.checked,
+                              },
+                            }))}
+                          />
+                          Ativar provedor externo
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Código do provedor</span>
+                          <input
+                            value={providerConfig.external.providerCode}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                providerCode: String(e.target.value || '').toUpperCase(),
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder="UAZAPI ou CUSTOM"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Subdomain / Instância</span>
+                          <input
+                            value={providerConfig.external.subdomain}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                subdomain: e.target.value,
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder="minha-instancia"
+                          />
+                        </label>
+                        <label className="md:col-span-2 space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Base URL (use {'{subdomain}'} se precisar)</span>
+                          <input
+                            value={providerConfig.external.baseUrl}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                baseUrl: e.target.value,
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder="https://api.exemplo.com/{subdomain}"
+                          />
+                        </label>
+                        <label className="md:col-span-2 space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Token</span>
+                          <input
+                            value={providerConfig.external.token}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                token: e.target.value,
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder={providerConfig.external.hasToken ? `Atual: ${providerConfig.external.tokenMasked}` : 'Cole o token da API'}
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Header do token</span>
+                          <input
+                            value={providerConfig.external.tokenHeaderName}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                tokenHeaderName: e.target.value,
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder="Authorization"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Prefixo do token</span>
+                          <input
+                            value={providerConfig.external.tokenPrefix}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                tokenPrefix: e.target.value,
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder="Bearer"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Endpoint teste</span>
+                          <input
+                            value={providerConfig.external.testPath}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                testPath: e.target.value,
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder="/connection/test"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Método teste</span>
+                          <select
+                            value={providerConfig.external.testMethod}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                testMethod: (e.target.value === 'GET' || e.target.value === 'PUT') ? e.target.value as ExternalProviderHttpMethod : 'POST',
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                          >
+                            <option value="POST">POST</option>
+                            <option value="GET">GET</option>
+                            <option value="PUT">PUT</option>
+                          </select>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Endpoint envio</span>
+                          <input
+                            value={providerConfig.external.sendPath}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                sendPath: e.target.value,
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder="/message/send"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Endpoint disparo</span>
+                          <input
+                            value={providerConfig.external.bulkPath}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                bulkPath: e.target.value,
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder="/message/send-bulk"
+                          />
+                        </label>
+                      </div>
+                    )}
+                    <div className="mt-5 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSaveProviderConfig}
+                        disabled={isSavingProviderConfig}
+                        className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white text-xs font-black uppercase tracking-widest"
+                      >
+                        {isSavingProviderConfig ? 'Salvando...' : 'Salvar Provedor'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleTestProviderConnection}
+                        disabled={isTestingProviderConfig}
+                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:bg-slate-300 text-white text-xs font-black uppercase tracking-widest"
+                      >
+                        {isTestingProviderConfig ? 'Testando...' : 'Testar Conexão'}
+                      </button>
                       <button
                         type="button"
                         onClick={() => setCrmView('CONVERSAS')}
