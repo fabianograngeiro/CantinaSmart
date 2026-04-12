@@ -2288,6 +2288,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
         const remainingDates = selectedDates
           .filter((dateKey) => !retroactiveConsumedDates.includes(dateKey))
           .sort();
+        const totalSelectedDatesCount = selectedDates.length;
         return {
           planId: parsedPlanId || `plan_virtual_${String(parsedPlanName).trim().toLowerCase().replace(/\s+/g, '_')}`,
           planName: String(parsedPlanName).trim() || 'PLANO',
@@ -2295,6 +2296,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           selectedDays: Array.from(new Set(item.selectedDays || [])),
           selectedDates: remainingDates,
           retroactiveConsumedDates,
+          totalSelectedDatesCount,
           planPrice: planFromId?.price || 0
         };
       });
@@ -2410,6 +2412,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           selectedDays: string[];
           selectedDates: string[];
           retroactiveConsumedDates: string[];
+          totalSelectedDatesCount?: number;
           planPrice: number;
         }) => {
           if (!planCredit.planName) return;
@@ -2532,7 +2535,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
             planId: planCredit.planId,
             selectedDates: planCredit.selectedDates,
             selectedDays: planCredit.selectedDays,
-            planUnits: planCredit.selectedDates?.length ?? 0,
+            // Compra total do plano (datas futuras + retroativas já consumidas).
+            planUnits: Number(planCredit.totalSelectedDatesCount || planCredit.selectedDates?.length || 0),
             planUnitValue: planCredit.planPrice ?? 0,
             purchaseRefCode: String(planCredit.purchaseRefCode || '').trim()
           })));
