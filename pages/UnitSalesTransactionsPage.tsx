@@ -28,6 +28,7 @@ interface UnitSalesTransactionsPageProps {
   activeEnterprise: Enterprise;
   transactions: TransactionRecord[];
   currentUser: UserType;
+  initialSearchTerm?: string;
 }
 
 type TimeFilter = 'TODAY' | '7DAYS' | 'MONTH' | 'YEAR' | 'CUSTOM';
@@ -182,7 +183,7 @@ const resolveExecutionSource = (tx: any): 'USUARIO' | 'SISTEMA' => {
 
 const normalizeRole = (value?: string) => String(value || '').trim().toUpperCase();
 
-const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ activeEnterprise, transactions, currentUser }) => {
+const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ activeEnterprise, transactions, currentUser, initialSearchTerm }) => {
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
     return (
@@ -200,7 +201,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   const [planFilter, setPlanFilter] = useState<string>('ALL');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(String(initialSearchTerm || '').trim());
   const [selectedTransaction, setSelectedTransaction] = useState<ExtendedTransactionRecord | null>(null);
   const [backendTransactions, setBackendTransactions] = useState<ExtendedTransactionRecord[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -250,6 +251,10 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   const [reverseDate, setReverseDate] = useState('');
   const [isReversingPlanCredit, setIsReversingPlanCredit] = useState(false);
   const [schoolCalendarBlockedDatesByYear, setSchoolCalendarBlockedDatesByYear] = useState<Record<number, string[]>>({});
+
+  useEffect(() => {
+    setSearchTerm(String(initialSearchTerm || '').trim());
+  }, [initialSearchTerm]);
   const canHardDeleteTransactions = useMemo(() => {
     const role = normalizeRole(currentUser?.role);
     return role === 'SUPERADMIN'
