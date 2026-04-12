@@ -46,12 +46,19 @@ const resolveFrontendDistPath = () => {
 const frontendDistPath = resolveFrontendDistPath();
 
 // Middleware
-app.use(cors({
+const corsOptions = {
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-}));
-app.options('*', cors({ origin: '*' }));
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'x-idempotency-key',
+    'X-Idempotency-Key',
+  ],
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 
 // Logging middleware
