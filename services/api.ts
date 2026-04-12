@@ -1588,6 +1588,40 @@ export class ApiService {
     return response.json();
   }
 
+  static async sendWhatsAppRequestPayment(payload: {
+    number: string;
+    title?: string;
+    text?: string;
+    footer?: string;
+    itemName?: string;
+    invoiceNumber?: string;
+    amount: number;
+    pixKey?: string;
+    pixType?: 'CPF' | 'CNPJ' | 'PHONE' | 'EMAIL' | 'EVP';
+    pixName?: string;
+    paymentLink?: string;
+    fileUrl?: string;
+    fileName?: string;
+    boletoCode?: string;
+    trackSource?: string;
+    trackId?: string;
+  }) {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(`${API_URL}/whatsapp/send-request-payment`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({
+        enterpriseId,
+        ...(payload || {}),
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao solicitar pagamento');
+    }
+    return response.json();
+  }
+
   static async getWhatsAppDispatchAudience(params: {
     enterpriseId: string;
     filter?: 'TODOS' | 'RESPONSAVEIS' | 'COLABORADORES' | 'SALDO_BAIXO' | 'PLANO_A_VENCER' | 'RELATORIO_ENTREGA';

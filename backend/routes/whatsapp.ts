@@ -23,6 +23,7 @@ import {
   sendMediaByConfiguredProvider,
   sendMenuByConfiguredProvider,
   sendCarouselByConfiguredProvider,
+  sendPaymentRequestByConfiguredProvider,
 } from '../services/whatsappProviderBridge.js';
 import { db } from '../database.js';
 
@@ -1263,6 +1264,82 @@ router.post('/send-carousel', async (req: AuthRequest, res: Response) => {
     return res.status(400).json({
       success: false,
       message: err instanceof Error ? err.message : 'Falha ao enviar carrossel.',
+    });
+  }
+});
+
+router.post('/send-request-payment', async (req: AuthRequest, res: Response) => {
+  try {
+    const enterpriseId = resolveEnterpriseIdOrReject(req, res);
+    if (!enterpriseId) return;
+    const {
+      number,
+      title,
+      text,
+      footer,
+      itemName,
+      invoiceNumber,
+      amount,
+      pixKey,
+      pixType,
+      pixName,
+      paymentLink,
+      fileUrl,
+      fileName,
+      boletoCode,
+      trackSource,
+      trackId,
+    } = req.body || {};
+
+    const target = String(number || '').trim();
+    if (!target || !Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Informe number e amount válido para solicitação de pagamento.',
+      });
+    }
+
+    if (!isSpecialTargetJid(target) && !getEnterprisePhoneSet(enterpriseId).has(normalizePhoneDigits(target))) {
+      return res.status(403).json({
+        success: false,
+        message: 'Telefone não pertence à unidade selecionada.',
+      });
+    }
+
+    const externalPayment = await sendPaymentRequestByConfiguredProvider({
+      enterpriseId,
+      request: {
+        number: target,
+        title: String(title || '').trim(),
+        text: String(text || '').trim(),
+        footer: String(footer || '').trim(),
+        itemName: String(itemName || '').trim(),
+        invoiceNumber: String(invoiceNumber || '').trim(),
+        amount: Number(amount),
+        pixKey: String(pixKey || '').trim(),
+        pixType: String(pixType || '').trim().toUpperCase() as any,
+        pixName: String(pixName || '').trim(),
+        paymentLink: String(paymentLink || '').trim(),
+        fileUrl: String(fileUrl || '').trim(),
+        fileName: String(fileName || '').trim(),
+        boletoCode: String(boletoCode || '').trim(),
+        trackSource: String(trackSource || '').trim(),
+        trackId: String(trackId || '').trim(),
+      },
+    });
+
+    if (externalPayment.handledByExternal) {
+      return res.json(externalPayment.result);
+    }
+
+    return res.status(400).json({
+      success: false,
+      message: 'Solicitação de pagamento disponível apenas para provedor externo configurado.',
+    });
+  } catch (err) {
+    return res.status(400).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao solicitar pagamento.',
     });
   }
 });

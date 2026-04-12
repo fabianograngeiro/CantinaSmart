@@ -22,6 +22,8 @@ export type WhatsAppExternalProviderConfig = {
   menuMethod: ExternalProviderHttpMethod;
   carouselPath: string;
   carouselMethod: ExternalProviderHttpMethod;
+  paymentPath: string;
+  paymentMethod: ExternalProviderHttpMethod;
   bulkPath: string;
   bulkMethod: ExternalProviderHttpMethod;
   commonFields: Record<string, unknown>;
@@ -57,6 +59,8 @@ const DEFAULT_EXTERNAL_CONFIG: WhatsAppExternalProviderConfig = {
   menuMethod: 'POST',
   carouselPath: '/message/send-carousel',
   carouselMethod: 'POST',
+  paymentPath: '/message/request-payment',
+  paymentMethod: 'POST',
   bulkPath: '/message/send-bulk',
   bulkMethod: 'POST',
   commonFields: {},
@@ -97,6 +101,7 @@ const normalizeExternalConfig = (value: any, existing?: WhatsAppExternalProvider
   const defaultMediaPath = providerCode === 'UAZAPI' ? '/send/media' : DEFAULT_EXTERNAL_CONFIG.mediaPath;
   const defaultMenuPath = providerCode === 'UAZAPI' ? '/send/menu' : DEFAULT_EXTERNAL_CONFIG.menuPath;
   const defaultCarouselPath = providerCode === 'UAZAPI' ? '/send/carousel' : DEFAULT_EXTERNAL_CONFIG.carouselPath;
+  const defaultPaymentPath = providerCode === 'UAZAPI' ? '/send/request-payment' : DEFAULT_EXTERNAL_CONFIG.paymentPath;
   const defaultBulkPath = providerCode === 'UAZAPI' ? '/send/text' : DEFAULT_EXTERNAL_CONFIG.bulkPath;
 
   return {
@@ -117,6 +122,8 @@ const normalizeExternalConfig = (value: any, existing?: WhatsAppExternalProvider
     menuMethod: normalizeMethod(incoming.menuMethod, safeExisting.menuMethod || DEFAULT_EXTERNAL_CONFIG.menuMethod),
     carouselPath: normalizePath(incoming.carouselPath, safeExisting.carouselPath || defaultCarouselPath),
     carouselMethod: normalizeMethod(incoming.carouselMethod, safeExisting.carouselMethod || DEFAULT_EXTERNAL_CONFIG.carouselMethod),
+    paymentPath: normalizePath(incoming.paymentPath, safeExisting.paymentPath || defaultPaymentPath),
+    paymentMethod: normalizeMethod(incoming.paymentMethod, safeExisting.paymentMethod || DEFAULT_EXTERNAL_CONFIG.paymentMethod),
     bulkPath: normalizePath(incoming.bulkPath, safeExisting.bulkPath || defaultBulkPath),
     bulkMethod: normalizeMethod(incoming.bulkMethod, safeExisting.bulkMethod || DEFAULT_EXTERNAL_CONFIG.bulkMethod),
     commonFields: normalizeObjectRecord(incoming.commonFields, normalizeObjectRecord(safeExisting.commonFields, {})),
@@ -798,6 +805,98 @@ export const sendCarouselByConfiguredProvider = async (params: {
       ? response.payload
       : JSON.stringify(response.payload);
     throw new Error(`Falha no envio de carrossel externo (${response.status}): ${detailText || 'erro desconhecido'}`);
+  }
+
+  return {
+    handledByExternal: true,
+    result: {
+      success: true,
+      providerMode: 'EXTERNAL',
+      providerCode: config.external.providerCode,
+      messageId: extractMessageId(response.payload),
+      payload: response.payload,
+    },
+  };
+};
+
+export const sendPaymentRequestByConfiguredProvider = async (params: {
+  enterpriseId: string;
+  request: {
+    number: string;
+    title?: string;
+    text?: string;
+    footer?: string;
+    itemName?: string;
+    invoiceNumber?: string;
+    amount: number;
+    pixKey?: string;
+    pixType?: 'CPF' | 'CNPJ' | 'PHONE' | 'EMAIL' | 'EVP';
+    pixName?: string;
+    paymentLink?: string;
+    fileUrl?: string;
+    fileName?: string;
+    boletoCode?: string;
+    trackSource?: string;
+    trackId?: string;
+  };
+}) => {
+  const config = getEnterpriseProviderConfig(params.enterpriseId);
+  if (config.mode !== 'EXTERNAL' || !config.external.enabled) {
+    return {
+      handledByExternal: false,
+      result: null,
+    };
+  }
+
+  const providerCode = String(config.external.providerCode || '').trim().toUpperCase();
+  const commonFields = normalizeObjectRecord(config.external.commonFields, {});
+  const req = params.request || ({} as any);
+  const number = normalizeExternalTarget(providerCode, String(req.number || '').trim());
+  const amount = Number(req.amount);
+  if (!number) throw new Error('Número/ID do chat é obrigatório.');
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('amount é obrigatório e deve ser maior que zero.');
+
+  if (providerCode === 'UAZAPI') {
+    void triggerUazapiPresenceUpdate(config.external, number, 'composing').catch(() => {});
+  }
+
+  const pixTypeRaw = String(req.pixType || 'EVP').trim().toUpperCase();
+  const safePixType: 'CPF' | 'CNPJ' | 'PHONE' | 'EMAIL' | 'EVP' = (
+    pixTypeRaw === 'CPF' || pixTypeRaw === 'CNPJ' || pixTypeRaw === 'PHONE' || pixTypeRaw === 'EMAIL'
+  ) ? pixTypeRaw : 'EVP';
+
+  const payload = {
+    ...commonFields,
+    number,
+    title: String(req.title || '').trim() || undefined,
+    text: String(req.text || '').trim() || undefined,
+    footer: String(req.footer || '').trim() || undefined,
+    itemName: String(req.itemName || '').trim() || undefined,
+    invoiceNumber: String(req.invoiceNumber || '').trim() || undefined,
+    amount,
+    pixKey: String(req.pixKey || '').trim() || undefined,
+    pixType: safePixType,
+    pixName: String(req.pixName || '').trim() || undefined,
+    paymentLink: String(req.paymentLink || '').trim() || undefined,
+    fileUrl: String(req.fileUrl || '').trim() || undefined,
+    fileName: String(req.fileName || '').trim() || undefined,
+    boletoCode: String(req.boletoCode || '').trim() || undefined,
+    track_source: String(req.trackSource || '').trim() || undefined,
+    track_id: String(req.trackId || '').trim() || undefined,
+  };
+
+  const response = await callExternalEndpoint(
+    config.external,
+    config.external.paymentMethod,
+    config.external.paymentPath,
+    payload
+  );
+
+  if (!response.ok) {
+    const detailText = typeof response.payload === 'string'
+      ? response.payload
+      : JSON.stringify(response.payload);
+    throw new Error(`Falha ao solicitar pagamento externo (${response.status}): ${detailText || 'erro desconhecido'}`);
   }
 
   return {
