@@ -1371,6 +1371,13 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
   const getPlanUnitRemaining = (client: Client | null, plan: Plan) => {
     if (!client) return 0;
+    const balancesRaw = ((client as any).planCreditBalances || {}) as Record<string, any>;
+    const byId = balancesRaw?.[plan.id];
+    const byNameKey = Object.keys(balancesRaw || {}).find((key) =>
+      String(balancesRaw[key]?.planName || '').trim().toUpperCase() === String(plan.name || '').trim().toUpperCase()
+    );
+    const balanceEntry = (byId || (byNameKey ? balancesRaw[byNameKey] : undefined) || {}) as any;
+
     const selectedConfigs = Array.isArray((client as any).selectedPlansConfig)
       ? ((client as any).selectedPlansConfig as Array<any>)
       : [];
@@ -1405,7 +1412,19 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       && String(item.planId || '') === String(plan.id)
     ).length;
 
-    return Math.max(0, totalConfigured - usedInTransactions - pendingInCart);
+    const calendarRemainingUnits = Math.max(0, totalConfigured - usedInTransactions - pendingInCart);
+    const unitPrice = Number(getPlanUnitPriceForClient(client, plan, plan.id, plan.name) || 0);
+    const balanceUnitsDirect = Number(balanceEntry?.balanceUnits);
+    const balanceValue = Math.max(0, Number(balanceEntry?.balance || 0));
+    const balanceUnitsFromValue = unitPrice > 0
+      ? Number((balanceValue / unitPrice).toFixed(4))
+      : 0;
+    const balanceRemainingUnits = Number.isFinite(balanceUnitsDirect) && balanceUnitsDirect >= 0
+      ? Math.max(0, balanceUnitsDirect)
+      : Math.max(0, balanceUnitsFromValue);
+
+    // Mantém unidade exibida coerente com o saldo monetário do plano.
+    return Math.max(calendarRemainingUnits, balanceRemainingUnits);
   };
 
   const getPlanUnitPriceForClient = (client: Client | null, plan: Plan | null, fallbackPlanId?: string, fallbackPlanName?: string) => {
