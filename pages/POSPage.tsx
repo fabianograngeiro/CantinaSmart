@@ -3407,7 +3407,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                   <div className="flex items-center justify-between mt-1">
                     <span className="text-[9px] text-indigo-600 font-black uppercase">Consumo un.</span>
                     <span className={`text-[9px] font-black ${remainingUnits > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                      Saldo: {remainingUnits} un �?� R$ {formatCurrencyBRL(remainingValue)}
+                      Saldo: {remainingUnits} un | R$ {formatCurrencyBRL(remainingValue)}
                     </span>
                   </div>
                 </button>
@@ -3545,7 +3545,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                          </p>
                          <p className="text-[10px] font-black text-indigo-700 mt-1">
                            {planCard.unitsRemaining !== null
-                             ? `Saldo: ${planCard.unitsRemaining} un �?� R$ ${formatCurrencyBRL(planCard.remainingValue || 0)}`
+                            ? `Saldo: ${planCard.unitsRemaining} un | R$ ${formatCurrencyBRL(planCard.remainingValue || 0)}`
                              : 'Saldo: --'}
                          </p>
                        </div>
@@ -4576,7 +4576,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                     </p>
                                     {serverPreview && (
                                       <p className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest mt-1">
-                                        Saldo bruto: R$ {Number(rawBalance || 0).toFixed(2)} �?� Reservado: {Number(reservedUnits || 0)} un (R$ {Number(reservedValue || 0).toFixed(2)}) �?� Bruto novas datas: R$ {Number(planGross || 0).toFixed(2)}
+                                        Saldo bruto: R$ {Number(rawBalance || 0).toFixed(2)} | Reservado: {Number(reservedUnits || 0)} un (R$ {Number(reservedValue || 0).toFixed(2)}) | Bruto novas datas: R$ {Number(planGross || 0).toFixed(2)}
                                       </p>
                                     )}
                                     {!serverPreview && isStudentCreditPlanPreviewLoading && selectedDatesCount > 0 && (
