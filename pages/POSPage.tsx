@@ -45,14 +45,14 @@ const WEEK_DAY_OPTIONS = [
 const MONTH_WEEK_HEADERS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'];
 const RESPONSIBLE_RELATION_OPTIONS = [
   { value: 'PAIS', label: 'Pais' },
-  { value: 'AVOS', label: 'AvÃ³s' },
+  { value: 'AVOS', label: 'Avós' },
   { value: 'TIOS', label: 'Tios' },
   { value: 'TUTOR_LEGAL', label: 'Tutor legal' },
 ];
 const STUDENT_GRADE_OPTIONS: Record<'INFANTIL' | 'FUNDAMENTAL' | 'MEDIO' | 'INTEGRAL', string[]> = {
   INFANTIL: ['1', '2', '3', '4', '5'],
-  FUNDAMENTAL: ['1Âº ano', '2Âº ano', '3Âº ano', '4Âº ano', '5Âº ano', '6Âº ano', '7Âº ano', '8Âº ano', '9Âº ano'],
-  MEDIO: ['1Âº ano', '2Âº ano', '3Âº ano'],
+  FUNDAMENTAL: ['1º ano', '2º ano', '3º ano', '4º ano', '5º ano', '6º ano', '7º ano', '8º ano', '9º ano'],
+  MEDIO: ['1º ano', '2º ano', '3º ano'],
   INTEGRAL: [],
 };
 
@@ -93,7 +93,7 @@ interface POSPageProps {
 }
 
 const POSPage: React.FC<POSPageProps> = ({ currentUser, activeEnterprise, onRegisterTransaction }) => {
-  // Guard clause: se nÃ£o houver enterprise ativa, retornar carregamento
+  // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
     return (
       <div className="pos-shell min-h-[24rem] flex items-center justify-center rounded-2xl">
@@ -108,9 +108,9 @@ const POSPage: React.FC<POSPageProps> = ({ currentUser, activeEnterprise, onRegi
   return <StandardPOSInterface currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={onRegisterTransaction} />;
 };
 
-/* --- MONITOR DE MOVIMENTAÃ‡ÃƒO (VUE OWNER) --- */
+/* --- MONITOR DE MOVIMENTA�?�fO (VUE OWNER) --- */
 const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnterprise }) => {
-  // Guard clause: se nÃ£o houver enterprise ativa, retornar carregamento
+  // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
     return (
       <div className="pos-shell min-h-[24rem] flex items-center justify-center rounded-2xl">
@@ -149,7 +149,7 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
     loadData();
   }, [activeEnterprise.id]);
   
-  // SimulaÃ§Ã£o de alteraÃ§Ã£o de dados conforme unidade
+  // Simulação de alteração de dados conforme unidade
   const unitStats = useMemo(() => {
     const isGlobal = selectedUnitId === 'ALL';
     const multiplier = isGlobal ? 1 : 0.45; // Simula dados menores para unidades individuais
@@ -179,14 +179,14 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
   const top5Vendidos = [
     { name: 'Coxinha de Frango', qty: 154, trend: '+12%' },
     { name: 'Suco Laranja 300ml', qty: 128, trend: '+5%' },
-    { name: 'PÃ£o de Queijo', qty: 98, trend: '+8%' },
+    { name: 'Pão de Queijo', qty: 98, trend: '+8%' },
     { name: 'Brownie Caseiro', qty: 85, trend: '+15%' },
-    { name: 'Ãgua Mineral', qty: 72, trend: '-2%' }
+    { name: 'Água Mineral', qty: 72, trend: '-2%' }
   ];
 
   return (
     <div className="pos-shell space-y-4 animate-in fade-in duration-500 pb-8">
-      {/* Header do Monitor com Seletor DinÃ¢mico */}
+      {/* Header do Monitor com Seletor Dinâmico */}
       <div className="flex flex-col md:flex-row items-center justify-between gap-3 bg-gray-900 p-4 rounded-2xl text-white shadow-2xl">
          <div className="flex items-center gap-3">
             <div className="w-11 h-11 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
@@ -195,7 +195,7 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
             <div>
                <h1 className="text-lg font-black leading-tight">Painel de Controle da Rede</h1>
                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mt-1">
-                  {selectedUnitId === 'ALL' ? 'VisÃ£o Consolidada (Todas as Unidades)' : `Monitorando Unidade: ${enterprises.find(e => e.id === selectedUnitId)?.name}`}
+                  {selectedUnitId === 'ALL' ? 'Visão Consolidada (Todas as Unidades)' : `Monitorando Unidade: ${enterprises.find(e => e.id === selectedUnitId)?.name}`}
                </p>
             </div>
          </div>
@@ -210,7 +210,7 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
               }}
               className="bg-transparent text-sm font-black outline-none appearance-none cursor-pointer pr-8 focus:text-indigo-400 transition-colors"
             >
-               <option value="ALL" className="text-gray-900">VisÃ£o Geral da Rede</option>
+               <option value="ALL" className="text-gray-900">Visão Geral da Rede</option>
                {enterprises.map(e => <option key={e.id} value={e.id} className="text-gray-900">{e.name}</option>)}
             </select>
             {/* Fixed typo: changed RefreshCcw to RefreshCw */}
@@ -218,10 +218,10 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
          </div>
       </div>
 
-      {/* Grid Principal de KPIs DinÃ¢micos */}
+      {/* Grid Principal de KPIs Dinâmicos */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-         <MonitorStatCard title="Vendas Hoje" value={`R$ ${unitStats.vendasHoje.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`} sub={`MÃªs: R$ ${unitStats.vendasMes.toLocaleString('pt-BR')}`} icon={<TrendingUp />} color="bg-emerald-50 text-emerald-600" />
-         <MonitorStatCard title="Recargas Hoje" value={`R$ ${unitStats.recargasHoje.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`} sub={`MÃªs: R$ ${unitStats.recargasMes.toLocaleString('pt-BR')}`} icon={<Wallet />} color="bg-indigo-50 text-indigo-600" />
+         <MonitorStatCard title="Vendas Hoje" value={`R$ ${unitStats.vendasHoje.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`} sub={`Mês: R$ ${unitStats.vendasMes.toLocaleString('pt-BR')}`} icon={<TrendingUp />} color="bg-emerald-50 text-emerald-600" />
+         <MonitorStatCard title="Recargas Hoje" value={`R$ ${unitStats.recargasHoje.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`} sub={`Mês: R$ ${unitStats.recargasMes.toLocaleString('pt-BR')}`} icon={<Wallet />} color="bg-indigo-50 text-indigo-600" />
          <MonitorStatCard title="Clientes Ativos" value={unitStats.clientesAtivos.toString()} sub="Total da Unidade" icon={<Users />} color="bg-blue-50 text-blue-600" />
          <MonitorStatCard title="Sangria Pendente" value={unitStats.sangriaNecessaria.toString()} sub="Caixas acima do limite" icon={<Banknote />} color="bg-amber-50 text-amber-600" isAlert={unitStats.sangriaNecessaria > 0} />
       </div>
@@ -233,7 +233,7 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
                <div className="p-4 border-b bg-gray-50 flex items-center justify-between">
                   <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
                      <AlertTriangle size={16} className="text-amber-500" /> 
-                     {activeAlertDetail ? 'Detalhamento de Alerta' : 'Alertas CrÃ­ticos'}
+                     {activeAlertDetail ? 'Detalhamento de Alerta' : 'Alertas Críticos'}
                   </h3>
                   {activeAlertDetail && (
                     <button 
@@ -247,22 +247,22 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
 
                <div className="p-4 flex-1">
                   {!activeAlertDetail ? (
-                    /* VISÃƒO DE RESUMO DOS ALERTAS */
+                    /* VIS�fO DE RESUMO DOS ALERTAS */
                     <div className="space-y-3 animate-in fade-in zoom-in-95">
                        <AlertItem 
-                         label="Estoque CrÃ­tico (Zerar)" 
+                         label="Estoque Crítico (Zerar)" 
                          value={unitStats.estoqueCritico} 
                          color="red" 
                          onClick={() => setActiveAlertDetail('CRITICO')}
                        />
                        <AlertItem 
-                         label="Abaixo do MÃ­nimo" 
+                         label="Abaixo do Mínimo" 
                          value={unitStats.estoqueBaixo} 
                          color="amber" 
                          onClick={() => setActiveAlertDetail('MINIMO')}
                        />
                        <AlertItem 
-                         label="Alunos com Saldo MÃ­nimo" 
+                         label="Alunos com Saldo Mínimo" 
                          value={unitStats.saldoMinimoAlertas} 
                          color="indigo" 
                          onClick={() => setActiveAlertDetail('SALDO')}
@@ -279,10 +279,10 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
                        </div>
                     </div>
                   ) : (
-                    /* VISÃƒO DETALHADA DO ALERTA SELECIONADO */
+                    /* VIS�fO DETALHADA DO ALERTA SELECIONADO */
                     <div className="space-y-4 animate-in slide-in-from-right-4 duration-300">
                        <div className="mb-4">
-                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Listagem de OcorrÃªncias</p>
+                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Listagem de Ocorrências</p>
                           <div className="h-1 w-10 bg-indigo-500 rounded-full"></div>
                        </div>
 
@@ -319,13 +319,13 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
                                        <p className="text-[9px] text-gray-400 font-bold uppercase mt-1">Saldo: {product.stock} un</p>
                                     </div>
                                  </div>
-                                 <span className="text-[9px] font-black bg-white px-2 py-1 rounded-lg border uppercase group-hover:border-indigo-200">MÃ­n: {product.minStock}</span>
+                                 <span className="text-[9px] font-black bg-white px-2 py-1 rounded-lg border uppercase group-hover:border-indigo-200">Mín: {product.minStock}</span>
                               </div>
                             ))
                           )}
                        </div>
                        <button className="w-full py-3 bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
-                          <ChevronRight size={14} /> Tratar PendÃªncias
+                          <ChevronRight size={14} /> Tratar Pendências
                        </button>
                     </div>
                   )}
@@ -342,7 +342,7 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
                   <div className="w-px h-8 bg-gray-100"></div>
                   <div className="text-center flex-1">
                      <p className="text-xl font-black text-indigo-600">R$ {selectedUnitId === 'ALL' ? '24,50' : '28,10'}</p>
-                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">Ticket MÃ©dio</p>
+                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">Ticket Médio</p>
                   </div>
                </div>
             </div>
@@ -368,12 +368,12 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
                     </div>
                   ))}
                </div>
-               <button className="mt-4 w-full py-2.5 bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest rounded-lg hover:bg-gray-100 transition-all">Ver RelatÃ³rio Completo</button>
+               <button className="mt-4 w-full py-2.5 bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest rounded-lg hover:bg-gray-100 transition-all">Ver Relatório Completo</button>
             </div>
 
             <div className="bg-white p-4 rounded-2xl border shadow-sm flex flex-col border-b-4 border-b-red-100">
                <h3 className="text-xs font-black text-red-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-                  <ArrowDownRight size={16} /> Bottom 5 (Menos SaÃ­da)
+                  <ArrowDownRight size={16} /> Bottom 5 (Menos Saída)
                </h3>
                <div className="space-y-3 flex-1">
                   {top5Vendidos.slice().reverse().map((item, idx) => (
@@ -393,7 +393,7 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
                </div>
                <div className="mt-4 p-2.5 bg-red-50 rounded-lg flex items-center gap-2">
                   <ShieldAlert size={14} className="text-red-500" />
-                  <p className="text-[9px] font-black text-red-800 uppercase leading-tight">SugestÃ£o: Descontinuar ou fazer promoÃ§Ã£o</p>
+                  <p className="text-[9px] font-black text-red-800 uppercase leading-tight">Sugestão: Descontinuar ou fazer promoção</p>
                </div>
             </div>
          </div>
@@ -435,7 +435,7 @@ const AlertItem = ({ label, value, color, onClick }: any) => {
 };
 
 
-/* --- INTERFACE PADRÃƒO (VUE OPERADOR) --- */
+/* --- INTERFACE PADR�fO (VUE OPERADOR) --- */
 const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: Enterprise; onRegisterTransaction?: (transaction: TransactionRecord) => void }> = ({ currentUser, activeEnterprise, onRegisterTransaction }) => {
   const navigate = useNavigate();
   const activeEnterpriseId = activeEnterprise.id;
@@ -666,7 +666,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
             const extracted = extractSchoolCalendarOperationalData(payload, year);
             return [year, extracted] as const;
           } catch (error) {
-            console.error(`Erro ao carregar calendÃ¡rio escolar (PDV ${year}):`, error);
+            console.error(`Erro ao carregar calendário escolar (PDV ${year}):`, error);
             return [year, { blockedDates: [], eventTitlesByDate: {} as Record<string, string> }] as const;
           }
         })
@@ -800,7 +800,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       restrictions: '',
       phone: '',
       countryCode: '55',
-      parentName: normalizedName ? `ResponsÃ¡vel pelo(a) ${normalizedName}` : '',
+      parentName: normalizedName ? `Responsável pelo(a) ${normalizedName}` : '',
       parentRelationship: 'PAIS',
       email: '',
       cpf: '',
@@ -857,11 +857,11 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     const selectedResponsibleLocalPhone = selectedResponsiblePhoneParts.localPhone || '';
     const isStudentUsingCollaborator = quickClientForm.type === 'ALUNO' && quickResponsibleSourceMode === 'COLABORADOR' && Boolean(selectedQuickResponsibleCollaborator);
     if (quickClientForm.type === 'ALUNO' && quickResponsibleSourceMode === 'COLABORADOR' && !selectedQuickResponsibleCollaborator) {
-      alert('Selecione um colaborador para vincular como responsÃ¡vel.');
+      alert('Selecione um colaborador para vincular como responsável.');
       return;
     }
     if (quickClientForm.type === 'ALUNO' && !String(quickClientForm.classType || '').trim()) {
-      alert('Para aluno, o nÃ­vel de ensino Ã© obrigatÃ³rio.');
+      alert('Para aluno, o nível de ensino é obrigatório.');
       return;
     }
     if (
@@ -869,14 +869,14 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       && String(quickClientForm.classType || '').trim() !== 'INTEGRAL'
       && !String(quickClientForm.classGrade || '').trim()
     ) {
-      alert('Para aluno, a sÃ©rie/ano Ã© obrigatÃ³ria.');
+      alert('Para aluno, a série/ano é obrigatória.');
       return;
     }
     const phoneCountryCodeToPersist = isStudentUsingCollaborator ? selectedResponsibleCountryCode : normalizedCountryCode;
     const phoneLocalToPersist = isStudentUsingCollaborator ? selectedResponsibleLocalPhone : String(quickClientForm.phone || '');
     const normalizedPhone = normalizeBrazilPhone(`${phoneCountryCodeToPersist}${phoneLocalToPersist}`);
     if (quickClientForm.type === 'COLABORADOR' && normalizedPhone.length < 10) {
-      alert('Telefone Ã© obrigatÃ³rio para colaborador.');
+      alert('Telefone é obrigatório para colaborador.');
       return;
     }
     const normalizedParentName = String(quickClientForm.parentName || '').trim();
@@ -886,18 +886,18 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     const selectedResponsibleCpf = String((selectedQuickResponsibleCollaborator as any)?.cpf || (selectedQuickResponsibleCollaborator as any)?.parentCpf || '').replace(/\D/g, '');
     const normalizedParentRelationship = String(quickClientForm.parentRelationship || 'PAIS').trim().toUpperCase();
     if (quickClientForm.type === 'ALUNO' && quickResponsibleSourceMode === 'NEW' && normalizedParentName.length < 2) {
-      alert('Nome do responsÃ¡vel Ã© obrigatÃ³rio.');
+      alert('Nome do responsável é obrigatório.');
       return;
     }
     if (quickClientForm.type === 'ALUNO' && normalizedPhone.length < 10) {
-      alert('Telefone do responsÃ¡vel Ã© obrigatÃ³rio.');
+      alert('Telefone do responsável é obrigatório.');
       return;
     }
     const parentName = quickClientForm.type === 'ALUNO'
       ? (
         isStudentUsingCollaborator
-          ? String(selectedQuickResponsibleCollaborator?.name || normalizedParentName || `ResponsÃ¡vel pelo(a) ${normalizedName}`).trim()
-          : (normalizedParentName || `ResponsÃ¡vel pelo(a) ${normalizedName}`)
+          ? String(selectedQuickResponsibleCollaborator?.name || normalizedParentName || `Responsável pelo(a) ${normalizedName}`).trim()
+          : (normalizedParentName || `Responsável pelo(a) ${normalizedName}`)
       )
       : normalizedParentName;
     const normalizedClassName =
@@ -936,11 +936,11 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       return;
     }
     if (hasRelatedStudent && !String(quickClientForm.relatedStudentClassType || '').trim()) {
-      alert('Informe o nÃ­vel de ensino do aluno relacionado.');
+      alert('Informe o nível de ensino do aluno relacionado.');
       return;
     }
     if (hasRelatedStudent && String(quickClientForm.relatedStudentClassType || '').trim() !== 'INTEGRAL' && !String(quickClientForm.relatedStudentClassGrade || '').trim()) {
-      alert('Informe a sÃ©rie/ano do aluno relacionado.');
+      alert('Informe a série/ano do aluno relacionado.');
       return;
     }
 
@@ -989,8 +989,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       setIsQuickClientModalOpen(false);
       selectClient(createdClient);
     } catch (error) {
-      console.error('Erro ao criar cliente rÃ¡pido no PDV:', error);
-      alert(error instanceof Error ? error.message : 'NÃ£o foi possÃ­vel criar o cliente no PDV.');
+      console.error('Erro ao criar cliente rápido no PDV:', error);
+      alert(error instanceof Error ? error.message : 'Não foi possível criar o cliente no PDV.');
     } finally {
       isCreatingQuickClientRef.current = false;
       setIsCreatingQuickClient(false);
@@ -1248,7 +1248,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       }
     });
 
-    // Libera remarcaÃ§Ã£o de datas jÃ¡ removidas manualmente em exclusÃµes anteriores.
+    // Libera remarcação de datas já removidas manualmente em exclusões anteriores.
     posTransactions.forEach((tx: any) => {
       if (String(tx?.clientId || '') !== String(selectedClient.id || '')) return;
       if (String(tx?.type || '').toUpperCase() !== 'AUDITORIA_EXCLUSAO') return;
@@ -1355,7 +1355,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
     if (rawBalance <= 0.0001) return 0;
 
-    // Regra: saldo reservado por consumo agendado/nÃ£o entregue nÃ£o entra como crÃ©dito livre.
+    // Regra: saldo reservado por consumo agendado/não entregue não entra como crédito livre.
     const registeredDates = registeredPlanDatesByPlanId.get(plan.id) || new Set<string>();
     const consumedDates = consumedPlanDatesByPlanId.get(plan.id) || new Set<string>();
     const reversedDates = reversedPlanDatesByPlanId.get(plan.id) || new Set<string>();
@@ -1426,7 +1426,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       ? Math.max(0, balanceUnitsDirect)
       : Math.max(0, balanceUnitsFromValue);
 
-    // MantÃ©m unidade exibida coerente com o saldo monetÃ¡rio do plano.
+    // Mantém unidade exibida coerente com o saldo monetário do plano.
     return Math.max(calendarRemainingUnits, balanceRemainingUnits);
   };
 
@@ -1517,7 +1517,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   const addPlanConsumptionToCart = (plan: Plan) => {
     if (selectedClient?.isBlocked) return alert("CLIENTE BLOQUEADO.");
     if (!selectedClient || isFinalConsumer) return alert("Identifique o aluno para consumir plano.");
-    if (selectedClient.type === 'COLABORADOR') return alert("Consumo de plano Ã© exclusivo para aluno.");
+    if (selectedClient.type === 'COLABORADOR') return alert("Consumo de plano é exclusivo para aluno.");
 
     const remainingUnits = getPlanUnitRemaining(selectedClient, plan);
     if (remainingUnits <= 0) {
@@ -1585,7 +1585,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
     const weight = parseKgWeight(kgWeightInput);
     if (!Number.isFinite(weight) || weight <= 0) {
-      return alert('Informe um peso vÃ¡lido em KG.');
+      return alert('Informe um peso válido em KG.');
     }
 
     const pricePerKg = Number(kgProduct.price || 0);
@@ -1614,7 +1614,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   const handleCreditStudent = () => {
     if (!selectedClient) return;
     if (selectedClient.type === 'COLABORADOR') {
-      alert('Use a opÃ§Ã£o de pagamento de consumo para colaborador.');
+      alert('Use a opção de pagamento de consumo para colaborador.');
       return;
     }
     setServiceActionType('CREDIT_STUDENT');
@@ -1651,13 +1651,13 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   const handlePayCollaboratorConsumption = () => {
     if (!selectedClient) return;
     if (selectedClient.type !== 'COLABORADOR') {
-      alert('Essa funÃ§Ã£o Ã© exclusiva para colaborador.');
+      alert('Essa função é exclusiva para colaborador.');
       return;
     }
 
     const currentDue = Number(selectedClient.amountDue || 0);
     if (currentDue <= 0) {
-      alert('Este colaborador nÃ£o possui consumo pendente.');
+      alert('Este colaborador não possui consumo pendente.');
       return;
     }
     setServiceActionType('PAY_COLLAB');
@@ -1891,7 +1891,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           });
           setStudentCreditPlanPreviewByPlanId((prev) => ({ ...prev, ...previewByPlanId }));
         } catch {
-          alert('NÃ£o foi possÃ­vel validar o preview oficial da recarga de plano. Tente novamente.');
+          alert('Não foi possível validar o preview oficial da recarga de plano. Tente novamente.');
           return;
         }
       }
@@ -1933,14 +1933,14 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
         }>;
 
       if (validFreeAmount <= 0 && selectedPlanCredits.length === 0) {
-        alert('Informe crÃ©dito livre e/ou selecione dias de um plano.');
+        alert('Informe crédito livre e/ou selecione dias de um plano.');
         return;
       }
 
       if (validFreeAmount > 0) {
         addServiceItemToCart(
           `SERVICE_CREDIT_STUDENT_${Date.now()}`,
-          `CrÃ©dito livre cantina: ${selectedClient.name}`,
+          `Crédito livre cantina: ${selectedClient.name}`,
           validFreeAmount,
           { serviceAction: 'CREDIT_STUDENT_FREE' }
         );
@@ -1949,7 +1949,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       selectedPlanCredits.forEach(({ selectedPlan, selectedDays, selectedDates, selectedCount, discountedSubtotal }) => {
         addServiceItemToCart(
           `SERVICE_CREDIT_STUDENT_PLAN_${selectedPlan.id}_${Date.now()}`,
-          `CrÃ©dito plano ${selectedPlan.name} (${selectedCount} dia(s)): ${selectedClient.name}`,
+          `Crédito plano ${selectedPlan.name} (${selectedCount} dia(s)): ${selectedClient.name}`,
           discountedSubtotal,
           {
             serviceAction: 'CREDIT_STUDENT_PLAN',
@@ -1967,12 +1967,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     }
 
     if (!Number.isFinite(freeAmount) || freeAmount <= 0) {
-      alert('Informe um valor vÃ¡lido.');
+      alert('Informe um valor válido.');
       return;
     }
 
     const serviceId = `SERVICE_${serviceActionType}_${Date.now()}`;
-    const serviceName = `Pagamento consumo mÃªs: ${selectedClient.name}`;
+    const serviceName = `Pagamento consumo mês: ${selectedClient.name}`;
 
     addServiceItemToCart(serviceId, serviceName, freeAmount, {
       serviceAction: 'PAY_COLLAB'
@@ -2087,13 +2087,13 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
         <body>
           <div class="center">
             <h3>${activeEnterprise.name}</h3>
-            <p class="small">Cupom nÃ£o fiscal</p>
+            <p class="small">Cupom não fiscal</p>
             <p class="small">${now.toLocaleDateString('pt-BR')} ${now.toLocaleTimeString('pt-BR')}</p>
           </div>
           <div class="line"></div>
           <p class="small">Cliente: ${selectedClient?.name || 'Consumidor Final'}</p>
           <p class="small">Operador: PDV</p>
-          <p class="small">Impressora: ${activeEnterprise.receiptPrinterName || 'PadrÃ£o do sistema'}</p>
+          <p class="small">Impressora: ${activeEnterprise.receiptPrinterName || 'Padrão do sistema'}</p>
           <div class="line"></div>
           <div class="entries">
             ${itemsHtml}
@@ -2128,7 +2128,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     const doc = iframe.contentDocument || iframe.contentWindow?.document;
     if (!doc) {
       document.body.removeChild(iframe);
-      throw new Error('NÃ£o foi possÃ­vel iniciar impressÃ£o no navegador.');
+      throw new Error('Não foi possível iniciar impressão no navegador.');
     }
     doc.open();
     doc.write(html);
@@ -2199,7 +2199,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     setIsFinalizingSale(true);
     try {
       if (consumeTemporaryCheckoutTestErrorFlag()) {
-        throw new Error('ERRO TEMPORÃRIO DE TESTE (DEV Assistant): falha simulada ao registrar compra.');
+        throw new Error('ERRO TEMPORÁRIO DE TESTE (DEV Assistant): falha simulada ao registrar compra.');
       }
 
       playSuccessBeep();
@@ -2224,7 +2224,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       }
 
       if (selectedClient && (saldoPaid > 0 || creditoColaboradorPaid > 0)) {
-        // Se o cliente Ã© um COLABORADOR, registra como dÃ­vida/consumo
+        // Se o cliente é um COLABORADOR, registra como dívida/consumo
         if (selectedClient.type === 'COLABORADOR') {
           const nextAmountDue = Number((Number(selectedClient.amountDue || 0) + saldoPaid + creditoColaboradorPaid).toFixed(2));
           const nextMonthlyConsumption = Number((Number(selectedClient.monthlyConsumption || 0) + saldoPaid + creditoColaboradorPaid).toFixed(2));
@@ -2280,7 +2280,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
         const planFromId = availablePlans.find(plan => plan.id === parsedPlanId);
         const parsedPlanName = item.planName
           || planFromId?.name
-          || (item.name.match(/CrÃ©dito plano (.+?) \(/i)?.[1] || 'PLANO');
+          || (item.name.match(/Crédito plano (.+?) \(/i)?.[1] || 'PLANO');
         const amount = Number((item.price * item.quantity) || 0);
         const selectedDates = Array.from(new Set(item.selectedDates || []));
         const consumedDatesForPlan = consumedPlanDatesByPlanId.get(parsedPlanId) || new Set<string>();
@@ -2398,7 +2398,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           const safeProgressTotal = Math.max(previousTotalUnits, previousConsumedUnits);
           const hasPreviousData = safeProgressTotal > 0.0001 || previousBalanceValue > 0.0001;
           const previousSummary = hasPreviousData
-            ? `Anterior ${formatUnitsForItem(previousConsumedUnits)}/${formatUnitsForItem(safeProgressTotal)} â€¢ Saldo R$ ${formatCurrencyBRL(previousBalanceValue)}`
+            ? `Anterior ${formatUnitsForItem(previousConsumedUnits)}/${formatUnitsForItem(safeProgressTotal)} �?� Saldo R$ ${formatCurrencyBRL(previousBalanceValue)}`
             : '';
 
           return {
@@ -2480,7 +2480,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           balance: Number(((updatedSelectedClient?.balance || 0) + freeCantinaCreditTotal).toFixed(2)),
           balanceAdjustment: {
             source: 'OPERACAO_PDV_CREDITO',
-            reason: 'CrÃ©dito operacional via PDV',
+            reason: 'Crédito operacional via PDV',
             requestedByUserId: String((currentUser as any)?.id || ''),
             requestedByName: String((currentUser as any)?.name || (currentUser as any)?.username || ''),
           },
@@ -2505,8 +2505,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
             enterpriseId: activeEnterpriseId,
             type: 'CREDIT',
             amount: Number(freeCantinaCreditTotal.toFixed(2)),
-            description: 'CrÃ©dito livre cantina via PDV',
-            item: 'CrÃ©dito livre cantina',
+            description: 'Crédito livre cantina via PDV',
+            item: 'Crédito livre cantina',
             plan: 'PREPAGO',
             paymentMethod: creditMethod,
             method: creditMethod,
@@ -2527,7 +2527,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
             type: 'CREDIT',
             amount: Number(planCredit.amount.toFixed(2)),
             description: `Recarga de plano ${planCredit.planName} via PDV`,
-            item: `CrÃ©dito plano ${planCredit.planName}`,
+            item: `Crédito plano ${planCredit.planName}`,
             plan: planCredit.planName,
             paymentMethod: creditMethod,
             method: creditMethod,
@@ -2538,7 +2538,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
             planId: planCredit.planId,
             selectedDates: planCredit.selectedDates,
             selectedDays: planCredit.selectedDays,
-            // Compra total do plano (datas futuras + retroativas jÃ¡ consumidas).
+            // Compra total do plano (datas futuras + retroativas já consumidas).
             planUnits: Number(planCredit.totalSelectedDatesCount || planCredit.selectedDates?.length || 0),
             planUnitValue: planCredit.planPrice ?? 0,
             purchaseRefCode: String(planCredit.purchaseRefCode || '').trim()
@@ -2569,8 +2569,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                 type: 'CONSUMO',
                 amount: Number((planCredit.planPrice || 0).toFixed(2)),
                 total: 0,
-                description: `Baixa retroativa automÃ¡tica do plano ${planCredit.planName} (ref. ${referenceDateKey})`,
-                item: `${planCredit.planName} â€¢ ref. ${referenceDateKey}`,
+                description: `Baixa retroativa automática do plano ${planCredit.planName} (ref. ${referenceDateKey})`,
+                item: `${planCredit.planName} �?� ref. ${referenceDateKey}`,
                 plan: planCredit.planName,
                 planId: planCredit.planId,
                 paymentMethod: 'PLANO',
@@ -2703,7 +2703,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       const expenseItems = cart.filter(item => !item.serviceAction && !item.productId.startsWith('SERVICE_'));
       const expenseTotal = expenseItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
-      // Registrar despesa apenas para produtos reais (nÃ£o crÃ©dito, nÃ£o consumo de plano).
+      // Registrar despesa apenas para produtos reais (não crédito, não consumo de plano).
       if (expenseTotal > 0) {
         const createdDebitTx = await ApiService.createTransaction({
           clientId: selectedClient?.id || null,
@@ -2734,7 +2734,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
         setPosTransactions(prev => [...createdTransactions, ...prev]);
       }
       
-      // Registrar transaÃ§Ã£o
+      // Registrar transação
       if (onRegisterTransaction) {
         const transactionId = `V-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
         
@@ -2752,7 +2752,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           type: hasPlanConsumption ? 'CONSUMO' : (hasExpenseItems ? 'VENDA_BALCAO' : 'CREDITO'),
           method: payments.map(p => p.method).join(' + '),
           total: hasExpenseItems ? expenseTotal : 0,
-          status: 'CONCLUÃDA'
+          status: 'CONCLUÍDA'
         });
       }
 
@@ -2779,9 +2779,9 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
             printReceiptInBrowser(printParams);
           }
         } catch (printErr) {
-          console.error('Erro ao imprimir cupom automÃ¡tico:', printErr);
+          console.error('Erro ao imprimir cupom automático:', printErr);
           if (activeEnterprise.receiptPrintMode === 'LOCAL_AGENT') {
-            alert('ImpressÃ£o local indisponÃ­vel. Inicie o agente no computador do caixa com: npm run print-agent');
+            alert('Impressão local indisponível. Inicie o agente no computador do caixa com: npm run print-agent');
           }
         }
       }
@@ -2804,9 +2804,9 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
         try {
           await refreshClientInPOS(selectedClient.id);
         } catch (refreshError) {
-          console.error('Erro ao recarregar cliente apÃ³s conflito de versÃ£o no PDV:', refreshError);
+          console.error('Erro ao recarregar cliente após conflito de versão no PDV:', refreshError);
         }
-        const conflictMessage = 'Este cliente foi atualizado em outra operaÃ§Ã£o. Dados recarregados; confirme os valores e finalize novamente.';
+        const conflictMessage = 'Este cliente foi atualizado em outra operação. Dados recarregados; confirme os valores e finalize novamente.';
         setSaleErrorMessage(conflictMessage);
         setSaleErrorDetails('');
         setIsSaleErrorModalOpen(true);
@@ -2814,7 +2814,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       }
       const message = error instanceof Error
         ? error.message
-        : 'NÃ£o foi possÃ­vel finalizar a venda. Tente novamente.';
+        : 'Não foi possível finalizar a venda. Tente novamente.';
       const details = error instanceof Error
         ? String(error.stack || '').trim()
         : '';
@@ -2836,10 +2836,10 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     }
 
     if (method === 'SALDO') {
-      if (isFinalConsumer) return alert("Venda anÃ´nima nÃ£o aceita pagamento via saldo.");
+      if (isFinalConsumer) return alert("Venda anônima não aceita pagamento via saldo.");
       if (!selectedClient) return alert("Identifique o aluno para usar o saldo.");
       if (isSaldoCantinaPaymentDisabled) {
-        return alert("Pagamento via Saldo Cantina desativado enquanto a quitaÃ§Ã£o do saldo negativo estiver no carrinho.");
+        return alert("Pagamento via Saldo Cantina desativado enquanto a quitação do saldo negativo estiver no carrinho.");
       }
       if (!canClientUseNegativeBalance(selectedClient, numericAmount)) {
         if (!clientNegativeSalesAllowed) {
@@ -2850,12 +2850,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     }
 
     if (method === 'CREDITO_COLABORADOR') {
-      if (isFinalConsumer) return alert("Venda anÃ´nima nÃ£o aceita crÃ©dito de colaborador.");
-      if (!selectedClient) return alert("Identifique o colaborador para usar crÃ©dito.");
-      if (selectedClient.type !== 'COLABORADOR') return alert("Apenas colaboradores podem usar esta opÃ§Ã£o de pagamento.");
+      if (isFinalConsumer) return alert("Venda anônima não aceita crédito de colaborador.");
+      if (!selectedClient) return alert("Identifique o colaborador para usar crédito.");
+      if (selectedClient.type !== 'COLABORADOR') return alert("Apenas colaboradores podem usar esta opção de pagamento.");
       if (!canCollaboratorIncreaseDebt(selectedClient, numericAmount)) {
         if (!collaboratorNegativeSalesAllowed) {
-          return alert("Consumo para colaborador sem saldo estÃ¡ desativado em Ajustes.");
+          return alert("Consumo para colaborador sem saldo está desativado em Ajustes.");
         }
         return alert(`Limite devedor do colaborador excedido. Limite permitido: R$ ${collaboratorNegativeLimit.toFixed(2)}.`);
       }
@@ -2939,11 +2939,11 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     setIsSendingErrorTicket(true);
     try {
       await ApiService.createErrorTicket(buildErrorTicketPayload(false));
-      alert('Ticket enviado ao suporte tÃ©cnico com sucesso.');
+      alert('Ticket enviado ao suporte técnico com sucesso.');
       setIsSaleErrorModalOpen(false);
     } catch (ticketError) {
       const ticketMessage = ticketError instanceof Error ? ticketError.message : 'Erro desconhecido ao enviar ticket';
-      alert(`NÃ£o foi possÃ­vel enviar ao suporte: ${ticketMessage}`);
+      alert(`Não foi possível enviar ao suporte: ${ticketMessage}`);
     } finally {
       setIsSendingErrorTicket(false);
     }
@@ -2972,16 +2972,16 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     }, 220);
 
     try {
-      setResolveProgressMessage('Aplicando patch temporÃ¡rio de IA...');
+      setResolveProgressMessage('Aplicando patch temporário de IA...');
       await ApiService.createErrorTicket(buildErrorTicketPayload(true));
 
       setResolveProgress(100);
-      setResolveProgressMessage('Patch temporÃ¡rio pronto. Recarregando pÃ¡gina...');
+      setResolveProgressMessage('Patch temporário pronto. Recarregando página...');
 
       try {
         sessionStorage.setItem(
           'canteen_pos_temporary_patch_ready_notice',
-          'CorreÃ§Ã£o temporÃ¡ria aplicada com sucesso. VocÃª pode tentar finalizar a compra novamente.'
+          'Correção temporária aplicada com sucesso. Você pode tentar finalizar a compra novamente.'
         );
       } catch {
         // no-op
@@ -2992,7 +2992,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       }, 900);
     } catch (ticketError) {
       const ticketMessage = ticketError instanceof Error ? ticketError.message : 'Erro desconhecido ao resolver temporariamente';
-      alert(`NÃ£o foi possÃ­vel resolver agora: ${ticketMessage}`);
+      alert(`Não foi possível resolver agora: ${ticketMessage}`);
       setIsResolvingNow(false);
       setResolveProgress(0);
       setResolveProgressMessage('');
@@ -3047,7 +3047,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
   const selectInlineSplitMethod = (method: PaymentMethod) => {
     if (method === 'SALDO' && isSaldoCantinaPaymentDisabled) {
-      alert("Pagamento via Saldo Cantina desativado enquanto a quitaÃ§Ã£o do saldo negativo estiver no carrinho.");
+      alert("Pagamento via Saldo Cantina desativado enquanto a quitação do saldo negativo estiver no carrinho.");
       return;
     }
     setActiveSplitMethod(method);
@@ -3276,7 +3276,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                 ref={clientInputRef}
                 type="text" 
                 disabled={isFinalConsumer}
-                placeholder={isFinalConsumer ? "Modo Consumidor Final Ativado" : "IDENTIFICAR ALUNO: Nome, MatrÃ­cula ou QR Code..."} 
+                placeholder={isFinalConsumer ? "Modo Consumidor Final Ativado" : "IDENTIFICAR ALUNO: Nome, Matrícula ou QR Code..."} 
                 className={`w-full pl-10 pr-12 py-2.5 bg-indigo-50/50 border-2 rounded-xl focus:ring-2 outline-none transition-all font-bold text-sm ${
                   isFinalConsumer ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' :
                   lastScanSuccess ? 'border-green-500 ring-green-100' : 'border-indigo-100 focus:border-indigo-500 focus:ring-indigo-100'
@@ -3321,7 +3321,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                         />
                         <div>
                            <p className="text-xs font-black text-gray-800">{client.name}</p>
-                           <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{client.registrationId} â€¢ {client.class || 'Docente'}</p>
+                           <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{client.registrationId} �?� {client.class || 'Docente'}</p>
                         </div>
                         <ChevronRight className="ml-auto text-gray-300" size={16} />
                      </button>
@@ -3337,7 +3337,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                        </div>
                        <div>
                          <p className="text-xs font-black text-emerald-700">Adicionar novo cliente</p>
-                         <p className="text-[10px] text-emerald-600/80 font-bold uppercase tracking-widest">Cadastro rÃ¡pido no PDV</p>
+                         <p className="text-[10px] text-emerald-600/80 font-bold uppercase tracking-widest">Cadastro rápido no PDV</p>
                        </div>
                        <ChevronRight className="ml-auto text-emerald-400" size={16} />
                      </button>
@@ -3355,7 +3355,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                     onChange={handleToggleFinalConsumer}
                   />
                   <div className="flex flex-col leading-none">
-                     <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest group-hover:text-indigo-600">Venda RÃ¡pida</span>
+                     <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest group-hover:text-indigo-600">Venda Rápida</span>
                      <span className="text-[11px] font-black text-gray-700">Consumidor Final</span>
                   </div>
                </label>
@@ -3374,7 +3374,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                 <input 
                   type="text"
-                  placeholder="Filtrar produtos no catÃ¡logo..."
+                  placeholder="Filtrar produtos no catálogo..."
                   className="w-full pl-9 pr-3 py-2 bg-gray-50 border rounded-lg text-xs focus:border-indigo-300 outline-none"
                   value={productSearch}
                   onChange={(e) => setProductSearch(e.target.value)}
@@ -3407,7 +3407,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                   <div className="flex items-center justify-between mt-1">
                     <span className="text-[9px] text-indigo-600 font-black uppercase">Consumo un.</span>
                     <span className={`text-[9px] font-black ${remainingUnits > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                      Saldo: {remainingUnits} un â€¢ R$ {formatCurrencyBRL(remainingValue)}
+                      Saldo: {remainingUnits} un �?� R$ {formatCurrencyBRL(remainingValue)}
                     </span>
                   </div>
                 </button>
@@ -3415,7 +3415,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
             })
           ) : filteredProducts.length === 0 ? (
             <div className="col-span-full bg-white border rounded-xl p-8 text-center">
-              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nenhum produto encontrado no catÃ¡logo</p>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nenhum produto encontrado no catálogo</p>
             </div>
           ) : filteredProducts.map(product => (
 	            <button key={product.id} onClick={() => addToCart(product)} className="bg-white p-1 rounded-lg border hover:border-indigo-400 hover:shadow-md transition-all text-left group">
@@ -3442,7 +3442,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 	      <div className="w-full lg:basis-[48%] lg:max-w-[48%] grid grid-cols-1 lg:grid-cols-[0.68fr_1.32fr] gap-1.5 z-10 min-w-0 min-h-0 items-stretch h-full">
         {/* Identification Card */}
         <div className={`bg-white p-3 rounded-2xl shadow-sm border-2 transition-all h-full min-h-0 flex flex-col ${selectedClient?.isBlocked ? 'border-red-500 animate-pulse' : 'border-indigo-50'}`}>
-          <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">SessÃ£o de Atendimento</h3>
+          <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Sessão de Atendimento</h3>
           <div className="flex-1 min-h-0 overflow-y-auto pr-1">
           
           {isFinalConsumer ? (
@@ -3492,7 +3492,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                        : 'bg-green-50 border-green-200 text-green-700'
                  }`}>
                    <p className="text-[10px] font-black opacity-60 uppercase">
-                     {selectedClient.type === 'COLABORADOR' ? 'Consumo do MÃªs' : 'Saldo Cantina'}
+                     {selectedClient.type === 'COLABORADOR' ? 'Consumo do Mês' : 'Saldo Cantina'}
                    </p>
                    <p className="text-lg font-black">
                      R$ {selectedClient.type === 'COLABORADOR' 
@@ -3513,7 +3513,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                      disabled={selectedClient.type !== 'COLABORADOR'}
                      className="w-full px-2 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest bg-amber-600 text-white disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
                    >
-                     Pagar Consumo MÃªs
+                     Pagar Consumo Mês
                    </button>
                     <button
                       onClick={() => {
@@ -3531,7 +3531,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Saldos do Cliente</p>
                    <div className="grid grid-cols-1 gap-1.5">
                      <div className={`p-3 rounded-xl border ${Number(selectedClient.balance || 0) < 0 ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}>
-                       <p className={`text-[9px] font-black uppercase tracking-widest ${Number(selectedClient.balance || 0) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>Cantina BalcÃ£o</p>
+                       <p className={`text-[9px] font-black uppercase tracking-widest ${Number(selectedClient.balance || 0) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>Cantina Balcão</p>
                        <div className="mt-1 flex items-center justify-between gap-2">
                          <p className={`text-sm font-black ${Number(selectedClient.balance || 0) < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
                            R$ {Number(selectedClient.balance || 0).toFixed(2)}
@@ -3545,7 +3545,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                          </p>
                          <p className="text-[10px] font-black text-indigo-700 mt-1">
                            {planCard.unitsRemaining !== null
-                             ? `Saldo: ${planCard.unitsRemaining} un â€¢ R$ ${formatCurrencyBRL(planCard.remainingValue || 0)}`
+                             ? `Saldo: ${planCard.unitsRemaining} un �?� R$ ${formatCurrencyBRL(planCard.remainingValue || 0)}`
                              : 'Saldo: --'}
                          </p>
                        </div>
@@ -3561,10 +3561,10 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                {selectedClient.type === 'COLABORADOR' && (
                  <div className="p-3 bg-amber-50 border-l-4 border-amber-500 rounded-lg">
                    <p className="text-[10px] font-black text-amber-900 uppercase tracking-widest mb-1">
-                     ðŸ’¼ Modo Colaborador
+                     �Y'� Modo Colaborador
                    </p>
                    <p className="text-xs text-amber-800 leading-tight">
-                     Consumo serÃ¡ registrado como dÃ­vida a vencer conforme data de pagamento configurada.
+                     Consumo será registrado como dívida a vencer conforme data de pagamento configurada.
                    </p>
                </div>
               )}
@@ -3610,9 +3610,9 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                             <p className="text-[13px] font-black text-gray-800 leading-tight">{item.name}</p>
                             {item.serviceAction && (
                               <p className="text-[9px] font-black uppercase tracking-widest text-indigo-500 mt-0.5">
-                                {item.serviceAction === 'CREDIT_STUDENT_FREE' && 'CrÃ©dito Livre Cantina'}
-                                {item.serviceAction === 'CREDIT_STUDENT_PLAN' && `CrÃ©dito Plano${item.planName ? ` â€¢ ${item.planName}` : ''}`}
-                                {item.serviceAction === 'PLAN_CONSUMPTION' && `Consumo Plano${item.planName ? ` â€¢ ${item.planName}` : ''}`}
+                                {item.serviceAction === 'CREDIT_STUDENT_FREE' && 'Crédito Livre Cantina'}
+                                {item.serviceAction === 'CREDIT_STUDENT_PLAN' && `Crédito Plano${item.planName ? ` �?� ${item.planName}` : ''}`}
+                                {item.serviceAction === 'PLAN_CONSUMPTION' && `Consumo Plano${item.planName ? ` �?� ${item.planName}` : ''}`}
                                 {item.serviceAction === 'PAY_COLLAB' && 'Pagamento Consumo Colaborador'}
                               </p>
                             )}
@@ -3644,13 +3644,13 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                             ) : item.serviceAction === 'CREDIT_STUDENT_PLAN' && item.planUnitPrice ? (
                               <p className="text-xs font-black mt-1">
                                   <span className="text-indigo-600">{(item.planSelectedCount ?? item.quantity)}x</span>
-                                <span className="text-gray-400 mx-1">â€¢</span>
+                                <span className="text-gray-400 mx-1">�?�</span>
                                 <span className="text-emerald-600">R$ {Number(item.planUnitPrice).toFixed(2)}</span>
                               </p>
                             ) : (
                               <p className="text-xs font-black mt-1">
                                 <span className="text-indigo-600">{item.quantity}x</span>
-                                <span className="text-gray-400 mx-1">â€¢</span>
+                                <span className="text-gray-400 mx-1">�?�</span>
                                 <span className="text-emerald-600">R$ {item.price.toFixed(2)}</span>
                               </p>
                             )}
@@ -3705,7 +3705,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                     <PaymentButton 
                       onClick={() => selectInlineSplitMethod('SALDO')} 
                       icon={<Wallet size={16} />} 
-                      label={selectedClient?.type === 'COLABORADOR' ? 'CrÃ©d. Colabrador' : 'Saldo Cantina'}
+                      label={selectedClient?.type === 'COLABORADOR' ? 'Créd. Colabrador' : 'Saldo Cantina'}
                       color="indigo" 
                       isSelected={activeSplitMethod === 'SALDO'}
                       disabled={isFinalConsumer || !selectedClient || selectedClient?.type === 'COLABORADOR' || isSaldoCantinaPaymentDisabled} 
@@ -3727,7 +3727,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                     <PaymentButton 
                       onClick={() => selectInlineSplitMethod('CREDITO_COLABORADOR')} 
                       icon={<Wallet size={16} />} 
-                      label="CrÃ©d. Colaborador" 
+                      label="Créd. Colaborador" 
                       color="amber" 
                       isSelected={activeSplitMethod === 'CREDITO_COLABORADOR'}
                       disabled={isFinalConsumer || !selectedClient || selectedClient?.type !== 'COLABORADOR'} 
@@ -3735,14 +3735,14 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                     <PaymentButton 
                       onClick={() => selectInlineSplitMethod('CREDITO')} 
                       icon={<CreditCard size={16} />} 
-                      label="CrÃ©dito" 
+                      label="Crédito" 
                       color="purple" 
                       isSelected={activeSplitMethod === 'CREDITO'}
                     />
                     <PaymentButton 
                       onClick={() => selectInlineSplitMethod('DEBITO')} 
                       icon={<CardIcon size={16} />} 
-                      label="DÃ©bito" 
+                      label="Débito" 
                       color="blue" 
                       isSelected={activeSplitMethod === 'DEBITO'}
                     />
@@ -3887,13 +3887,13 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           <div className="w-full h-full bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
             <div className="h-12 px-4 border-b bg-slate-50 flex items-center justify-between">
               <p className="text-[11px] font-black uppercase tracking-widest text-slate-600">
-                Histórico de Compras
+                Hist�rico de Compras
               </p>
               <button
                 type="button"
                 onClick={() => setIsHistoryModalOpen(false)}
                 className="h-8 w-8 rounded-lg border border-slate-200 text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-all flex items-center justify-center"
-                aria-label="Fechar histórico"
+                aria-label="Fechar hist�rico"
               >
                 <X size={16} />
               </button>
@@ -3923,7 +3923,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                 <div>
                   <h2 className="text-xl font-black">Novo Cliente no PDV</h2>
                   <p className="text-[10px] font-black uppercase tracking-widest text-emerald-100">
-                    Cadastro rÃ¡pido sem sair da venda
+                    Cadastro rápido sem sair da venda
                   </p>
                 </div>
               </div>
@@ -3946,7 +3946,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                         setQuickClientForm((prev) => ({
                           ...prev,
                           type: 'ALUNO',
-                          parentName: prev.parentName || (prev.name ? `ResponsÃ¡vel pelo(a) ${prev.name}` : ''),
+                          parentName: prev.parentName || (prev.name ? `Responsável pelo(a) ${prev.name}` : ''),
                         }));
                       }
                     }
@@ -3991,12 +3991,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                       onChange={(e) => {
                         const nextName = e.target.value;
                         setQuickClientForm((prev) => {
-                          const isAutoParentName = !prev.parentName || prev.parentName.startsWith('ResponsÃ¡vel pelo(a) ');
+                          const isAutoParentName = !prev.parentName || prev.parentName.startsWith('Responsável pelo(a) ');
                           return {
                             ...prev,
                             name: nextName,
                             parentName: isAutoParentName
-                              ? (nextName.trim() ? `ResponsÃ¡vel pelo(a) ${nextName.trim()}` : '')
+                              ? (nextName.trim() ? `Responsável pelo(a) ${nextName.trim()}` : '')
                               : prev.parentName,
                           };
                         });
@@ -4007,12 +4007,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                   </div>
 
                   <div className="md:col-span-2">
-                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">MatrÃ­cula / Registro</label>
+                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Matrícula / Registro</label>
                     <input
                       type="text"
                       value={quickClientForm.registrationId}
                       onChange={(e) => setQuickClientForm((prev) => ({ ...prev, registrationId: e.target.value }))}
-                      placeholder="AutomÃ¡tico se vazio"
+                      placeholder="Automático se vazio"
                       className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
                     />
                   </div>
@@ -4020,7 +4020,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                   {quickClientForm.type === 'ALUNO' ? (
                     <>
                       <div>
-                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">NÃ­vel de ensino</label>
+                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Nível de ensino</label>
                         <select
                           value={quickClientForm.classType}
                           onChange={(e) =>
@@ -4032,28 +4032,28 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                           }
                           className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
                         >
-                          <option value="">Selecione o nÃ­vel...</option>
-                          <option value="INFANTIL">EducaÃ§Ã£o Infantil</option>
+                          <option value="">Selecione o nível...</option>
+                          <option value="INFANTIL">Educação Infantil</option>
                           <option value="FUNDAMENTAL">Ensino Fundamental</option>
-                          <option value="MEDIO">Ensino MÃ©dio</option>
+                          <option value="MEDIO">Ensino Médio</option>
                           <option value="INTEGRAL">Integral</option>
                         </select>
                       </div>
                       <div>
-                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">SÃ©rie / Ano</label>
+                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Série / Ano</label>
                         <select
                           value={quickClientForm.classGrade}
                           onChange={(e) => setQuickClientForm((prev) => ({ ...prev, classGrade: e.target.value }))}
                           className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
                         >
-                          <option value="">Selecione a sÃ©rie...</option>
+                          <option value="">Selecione a série...</option>
                           {(quickClientForm.classType ? STUDENT_GRADE_OPTIONS[quickClientForm.classType] : []).map((grade) => (
                             <option key={grade} value={grade}>{grade}</option>
                           ))}
                         </select>
                       </div>
                       <div>
-                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Limite diÃ¡rio (R$)</label>
+                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Limite diário (R$)</label>
                         <input
                           type="number"
                           min={0}
@@ -4063,12 +4063,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                         />
                       </div>
                       <div className="md:col-span-2">
-                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">RestriÃ§Ãµes alimentares</label>
+                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Restrições alimentares</label>
                         <input
                           type="text"
                           value={quickClientForm.restrictions}
                           onChange={(e) => setQuickClientForm((prev) => ({ ...prev, restrictions: e.target.value }))}
-                          placeholder="Ex: Lactose, GlÃºten, Amendoim"
+                          placeholder="Ex: Lactose, Glúten, Amendoim"
                           className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
                         />
                       </div>
@@ -4099,7 +4099,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                             type="text"
                             value={quickClientForm.phone}
                             onChange={(e) => setQuickClientForm((prev) => ({ ...prev, phone: e.target.value }))}
-                            placeholder="DDD + nÃºmero"
+                            placeholder="DDD + número"
                             className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
                           />
                         </div>
@@ -4128,12 +4128,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                   )}
 
                   <div className="md:col-span-2">
-                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">ObservaÃ§Ãµes alimentares</label>
+                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Observações alimentares</label>
                     <input
                       type="text"
                       value={quickClientForm.dietaryNotes}
                       onChange={(e) => setQuickClientForm((prev) => ({ ...prev, dietaryNotes: e.target.value }))}
-                      placeholder="ObservaÃ§Ãµes gerais"
+                      placeholder="Observações gerais"
                       className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
                     />
                   </div>
@@ -4142,10 +4142,10 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
               {quickClientForm.type === 'ALUNO' ? (
                 <section className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-4">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 mb-3">Dados do ResponsÃ¡vel</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 mb-3">Dados do Responsável</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="md:col-span-2">
-                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Origem do responsÃ¡vel</label>
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Origem do responsável</label>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <button
                           type="button"
@@ -4156,7 +4156,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                               : 'bg-white border-gray-200 text-gray-600 hover:border-emerald-300'
                           }`}
                         >
-                          Cadastrar Novo ResponsÃ¡vel
+                          Cadastrar Novo Responsável
                         </button>
                         <button
                           type="button"
@@ -4183,7 +4183,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                               setQuickResponsibleCollaboratorSearch(e.target.value);
                               setQuickResponsibleCollaboratorId(null);
                             }}
-                            placeholder="Digite nome, matrÃ­cula ou setor do colaborador"
+                            placeholder="Digite nome, matrícula ou setor do colaborador"
                             className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm"
                           />
                         </div>
@@ -4207,7 +4207,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                 >
                                   <p className="text-sm font-black text-gray-800">{collaborator.name}</p>
                                   <p className="text-[11px] font-semibold text-gray-500">
-                                    {collaborator.registrationId ? `#${collaborator.registrationId}` : 'Sem matrÃ­cula'} â€¢ {collaborator.class || 'Sem setor'}
+                                    {collaborator.registrationId ? `#${collaborator.registrationId}` : 'Sem matrícula'} �?� {collaborator.class || 'Sem setor'}
                                   </p>
                                 </button>
                               );
@@ -4218,18 +4218,18 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                     ) : (
                       <>
                         <div>
-                          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Nome do responsÃ¡vel</label>
+                          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Nome do responsável</label>
                           <input
                             type="text"
                             value={quickClientForm.parentName}
                             onChange={(e) => setQuickClientForm((prev) => ({ ...prev, parentName: e.target.value }))}
-                            placeholder="Nome completo do responsÃ¡vel"
+                            placeholder="Nome completo do responsável"
                             className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-emerald-400 font-bold text-sm"
                           />
                         </div>
 
                         <div className="md:col-span-2">
-                          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Telefone do responsÃ¡vel</label>
+                          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Telefone do responsável</label>
                           <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-2">
                             <input
                               type="text"
@@ -4242,14 +4242,14 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                               type="text"
                               value={quickClientForm.phone}
                               onChange={(e) => setQuickClientForm((prev) => ({ ...prev, phone: e.target.value }))}
-                              placeholder="DDD + nÃºmero"
+                              placeholder="DDD + número"
                               className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-emerald-400 font-bold text-sm"
                             />
                           </div>
                         </div>
 
                         <div>
-                          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">E-mail do responsÃ¡vel</label>
+                          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">E-mail do responsável</label>
                           <input
                             type="email"
                             value={quickClientForm.email}
@@ -4260,7 +4260,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                         </div>
 
                         <div>
-                          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">CPF do responsÃ¡vel</label>
+                          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">CPF do responsável</label>
                           <input
                             type="text"
                             value={quickClientForm.cpf}
@@ -4273,7 +4273,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                     )}
 
                     <div>
-                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Tipo de responsÃ¡vel</label>
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Tipo de responsável</label>
                       <select
                         value={quickClientForm.parentRelationship}
                         onChange={(e) =>
@@ -4306,7 +4306,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">MatrÃ­cula do aluno</label>
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Matrícula do aluno</label>
                       <input
                         type="text"
                         value={quickClientForm.relatedStudentRegistrationId}
@@ -4316,7 +4316,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Tipo de responsÃ¡vel</label>
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Tipo de responsável</label>
                       <select
                         value={quickClientForm.relatedStudentResponsibleType}
                         onChange={(e) => setQuickClientForm((prev) => ({ ...prev, relatedStudentResponsibleType: e.target.value as 'PAIS' | 'AVOS' | 'TIOS' | 'TUTOR_LEGAL' }))}
@@ -4328,34 +4328,34 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                       </select>
                     </div>
                     <div>
-                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">NÃ­vel de ensino</label>
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Nível de ensino</label>
                       <select
                         value={quickClientForm.relatedStudentClassType}
                         onChange={(e) => setQuickClientForm((prev) => ({ ...prev, relatedStudentClassType: e.target.value as '' | 'INFANTIL' | 'FUNDAMENTAL' | 'MEDIO' | 'INTEGRAL', relatedStudentClassGrade: '' }))}
                         className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-cyan-400 font-bold text-sm"
                       >
-                        <option value="">Selecione o nÃ­vel...</option>
-                        <option value="INFANTIL">EducaÃ§Ã£o Infantil</option>
+                        <option value="">Selecione o nível...</option>
+                        <option value="INFANTIL">Educação Infantil</option>
                         <option value="FUNDAMENTAL">Ensino Fundamental</option>
-                        <option value="MEDIO">Ensino MÃ©dio</option>
+                        <option value="MEDIO">Ensino Médio</option>
                         <option value="INTEGRAL">Integral</option>
                       </select>
                     </div>
                     <div>
-                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">SÃ©rie / Ano</label>
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Série / Ano</label>
                       <select
                         value={quickClientForm.relatedStudentClassGrade}
                         onChange={(e) => setQuickClientForm((prev) => ({ ...prev, relatedStudentClassGrade: e.target.value }))}
                         className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-cyan-400 font-bold text-sm"
                       >
-                        <option value="">Selecione a sÃ©rie...</option>
+                        <option value="">Selecione a série...</option>
                         {(quickClientForm.relatedStudentClassType ? STUDENT_GRADE_OPTIONS[quickClientForm.relatedStudentClassType] : []).map((grade) => (
                           <option key={grade} value={grade}>{grade}</option>
                         ))}
                       </select>
                     </div>
                     <div>
-                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Limite diÃ¡rio (R$)</label>
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Limite diário (R$)</label>
                       <input
                         type="number"
                         min={0}
@@ -4365,12 +4365,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                       />
                     </div>
                     <div className="md:col-span-2">
-                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">RestriÃ§Ãµes alimentares</label>
+                      <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Restrições alimentares</label>
                       <input
                         type="text"
                         value={quickClientForm.relatedStudentRestrictions}
                         onChange={(e) => setQuickClientForm((prev) => ({ ...prev, relatedStudentRestrictions: e.target.value }))}
-                        placeholder="Ex: Lactose, GlÃºten, Amendoim"
+                        placeholder="Ex: Lactose, Glúten, Amendoim"
                         className="w-full px-4 py-3 bg-white border-2 border-gray-100 rounded-xl outline-none focus:border-cyan-400 font-bold text-sm"
                       />
                     </div>
@@ -4471,7 +4471,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                    </div>
                    <div>
                      <h2 className="text-xl font-black">
-                       {serviceActionType === 'CREDIT_STUDENT' ? 'Creditar Aluno' : 'Pagar Consumo MÃªs'}
+                       {serviceActionType === 'CREDIT_STUDENT' ? 'Creditar Aluno' : 'Pagar Consumo Mês'}
                      </h2>
                      <p className="text-[10px] font-black uppercase tracking-widest text-indigo-200">{selectedClient.name}</p>
                    </div>
@@ -4483,7 +4483,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                 {serviceActionType === 'CREDIT_STUDENT' ? (
                   <>
                     <div className="space-y-4">
-                      <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest">CrÃ©dito Livre Cantina</h3>
+                      <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Crédito Livre Cantina</h3>
                       <div className="space-y-2">
                         <label className="text-xs font-black text-gray-500 uppercase tracking-widest block text-center">Valor (R$)</label>
                         <div className="relative">
@@ -4503,7 +4503,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                     </div>
 
                     <div className="space-y-4 border-t pt-6">
-                      <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest">CrÃ©dito Planos (Planos Cadastrados para MatrÃ­cula)</h3>
+                      <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Crédito Planos (Planos Cadastrados para Matrícula)</h3>
                       {availablePlans.length === 0 ? (
                         <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4">
                           <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">
@@ -4561,7 +4561,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                       onClick={() => setStudentCreditOpenCalendarId(isCalendarOpen ? null : plan.id)}
                                       className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 bg-white border-indigo-200 text-indigo-600 hover:border-indigo-400 transition-all"
                                     >
-                                      {isCalendarOpen ? 'Fechar CalendÃ¡rio' : 'Escolher Dias'}
+                                      {isCalendarOpen ? 'Fechar Calendário' : 'Escolher Dias'}
                                     </button>
                                   )}
                                 </div>
@@ -4569,14 +4569,14 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                 {isSelected && (
                                   <div className="mt-3">
                                     <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">
-                                      {selectedDatesCount} dia(s) do mÃªs selecionado(s) â€¢ Subtotal: R$ {subtotal.toFixed(2)}
+                                      {selectedDatesCount} dia(s) do mês selecionado(s) �?� Subtotal: R$ {subtotal.toFixed(2)}
                                     </p>
                                     <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mt-1">
-                                      Saldo livre: R$ {availableBalance.toFixed(2)} â€¢ CobranÃ§a mÃ­nima: R$ {discountedSubtotal.toFixed(2)}
+                                      Saldo livre: R$ {availableBalance.toFixed(2)} �?� Cobrança mínima: R$ {discountedSubtotal.toFixed(2)}
                                     </p>
                                     {serverPreview && (
                                       <p className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest mt-1">
-                                        Saldo bruto: R$ {Number(rawBalance || 0).toFixed(2)} â€¢ Reservado: {Number(reservedUnits || 0)} un (R$ {Number(reservedValue || 0).toFixed(2)}) â€¢ Bruto novas datas: R$ {Number(planGross || 0).toFixed(2)}
+                                        Saldo bruto: R$ {Number(rawBalance || 0).toFixed(2)} �?� Reservado: {Number(reservedUnits || 0)} un (R$ {Number(reservedValue || 0).toFixed(2)}) �?� Bruto novas datas: R$ {Number(planGross || 0).toFixed(2)}
                                       </p>
                                     )}
                                     {!serverPreview && isStudentCreditPlanPreviewLoading && selectedDatesCount > 0 && (
@@ -4593,12 +4593,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                 {isSelected && isCalendarOpen && (
                                   <div className="mt-4 bg-white border border-indigo-200 rounded-2xl p-4">
                                     <p className="text-[10px] font-black text-indigo-700 uppercase tracking-widest mb-3">
-                                      CalendÃ¡rio de Entregas - Dias da Semana e do MÃªs
+                                      Calendário de Entregas - Dias da Semana e do Mês
                                     </p>
                                     {!isSchoolCalendarYearLoaded(studentCreditCalendarMonth.getFullYear()) && (
                                       <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
                                         <p className="text-[9px] font-black text-amber-700 uppercase tracking-wider">
-                                          Carregando calendÃ¡rio escolar do ano {studentCreditCalendarMonth.getFullYear()}...
+                                          Carregando calendário escolar do ano {studentCreditCalendarMonth.getFullYear()}...
                                         </p>
                                       </div>
                                     )}
@@ -4622,7 +4622,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                                 ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
                                                 : (active ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-indigo-100 text-indigo-500 hover:border-indigo-300')
                                             }`}
-                                            title={isWeekdayDisabled ? 'Todos os dias deste perÃ­odo jÃ¡ estÃ£o registrados (entregues ou agendados)' : ''}
+                                            title={isWeekdayDisabled ? 'Todos os dias deste período já estão registrados (entregues ou agendados)' : ''}
                                           >
                                             {day.label}
                                           </button>
@@ -4640,7 +4640,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                             type="button"
                                             onClick={() => setStudentCreditCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
                                             className="w-8 h-8 rounded-lg border border-indigo-200 bg-white text-indigo-600 text-xs font-black"
-                                            title="MÃªs anterior"
+                                            title="Mês anterior"
                                           >
                                             {'<'}
                                           </button>
@@ -4655,7 +4655,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                             type="button"
                                             onClick={() => setStudentCreditCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
                                             className="w-8 h-8 rounded-lg border border-indigo-200 bg-white text-indigo-600 text-xs font-black"
-                                            title="PrÃ³ximo mÃªs"
+                                            title="Próximo mês"
                                           >
                                             {'>'}
                                           </button>
@@ -4705,7 +4705,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                                       ? 'bg-amber-50 border-amber-200 text-amber-700 cursor-not-allowed'
                                                       : (isSelectedDate ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300'))
                                               }`}
-                                              title={isSchoolBlockedDate ? schoolBlockTitle : (isReversedDate ? 'Estornado' : (isDeliveredDate ? 'Entregue' : (isRegisteredDate ? 'JÃ¡ registrado em crÃ©dito anterior' : '')))}
+                                              title={isSchoolBlockedDate ? schoolBlockTitle : (isReversedDate ? 'Estornado' : (isDeliveredDate ? 'Entregue' : (isRegisteredDate ? 'Já registrado em crédito anterior' : '')))}
                                             >
                                               {isSchoolBlockedDate ? (
                                                 <span className="flex flex-col items-center leading-none">
@@ -4732,12 +4732,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                               )}
                                               {isDeliveredDate && (
                                                 <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 text-white text-[9px] leading-none flex items-center justify-center">
-                                                  âœ“
+                                                  �o"
                                                 </span>
                                               )}
                                               {isRegisteredDate && (
                                                 <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-white text-[9px] leading-none flex items-center justify-center">
-                                                  â€¢
+                                                  �?�
                                                 </span>
                                               )}
                                               {isSchoolBlockedDate && (
@@ -4786,7 +4786,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
                     <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100">
                       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                        Ao confirmar, este valor serÃ¡ adicionado no carrinho como item de venda.
+                        Ao confirmar, este valor será adicionado no carrinho como item de venda.
                       </p>
                     </div>
                   </>
@@ -4804,7 +4804,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                       : 'bg-indigo-600 text-white shadow-xl shadow-indigo-100 hover:bg-indigo-700 active:scale-95'
                   } ${serviceActionType === 'CREDIT_STUDENT' ? 'flex-1' : 'flex-[2]'}`}
                 >
-                  {serviceActionType === 'CREDIT_STUDENT' ? 'Confirmar CrÃ©ditos' : 'Inserir no Carrinho'} <ArrowRight size={20} />
+                  {serviceActionType === 'CREDIT_STUDENT' ? 'Confirmar Créditos' : 'Inserir no Carrinho'} <ArrowRight size={20} />
                 </button>
              </div>
           </div>
@@ -4814,7 +4814,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       {patchResolvedNotice && (
         <div className="fixed top-20 right-4 z-[120] max-w-md">
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 shadow-xl">
-            <p className="text-xs font-black uppercase tracking-widest text-emerald-700">Patch temporÃ¡rio aplicado</p>
+            <p className="text-xs font-black uppercase tracking-widest text-emerald-700">Patch temporário aplicado</p>
             <p className="text-sm font-bold text-emerald-700 mt-1">{patchResolvedNotice}</p>
           </div>
         </div>
@@ -4839,7 +4839,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                 <div>
                   <h3 className="text-lg font-black">Cliente em saldo negativo</h3>
                   <p className="text-[10px] uppercase tracking-widest font-black text-amber-100">
-                    ConfirmaÃ§Ã£o obrigatÃ³ria para continuar
+                    Confirmação obrigatória para continuar
                   </p>
                 </div>
               </div>
@@ -4857,7 +4857,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
             <div className="p-6 space-y-4">
               <p className="text-sm text-gray-700 leading-relaxed">
-                O cliente <span className="font-black text-gray-900">{negativeBalanceWarningClientName}</span> jÃ¡ estÃ¡ com saldo negativo.
+                O cliente <span className="font-black text-gray-900">{negativeBalanceWarningClientName}</span> já está com saldo negativo.
                 Deseja continuar e somar mais valor no negativo?
               </p>
               <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4">
@@ -4914,7 +4914,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                 <div>
                   <h3 className="text-lg font-black">Erro ao finalizar venda</h3>
                   <p className="text-[10px] uppercase tracking-widest font-black text-red-100">
-                    Detalhes disponÃ­veis para envio ao suporte
+                    Detalhes disponíveis para envio ao suporte
                   </p>
                 </div>
               </div>
@@ -4937,7 +4937,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
               {saleErrorDetails && (
                 <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4">
-                  <p className="text-xs font-black uppercase tracking-widest text-gray-600 mb-2">Detalhes tÃ©cnicos</p>
+                  <p className="text-xs font-black uppercase tracking-widest text-gray-600 mb-2">Detalhes técnicos</p>
                   <pre className="text-[11px] leading-5 text-gray-700 whitespace-pre-wrap break-words max-h-48 overflow-auto">
                     {saleErrorDetails}
                   </pre>
@@ -4946,7 +4946,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
               {selfServiceResolution && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
-                  <p className="text-xs font-black uppercase tracking-widest text-emerald-700">CorreÃ§Ã£o rÃ¡pida</p>
+                  <p className="text-xs font-black uppercase tracking-widest text-emerald-700">Correção rápida</p>
                   <p className="text-sm font-bold text-emerald-800 mt-1">{selfServiceResolution.description}</p>
                   <p className="text-[11px] font-semibold text-emerald-600 mt-1">Ao clicar em "Resolver agora" vamos abrir o cadastro para ajuste manual.</p>
                 </div>
@@ -4954,8 +4954,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
               {isResolvingNow && (
                 <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4">
-                  <p className="text-xs font-black uppercase tracking-widest text-indigo-700">ResoluÃ§Ã£o temporÃ¡ria em andamento</p>
-                  <p className="text-xs font-bold text-indigo-700 mt-1">{resolveProgressMessage || 'Aplicando patch temporÃ¡rio...'}</p>
+                  <p className="text-xs font-black uppercase tracking-widest text-indigo-700">Resolução temporária em andamento</p>
+                  <p className="text-xs font-bold text-indigo-700 mt-1">{resolveProgressMessage || 'Aplicando patch temporário...'}</p>
                   <div className="mt-3 h-2 w-full rounded-full bg-indigo-100 overflow-hidden">
                     <div
                       className="h-full bg-indigo-600 transition-all duration-300 ease-out"
@@ -4987,7 +4987,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                 disabled={isSendingErrorTicket || isResolvingNow}
                 className="flex-1 py-3 rounded-2xl bg-indigo-600 text-white font-black uppercase tracking-widest text-xs hover:bg-indigo-700 transition-colors disabled:opacity-60"
               >
-                {isSendingErrorTicket ? 'Enviando...' : 'Enviar ao suporte tÃ©cnico'}
+                {isSendingErrorTicket ? 'Enviando...' : 'Enviar ao suporte técnico'}
               </button>
             </div>
           </div>
@@ -5051,4 +5051,5 @@ const PaymentButton = ({ onClick, icon, label, color, disabled, isSelected }: an
 };
 
 export default POSPage;
+
 
