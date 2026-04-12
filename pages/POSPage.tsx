@@ -3514,31 +3514,13 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                  <div className="space-y-1.5">
                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Saldos do Cliente</p>
                    <div className="grid grid-cols-1 gap-1.5">
-                     <div className={`p-3 rounded-xl border ${effectiveCantinaBalance < 0 ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}>
-                       <p className={`text-[9px] font-black uppercase tracking-widest ${effectiveCantinaBalance < 0 ? 'text-red-600' : 'text-emerald-600'}`}>Cantina</p>
+                     <div className={`p-3 rounded-xl border ${Number(selectedClient.balance || 0) < 0 ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}>
+                       <p className={`text-[9px] font-black uppercase tracking-widest ${Number(selectedClient.balance || 0) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>Cantina Balcão</p>
                        <div className="mt-1 flex items-center justify-between gap-2">
-                         <p className={`text-sm font-black ${effectiveCantinaBalance < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
-                           R$ {effectiveCantinaBalance.toFixed(2)}
+                         <p className={`text-sm font-black ${Number(selectedClient.balance || 0) < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                           R$ {Number(selectedClient.balance || 0).toFixed(2)}
                          </p>
-                         {effectiveCantinaBalance < 0 && (
-                           <button
-                             type="button"
-                             onClick={handlePayNegativeBalance}
-                             disabled={negativeBalanceAmountToPay <= 0}
-                             className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed transition-all"
-                           >
-                             {negativeBalanceAmountToPay <= 0 ? 'No carrinho' : 'Pagar'}
-                           </button>
-                         )}
                        </div>
-                       {pendingCantinaDiscount > 0 && (
-                         <p className="text-[9px] font-black text-red-500 mt-1">- R$ {pendingCantinaDiscount.toFixed(2)} pendente no carrinho</p>
-                       )}
-                       {pendingNegativeBalancePayment > 0 && (
-                         <p className="text-[9px] font-black text-emerald-700 mt-1">
-                           + R$ {pendingNegativeBalancePayment.toFixed(2)} para quitar saldo no carrinho
-                         </p>
-                       )}
                      </div>
                      {sessionPlanMiniCards.length > 0 ? sessionPlanMiniCards.map((planCard) => (
                        <div key={planCard.key} className={`p-3 rounded-xl border ${planCard.isActive ? 'bg-indigo-50 border-indigo-100' : 'bg-gray-50 border-gray-100'}`}>
@@ -3550,14 +3532,6 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                              ? `Saldo: ${planCard.unitsRemaining} un • R$ ${formatCurrencyBRL(planCard.remainingValue || 0)}`
                              : 'Saldo: --'}
                          </p>
-                         {(planCard.creditValue || 0) > 0 && (
-                           <p className="text-[10px] font-black text-emerald-600">
-                             Crédito extra: R$ {formatCurrencyBRL(planCard.creditValue || 0)}
-                           </p>
-                         )}
-                        {planCard.pendingDiscount > 0 && (
-                          <p className="text-[9px] font-black text-red-500 mt-1">- R$ {formatCurrencyBRL(planCard.pendingDiscount)} pendente no carrinho</p>
-                        )}
                        </div>
                      )) : (
                        <div className="p-3 rounded-xl border bg-gray-50 border-gray-100">
