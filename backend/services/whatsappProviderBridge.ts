@@ -20,6 +20,8 @@ export type WhatsAppExternalProviderConfig = {
   mediaMethod: ExternalProviderHttpMethod;
   menuPath: string;
   menuMethod: ExternalProviderHttpMethod;
+  carouselPath: string;
+  carouselMethod: ExternalProviderHttpMethod;
   bulkPath: string;
   bulkMethod: ExternalProviderHttpMethod;
   commonFields: Record<string, unknown>;
@@ -53,6 +55,8 @@ const DEFAULT_EXTERNAL_CONFIG: WhatsAppExternalProviderConfig = {
   mediaMethod: 'POST',
   menuPath: '/message/send-menu',
   menuMethod: 'POST',
+  carouselPath: '/message/send-carousel',
+  carouselMethod: 'POST',
   bulkPath: '/message/send-bulk',
   bulkMethod: 'POST',
   commonFields: {},
@@ -92,6 +96,7 @@ const normalizeExternalConfig = (value: any, existing?: WhatsAppExternalProvider
   const defaultSendPath = providerCode === 'UAZAPI' ? '/send/text' : DEFAULT_EXTERNAL_CONFIG.sendPath;
   const defaultMediaPath = providerCode === 'UAZAPI' ? '/send/media' : DEFAULT_EXTERNAL_CONFIG.mediaPath;
   const defaultMenuPath = providerCode === 'UAZAPI' ? '/send/menu' : DEFAULT_EXTERNAL_CONFIG.menuPath;
+  const defaultCarouselPath = providerCode === 'UAZAPI' ? '/send/carousel' : DEFAULT_EXTERNAL_CONFIG.carouselPath;
   const defaultBulkPath = providerCode === 'UAZAPI' ? '/send/text' : DEFAULT_EXTERNAL_CONFIG.bulkPath;
 
   return {
@@ -110,6 +115,8 @@ const normalizeExternalConfig = (value: any, existing?: WhatsAppExternalProvider
     mediaMethod: normalizeMethod(incoming.mediaMethod, safeExisting.mediaMethod || DEFAULT_EXTERNAL_CONFIG.mediaMethod),
     menuPath: normalizePath(incoming.menuPath, safeExisting.menuPath || defaultMenuPath),
     menuMethod: normalizeMethod(incoming.menuMethod, safeExisting.menuMethod || DEFAULT_EXTERNAL_CONFIG.menuMethod),
+    carouselPath: normalizePath(incoming.carouselPath, safeExisting.carouselPath || defaultCarouselPath),
+    carouselMethod: normalizeMethod(incoming.carouselMethod, safeExisting.carouselMethod || DEFAULT_EXTERNAL_CONFIG.carouselMethod),
     bulkPath: normalizePath(incoming.bulkPath, safeExisting.bulkPath || defaultBulkPath),
     bulkMethod: normalizeMethod(incoming.bulkMethod, safeExisting.bulkMethod || DEFAULT_EXTERNAL_CONFIG.bulkMethod),
     commonFields: normalizeObjectRecord(incoming.commonFields, normalizeObjectRecord(safeExisting.commonFields, {})),
@@ -699,6 +706,98 @@ export const sendMenuByConfiguredProvider = async (params: {
       ? response.payload
       : JSON.stringify(response.payload);
     throw new Error(`Falha no envio de menu externo (${response.status}): ${detailText || 'erro desconhecido'}`);
+  }
+
+  return {
+    handledByExternal: true,
+    result: {
+      success: true,
+      providerMode: 'EXTERNAL',
+      providerCode: config.external.providerCode,
+      messageId: extractMessageId(response.payload),
+      payload: response.payload,
+    },
+  };
+};
+
+export const sendCarouselByConfiguredProvider = async (params: {
+  enterpriseId: string;
+  target: string;
+  text: string;
+  carousel: Array<{
+    text: string;
+    image: string;
+    buttons: Array<{
+      id: string;
+      text: string;
+      type: 'REPLY' | 'URL' | 'COPY' | 'CALL';
+    }>;
+  }>;
+  trackSource?: string;
+  trackId?: string;
+}) => {
+  const config = getEnterpriseProviderConfig(params.enterpriseId);
+  if (config.mode !== 'EXTERNAL' || !config.external.enabled) {
+    return {
+      handledByExternal: false,
+      result: null,
+    };
+  }
+
+  const providerCode = String(config.external.providerCode || '').trim().toUpperCase();
+  const commonFields = normalizeObjectRecord(config.external.commonFields, {});
+  const target = normalizeExternalTarget(providerCode, String(params.target || ''));
+  const text = String(params.text || '').trim();
+  const carousel = Array.isArray(params.carousel) ? params.carousel : [];
+  if (!target) throw new Error('Destinatário inválido para carrossel.');
+  if (!text) throw new Error('Texto principal é obrigatório para carrossel.');
+  if (carousel.length === 0) throw new Error('Array carousel é obrigatório.');
+
+  const normalizedCarousel = carousel.map((card: any) => ({
+    text: String(card?.text || '').trim(),
+    image: String(card?.image || '').trim(),
+    buttons: Array.isArray(card?.buttons)
+      ? card.buttons.map((button: any) => ({
+        id: String(button?.id || '').trim(),
+        text: String(button?.text || '').trim(),
+        type: (() => {
+          const raw = String(button?.type || '').trim().toUpperCase();
+          if (raw === 'URL' || raw === 'COPY' || raw === 'CALL') return raw;
+          return 'REPLY';
+        })(),
+      })).filter((button: any) => button.id && button.text)
+      : [],
+  })).filter((card: any) => card.text && card.image && Array.isArray(card.buttons) && card.buttons.length > 0);
+
+  if (normalizedCarousel.length === 0) {
+    throw new Error('Cada cartão deve ter text, image e ao menos um botão válido.');
+  }
+
+  if (providerCode === 'UAZAPI') {
+    void triggerUazapiPresenceUpdate(config.external, target, 'composing').catch(() => {});
+  }
+
+  const payload = {
+    ...commonFields,
+    number: target,
+    text,
+    carousel: normalizedCarousel,
+    track_source: String(params.trackSource || '').trim() || undefined,
+    track_id: String(params.trackId || '').trim() || undefined,
+  };
+
+  const response = await callExternalEndpoint(
+    config.external,
+    config.external.carouselMethod,
+    config.external.carouselPath,
+    payload
+  );
+
+  if (!response.ok) {
+    const detailText = typeof response.payload === 'string'
+      ? response.payload
+      : JSON.stringify(response.payload);
+    throw new Error(`Falha no envio de carrossel externo (${response.status}): ${detailText || 'erro desconhecido'}`);
   }
 
   return {

@@ -1557,6 +1557,37 @@ export class ApiService {
     return response.json();
   }
 
+  static async sendWhatsAppCarousel(payload: {
+    number: string;
+    text: string;
+    carousel: Array<{
+      text: string;
+      image: string;
+      buttons: Array<{
+        id: string;
+        text: string;
+        type: 'REPLY' | 'URL' | 'COPY' | 'CALL';
+      }>;
+    }>;
+    trackSource?: string;
+    trackId?: string;
+  }) {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(`${API_URL}/whatsapp/send-carousel`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({
+        enterpriseId,
+        ...(payload || {}),
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao enviar carrossel');
+    }
+    return response.json();
+  }
+
   static async getWhatsAppDispatchAudience(params: {
     enterpriseId: string;
     filter?: 'TODOS' | 'RESPONSAVEIS' | 'COLABORADORES' | 'SALDO_BAIXO' | 'PLANO_A_VENCER' | 'RELATORIO_ENTREGA';

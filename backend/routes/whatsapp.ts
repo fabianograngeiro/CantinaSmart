@@ -22,6 +22,7 @@ import {
   sendBulkByConfiguredProvider,
   sendMediaByConfiguredProvider,
   sendMenuByConfiguredProvider,
+  sendCarouselByConfiguredProvider,
 } from '../services/whatsappProviderBridge.js';
 import { db } from '../database.js';
 
@@ -1214,6 +1215,54 @@ router.post('/send-menu', async (req: AuthRequest, res: Response) => {
     return res.status(400).json({
       success: false,
       message: err instanceof Error ? err.message : 'Falha ao enviar menu interativo.',
+    });
+  }
+});
+
+router.post('/send-carousel', async (req: AuthRequest, res: Response) => {
+  try {
+    const enterpriseId = resolveEnterpriseIdOrReject(req, res);
+    if (!enterpriseId) return;
+    const { number, text, carousel, trackSource, trackId } = req.body || {};
+    const target = String(number || '').trim();
+    const safeText = String(text || '').trim();
+    const safeCarousel = Array.isArray(carousel) ? carousel : [];
+
+    if (!target || !safeText || safeCarousel.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Informe number, text e carousel para envio de carrossel.',
+      });
+    }
+
+    if (!isSpecialTargetJid(target) && !getEnterprisePhoneSet(enterpriseId).has(normalizePhoneDigits(target))) {
+      return res.status(403).json({
+        success: false,
+        message: 'Telefone não pertence à unidade selecionada.',
+      });
+    }
+
+    const externalCarousel = await sendCarouselByConfiguredProvider({
+      enterpriseId,
+      target,
+      text: safeText,
+      carousel: safeCarousel,
+      trackSource: String(trackSource || '').trim(),
+      trackId: String(trackId || '').trim(),
+    });
+
+    if (externalCarousel.handledByExternal) {
+      return res.json(externalCarousel.result);
+    }
+
+    return res.status(400).json({
+      success: false,
+      message: 'Envio de carrossel disponível apenas para provedor externo configurado.',
+    });
+  } catch (err) {
+    return res.status(400).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao enviar carrossel.',
     });
   }
 });
