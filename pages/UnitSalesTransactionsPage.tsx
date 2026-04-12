@@ -252,7 +252,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   const [schoolCalendarBlockedDatesByYear, setSchoolCalendarBlockedDatesByYear] = useState<Record<number, string[]>>({});
   const canHardDeleteTransactions = useMemo(() => {
     const role = normalizeRole(currentUser?.role);
-    return role === 'SUPERADMIN' || role === 'ADMIN_SISTEMA' || role === 'ADMIN';
+    return role === 'SUPERADMIN'
+      || role === 'ADMIN_SISTEMA'
+      || role === 'ADMIN'
+      || role === 'OWNER'
+      || role === 'GERENTE';
   }, [currentUser?.role]);
 
   const schoolCalendarYearsToLoad = useMemo(() => {
@@ -1343,9 +1347,12 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
         })
       : [];
 
-    const deleteMessage = isCreditPlanTx && relatedDeliveryTxs.length > 0
-      ? `Excluir a transação de crédito plano #${row.id} e suas ${relatedDeliveryTxs.length} entrega(s) do dia (${relatedDeliveryTxs.length === 1 ? 'entregue' : 'entregues e/ou pendentes'})? Esta ação não pode ser desfeita.`
-      : `Excluir a transação #${row.id}? Esta ação não pode ser desfeita.`;
+    const purgeClientHistory = Boolean(String(row.clientId || '').trim());
+    const deleteMessage = purgeClientHistory
+      ? `Excluir TODOS os registros financeiros e de plano deste aluno/colaborador (agendado, entregue, saldos e créditos), a partir da transação #${row.id}? Esta ação não pode ser desfeita.`
+      : (isCreditPlanTx && relatedDeliveryTxs.length > 0
+          ? `Excluir a transação de crédito plano #${row.id} e suas ${relatedDeliveryTxs.length} entrega(s) do dia (${relatedDeliveryTxs.length === 1 ? 'entregue' : 'entregues e/ou pendentes'})? Esta ação não pode ser desfeita.`
+          : `Excluir a transação #${row.id}? Esta ação não pode ser desfeita.`);
 
     setDeleteTargetTransaction(row);
     setDeletePromptMessage(deleteMessage);
@@ -1376,6 +1383,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       await ApiService.deleteTransaction(row.id, {
         deleteReason: normalizedReason,
         includeOriginCredit: true,
+        purgeClientHistory: Boolean(String(row.clientId || '').trim()),
       });
       
       if (selectedTransaction?.id === row.id) setSelectedTransaction(null);
@@ -1445,9 +1453,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
       for (const txId of selectedDeletableIds) {
         try {
+          const row = normalizedTransactions.find((tx) => String(tx.id || '').trim() === String(txId || '').trim());
           await ApiService.deleteTransaction(txId, {
             deleteReason: normalizedReason,
             includeOriginCredit: true,
+            purgeClientHistory: Boolean(String(row?.clientId || '').trim()),
           });
           successCount += 1;
           if (selectedTransaction?.id === txId) setSelectedTransaction(null);

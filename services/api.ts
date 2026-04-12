@@ -992,10 +992,12 @@ export class ApiService {
     return response.json();
   }
 
-  static async getTransactionDeletePreview(id: string, options?: { includeOriginCredit?: boolean }) {
+  static async getTransactionDeletePreview(id: string, options?: { includeOriginCredit?: boolean; purgeClientHistory?: boolean }) {
     const includeOriginCredit = options?.includeOriginCredit ? 'true' : undefined;
+    const purgeClientHistory = options?.purgeClientHistory ? 'true' : undefined;
     const response = await fetch(this.buildApiUrl(`/transactions/${id}/delete-preview`, {
       includeOriginCredit,
+      purgeClientHistory,
     }), {
       headers: this.getHeaders(),
     });
@@ -1006,10 +1008,11 @@ export class ApiService {
 
   static async deleteTransaction(
     id: string,
-    metadata?: { deletedByName?: string; deleteReason?: string; includeOriginCredit?: boolean }
+    metadata?: { deletedByName?: string; deleteReason?: string; includeOriginCredit?: boolean; purgeClientHistory?: boolean }
   ) {
     const includeOriginCredit = Boolean(metadata?.includeOriginCredit);
-    const preview = await this.getTransactionDeletePreview(id, { includeOriginCredit });
+    const purgeClientHistory = Boolean(metadata?.purgeClientHistory);
+    const preview = await this.getTransactionDeletePreview(id, { includeOriginCredit, purgeClientHistory });
     const response = await fetch(`${API_URL}/transactions/${id}`, {
       method: 'DELETE',
       headers: this.getHeaders(),
@@ -1017,6 +1020,7 @@ export class ApiService {
         deletedByName: String(metadata?.deletedByName || '').trim(),
         deleteReason: String(metadata?.deleteReason || '').trim(),
         includeOriginCredit,
+        purgeClientHistory,
         confirmDeleteCount: Number(preview?.deleteCount || 0),
       }),
     });

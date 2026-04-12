@@ -3428,10 +3428,11 @@ export class Database {
   private collectTransactionIdsForDeletion(
     targetTransaction: any,
     normalizedId: string,
-    options?: { includeOriginCredit?: boolean }
+    options?: { includeOriginCredit?: boolean; purgeClientHistory?: boolean }
   ) {
     const idsToDelete = new Set<string>([normalizedId]);
     const includeOriginCredit = Boolean(options?.includeOriginCredit);
+    const purgeClientHistory = Boolean(options?.purgeClientHistory);
 
     const isPlanCreditTx = (tx: any) => {
       const txType = this.normalizeToken(tx?.type);
@@ -3518,10 +3519,26 @@ export class Database {
       });
     }
 
+    if (purgeClientHistory) {
+      const targetClientId = String(targetTransaction?.clientId || '').trim();
+      const targetEnterpriseId = String(targetTransaction?.enterpriseId || '').trim();
+      if (targetClientId) {
+        this.transactions.forEach((tx: any) => {
+          const txId = String(tx?.id || '').trim();
+          if (!txId) return;
+          const txClientId = String(tx?.clientId || '').trim();
+          if (!txClientId || txClientId !== targetClientId) return;
+          const txEnterpriseId = String(tx?.enterpriseId || '').trim();
+          if (targetEnterpriseId && txEnterpriseId && txEnterpriseId !== targetEnterpriseId) return;
+          idsToDelete.add(txId);
+        });
+      }
+    }
+
     return idsToDelete;
   }
 
-  getTransactionDeletePreview(id: string, options?: { includeOriginCredit?: boolean }) {
+  getTransactionDeletePreview(id: string, options?: { includeOriginCredit?: boolean; purgeClientHistory?: boolean }) {
     const normalizedId = String(id || '').trim();
     if (!normalizedId) return null;
 
@@ -3529,7 +3546,11 @@ export class Database {
     if (!targetTransaction) return null;
 
     const includeOriginCredit = Boolean(options?.includeOriginCredit);
-    const idsToDelete = this.collectTransactionIdsForDeletion(targetTransaction, normalizedId, { includeOriginCredit });
+    const purgeClientHistory = Boolean(options?.purgeClientHistory);
+    const idsToDelete = this.collectTransactionIdsForDeletion(targetTransaction, normalizedId, {
+      includeOriginCredit,
+      purgeClientHistory,
+    });
     const removedTransactions = this.transactions.filter((tx: any) => {
       const txId = String(tx?.id || '').trim();
       return Boolean(txId) && idsToDelete.has(txId);
@@ -3581,6 +3602,7 @@ export class Database {
       targetType: String(targetTransaction?.type || '').trim().toUpperCase(),
       targetDescription: String(targetTransaction?.description || targetTransaction?.item || '').trim(),
       includeOriginCredit,
+      purgeClientHistory,
       canAlsoDeleteOriginCredit,
       linkedOriginTransactionId: canAlsoDeleteOriginCredit ? linkedOriginId : '',
       linkedOriginDescription: canAlsoDeleteOriginCredit
@@ -4037,6 +4059,7 @@ export class Database {
       requesterUserId?: string;
       requesterRole?: string;
       includeOriginCredit?: boolean;
+      purgeClientHistory?: boolean;
     }
   ) {
     const normalizedId = String(id || '').trim();
@@ -4047,6 +4070,7 @@ export class Database {
 
     const idsToDelete = this.collectTransactionIdsForDeletion(targetTransaction, normalizedId, {
       includeOriginCredit: Boolean(audit?.includeOriginCredit),
+      purgeClientHistory: Boolean(audit?.purgeClientHistory),
     });
 
     const removedTransactions = this.transactions.filter((tx: any) => {
@@ -4222,6 +4246,27 @@ export class Database {
       const rebuilt = this.rebuildClientPlanBalancesFromTransactions(normalized);
       return this.pruneClientPlanReferencesToActivePlans(rebuilt);
     });
+
+    if (Boolean(audit?.purgeClientHistory)) {
+      const targetClientId = String(targetTransaction?.clientId || '').trim();
+      const targetEnterpriseId = String(targetTransaction?.enterpriseId || '').trim();
+      if (targetClientId) {
+        this.clients = this.clients.map((client: any) => {
+          const clientId = String(client?.id || '').trim();
+          if (!clientId || clientId !== targetClientId) return client;
+          const clientEnterpriseId = String(client?.enterpriseId || '').trim();
+          if (targetEnterpriseId && clientEnterpriseId && clientEnterpriseId !== targetEnterpriseId) return client;
+          return {
+            ...client,
+            balance: 0,
+            amountDue: 0,
+            monthlyConsumption: 0,
+            selectedPlansConfig: [],
+            planCreditBalances: {},
+          };
+        });
+      }
+    }
 
     const now = new Date();
     const deleteReason = String(audit?.deleteReason || '').trim();
