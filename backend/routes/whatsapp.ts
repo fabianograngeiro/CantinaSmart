@@ -20,6 +20,7 @@ import {
   testEnterpriseProviderConnection,
   sendByConfiguredProvider,
   sendBulkByConfiguredProvider,
+  sendMediaByConfiguredProvider,
 } from '../services/whatsappProviderBridge.js';
 import { db } from '../database.js';
 
@@ -1651,20 +1652,38 @@ router.post('/send-media-to-chat', async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ success: false, message: 'Conversa não pertence à unidade selecionada.' });
     }
 
-    const result = await whatsappSession.sendMediaToChat(
-      String(chatId),
-      {
-        mediaType: String(attachment.mediaType) as 'image' | 'document' | 'audio',
-        base64Data: String(attachment.base64Data),
+    const normalizedChatId = String(chatId || '');
+    const externalTarget = normalizedChatId.includes('@newsletter')
+      ? normalizedChatId
+      : extractPhoneFromChatId(normalizedChatId);
+    const externalMedia = await sendMediaByConfiguredProvider({
+      enterpriseId,
+      target: externalTarget,
+      message: String(message || ''),
+      attachment: {
+        mediaType: String(attachment.mediaType || ''),
+        base64Data: String(attachment.base64Data || ''),
         mimeType: attachment?.mimeType ? String(attachment.mimeType) : undefined,
         fileName: attachment?.fileName ? String(attachment.fileName) : undefined
       },
-      String(message || ''),
-      {
-        source: 'human',
-        disableAiAgentOnHumanSend: true
-      }
-    );
+    });
+
+    const result = externalMedia.handledByExternal
+      ? externalMedia.result
+      : await whatsappSession.sendMediaToChat(
+        String(chatId),
+        {
+          mediaType: String(attachment.mediaType) as 'image' | 'document' | 'audio',
+          base64Data: String(attachment.base64Data),
+          mimeType: attachment?.mimeType ? String(attachment.mimeType) : undefined,
+          fileName: attachment?.fileName ? String(attachment.fileName) : undefined
+        },
+        String(message || ''),
+        {
+          source: 'human',
+          disableAiAgentOnHumanSend: true
+        }
+      );
 
     res.json(result);
   } catch (err) {

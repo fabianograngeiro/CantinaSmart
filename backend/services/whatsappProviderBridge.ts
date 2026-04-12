@@ -16,6 +16,8 @@ export type WhatsAppExternalProviderConfig = {
   testMethod: ExternalProviderHttpMethod;
   sendPath: string;
   sendMethod: ExternalProviderHttpMethod;
+  mediaPath: string;
+  mediaMethod: ExternalProviderHttpMethod;
   bulkPath: string;
   bulkMethod: ExternalProviderHttpMethod;
   commonFields: Record<string, unknown>;
@@ -45,6 +47,8 @@ const DEFAULT_EXTERNAL_CONFIG: WhatsAppExternalProviderConfig = {
   testMethod: 'POST',
   sendPath: '/message/send',
   sendMethod: 'POST',
+  mediaPath: '/message/send-media',
+  mediaMethod: 'POST',
   bulkPath: '/message/send-bulk',
   bulkMethod: 'POST',
   commonFields: {},
@@ -82,6 +86,7 @@ const normalizeExternalConfig = (value: any, existing?: WhatsAppExternalProvider
 
   const providerCode = String(incoming.providerCode || safeExisting.providerCode || 'CUSTOM').trim().toUpperCase() || 'CUSTOM';
   const defaultSendPath = providerCode === 'UAZAPI' ? '/send/text' : DEFAULT_EXTERNAL_CONFIG.sendPath;
+  const defaultMediaPath = providerCode === 'UAZAPI' ? '/send/media' : DEFAULT_EXTERNAL_CONFIG.mediaPath;
   const defaultBulkPath = providerCode === 'UAZAPI' ? '/send/text' : DEFAULT_EXTERNAL_CONFIG.bulkPath;
 
   return {
@@ -96,6 +101,8 @@ const normalizeExternalConfig = (value: any, existing?: WhatsAppExternalProvider
     testMethod: normalizeMethod(incoming.testMethod, safeExisting.testMethod || DEFAULT_EXTERNAL_CONFIG.testMethod),
     sendPath: normalizePath(incoming.sendPath, safeExisting.sendPath || defaultSendPath),
     sendMethod: normalizeMethod(incoming.sendMethod, safeExisting.sendMethod || DEFAULT_EXTERNAL_CONFIG.sendMethod),
+    mediaPath: normalizePath(incoming.mediaPath, safeExisting.mediaPath || defaultMediaPath),
+    mediaMethod: normalizeMethod(incoming.mediaMethod, safeExisting.mediaMethod || DEFAULT_EXTERNAL_CONFIG.mediaMethod),
     bulkPath: normalizePath(incoming.bulkPath, safeExisting.bulkPath || defaultBulkPath),
     bulkMethod: normalizeMethod(incoming.bulkMethod, safeExisting.bulkMethod || DEFAULT_EXTERNAL_CONFIG.bulkMethod),
     commonFields: normalizeObjectRecord(incoming.commonFields, normalizeObjectRecord(safeExisting.commonFields, {})),
@@ -329,6 +336,57 @@ const buildSendPayload = (config: WhatsAppExternalProviderConfig, target: string
   };
 };
 
+const resolveMediaFileValue = (base64Data: string, mimeType?: string) => {
+  const raw = String(base64Data || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith('data:')) return raw;
+  const safeMime = String(mimeType || '').trim();
+  if (safeMime) return `data:${safeMime};base64,${raw}`;
+  return raw;
+};
+
+const buildMediaPayload = (params: {
+  config: WhatsAppExternalProviderConfig;
+  target: string;
+  message: string;
+  attachment: {
+    mediaType: string;
+    base64Data: string;
+    mimeType?: string;
+    fileName?: string;
+  };
+}) => {
+  const { config, target, message, attachment } = params;
+  const providerCode = String(config.providerCode || '').trim().toUpperCase();
+  const normalizedTarget = normalizeExternalTarget(providerCode, target);
+  const commonFields = normalizeObjectRecord(config.commonFields, {});
+  const file = resolveMediaFileValue(attachment.base64Data, attachment.mimeType);
+  const mediaType = String(attachment.mediaType || '').trim().toLowerCase() || 'document';
+
+  if (providerCode === 'UAZAPI') {
+    return {
+      ...commonFields,
+      number: normalizedTarget,
+      type: mediaType,
+      file,
+      text: String(message || ''),
+      docName: attachment.fileName ? String(attachment.fileName) : undefined,
+    };
+  }
+
+  return {
+    ...commonFields,
+    subdomain: config.subdomain,
+    phone: normalizedTarget,
+    message: String(message || ''),
+    type: mediaType,
+    file,
+    mimeType: attachment.mimeType ? String(attachment.mimeType) : undefined,
+    fileName: attachment.fileName ? String(attachment.fileName) : undefined,
+  };
+};
+
 export const sendByConfiguredProvider = async (params: {
   enterpriseId: string;
   phone: string;
@@ -463,6 +521,61 @@ export const sendBulkByConfiguredProvider = async (params: {
       providerMode: 'EXTERNAL',
       providerCode: config.external.providerCode,
       total: recipients.length,
+      payload: response.payload,
+    },
+  };
+};
+
+export const sendMediaByConfiguredProvider = async (params: {
+  enterpriseId: string;
+  target: string;
+  message: string;
+  attachment: {
+    mediaType: string;
+    base64Data: string;
+    mimeType?: string;
+    fileName?: string;
+  };
+}) => {
+  const config = getEnterpriseProviderConfig(params.enterpriseId);
+  if (config.mode !== 'EXTERNAL' || !config.external.enabled) {
+    return {
+      handledByExternal: false,
+      result: null,
+    };
+  }
+
+  const response = await callExternalEndpoint(
+    config.external,
+    config.external.mediaMethod,
+    config.external.mediaPath,
+    buildMediaPayload({
+      config: config.external,
+      target: String(params.target || ''),
+      message: String(params.message || ''),
+      attachment: {
+        mediaType: String(params.attachment?.mediaType || ''),
+        base64Data: String(params.attachment?.base64Data || ''),
+        mimeType: params.attachment?.mimeType ? String(params.attachment.mimeType) : undefined,
+        fileName: params.attachment?.fileName ? String(params.attachment.fileName) : undefined,
+      },
+    })
+  );
+
+  if (!response.ok) {
+    const detailText = typeof response.payload === 'string'
+      ? response.payload
+      : JSON.stringify(response.payload);
+    throw new Error(`Falha no envio de mídia externo (${response.status}): ${detailText || 'erro desconhecido'}`);
+  }
+
+  return {
+    handledByExternal: true,
+    result: {
+      success: true,
+      providerMode: 'EXTERNAL',
+      providerCode: config.external.providerCode,
+      messageId: extractMessageId(response.payload),
       payload: response.payload,
     },
   };

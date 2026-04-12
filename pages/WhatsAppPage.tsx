@@ -73,6 +73,8 @@ type WhatsAppProviderConfigState = {
     testMethod: ExternalProviderHttpMethod;
     sendPath: string;
     sendMethod: ExternalProviderHttpMethod;
+    mediaPath: string;
+    mediaMethod: ExternalProviderHttpMethod;
     bulkPath: string;
     bulkMethod: ExternalProviderHttpMethod;
     commonFieldsJson: string;
@@ -733,6 +735,8 @@ const getDefaultWhatsAppProviderConfig = (): WhatsAppProviderConfigState => ({
     testMethod: 'POST',
     sendPath: '/message/send',
     sendMethod: 'POST',
+    mediaPath: '/message/send-media',
+    mediaMethod: 'POST',
     bulkPath: '/message/send-bulk',
     bulkMethod: 'POST',
     commonFieldsJson: '{}',
@@ -1373,6 +1377,12 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
             : String(incoming?.external?.sendMethod || 'POST').toUpperCase() === 'PUT'
               ? 'PUT'
               : 'POST',
+          mediaPath: String(incoming?.external?.mediaPath || (useUazapiDefaults ? '/send/media' : '/message/send-media')).trim() || (useUazapiDefaults ? '/send/media' : '/message/send-media'),
+          mediaMethod: String(incoming?.external?.mediaMethod || 'POST').toUpperCase() === 'GET'
+            ? 'GET'
+            : String(incoming?.external?.mediaMethod || 'POST').toUpperCase() === 'PUT'
+              ? 'PUT'
+              : 'POST',
           bulkPath: String(incoming?.external?.bulkPath || (useUazapiDefaults ? '/send/text' : '/message/send-bulk')).trim() || (useUazapiDefaults ? '/send/text' : '/message/send-bulk'),
           bulkMethod: String(incoming?.external?.bulkMethod || 'POST').toUpperCase() === 'GET'
             ? 'GET'
@@ -1425,6 +1435,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           testMethod: providerConfig.external.testMethod,
           sendPath: providerConfig.external.sendPath,
           sendMethod: providerConfig.external.sendMethod,
+          mediaPath: providerConfig.external.mediaPath,
+          mediaMethod: providerConfig.external.mediaMethod,
           bulkPath: providerConfig.external.bulkPath,
           bulkMethod: providerConfig.external.bulkMethod,
           commonFields: parsedCommonFields,
@@ -8516,6 +8528,9 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                 sendPath: String(e.target.value || '').toUpperCase() === 'UAZAPI'
                                   ? '/send/text'
                                   : prev.external.sendPath,
+                                mediaPath: String(e.target.value || '').toUpperCase() === 'UAZAPI'
+                                  ? '/send/media'
+                                  : prev.external.mediaPath,
                                 bulkPath: String(e.target.value || '').toUpperCase() === 'UAZAPI'
                                   ? '/send/text'
                                   : prev.external.bulkPath,
@@ -8646,6 +8661,21 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             }))}
                             className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
                             placeholder="/message/send"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Endpoint mídia</span>
+                          <input
+                            value={providerConfig.external.mediaPath}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                mediaPath: e.target.value,
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder="/send/media"
                           />
                         </label>
                         <label className="space-y-1">
