@@ -21,6 +21,7 @@ import {
   sendByConfiguredProvider,
   sendBulkByConfiguredProvider,
   sendMediaByConfiguredProvider,
+  sendMenuByConfiguredProvider,
 } from '../services/whatsappProviderBridge.js';
 import { db } from '../database.js';
 
@@ -100,6 +101,12 @@ const isChatAllowedForEnterprise = (chatId: string, enterpriseId: string) => {
   if (!phone) return false;
   const phoneSet = getEnterprisePhoneSet(enterpriseId);
   return phoneSet.has(phone);
+};
+
+const isSpecialTargetJid = (value: unknown) => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return false;
+  return raw.includes('@newsletter') || raw.includes('@g.us') || raw.includes('@c.us');
 };
 
 const getBoundEnterpriseId = () => {
@@ -1153,6 +1160,60 @@ router.post('/send-bulk', async (req: AuthRequest, res: Response) => {
     res.status(500).json({
       success: false,
       message: err instanceof Error ? err.message : 'Falha no envio em lote'
+    });
+  }
+});
+
+router.post('/send-menu', async (req: AuthRequest, res: Response) => {
+  try {
+    const enterpriseId = resolveEnterpriseIdOrReject(req, res);
+    if (!enterpriseId) return;
+    const { number, type, text, choices, footerText, listButton, selectableCount, imageButton, trackSource, trackId } = req.body || {};
+    const target = String(number || '').trim();
+    const safeType = String(type || '').trim().toLowerCase();
+    const safeChoices = Array.isArray(choices) ? choices.map((item) => String(item || '').trim()).filter(Boolean) : [];
+    if (!target || !safeType || !String(text || '').trim() || safeChoices.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Informe number, type, text e choices para enviar menu.',
+      });
+    }
+
+    if (!isSpecialTargetJid(target) && !getEnterprisePhoneSet(enterpriseId).has(normalizePhoneDigits(target))) {
+      return res.status(403).json({
+        success: false,
+        message: 'Telefone não pertence à unidade selecionada.',
+      });
+    }
+
+    const externalMenu = await sendMenuByConfiguredProvider({
+      enterpriseId,
+      target,
+      menu: {
+        type: (safeType === 'list' || safeType === 'poll' || safeType === 'carousel') ? safeType : 'button',
+        text: String(text || ''),
+        choices: safeChoices,
+        footerText: String(footerText || '').trim(),
+        listButton: String(listButton || '').trim(),
+        selectableCount: Number(selectableCount),
+        imageButton: String(imageButton || '').trim(),
+        trackSource: String(trackSource || '').trim(),
+        trackId: String(trackId || '').trim(),
+      },
+    });
+
+    if (externalMenu.handledByExternal) {
+      return res.json(externalMenu.result);
+    }
+
+    return res.status(400).json({
+      success: false,
+      message: 'Envio de menu interativo disponível apenas para provedor externo configurado.',
+    });
+  } catch (err) {
+    return res.status(400).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao enviar menu interativo.',
     });
   }
 });

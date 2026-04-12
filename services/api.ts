@@ -1529,6 +1529,34 @@ export class ApiService {
     return response.json();
   }
 
+  static async sendWhatsAppInteractiveMenu(payload: {
+    number: string;
+    type: 'button' | 'list' | 'poll' | 'carousel';
+    text: string;
+    choices: string[];
+    footerText?: string;
+    listButton?: string;
+    selectableCount?: number;
+    imageButton?: string;
+    trackSource?: string;
+    trackId?: string;
+  }) {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(`${API_URL}/whatsapp/send-menu`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({
+        enterpriseId,
+        ...(payload || {}),
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao enviar menu interativo');
+    }
+    return response.json();
+  }
+
   static async getWhatsAppDispatchAudience(params: {
     enterpriseId: string;
     filter?: 'TODOS' | 'RESPONSAVEIS' | 'COLABORADORES' | 'SALDO_BAIXO' | 'PLANO_A_VENCER' | 'RELATORIO_ENTREGA';

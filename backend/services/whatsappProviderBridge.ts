@@ -18,6 +18,8 @@ export type WhatsAppExternalProviderConfig = {
   sendMethod: ExternalProviderHttpMethod;
   mediaPath: string;
   mediaMethod: ExternalProviderHttpMethod;
+  menuPath: string;
+  menuMethod: ExternalProviderHttpMethod;
   bulkPath: string;
   bulkMethod: ExternalProviderHttpMethod;
   commonFields: Record<string, unknown>;
@@ -49,6 +51,8 @@ const DEFAULT_EXTERNAL_CONFIG: WhatsAppExternalProviderConfig = {
   sendMethod: 'POST',
   mediaPath: '/message/send-media',
   mediaMethod: 'POST',
+  menuPath: '/message/send-menu',
+  menuMethod: 'POST',
   bulkPath: '/message/send-bulk',
   bulkMethod: 'POST',
   commonFields: {},
@@ -87,6 +91,7 @@ const normalizeExternalConfig = (value: any, existing?: WhatsAppExternalProvider
   const providerCode = String(incoming.providerCode || safeExisting.providerCode || 'CUSTOM').trim().toUpperCase() || 'CUSTOM';
   const defaultSendPath = providerCode === 'UAZAPI' ? '/send/text' : DEFAULT_EXTERNAL_CONFIG.sendPath;
   const defaultMediaPath = providerCode === 'UAZAPI' ? '/send/media' : DEFAULT_EXTERNAL_CONFIG.mediaPath;
+  const defaultMenuPath = providerCode === 'UAZAPI' ? '/send/menu' : DEFAULT_EXTERNAL_CONFIG.menuPath;
   const defaultBulkPath = providerCode === 'UAZAPI' ? '/send/text' : DEFAULT_EXTERNAL_CONFIG.bulkPath;
 
   return {
@@ -103,6 +108,8 @@ const normalizeExternalConfig = (value: any, existing?: WhatsAppExternalProvider
     sendMethod: normalizeMethod(incoming.sendMethod, safeExisting.sendMethod || DEFAULT_EXTERNAL_CONFIG.sendMethod),
     mediaPath: normalizePath(incoming.mediaPath, safeExisting.mediaPath || defaultMediaPath),
     mediaMethod: normalizeMethod(incoming.mediaMethod, safeExisting.mediaMethod || DEFAULT_EXTERNAL_CONFIG.mediaMethod),
+    menuPath: normalizePath(incoming.menuPath, safeExisting.menuPath || defaultMenuPath),
+    menuMethod: normalizeMethod(incoming.menuMethod, safeExisting.menuMethod || DEFAULT_EXTERNAL_CONFIG.menuMethod),
     bulkPath: normalizePath(incoming.bulkPath, safeExisting.bulkPath || defaultBulkPath),
     bulkMethod: normalizeMethod(incoming.bulkMethod, safeExisting.bulkMethod || DEFAULT_EXTERNAL_CONFIG.bulkMethod),
     commonFields: normalizeObjectRecord(incoming.commonFields, normalizeObjectRecord(safeExisting.commonFields, {})),
@@ -608,6 +615,90 @@ export const sendMediaByConfiguredProvider = async (params: {
       ? response.payload
       : JSON.stringify(response.payload);
     throw new Error(`Falha no envio de mídia externo (${response.status}): ${detailText || 'erro desconhecido'}`);
+  }
+
+  return {
+    handledByExternal: true,
+    result: {
+      success: true,
+      providerMode: 'EXTERNAL',
+      providerCode: config.external.providerCode,
+      messageId: extractMessageId(response.payload),
+      payload: response.payload,
+    },
+  };
+};
+
+export const sendMenuByConfiguredProvider = async (params: {
+  enterpriseId: string;
+  target: string;
+  menu: {
+    type: 'button' | 'list' | 'poll' | 'carousel';
+    text: string;
+    choices: string[];
+    footerText?: string;
+    listButton?: string;
+    selectableCount?: number;
+    imageButton?: string;
+    trackSource?: string;
+    trackId?: string;
+  };
+}) => {
+  const config = getEnterpriseProviderConfig(params.enterpriseId);
+  if (config.mode !== 'EXTERNAL' || !config.external.enabled) {
+    return {
+      handledByExternal: false,
+      result: null,
+    };
+  }
+
+  const providerCode = String(config.external.providerCode || '').trim().toUpperCase();
+  const commonFields = normalizeObjectRecord(config.external.commonFields, {});
+  const target = normalizeExternalTarget(providerCode, String(params.target || ''));
+  const menu = params.menu || ({} as any);
+  const typeRaw = String(menu.type || '').trim().toLowerCase();
+  const safeType: 'button' | 'list' | 'poll' | 'carousel' = (
+    typeRaw === 'list' || typeRaw === 'poll' || typeRaw === 'carousel'
+  ) ? typeRaw : 'button';
+  const choices = Array.isArray(menu.choices)
+    ? menu.choices.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+  if (!target) throw new Error('Destinatário inválido para menu interativo.');
+  if (!String(menu.text || '').trim()) throw new Error('Texto principal é obrigatório para menu interativo.');
+  if (choices.length === 0) throw new Error('Informe ao menos uma opção em choices.');
+
+  if (providerCode === 'UAZAPI') {
+    void triggerUazapiPresenceUpdate(config.external, target, 'composing').catch(() => {});
+  }
+
+  const payload = {
+    ...commonFields,
+    number: target,
+    type: safeType,
+    text: String(menu.text || ''),
+    choices,
+    footerText: String(menu.footerText || '').trim() || undefined,
+    listButton: String(menu.listButton || '').trim() || undefined,
+    selectableCount: Number.isFinite(Number(menu.selectableCount))
+      ? Math.max(1, Math.floor(Number(menu.selectableCount)))
+      : undefined,
+    imageButton: String(menu.imageButton || '').trim() || undefined,
+    track_source: String(menu.trackSource || '').trim() || undefined,
+    track_id: String(menu.trackId || '').trim() || undefined,
+  };
+
+  const response = await callExternalEndpoint(
+    config.external,
+    config.external.menuMethod,
+    config.external.menuPath,
+    payload
+  );
+
+  if (!response.ok) {
+    const detailText = typeof response.payload === 'string'
+      ? response.payload
+      : JSON.stringify(response.payload);
+    throw new Error(`Falha no envio de menu externo (${response.status}): ${detailText || 'erro desconhecido'}`);
   }
 
   return {
