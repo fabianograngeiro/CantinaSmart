@@ -3151,7 +3151,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
              )}
              <button 
                onClick={exportToCSV}
-               className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg font-black text-[9px] uppercase tracking-[0.12em] hover:bg-gray-50 transition-all shadow-sm dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-zinc-800"
+               className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg font-black text-[9px] uppercase tracking-[0.12em] hover:bg-gray-50 transition-all shadow-sm dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
              >
                <FileSpreadsheet size={12} className="text-emerald-500" /> Exportar CSV
              </button>
@@ -3183,7 +3183,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
             
             {/* Pesquisa por Nome/ID */}
             <div className="space-y-1.5">
-              <label className="text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] ml-1 flex items-center gap-1.5 dark:text-zinc-500">
+               <label className="text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] ml-1 flex items-center gap-1.5">
                   <UserCircle size={12} className="text-indigo-400"/> Nome ou Registro
                </label>
                <div className="relative">
@@ -3193,21 +3193,21 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
                     placeholder="Pesquisar..." 
-                    className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-semibold text-xs transition-all dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100" 
+                    className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-semibold text-xs transition-all" 
                   />
                </div>
             </div>
 
             {/* Filtro por Tipo */}
             <div className="space-y-1.5">
-              <label className="text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] ml-1 flex items-center gap-1.5 dark:text-zinc-500">
+               <label className="text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] ml-1 flex items-center gap-1.5">
                   <ListFilter size={12} className="text-indigo-400"/> Tipo de Registro
                </label>
                <div className="relative">
                   <select 
                     value={typeFilter}
                     onChange={e => setTypeFilter(e.target.value as TransactionType)}
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-black text-[9px] uppercase tracking-[0.12em] appearance-none cursor-pointer dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-black text-[9px] uppercase tracking-[0.12em] appearance-none cursor-pointer"
                   >
                      <option value="ALL">Todos os Tipos</option>
                      <option value="CREDITO">Crédito</option>
@@ -3221,14 +3221,14 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
             {/* Filtro por Plano/Origem */}
             <div className="space-y-1.5">
-              <label className="text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] ml-1 flex items-center gap-1.5 dark:text-zinc-500">
+               <label className="text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] ml-1 flex items-center gap-1.5">
                   <Tag size={12} className="text-indigo-400"/> Plano / Origem
                </label>
                <div className="relative">
                   <select 
                     value={planFilter}
                     onChange={e => setPlanFilter(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-black text-[9px] uppercase tracking-[0.12em] appearance-none cursor-pointer dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-black text-[9px] uppercase tracking-[0.12em] appearance-none cursor-pointer"
                   >
                      <option value="ALL">Todos</option>
                      {plansList.map(p => <option key={p} value={p}>{p}</option>)}
@@ -3239,14 +3239,14 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
             {/* Filtro por Data */}
             <div className="space-y-1.5">
-              <label className="text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] ml-1 flex items-center gap-1.5 dark:text-zinc-500">
+               <label className="text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] ml-1 flex items-center gap-1.5">
                   <Calendar size={12} className="text-indigo-400"/> Período de Busca
                </label>
                <div className="relative">
                   <select 
                     value={timeFilter}
                     onChange={e => setTimeFilter(e.target.value as TimeFilter)}
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-black text-[9px] uppercase tracking-[0.12em] appearance-none cursor-pointer dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-black text-[9px] uppercase tracking-[0.12em] appearance-none cursor-pointer"
                   >
                      <option value="TODAY">Hoje</option>
                      <option value="7DAYS">Últimos 7 dias</option>
@@ -3261,14 +3261,14 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
          </div>
 
          {timeFilter === 'CUSTOM' && (
-            <div className="flex items-center gap-4 pt-4 border-t border-gray-100 animate-in slide-in-from-top-2 dark:border-white/10">
+           <div className="flex items-center gap-4 pt-4 border-t border-gray-100 animate-in slide-in-from-top-2">
               <div className="flex items-center gap-2">
-                <span className="text-[9px] font-black text-gray-400 uppercase dark:text-zinc-500">Início:</span>
-                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="bg-gray-50 px-4 py-2 rounded-xl text-xs font-black outline-none border-2 border-transparent focus:border-indigo-500 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100" />
+                 <span className="text-[9px] font-black text-gray-400 uppercase">Início:</span>
+                 <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="bg-gray-50 px-4 py-2 rounded-xl text-xs font-black outline-none border-2 border-transparent focus:border-indigo-500" />
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-[9px] font-black text-gray-400 uppercase dark:text-zinc-500">Fim:</span>
-                <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="bg-gray-50 px-4 py-2 rounded-xl text-xs font-black outline-none border-2 border-transparent focus:border-indigo-500 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100" />
+                 <span className="text-[9px] font-black text-gray-400 uppercase">Fim:</span>
+                 <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="bg-gray-50 px-4 py-2 rounded-xl text-xs font-black outline-none border-2 border-transparent focus:border-indigo-500" />
               </div>
            </div>
          )}
@@ -3276,13 +3276,13 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       </div>
 
       {/* TABELA UNIFICADA DE RESULTADOS */}
-      <div className="dash-panel rounded-[28px] shadow-xl overflow-hidden animate-in slide-in-from-bottom-4 dark:bg-zinc-900">
-        <div className="p-4 sm:p-5 border-b bg-gray-50/50 flex items-center justify-between gap-3 dark:bg-zinc-900/70 dark:border-white/10">
+      <div className="dash-panel rounded-[28px] shadow-xl overflow-hidden animate-in slide-in-from-bottom-4">
+        <div className="p-4 sm:p-5 border-b bg-gray-50/50 flex items-center justify-between gap-3">
            <div>
-            <h3 className="text-sm sm:text-base font-black text-indigo-900 uppercase tracking-tight flex items-center gap-2 dark:text-zinc-100">
+              <h3 className="text-sm sm:text-base font-black text-indigo-900 uppercase tracking-tight flex items-center gap-2">
                  <History size={18} className="text-indigo-600" /> Histórico Operacional Consolidado
               </h3>
-            <p className="text-[8px] sm:text-[9px] text-gray-400 font-bold uppercase tracking-[0.14em] mt-1 dark:text-zinc-500">Auditória de baixas automáticas, créditos e vendas diretas</p>
+              <p className="text-[8px] sm:text-[9px] text-gray-400 font-bold uppercase tracking-[0.14em] mt-1">Auditória de baixas automáticas, créditos e vendas diretas</p>
            </div>
            <div className="flex items-center gap-2">
              {canHardDeleteTransactions && selectedDeletableIds.length > 0 && (
@@ -3294,7 +3294,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                  Apagar selecionados ({selectedDeletableIds.length})
                </button>
              )}
-             <div className="bg-indigo-50 px-3 py-1.5 rounded-lg text-[10px] font-black text-indigo-600 border border-indigo-100 uppercase whitespace-nowrap dark:bg-zinc-800 dark:border-white/10 dark:text-indigo-200">
+             <div className="bg-indigo-50 px-3 py-1.5 rounded-lg text-[10px] font-black text-indigo-600 border border-indigo-100 uppercase whitespace-nowrap">
                 Total: {filteredTransactions.length} Operações
              </div>
            </div>
@@ -3302,7 +3302,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
         <div className="overflow-x-auto">
             <table className="w-full text-left table-fixed min-w-[1210px]">
-              <thead className="bg-gray-50 text-[8px] sm:text-[9px] font-black text-gray-400 uppercase tracking-[0.12em] border-b dark:bg-zinc-900 dark:text-zinc-500 dark:border-white/10">
+              <thead className="bg-gray-50 text-[8px] sm:text-[9px] font-black text-gray-400 uppercase tracking-[0.12em] border-b">
                  <tr>
                     <th className="px-2 py-3.5 w-[3%] text-center">
                       <input
@@ -3327,10 +3327,10 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                     <th className="px-3 py-3.5 w-[10%] text-center">Ações</th>
                  </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50 text-xs dark:divide-white/10">
+              <tbody className="divide-y divide-gray-50 text-xs">
                  {filteredTransactions.length === 0 ? (
                    <tr>
-                     <td colSpan={11} className="px-8 py-20 text-center text-gray-300 font-black uppercase text-xs tracking-widest dark:text-zinc-600">Nenhum registro corresponde aos filtros</td>
+                     <td colSpan={11} className="px-8 py-20 text-center text-gray-300 font-black uppercase text-xs tracking-widest">Nenhum registro corresponde aos filtros</td>
                    </tr>
                  ) : filteredTransactions.map(row => {
                    const rowUnitsProgress = resolveRowUnitsProgress(row);
@@ -3396,7 +3396,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                    const auditSummaryLabel = isAuditDeleteRow
                      ? `${auditDeleteReason ? `Motivo: ${auditDeleteReason}` : 'Motivo: NÃO INFORMADO'}${auditDeletedBy ? ` • Excluído por: ${auditDeletedBy}` : ''}`
                      : '';
-                   const auditActionDisabledClass = 'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-gray-400';
+                   const auditActionDisabledClass = 'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-gray-400 dark:disabled:hover:bg-zinc-900 dark:disabled:hover:text-zinc-500';
                    const isSelectableRow = canHardDeleteTransactions && !isAuditDeleteRow && isDeletableTransaction(row);
                    const isRowChecked = selectedDeletableIds.includes(String(row.id || '').trim());
                    return (
@@ -3417,7 +3417,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                         />
                       </td>
                       <td className="px-3 py-3.5 align-top">
-                        <span className="text-[9px] font-bold text-gray-400 flex items-center gap-1 uppercase tracking-tighter dark:text-zinc-500">
+                        <span className="text-[9px] font-bold text-gray-400 flex items-center gap-1 uppercase tracking-tighter">
                           <Calendar size={10}/>
                           {baixaDateLabel}
                           {` • ${baixaTimeLabel}`}
@@ -3425,32 +3425,32 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                       </td>
                       <td className="px-3 py-3.5 align-top">
                          <div className="flex items-center gap-3">
-                             <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isAuditDeleteRow ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' : (row.client === 'Consumidor Final' ? 'bg-gray-100 text-gray-400 dark:bg-zinc-800 dark:text-zinc-500' : 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-300')}`}>
+                             <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isAuditDeleteRow ? 'bg-amber-100 text-amber-700' : (row.client === 'Consumidor Final' ? 'bg-gray-100 text-gray-400' : 'bg-indigo-50 text-indigo-600')}`}>
                                <User size={14}/>
                             </div>
-                            <p className="font-black text-indigo-900 uppercase tracking-tight break-words leading-tight text-[11px] dark:text-zinc-100">{row.client}</p>
+                            <p className="font-black text-indigo-900 uppercase tracking-tight break-words leading-tight text-[11px]">{row.client}</p>
                          </div>
                       </td>
                       <td className="px-3 py-3.5 align-top text-center">
                          <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-tight shadow-sm border ${
                            isAuditDeleteRow
-                             ? 'bg-slate-200 text-slate-700 border-slate-300 dark:bg-zinc-800 dark:text-zinc-200 dark:border-white/10'
+                             ? 'bg-slate-200 text-slate-700 border-slate-300'
                              : row.plan === 'Venda'
-                             ? 'bg-gray-50 text-gray-500 border-gray-100 dark:bg-zinc-800 dark:text-zinc-300 dark:border-white/10'
+                             ? 'bg-gray-50 text-gray-500 border-gray-100'
                              : row.plan === 'Crédito Cantina'
-                               ? 'bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-500/30'
-                               : 'bg-white text-indigo-600 border-indigo-100 dark:bg-zinc-800 dark:text-indigo-200 dark:border-white/10'
+                               ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                              : 'bg-white text-indigo-600 border-indigo-100 dark:bg-zinc-900 dark:text-indigo-300 dark:border-indigo-500/30'
                          }`}>
                            {planLabel}
                          </span>
                       </td>
                       <td className="px-3 py-3.5 align-top text-center">
-                         <span className="text-[11px] font-black text-gray-700 uppercase tracking-tight dark:text-zinc-300">
+                         <span className="text-[11px] font-black text-gray-700 uppercase tracking-tight">
                            {formatDateBr(row.referenceDate) || '-'}
                          </span>
                       </td>
                       <td className="px-3 py-3.5 align-top text-center">
-                         <span className="text-[11px] font-black text-gray-700 uppercase tracking-tight dark:text-zinc-300">
+                         <span className="text-[11px] font-black text-gray-700 uppercase tracking-tight">
                            {purchaseRefLabel}
                          </span>
                       </td>
@@ -3481,12 +3481,12 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                       <td className="px-3 py-3.5 text-center align-top">
                          <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase border ${
                             isAuditDeleteRow
-                            ? 'bg-slate-200 text-slate-700 border-slate-300 dark:bg-zinc-800 dark:text-zinc-200 dark:border-white/10'
+                            ? 'bg-slate-200 text-slate-700 border-slate-300'
                               : rowMarkedAsReversed
-                             ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-300 dark:border-rose-500/30'
+                             ? 'bg-rose-50 text-rose-700 border-rose-200'
                              : row.status === 'SISTEMA'
-                               ? 'bg-indigo-50 text-indigo-700 border-indigo-100 dark:bg-indigo-950/30 dark:text-indigo-300 dark:border-indigo-500/30'
-                               : 'bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-500/30'
+                               ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
+                               : 'bg-emerald-50 text-emerald-700 border-emerald-100'
                          }`}>
                              {isAuditDeleteRow ? 'AUDITORIA' : (rowMarkedAsReversed ? 'ESTORNADO' : row.status)}
                          </span>
@@ -3496,7 +3496,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                            {isReversibleTransaction(row) && (
                              <button
                                onClick={() => openReverseModal(row)}
-                               className="p-1.5 bg-white border text-rose-400 rounded-lg hover:text-rose-600 hover:bg-rose-50 transition-all shadow-sm flex items-center gap-1 dark:bg-zinc-900 dark:border-white/10 dark:hover:bg-zinc-800"
+                               className="p-1.5 bg-white border text-rose-400 rounded-lg hover:text-rose-600 hover:bg-rose-50 transition-all shadow-sm flex items-center gap-1 dark:bg-zinc-900 dark:border-zinc-700 dark:text-rose-300 dark:hover:bg-zinc-800"
                                title={isPlanConsumptionTransaction(row) ? 'Estornar consumo do plano' : 'Estornar compra normal (crédito livre)'}
                                aria-label={isPlanConsumptionTransaction(row) ? 'Estornar consumo do plano' : 'Estornar compra normal (crédito livre)'}
                             >
@@ -3509,14 +3509,14 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                            <button
                              onClick={() => openEditModal(row)}
                              disabled={isAuditDeleteRow}
-                             className={`p-1.5 bg-white border text-gray-400 rounded-lg hover:text-amber-600 hover:bg-amber-50 transition-all shadow-sm flex items-center gap-1 dark:bg-zinc-900 dark:border-white/10 dark:hover:bg-zinc-800 ${auditActionDisabledClass}`}
+                             className={`p-1.5 bg-white border text-gray-400 rounded-lg hover:text-amber-600 hover:bg-amber-50 transition-all shadow-sm flex items-center gap-1 ${auditActionDisabledClass} dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800`}
                              title={isAuditDeleteRow ? 'Registro de auditoria (somente leitura)' : 'Editar Transação'}
                            >
                               <Pencil size={13} />
                            </button>
                            <button 
                              onClick={() => setSelectedTransaction(row)}
-                             className="p-1.5 bg-white border text-gray-400 rounded-lg hover:text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm flex items-center gap-1 dark:bg-zinc-900 dark:border-white/10 dark:hover:bg-zinc-800"
+                             className="p-1.5 bg-white border text-gray-400 rounded-lg hover:text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm flex items-center gap-1 dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                              title="Ver"
                            >
                               <Eye size={13} />
@@ -3525,7 +3525,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                              <button
                                onClick={() => openDeleteTransactionModal(row)}
                                disabled={deletingTransactionId === row.id || isAuditDeleteRow || !isDeletableTransaction(row)}
-                               className={`p-1.5 bg-white border text-red-400 rounded-lg hover:text-red-600 hover:bg-red-50 transition-all shadow-sm flex items-center gap-1 disabled:opacity-50 dark:bg-zinc-900 dark:border-white/10 dark:hover:bg-zinc-800 ${auditActionDisabledClass}`}
+                               className={`p-1.5 bg-white border text-red-400 rounded-lg hover:text-red-600 hover:bg-red-50 transition-all shadow-sm flex items-center gap-1 disabled:opacity-50 ${auditActionDisabledClass} dark:bg-zinc-900 dark:border-zinc-700 dark:text-rose-300 dark:hover:bg-zinc-800`}
                                title={isAuditDeleteRow ? 'Registro de auditoria (somente leitura)' : 'Excluir Transação'}
                              >
                                 <Trash2 size={13} />
@@ -3559,14 +3559,14 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
             </div>
 
             <div className="p-5 space-y-4">
-              <div className="rounded-xl border border-rose-100 bg-rose-50 p-3 dark:bg-rose-950/40 dark:border-rose-500/30">
+              <div className="rounded-xl border border-rose-100 bg-rose-50 p-3 dark:border-rose-500/30 dark:bg-rose-500/10">
                 <p className="text-[11px] font-black text-rose-700 uppercase tracking-wider">
                   Excluir {selectedDeletableIds.length} transação(ões) selecionada(s)? Esta ação não pode ser desfeita.
                 </p>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest dark:text-zinc-500">Motivo da exclusão *</label>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Motivo da exclusão *</label>
                 <textarea
                   value={bulkDeleteReason}
                   onChange={(e) => setBulkDeleteReason(e.target.value)}
@@ -3578,11 +3578,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
               </div>
             </div>
 
-            <div className="p-5 bg-gray-50 border-t flex justify-end gap-2 dark:bg-zinc-900 dark:border-white/10">
+            <div className="p-5 bg-gray-50 border-t flex justify-end gap-2 dark:bg-zinc-900/70 dark:border-white/10">
               <button
                 onClick={closeBulkDeleteModal}
                 disabled={deletingTransactionId === '__bulk__'}
-                className="px-4 py-2.5 bg-white border rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-500 disabled:opacity-60 dark:bg-zinc-800 dark:border-white/10 dark:text-zinc-300"
+                className="px-4 py-2.5 bg-white border rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-500 disabled:opacity-60 dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-300"
               >
                 Cancelar
               </button>
@@ -3618,12 +3618,12 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
             </div>
 
             <div className="p-5 space-y-4">
-              <div className="rounded-xl border border-rose-100 bg-rose-50 p-3 dark:bg-rose-950/40 dark:border-rose-500/30">
+              <div className="rounded-xl border border-rose-100 bg-rose-50 p-3 dark:border-rose-500/30 dark:bg-rose-500/10">
                 <p className="text-[11px] font-black text-rose-700 uppercase tracking-wider">{deletePromptMessage}</p>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest dark:text-zinc-500">Motivo da exclusão *</label>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Motivo da exclusão *</label>
                 <textarea
                   value={deleteAuditReason}
                   onChange={(e) => startDeleteReasonTransition(() => setDeleteAuditReason(e.target.value))}
@@ -3635,11 +3635,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
               </div>
             </div>
 
-            <div className="p-5 bg-gray-50 border-t flex justify-end gap-2 dark:bg-zinc-900 dark:border-white/10">
+            <div className="p-5 bg-gray-50 border-t flex justify-end gap-2 dark:bg-zinc-900/70 dark:border-white/10">
               <button
                 onClick={closeDeleteTransactionModal}
                 disabled={Boolean(deletingTransactionId)}
-                className="px-4 py-2.5 bg-white border rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-500 disabled:opacity-60 dark:bg-zinc-800 dark:border-white/10 dark:text-zinc-300"
+                className="px-4 py-2.5 bg-white border rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-500 disabled:opacity-60 dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-300"
               >
                 Cancelar
               </button>
@@ -3660,9 +3660,9 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
         <div className="fixed inset-0 z-[1150] flex items-center justify-center p-4 animate-in fade-in">
           <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" onClick={() => setShowCreateNatureModal(false)}></div>
           <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 dark:bg-zinc-900 dark:border dark:border-white/10">
-            <div className="p-4 bg-gray-100 border-b flex items-center justify-between dark:bg-zinc-800 dark:border-white/10">
+            <div className="p-4 bg-gray-100 border-b flex items-center justify-between dark:bg-zinc-900 dark:border-white/10">
               <p className="text-xs font-black text-gray-600 uppercase tracking-widest dark:text-zinc-300">Escolha o tipo do registro</p>
-              <button onClick={() => setShowCreateNatureModal(false)} className="p-1 rounded-full hover:bg-gray-200 transition-colors dark:hover:bg-zinc-700">
+              <button onClick={() => setShowCreateNatureModal(false)} className="p-1 rounded-full hover:bg-gray-200 transition-colors dark:hover:bg-zinc-800">
                 <X size={16} />
               </button>
             </div>
@@ -3670,8 +3670,8 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
               <button
                 className={`w-full p-4 border rounded-xl text-left transition-all ${
                   createTransactionNature === 'CREDIT'
-                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30'
-                    : 'border-gray-200 hover:border-emerald-200 dark:border-white/10 dark:hover:border-emerald-500/40'
+                    ? 'border-emerald-500 bg-emerald-50'
+                    : 'border-gray-200 hover:border-emerald-200'
                 }`}
                 onClick={() => {
                   setCreateTransactionNature('CREDIT');
@@ -3680,14 +3680,14 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                 }}
               >
                 <p className="text-sm font-black text-emerald-700 uppercase">Crédito</p>
-                <p className="text-[11px] font-semibold text-gray-500 mt-1 dark:text-zinc-400">Lançar entrada/recarga para o aluno ou colaborador.</p>
+                <p className="text-[11px] font-semibold text-gray-500 mt-1">Lançar entrada/recarga para o aluno ou colaborador.</p>
               </button>
 
               <button
                 className={`w-full p-4 border rounded-xl text-left transition-all ${
                   createTransactionNature === 'DESPESA'
-                    ? 'border-rose-500 bg-rose-50 dark:bg-rose-950/30'
-                    : 'border-gray-200 hover:border-rose-200 dark:border-white/10 dark:hover:border-rose-500/40'
+                    ? 'border-rose-500 bg-rose-50'
+                    : 'border-gray-200 hover:border-rose-200'
                 }`}
                 onClick={() => {
                   setCreateTransactionNature('DESPESA');
@@ -3696,7 +3696,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                 }}
               >
                 <p className="text-sm font-black text-rose-700 uppercase">Despesa</p>
-                <p className="text-[11px] font-semibold text-gray-500 mt-1 dark:text-zinc-400">Lançar saída/cobrança a débito do aluno ou colaborador.</p>
+                <p className="text-[11px] font-semibold text-gray-500 mt-1">Lançar saída/cobrança a débito do aluno ou colaborador.</p>
               </button>
             </div>
           </div>
@@ -3707,7 +3707,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       {selectedTransaction && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 animate-in fade-in">
            <div className="absolute inset-0 bg-indigo-950/80 backdrop-blur-md" onClick={() => setSelectedTransaction(null)}></div>
-            <div className="relative w-full max-w-lg bg-white rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col dark:bg-zinc-900 dark:border dark:border-white/10">
+           <div className="relative w-full max-w-lg bg-white rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col dark:bg-zinc-900 dark:border dark:border-white/10">
               <div className="bg-gray-900 p-8 text-white flex items-center justify-between">
                  <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center"><ShoppingBag size={24} /></div>
@@ -3723,13 +3723,13 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                  <button onClick={() => setSelectedTransaction(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={24} /></button>
               </div>
               
-                <div className="p-8 space-y-8">
-                  <div className="flex items-center justify-between pb-6 border-b border-gray-100 dark:border-white/10">
+                 <div className="p-8 space-y-8">
+                 <div className="flex items-center justify-between pb-6 border-b border-gray-100 dark:border-white/10">
                     <div>
                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
                          {String(selectedTransaction.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO' ? 'Usuário responsável' : 'Cliente'}
                        </p>
-                       <p className="text-lg font-black text-indigo-900 uppercase dark:text-zinc-100">
+                       <p className="text-lg font-black text-indigo-900 uppercase">
                          {String(selectedTransaction.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO'
                            ? (String(selectedTransaction.raw?.deletedByName || '').trim() || selectedTransaction.client || '-')
                            : selectedTransaction.client}
@@ -3737,25 +3737,25 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                     </div>
                     <div className="text-right">
                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Data / Hora</p>
-                       <p className="text-sm font-bold text-gray-600 uppercase dark:text-zinc-300">{formatDateBr(selectedTransaction.date)} • {selectedTransaction.time}</p>
+                       <p className="text-sm font-bold text-gray-600 uppercase">{formatDateBr(selectedTransaction.date)} • {selectedTransaction.time}</p>
                     </div>
                  </div>
 
                  {String(selectedTransaction.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO' && (
-                   <div className="bg-amber-50 p-5 rounded-[24px] border border-amber-100 space-y-3 dark:bg-amber-950/30 dark:border-amber-500/30">
+                   <div className="bg-amber-50 p-5 rounded-[24px] border border-amber-100 space-y-3 dark:bg-amber-500/10 dark:border-amber-500/30">
                      <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Motivo da exclusão</p>
                      <p className="text-xs font-black text-amber-900 uppercase leading-relaxed">
                        {String(selectedTransaction.raw?.deleteReason || '').trim() || 'NÃO INFORMADO'}
                      </p>
 
                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                       <div className="bg-white border border-amber-100 rounded-xl p-3 dark:bg-zinc-900 dark:border-white/10">
+                       <div className="bg-white border border-amber-100 rounded-xl p-3 dark:bg-zinc-900 dark:border-amber-500/30">
                          <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest">Registros removidos</p>
                          <p className="text-sm font-black text-amber-900 mt-1">
                            {Number(selectedTransaction.raw?.deletedTransactionCount || 0) || (Array.isArray(selectedTransaction.raw?.deletedTransactionIds) ? selectedTransaction.raw.deletedTransactionIds.length : 0)}
                          </p>
                        </div>
-                       <div className="bg-white border border-amber-100 rounded-xl p-3 dark:bg-zinc-900 dark:border-white/10">
+                       <div className="bg-white border border-amber-100 rounded-xl p-3 dark:bg-zinc-900 dark:border-amber-500/30">
                          <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest">Transação origem</p>
                          <p className="text-[11px] font-black text-amber-900 mt-1 break-all">
                            {String(selectedTransaction.raw?.deletedTransactionId || '').trim() || '-'}
@@ -3763,7 +3763,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                        </div>
                      </div>
 
-                     <div className="bg-white border border-amber-100 rounded-xl p-3 dark:bg-zinc-900 dark:border-white/10">
+                     <div className="bg-white border border-amber-100 rounded-xl p-3 dark:bg-zinc-900 dark:border-amber-500/30">
                        <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest">IDs removidos</p>
                        <p className="text-[10px] font-bold text-amber-900 mt-1 leading-relaxed break-all">
                          {Array.isArray(selectedTransaction.raw?.deletedTransactionIds) && selectedTransaction.raw.deletedTransactionIds.length > 0
@@ -3779,13 +3779,13 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                        <Layers size={14} className="text-indigo-600" />
                        {String(selectedTransaction.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO' ? 'Descrição do Registro' : 'Itens Comprados'}
                     </p>
-                      <div className="space-y-2">
+                    <div className="space-y-2">
                        {String(selectedTransaction.type || '').toUpperCase() !== 'AUDITORIA_EXCLUSAO' && getTransactionItemDetails(selectedTransaction).length > 0 ? (
                          getTransactionItemDetails(selectedTransaction).map((item, idx) => (
-                           <div key={`${item.name}-${idx}`} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100 dark:bg-zinc-800 dark:border-white/10">
+                            <div key={`${item.name}-${idx}`} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
                                <div>
-                              <span className="text-sm font-black text-gray-800 uppercase dark:text-zinc-100">{item.name}</span>
-                              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider dark:text-zinc-400">
+                                 <span className="text-sm font-black text-gray-800 uppercase">{item.name}</span>
+                                 <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
                                    Qtd: {item.quantity} • Unit: R$ {item.unitPrice.toFixed(2)}
                                  </p>
                                </div>
@@ -3793,33 +3793,33 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                             </div>
                          ))
                        ) : (
-                         <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 dark:bg-zinc-800 dark:border-white/10">
-                          <p className="text-sm font-bold text-gray-700 uppercase dark:text-zinc-200">{selectedTransaction.item || 'Sem itens detalhados'}</p>
+                         <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                           <p className="text-sm font-bold text-gray-700 uppercase">{selectedTransaction.item || 'Sem itens detalhados'}</p>
                          </div>
                        )}
                     </div>
                  </div>
 
-                    <div className="bg-indigo-50 p-6 rounded-[32px] border border-indigo-100 flex items-center justify-between dark:bg-indigo-950/40 dark:border-indigo-500/30">
+                 <div className="bg-indigo-50 p-6 rounded-[32px] border border-indigo-100 flex items-center justify-between">
                     <div>
                        <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">
                          {String(selectedTransaction.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO' ? 'Valor do Registro' : 'Total Pago'}
                        </p>
-                        <p className="text-3xl font-black text-indigo-900 tracking-tighter dark:text-indigo-100">R$ {(selectedTransaction.total || 0).toFixed(2)}</p>
+                       <p className="text-3xl font-black text-indigo-900 tracking-tighter">R$ {(selectedTransaction.total || 0).toFixed(2)}</p>
                     </div>
                     <div className="text-right">
                        <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">
                          {String(selectedTransaction.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO' ? 'Tipo' : 'Método'}
                        </p>
-                        <p className="text-xs font-black text-indigo-600 uppercase bg-white px-3 py-1 rounded-full border border-indigo-100 shadow-sm dark:bg-zinc-800 dark:border-white/10">
+                      <p className="text-xs font-black text-indigo-600 uppercase bg-white px-3 py-1 rounded-full border border-indigo-100 shadow-sm dark:bg-zinc-900 dark:text-indigo-300 dark:border-indigo-500/30">
                          {String(selectedTransaction.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO' ? 'AUDITORIA' : selectedTransaction.method}
                        </p>
                     </div>
                  </div>
               </div>
 
-                  <div className="p-6 bg-gray-50 border-t text-center dark:bg-zinc-900 dark:border-white/10">
-                    <button onClick={() => setSelectedTransaction(null)} className="px-10 py-4 bg-white border-2 border-gray-100 text-[10px] font-black text-gray-400 uppercase tracking-widest rounded-2xl hover:text-gray-600 hover:border-gray-200 transition-all shadow-sm dark:bg-zinc-800 dark:border-white/10 dark:text-zinc-300">Fechar Detalhes</button>
+              <div className="p-6 bg-gray-50 border-t text-center">
+                 <button onClick={() => setSelectedTransaction(null)} className="px-10 py-4 bg-white border-2 border-gray-100 text-[10px] font-black text-gray-400 uppercase tracking-widest rounded-2xl hover:text-gray-600 hover:border-gray-200 transition-all shadow-sm">Fechar Detalhes</button>
               </div>
            </div>
         </div>
@@ -3828,7 +3828,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       {reversingTransaction && (
         <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4 animate-in fade-in">
           <div className="absolute inset-0 bg-indigo-950/80 backdrop-blur-md" onClick={closeReverseModal}></div>
-          <div className="relative w-full max-w-lg bg-white rounded-[28px] shadow-2xl overflow-hidden animate-in zoom-in-95 dark:bg-zinc-900 dark:border dark:border-white/10">
+          <div className="relative w-full max-w-lg bg-white rounded-[28px] shadow-2xl overflow-hidden animate-in zoom-in-95">
             <div className="bg-rose-600 p-5 text-white flex items-center justify-between">
               <div>
                 <h2 className="text-sm font-black uppercase tracking-widest">
@@ -3899,7 +3899,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                       }}
                       disabled={reverseMode !== 'RESCHEDULE' || isReversingPlanCredit}
                       min={toLocalDateKey(new Date())}
-                      className="w-full mt-1 px-3 py-2.5 bg-gray-50 border-2 border-transparent focus:border-rose-500 rounded-xl outline-none text-xs font-black dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
+                      className="w-full mt-1 px-3 py-2.5 bg-gray-50 border-2 border-transparent focus:border-rose-500 rounded-xl outline-none text-xs font-black"
                     />
                     {isReverseDateBlocked && (
                       <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-rose-600">
@@ -3911,11 +3911,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
               )}
             </div>
 
-            <div className="px-5 py-4 bg-gray-50 border-t flex items-center justify-end gap-2 dark:bg-zinc-900 dark:border-white/10">
+            <div className="px-5 py-4 bg-gray-50 border-t flex items-center justify-end gap-2">
               <button
                 onClick={closeReverseModal}
                 disabled={isReversingPlanCredit}
-                className="px-3 py-2 rounded-lg border border-gray-200 text-[10px] font-black uppercase tracking-widest text-gray-500 dark:border-white/10 dark:text-zinc-300"
+                className="px-3 py-2 rounded-lg border border-gray-200 text-[10px] font-black uppercase tracking-widest text-gray-500"
               >
                 Cancelar
               </button>
@@ -3935,7 +3935,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       {editingTransaction && (
         <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4 animate-in fade-in">
           <div className="absolute inset-0 bg-indigo-950/80 backdrop-blur-md" onClick={closeEditModal}></div>
-          <div className="relative w-full max-w-2xl bg-white rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in-95 dark:bg-zinc-900 dark:border dark:border-white/10">
+          <div className="relative w-full max-w-2xl bg-white rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in-95">
             <div className="bg-amber-600 p-6 text-white flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-black uppercase tracking-tight">Editar Transação</h2>
@@ -3948,11 +3948,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
               {isCreditTransaction(editingTransaction) ? (
                 <>
                   <div>
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest dark:text-zinc-500">Forma de Pagamento</label>
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Forma de Pagamento</label>
                     <select
                       value={editPaymentMethod}
                       onChange={(e) => setEditPaymentMethod(e.target.value)}
-                      className="w-full mt-1 px-3 py-2.5 bg-gray-50 border-2 border-transparent focus:border-amber-500 rounded-xl outline-none text-xs font-black uppercase tracking-widest dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
+                      className="w-full mt-1 px-3 py-2.5 bg-gray-50 border-2 border-transparent focus:border-amber-500 rounded-xl outline-none text-xs font-black uppercase tracking-widest"
                     >
                       <option value="SALDO">SALDO</option>
                       <option value="PIX">PIX</option>
@@ -3963,13 +3963,13 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                     </select>
                   </div>
 
-                  <div className="bg-gray-50 border rounded-2xl p-4 grid grid-cols-1 md:grid-cols-3 gap-3 dark:bg-zinc-800 dark:border-white/10">
+                  <div className="bg-gray-50 border rounded-2xl p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div>
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest dark:text-zinc-500">Tipo de Crédito</label>
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tipo de Crédito</label>
                       <select
                         value={editCreditType}
                         onChange={(e) => setEditCreditType(e.target.value as 'CANTINA' | 'PLAN')}
-                        className="w-full mt-1 px-3 py-2.5 bg-white border-2 border-transparent focus:border-amber-500 rounded-xl outline-none text-xs font-black uppercase tracking-widest dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
+                        className="w-full mt-1 px-3 py-2.5 bg-white border-2 border-transparent focus:border-amber-500 rounded-xl outline-none text-xs font-black uppercase tracking-widest"
                       >
                         <option value="CANTINA">Crédito Cantina</option>
                         <option value="PLAN">Crédito Plano</option>
@@ -3977,12 +3977,12 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest dark:text-zinc-500">Plano</label>
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Plano</label>
                       <select
                         value={editCreditPlanId}
                         onChange={(e) => setEditCreditPlanId(e.target.value)}
                         disabled={editCreditType !== 'PLAN'}
-                        className="w-full mt-1 px-3 py-2.5 bg-white border-2 border-transparent focus:border-amber-500 rounded-xl outline-none text-xs font-black uppercase tracking-widest disabled:bg-gray-100 disabled:text-gray-400 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100 dark:disabled:bg-zinc-800"
+                        className="w-full mt-1 px-3 py-2.5 bg-white border-2 border-transparent focus:border-amber-500 rounded-xl outline-none text-xs font-black uppercase tracking-widest disabled:bg-gray-100 disabled:text-gray-400"
                       >
                         <option value="">Selecionar plano</option>
                         {editPlans.map((plan: any) => (

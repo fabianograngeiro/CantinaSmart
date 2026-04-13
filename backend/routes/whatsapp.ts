@@ -320,6 +320,8 @@ const extractInboundWebhookMessage = (payload: any) => {
   const nested = body?.data && typeof body.data === 'object' ? body.data : {};
   const nestedKey = nested?.key && typeof nested.key === 'object' ? nested.key : {};
   const nestedMessage = nested?.message && typeof nested.message === 'object' ? nested.message : {};
+  const externalMessage = body?.message && typeof body.message === 'object' ? body.message : {};
+  const externalChat = body?.chat && typeof body.chat === 'object' ? body.chat : {};
 
   const fromMeRaw = body?.fromMe ?? body?.isFromMe ?? nested?.fromMe ?? nested?.isFromMe ?? nestedKey?.fromMe;
   const fromMe = String(fromMeRaw || '').toLowerCase() === 'true' || fromMeRaw === true;
@@ -328,6 +330,7 @@ const extractInboundWebhookMessage = (payload: any) => {
     body?.number
     || body?.phone
     || body?.from
+    || externalChat?.phone
     || nested?.number
     || nested?.phone
     || nested?.from
@@ -336,8 +339,25 @@ const extractInboundWebhookMessage = (payload: any) => {
     || ''
   ).trim();
 
-  const chatId = String(body?.chatId || nested?.chatId || nestedKey?.remoteJid || '').trim();
-  const name = String(body?.name || body?.pushName || nested?.name || nested?.pushName || '').trim();
+  const chatId = String(
+    body?.chatId
+    || externalMessage?.chatid
+    || externalChat?.wa_chatid
+    || externalChat?.chatid
+    || nested?.chatId
+    || nestedKey?.remoteJid
+    || ''
+  ).trim();
+  const name = String(
+    body?.name
+    || body?.pushName
+    || externalMessage?.senderName
+    || externalChat?.name
+    || externalChat?.wa_name
+    || nested?.name
+    || nested?.pushName
+    || ''
+  ).trim();
 
   const messageTextFromNestedObject =
     nestedMessage?.conversation
@@ -355,14 +375,31 @@ const extractInboundWebhookMessage = (payload: any) => {
     body?.text
     || body?.message
     || body?.body
+    || externalMessage?.text
+    || externalMessage?.content
     || nested?.text
     || nested?.message
     || nested?.body
     || messageTextFromNestedObject
     || ''
   ).trim();
-  const messageId = String(body?.messageId || body?.id || nested?.messageId || nested?.id || nestedKey?.id || '').trim();
-  const timestamp = body?.timestamp ?? body?.ts ?? nested?.timestamp ?? nested?.ts ?? nested?.messageTimestamp;
+  const messageId = String(
+    body?.messageId
+    || body?.id
+    || externalMessage?.messageid
+    || externalMessage?.id
+    || nested?.messageId
+    || nested?.id
+    || nestedKey?.id
+    || ''
+  ).trim();
+  const timestamp = body?.timestamp
+    ?? body?.ts
+    ?? externalMessage?.messageTimestamp
+    ?? externalChat?.wa_lastMsgTimestamp
+    ?? nested?.timestamp
+    ?? nested?.ts
+    ?? nested?.messageTimestamp;
 
   return {
     fromMe,
