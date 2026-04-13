@@ -9105,7 +9105,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
               )}
 
               {crmView === 'CONTA' && (
-                <div className="flex-1 p-8 bg-slate-50/60">
+                <div className="flex-1 min-h-0 overflow-y-auto p-8 pb-20 bg-slate-50/60">
                   <div className="rounded-2xl border border-cyan-100 bg-white p-6 max-w-4xl">
                     <p className="text-lg font-black text-slate-900">Conta</p>
                     <p className="mt-2 text-sm font-semibold text-slate-500">
