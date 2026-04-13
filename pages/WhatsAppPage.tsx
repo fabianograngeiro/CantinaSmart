@@ -6103,7 +6103,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   })();
 
   return (
-    <div className="whatsapp-shell space-y-4 p-4 rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(251,191,36,0.18),_transparent_45%),radial-gradient(circle_at_bottom_right,_rgba(15,23,42,0.08),_transparent_40%)] bg-white animate-in fade-in duration-500 shadow-[0_20px_45px_-30px_rgba(15,23,42,0.45)] dark:border-white/10 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-900 dark:text-zinc-100">
+    <div className="whatsapp-shell space-y-4 p-4 rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(251,191,36,0.18),_transparent_45%),radial-gradient(circle_at_bottom_right,_rgba(15,23,42,0.08),_transparent_40%)] bg-white animate-in fade-in duration-500 shadow-[0_20px_45px_-30px_rgba(15,23,42,0.45)] dark:border-white/10 dark:bg-zinc-950 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-900 dark:text-zinc-100">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
         <div className="rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white px-2.5 py-1.5 shadow-sm dark:border-emerald-500/30 dark:from-zinc-900 dark:to-zinc-900 dark:shadow-none">
           <div className="flex items-center justify-between gap-2">
@@ -6935,7 +6935,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                     )}
 
                                     {msg.location && (
-                                      <div className={`mb-2 rounded-xl border p-2 ${msg.fromMe ? 'border-white/30 bg-white/15' : 'border-cyan-200 bg-cyan-50'}`}>
+                                      <div className={`mb-2 rounded-xl border p-2 ${msg.fromMe ? 'border-white/30 bg-white/15' : 'border-cyan-200 bg-cyan-50 dark:bg-zinc-800 dark:border-white/10'}`}>
                                         {msg.location.mapThumbnailDataUrl && (
                                           <img
                                             src={msg.location.mapThumbnailDataUrl}
@@ -6956,7 +6956,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                           className={`inline-flex mt-2 px-2 py-1 rounded-lg text-[11px] font-black ${
                                             msg.fromMe
                                               ? 'bg-white/20 hover:bg-white/30 text-white'
-                                              : 'bg-white border border-cyan-200 text-cyan-700 hover:bg-cyan-100'
+                                              : 'bg-white border border-cyan-200 text-cyan-700 hover:bg-cyan-100 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-zinc-800'
                                           }`}
                                         >
                                           Abrir mapa
@@ -7106,7 +7106,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                               <div className="flex flex-wrap gap-2">
                                 {(selectedChat.labels || []).length > 0 ? (
                                   (selectedChat.labels || []).map((label) => (
-                                    <span key={label} className="px-2 py-1 rounded-full bg-cyan-100 text-cyan-700 text-[11px] font-black">
+                                    <span key={label} className="px-2 py-1 rounded-full bg-cyan-100 text-cyan-700 text-[11px] font-black dark:bg-zinc-800 dark:text-zinc-200">
                                       {label}
                                     </span>
                                   ))
@@ -8998,8 +8998,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
               )}
 
               {crmView === 'WEBHOOK_LOGS' && (
-                <div className="flex-1 p-6 bg-slate-50/60 overflow-y-auto">
-                  <section className="rounded-2xl border border-cyan-100 bg-white p-4 space-y-4">
+                <div className="flex-1 p-6 bg-slate-50/60 overflow-y-auto dark:bg-zinc-950/60">
+                  <section className="rounded-2xl border border-cyan-100 bg-white p-4 space-y-4 dark:bg-zinc-900 dark:border-white/10">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                       <div>
                         <p className="text-[11px] font-black uppercase tracking-widest text-cyan-600">Diagnostico</p>
@@ -9039,7 +9039,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                     {isLoadingWebhookLogs ? (
                       <div className="text-sm font-semibold text-slate-500">Carregando logs...</div>
                     ) : webhookLogs.length === 0 ? (
-                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-5 text-sm font-semibold text-slate-500">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-5 text-sm font-semibold text-slate-500 dark:bg-zinc-800 dark:border-white/10 dark:text-zinc-300">
                         Sem eventos de webhook por enquanto.
                       </div>
                     ) : (
@@ -9051,7 +9051,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                               ? 'bg-rose-100 text-rose-700 border-rose-200'
                               : 'bg-amber-100 text-amber-700 border-amber-200';
                           return (
-                            <article key={log.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+                            <article key={log.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 dark:bg-zinc-800 dark:border-white/10">
                               <div className="flex flex-wrap items-center gap-2">
                                 <span className={`px-2 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-widest ${statusTone}`}>
                                   {log.status}
@@ -9060,7 +9060,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                   {new Date(Number(log.timestamp || Date.now())).toLocaleString('pt-BR')}
                                 </span>
                                 {log.reason && (
-                                  <span className="px-2 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                                  <span className="px-2 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-600 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-300">
                                     {log.reason}
                                   </span>
                                 )}
@@ -9090,7 +9090,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                   <summary className="cursor-pointer text-[11px] font-black uppercase tracking-widest text-cyan-700">
                                     Ver payload
                                   </summary>
-                                  <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-2 text-[11px] text-slate-700 whitespace-pre-wrap break-words">
+                                  <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-2 text-[11px] text-slate-700 whitespace-pre-wrap break-words dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-200">
                                     {log.payloadPreview}
                                   </pre>
                                 </details>
@@ -9105,10 +9105,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
               )}
 
               {crmView === 'CONTA' && (
-                <div className="flex-1 min-h-0 overflow-y-auto p-8 pb-20 bg-slate-50/60">
-                  <div className="rounded-2xl border border-cyan-100 bg-white p-6 max-w-4xl">
-                    <p className="text-lg font-black text-slate-900">Conta</p>
-                    <p className="mt-2 text-sm font-semibold text-slate-500">
+                <div className="flex-1 min-h-0 overflow-y-auto p-8 pb-20 bg-slate-50/60 dark:bg-zinc-950/60">
+                  <div className="rounded-2xl border border-cyan-100 bg-white p-6 max-w-4xl dark:bg-zinc-900 dark:border-white/10 dark:[&_input]:bg-zinc-900 dark:[&_input]:border-white/10 dark:[&_input]:text-zinc-100 dark:[&_input]:placeholder:text-zinc-500 dark:[&_select]:bg-zinc-900 dark:[&_select]:border-white/10 dark:[&_select]:text-zinc-100 dark:[&_textarea]:bg-zinc-900 dark:[&_textarea]:border-white/10 dark:[&_textarea]:text-zinc-100 dark:[&_textarea]:placeholder:text-zinc-500">
+                    <p className="text-lg font-black text-slate-900 dark:text-zinc-100">Conta</p>
+                    <p className="mt-2 text-sm font-semibold text-slate-500 dark:text-zinc-400">
                       Esta seção permanece para ajustes de conta e preferências da operação.
                     </p>
                     <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -9252,7 +9252,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                               <input
                                 value={providerConfig.external.baseUrl || 'https://{subdomain}.uazapi.com'}
                                 readOnly
-                                className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 bg-slate-100 outline-none text-sm font-semibold text-slate-600"
+                                className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 bg-slate-100 outline-none text-sm font-semibold text-slate-600 dark:bg-zinc-800 dark:text-zinc-300"
                               />
                             </label>
                             <label className="md:col-span-2 space-y-1">
@@ -9270,7 +9270,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                 placeholder={providerConfig.external.hasToken ? `Atual: ${providerConfig.external.tokenMasked}` : 'Cole o token da API'}
                               />
                             </label>
-                            <div className="md:col-span-2 rounded-xl border border-cyan-200 bg-white px-4 py-3 space-y-3">
+                            <div className="md:col-span-2 rounded-xl border border-cyan-200 bg-white px-4 py-3 space-y-3 dark:bg-zinc-800 dark:border-white/10">
                               <p className="text-xs font-black uppercase tracking-widest text-cyan-700">Webhook UAZAPIGO</p>
                               <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
                                 <input
@@ -9291,7 +9291,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                 <input
                                   value={webhookFinalUrl}
                                   readOnly
-                                  className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 bg-slate-100 outline-none text-xs font-semibold text-slate-600"
+                                  className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 bg-slate-100 outline-none text-xs font-semibold text-slate-600 dark:bg-zinc-900 dark:text-zinc-300"
                                 />
                               </label>
                               <label className="space-y-1 block">
