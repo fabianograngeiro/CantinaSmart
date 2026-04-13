@@ -5552,8 +5552,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   };
 
   const handleCreateDraftChat = async () => {
-    const isExternalMode = providerConfig.mode === 'EXTERNAL';
-    if (!status.connected && !isExternalMode) {
+    const canUseExternalProvider = providerConfig.mode === 'EXTERNAL' && providerConfig.external.enabled;
+    if (!status.connected && !canUseExternalProvider) {
       setFeedback('Para abrir uma nova conversa, conecte o WhatsApp na aba QR CODE.');
       setActiveTab('SESSION_QR');
       return;
@@ -6075,6 +6075,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   );
   const normalizedExternalProviderCode = String(providerConfig.external.providerCode || '').trim().toUpperCase();
   const isUazapiExternal = providerConfig.mode === 'EXTERNAL' && normalizedExternalProviderCode === 'UAZAPI';
+  const canUseExternalProvider = providerConfig.mode === 'EXTERNAL' && providerConfig.external.enabled;
   const externalProviderValidationError = (() => {
     if (providerConfig.mode !== 'EXTERNAL' || !providerConfig.external.enabled) return '';
     const providerCode = String(providerConfig.external.providerCode || '').trim().toUpperCase();
@@ -6467,7 +6468,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
               {crmView === 'CONVERSAS' && (
                 <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-                  {!status.connected && (
+                  {!status.connected && !canUseExternalProvider && (
                     <div className="mx-3 mt-3 mb-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-center justify-between gap-3 dark:bg-zinc-900/80 dark:border-amber-500/30">
                       <p className="text-xs font-black text-amber-700 dark:text-amber-300 uppercase tracking-wide">
                         WhatsApp desconectado. Para usar Conversas, faça a conexão na aba QR CODE.
@@ -6494,7 +6495,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         <p className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Central de Atendimento</p>
                         <button
                           onClick={() => {
-                            if (!status.connected && providerConfig.mode !== 'EXTERNAL') {
+                            if (!status.connected && !canUseExternalProvider) {
                               setFeedback('Para abrir uma nova conversa, conecte o WhatsApp na aba QR CODE.');
                               setActiveTab('SESSION_QR');
                               return;
@@ -6762,7 +6763,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                   <section className="relative flex flex-col min-h-0 h-full overflow-hidden bg-[#f3f4f6] dark:bg-zinc-950/60">
                     {!selectedChat ? (
                       <div className="flex-1 flex items-center justify-center text-slate-500 dark:text-zinc-400 font-semibold">
-                        {status.connected
+                        {status.connected || canUseExternalProvider
                           ? 'Selecione uma conversa para abrir o CRM.'
                           : 'WhatsApp desconectado. Faça a conexão na aba QR CODE para abrir as conversas.'}
                       </div>
