@@ -217,7 +217,11 @@ const App: React.FC = () => {
             setActiveEnterprise(enterprises[0]);
           }
         } catch (err) {
+          const message = err instanceof Error ? err.message : 'Falha ao carregar empresas.';
           console.error('Erro ao carregar empresas:', err);
+          if (message.toLowerCase().includes('backend indisponível')) {
+            notificationService.alerta('Backend offline', message, 5000);
+          }
         }
       }
     };
@@ -257,7 +261,11 @@ const App: React.FC = () => {
         setActiveEnterprise(enterprises[0]);
       }
     } catch (err) {
+      const message = err instanceof Error ? err.message : 'Falha ao processar login.';
       console.error('Erro ao processar login:', err);
+      if (message.toLowerCase().includes('backend indisponível')) {
+        notificationService.critico('Backend offline', message);
+      }
     }
   };
 

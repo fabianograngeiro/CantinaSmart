@@ -7009,7 +7009,6 @@ class WhatsAppSessionManager {
   }
 
   async getClientChats(): Promise<ChatSummary[]> {
-    this.ensureConnected();
     this.pruneSelfChatsFromCache();
     const windowRange = this.resolveSyncPeriodWindowMs();
     return Array.from(this.chatMap.values())
@@ -7070,7 +7069,6 @@ class WhatsAppSessionManager {
   }
 
   async getChatMessages(chatId: string, limit = 80): Promise<ChatMessage[]> {
-    this.ensureConnected();
     const jid = this.toBaileysJid(chatId);
     if (!jid || !this.isClientJid(jid) || this.isSelfJid(jid)) throw new Error('Chat inválido.');
 
@@ -7080,6 +7078,150 @@ class WhatsAppSessionManager {
       : rawMessages;
     const safeLimit = Math.max(10, Math.min(200, Number(limit) || 80));
     return messages.slice(-safeLimit);
+  }
+
+  async ingestExternalInboundMessage(input: {
+    chatId?: string;
+    number?: string;
+    name?: string;
+    body?: string;
+    message?: string;
+    messageId?: string;
+    timestamp?: string | number;
+  }) {
+    const target = String(input.chatId || input.number || '').trim();
+    const jid = this.toBaileysJid(target);
+    if (!jid || !this.isClientJid(jid) || this.isSelfJid(jid)) {
+      throw new Error('Destinatário de origem inválido para ingestão externa.');
+    }
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const rawTimestamp = Number(input.timestamp);
+    const timestamp = Number.isFinite(rawTimestamp)
+      ? (rawTimestamp > 1_000_000_000_000 ? Math.floor(rawTimestamp / 1000) : Math.floor(rawTimestamp))
+      : nowSec;
+
+    const body = String(input.body || input.message || '').trim() || '[Mensagem recebida]';
+    const messageId = String(input.messageId || '').trim() || `ext_${timestamp}_${Math.floor(Math.random() * 100000)}`;
+
+    const existingMessages = this.messageMap.get(jid) || [];
+    if (existingMessages.some((item) => String(item.id || '').trim() === messageId)) {
+      return {
+        success: true,
+        duplicate: true,
+        chatId: this.toExternalChatId(jid),
+        messageId,
+      };
+    }
+
+    this.pushMessage(jid, {
+      id: messageId,
+      body,
+      fromMe: false,
+      timestamp,
+    });
+
+    const existing = this.chatMap.get(jid);
+    const phoneDigits = this.getPhoneFromJid(jid);
+    const resolvedName = this.resolveBestChatName(
+      String(input.name || '').trim(),
+      String(existing?.name || '').trim(),
+      phoneDigits
+    );
+
+    this.upsertChat(jid, {
+      chatId: this.toExternalChatId(jid),
+      phone: phoneDigits,
+      name: resolvedName,
+      lastMessage: body,
+      lastTimestamp: timestamp,
+      unreadCount: Math.max(0, Number(existing?.unreadCount || 0)) + 1,
+      initiatedByClient: true,
+    });
+
+    if (body !== '[Mensagem recebida]' && !this.isSyncProtectionActive()) {
+      await this.maybeHandleIncomingAiReply(jid, messageId, body);
+    }
+
+    this.schedulePersistChatHistory();
+
+    return {
+      success: true,
+      duplicate: false,
+      chatId: this.toExternalChatId(jid),
+      phone: phoneDigits,
+      messageId,
+    };
+  }
+
+  async ingestExternalOutboundMessage(input: {
+    chatId?: string;
+    number?: string;
+    name?: string;
+    body?: string;
+    message?: string;
+    messageId?: string;
+    timestamp?: string | number;
+  }) {
+    const target = String(input.chatId || input.number || '').trim();
+    const jid = this.toBaileysJid(target);
+    if (!jid || !this.isClientJid(jid) || this.isSelfJid(jid)) {
+      throw new Error('Destinatário de destino inválido para persistência externa.');
+    }
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const rawTimestamp = Number(input.timestamp);
+    const timestamp = Number.isFinite(rawTimestamp)
+      ? (rawTimestamp > 1_000_000_000_000 ? Math.floor(rawTimestamp / 1000) : Math.floor(rawTimestamp))
+      : nowSec;
+
+    const body = String(input.body || input.message || '').trim() || '[Mensagem enviada]';
+    const messageId = String(input.messageId || '').trim() || `ext_out_${timestamp}_${Math.floor(Math.random() * 100000)}`;
+
+    const existingMessages = this.messageMap.get(jid) || [];
+    if (existingMessages.some((item) => String(item.id || '').trim() === messageId)) {
+      return {
+        success: true,
+        duplicate: true,
+        chatId: this.toExternalChatId(jid),
+        messageId,
+      };
+    }
+
+    this.pushMessage(jid, {
+      id: messageId,
+      body,
+      fromMe: true,
+      timestamp,
+    });
+
+    const existing = this.chatMap.get(jid);
+    const phoneDigits = this.getPhoneFromJid(jid);
+    const resolvedName = this.resolveBestChatName(
+      String(input.name || '').trim(),
+      String(existing?.name || '').trim(),
+      phoneDigits
+    );
+
+    this.upsertChat(jid, {
+      chatId: this.toExternalChatId(jid),
+      phone: phoneDigits,
+      name: resolvedName,
+      lastMessage: body,
+      lastTimestamp: timestamp,
+      unreadCount: Math.max(0, Number(existing?.unreadCount || 0)),
+      initiatedByClient: Boolean(existing?.initiatedByClient),
+    });
+
+    this.schedulePersistChatHistory();
+
+    return {
+      success: true,
+      duplicate: false,
+      chatId: this.toExternalChatId(jid),
+      phone: phoneDigits,
+      messageId,
+    };
   }
 
   async clearChatMessages(chatId: string) {

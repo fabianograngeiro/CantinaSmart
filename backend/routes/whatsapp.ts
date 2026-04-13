@@ -28,7 +28,8 @@ import {
 import { db } from '../database.js';
 
 const router = Router();
-router.use(authMiddleware);
+const WEBHOOK_UNRESOLVED_BUCKET = '__UNRESOLVED__';
+const WEBHOOK_LOG_MAX_ITEMS = 500;
 
 const normalizePhoneDigits = (value: unknown) => String(value ?? '').replace(/\D/g, '');
 const normalizeTextToken = (value: unknown) => String(value || '')
@@ -92,6 +93,40 @@ const getEnterprisePhoneSet = (enterpriseId: string) => {
   return phones;
 };
 
+const getLeadPhoneSetForEnterprise = (enterpriseId: string) => {
+  const store = db.getWhatsAppStore() as any;
+  const byEnterprise = store?.leadPhonesByEnterprise;
+  const list = byEnterprise && typeof byEnterprise === 'object'
+    ? byEnterprise[String(enterpriseId || '').trim()]
+    : [];
+  const phones = new Set<string>();
+  (Array.isArray(list) ? list : []).forEach((value: unknown) => {
+    const phone = normalizePhoneDigits(value);
+    if (phone) phones.add(phone);
+  });
+  return phones;
+};
+
+const rememberLeadPhoneForEnterprise = (enterpriseId: string, phoneRaw: unknown) => {
+  const enterpriseKey = String(enterpriseId || '').trim();
+  const phone = normalizePhoneDigits(phoneRaw);
+  if (!enterpriseKey || !phone) return;
+
+  const store = db.getWhatsAppStore() as any;
+  const current = store?.leadPhonesByEnterprise && typeof store.leadPhonesByEnterprise === 'object'
+    ? store.leadPhonesByEnterprise
+    : {};
+  const prev = Array.isArray(current[enterpriseKey]) ? current[enterpriseKey] : [];
+  const merged = Array.from(new Set([...prev.map((item: unknown) => normalizePhoneDigits(item)).filter(Boolean), phone])).slice(-5000);
+
+  db.updateWhatsAppStore({
+    leadPhonesByEnterprise: {
+      ...current,
+      [enterpriseKey]: merged,
+    },
+  });
+};
+
 const extractPhoneFromChatId = (chatId: string) => {
   const normalized = String(chatId || '').replace(/__AT__/g, '@').trim();
   const [jidUser] = normalized.split('@');
@@ -102,7 +137,9 @@ const isChatAllowedForEnterprise = (chatId: string, enterpriseId: string) => {
   const phone = extractPhoneFromChatId(chatId);
   if (!phone) return false;
   const phoneSet = getEnterprisePhoneSet(enterpriseId);
-  return phoneSet.has(phone);
+  if (phoneSet.has(phone)) return true;
+  const leadPhoneSet = getLeadPhoneSetForEnterprise(enterpriseId);
+  return leadPhoneSet.has(phone);
 };
 
 const isSpecialTargetJid = (value: unknown) => {
@@ -166,6 +203,422 @@ const normalizeDispatchProfileList = (raw: unknown) => {
       updatedAt: String(item.updatedAt || new Date().toISOString()),
     }));
 };
+
+const safeParseJsonObject = (value: unknown) => {
+  if (!value) return null;
+  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+};
+
+const normalizeWebhookPayloadInput = (rawBody: unknown, meta?: { query?: any; headers?: any }) => {
+  const bodyFromString = safeParseJsonObject(rawBody);
+  const body = bodyFromString || ((rawBody && typeof rawBody === 'object' && !Array.isArray(rawBody))
+    ? rawBody as Record<string, unknown>
+    : {});
+
+  // SSE forwarders often send { event: 'messages', data: '{...json...}' }.
+  const dataObject = safeParseJsonObject((body as any)?.data)
+    || ((body as any)?.data && typeof (body as any).data === 'object' ? (body as any).data : null);
+  const payloadObject = safeParseJsonObject((body as any)?.payload)
+    || ((body as any)?.payload && typeof (body as any).payload === 'object' ? (body as any).payload : null);
+
+  return {
+    ...body,
+    ...(payloadObject && typeof payloadObject === 'object' ? payloadObject : {}),
+    data: dataObject || (body as any)?.data || {},
+    query: meta?.query && typeof meta.query === 'object' ? meta.query : {},
+    headers: meta?.headers && typeof meta.headers === 'object' ? meta.headers : {},
+  };
+};
+
+const resolveWebhookEnterpriseId = (payload: any) => {
+  const normalizeSubdomainToken = (value: unknown) => String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//i, '')
+    .split('/')[0]
+    .split('?')[0]
+    .replace(/\.uazapi\.com$/i, '')
+    .trim();
+
+  const explicitEnterpriseId = String(payload?.enterpriseId || '').trim();
+  if (explicitEnterpriseId) return explicitEnterpriseId;
+
+  const tokenFromRequest = String(
+    payload?.token
+    || payload?.query?.token
+    || payload?.data?.token
+    || payload?.headers?.token
+    || payload?.headers?.authorization
+    || ''
+  ).trim();
+
+  const rawSubdomain = normalizeSubdomainToken(
+    payload?.subdomain
+    || payload?.instance
+    || payload?.query?.subdomain
+    || payload?.query?.instance
+    || payload?.query?.instancia
+    || payload?.query?.tenant
+    || payload?.data?.subdomain
+    || payload?.data?.instance
+    || ''
+  );
+
+  const enterprises = db.getEnterprises();
+  const all = Array.isArray(enterprises) ? enterprises : [];
+  const externalEnabledEnterprises: string[] = [];
+  for (const enterprise of all) {
+    const enterpriseId = String((enterprise as any)?.id || '').trim();
+    if (!enterpriseId) continue;
+    const cfg = getEnterpriseProviderConfig(enterpriseId);
+    if (cfg.mode !== 'EXTERNAL' || !cfg.external.enabled) continue;
+    externalEnabledEnterprises.push(enterpriseId);
+    if (!rawSubdomain) continue;
+    const cfgSubdomain = normalizeSubdomainToken(cfg.external.subdomain);
+    if (!cfgSubdomain) continue;
+    if (cfgSubdomain === rawSubdomain) return enterpriseId;
+  }
+
+  if (tokenFromRequest) {
+    for (const enterprise of all) {
+      const enterpriseId = String((enterprise as any)?.id || '').trim();
+      if (!enterpriseId) continue;
+      const cfg = getEnterpriseProviderConfig(enterpriseId);
+      if (cfg.mode !== 'EXTERNAL' || !cfg.external.enabled) continue;
+      const cfgToken = String(cfg.external.token || '').trim();
+      if (!cfgToken) continue;
+      const normalizedAuth = tokenFromRequest.replace(/^bearer\s+/i, '').trim();
+      if (cfgToken === tokenFromRequest || cfgToken === normalizedAuth) {
+        return enterpriseId;
+      }
+    }
+  }
+
+  // Single-tenant fallback: when only one enterprise has EXTERNAL enabled,
+  // accept inbound events even if provider payload does not include instance/subdomain.
+  if (!rawSubdomain && externalEnabledEnterprises.length === 1) {
+    return externalEnabledEnterprises[0];
+  }
+
+  return '';
+};
+
+const extractInboundWebhookMessage = (payload: any) => {
+  const body = payload && typeof payload === 'object' ? payload : {};
+  const nested = body?.data && typeof body.data === 'object' ? body.data : {};
+  const nestedKey = nested?.key && typeof nested.key === 'object' ? nested.key : {};
+  const nestedMessage = nested?.message && typeof nested.message === 'object' ? nested.message : {};
+
+  const fromMeRaw = body?.fromMe ?? body?.isFromMe ?? nested?.fromMe ?? nested?.isFromMe ?? nestedKey?.fromMe;
+  const fromMe = String(fromMeRaw || '').toLowerCase() === 'true' || fromMeRaw === true;
+
+  const number = String(
+    body?.number
+    || body?.phone
+    || body?.from
+    || nested?.number
+    || nested?.phone
+    || nested?.from
+    || nestedKey?.participant
+    || nestedKey?.remoteJid
+    || ''
+  ).trim();
+
+  const chatId = String(body?.chatId || nested?.chatId || nestedKey?.remoteJid || '').trim();
+  const name = String(body?.name || body?.pushName || nested?.name || nested?.pushName || '').trim();
+
+  const messageTextFromNestedObject =
+    nestedMessage?.conversation
+    || nestedMessage?.extendedTextMessage?.text
+    || nestedMessage?.imageMessage?.caption
+    || nestedMessage?.videoMessage?.caption
+    || nestedMessage?.documentMessage?.caption
+    || nestedMessage?.buttonsResponseMessage?.selectedDisplayText
+    || nestedMessage?.listResponseMessage?.title
+    || nestedMessage?.listResponseMessage?.singleSelectReply?.selectedRowId
+    || nestedMessage?.reactionMessage?.text
+    || '';
+
+  const message = String(
+    body?.text
+    || body?.message
+    || body?.body
+    || nested?.text
+    || nested?.message
+    || nested?.body
+    || messageTextFromNestedObject
+    || ''
+  ).trim();
+  const messageId = String(body?.messageId || body?.id || nested?.messageId || nested?.id || nestedKey?.id || '').trim();
+  const timestamp = body?.timestamp ?? body?.ts ?? nested?.timestamp ?? nested?.ts ?? nested?.messageTimestamp;
+
+  return {
+    fromMe,
+    number,
+    chatId,
+    name,
+    message,
+    messageId,
+    timestamp,
+  };
+};
+
+const safeWebhookPayloadPreview = (payload: any) => {
+  try {
+    const serialized = JSON.stringify(payload);
+    if (!serialized) return '';
+    return serialized.length > 12000 ? `${serialized.slice(0, 12000)}...[truncated]` : serialized;
+  } catch {
+    return '[unserializable payload]';
+  }
+};
+
+const appendWebhookLog = (enterpriseId: string, entry: {
+  status: 'RECEIVED' | 'IGNORED' | 'ERROR';
+  reason?: string;
+  method?: string;
+  fromMe?: boolean;
+  number?: string;
+  chatId?: string;
+  message?: string;
+  messageId?: string;
+  payload?: any;
+  error?: string;
+}) => {
+  const key = String(enterpriseId || '').trim() || WEBHOOK_UNRESOLVED_BUCKET;
+  const store = db.getWhatsAppStore() as any;
+  const byEnterprise = store?.webhookLogsByEnterprise && typeof store.webhookLogsByEnterprise === 'object'
+    ? store.webhookLogsByEnterprise
+    : {};
+  const current = Array.isArray(byEnterprise[key]) ? byEnterprise[key] : [];
+
+  const nextEntry = {
+    id: `wh_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    timestamp: Date.now(),
+    enterpriseId: key,
+    status: entry.status,
+    reason: String(entry.reason || '').trim(),
+    method: String(entry.method || '').trim().toUpperCase(),
+    fromMe: Boolean(entry.fromMe),
+    number: String(entry.number || '').trim(),
+    chatId: String(entry.chatId || '').trim(),
+    message: String(entry.message || '').trim(),
+    messageId: String(entry.messageId || '').trim(),
+    error: String(entry.error || '').trim(),
+    payloadPreview: safeWebhookPayloadPreview(entry.payload),
+  };
+
+  db.updateWhatsAppStore({
+    webhookLogsByEnterprise: {
+      ...byEnterprise,
+      [key]: [nextEntry, ...current].slice(0, WEBHOOK_LOG_MAX_ITEMS),
+    },
+  });
+};
+
+router.all('/webhook/external', async (req: Request, res: Response) => {
+  try {
+    const payload = normalizeWebhookPayloadInput(req.body, {
+      query: req.query,
+      headers: req.headers,
+    });
+    const webhook = extractInboundWebhookMessage(payload);
+    const enterpriseId = resolveWebhookEnterpriseId(payload);
+    if (!enterpriseId) {
+      appendWebhookLog('', {
+        status: 'IGNORED',
+        reason: 'enterprise_not_resolved',
+        method: req.method,
+        fromMe: webhook.fromMe,
+        number: webhook.number,
+        chatId: webhook.chatId,
+        message: webhook.message,
+        messageId: webhook.messageId,
+        payload,
+      });
+      return res.status(202).json({ success: true, ignored: true, reason: 'enterprise_not_resolved' });
+    }
+
+    const providerConfig = getEnterpriseProviderConfig(enterpriseId);
+    if (providerConfig.mode !== 'EXTERNAL' || !providerConfig.external.enabled) {
+      appendWebhookLog(enterpriseId, {
+        status: 'IGNORED',
+        reason: 'external_provider_disabled',
+        method: req.method,
+        fromMe: webhook.fromMe,
+        number: webhook.number,
+        chatId: webhook.chatId,
+        message: webhook.message,
+        messageId: webhook.messageId,
+        payload,
+      });
+      return res.status(202).json({ success: true, ignored: true, reason: 'external_provider_disabled' });
+    }
+
+    if (webhook.fromMe) {
+      appendWebhookLog(enterpriseId, {
+        status: 'IGNORED',
+        reason: 'outgoing_message',
+        method: req.method,
+        fromMe: webhook.fromMe,
+        number: webhook.number,
+        chatId: webhook.chatId,
+        message: webhook.message,
+        messageId: webhook.messageId,
+        payload,
+      });
+      return res.status(202).json({ success: true, ignored: true, reason: 'outgoing_message' });
+    }
+
+    const target = webhook.chatId || webhook.number;
+    if (!String(target || '').trim()) {
+      appendWebhookLog(enterpriseId, {
+        status: 'IGNORED',
+        reason: 'missing_sender',
+        method: req.method,
+        fromMe: webhook.fromMe,
+        number: webhook.number,
+        chatId: webhook.chatId,
+        message: webhook.message,
+        messageId: webhook.messageId,
+        payload,
+      });
+      return res.status(202).json({ success: true, ignored: true, reason: 'missing_sender' });
+    }
+
+    const result = await whatsappSession.ingestExternalInboundMessage({
+      chatId: webhook.chatId,
+      number: webhook.number,
+      name: webhook.name,
+      message: webhook.message,
+      messageId: webhook.messageId,
+      timestamp: webhook.timestamp,
+    });
+
+    const inboundPhone = normalizePhoneDigits(webhook.number || webhook.chatId || result?.phone || '');
+    if (inboundPhone) {
+      rememberLeadPhoneForEnterprise(enterpriseId, inboundPhone);
+    }
+
+    appendWebhookLog(enterpriseId, {
+      status: 'RECEIVED',
+      reason: 'ingested',
+      method: req.method,
+      fromMe: webhook.fromMe,
+      number: webhook.number,
+      chatId: webhook.chatId,
+      message: webhook.message,
+      messageId: webhook.messageId,
+      payload,
+    });
+
+    return res.json({
+      enterpriseId,
+      ...result,
+    });
+  } catch (err) {
+    const payload = normalizeWebhookPayloadInput(req.body, {
+      query: req.query,
+      headers: req.headers,
+    });
+    const webhook = extractInboundWebhookMessage(payload);
+    const enterpriseId = resolveWebhookEnterpriseId(payload);
+    appendWebhookLog(enterpriseId, {
+      status: 'ERROR',
+      reason: 'exception',
+      method: req.method,
+      fromMe: webhook.fromMe,
+      number: webhook.number,
+      chatId: webhook.chatId,
+      message: webhook.message,
+      messageId: webhook.messageId,
+      payload,
+      error: err instanceof Error ? err.message : 'Falha ao processar webhook externo.',
+    });
+    return res.status(400).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao processar webhook externo.',
+    });
+  }
+});
+
+router.use(authMiddleware);
+
+router.get('/webhook/logs', async (req: AuthRequest, res: Response) => {
+  try {
+    const enterpriseId = resolveEnterpriseIdOrReject(req, res);
+    if (!enterpriseId) return;
+
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit || 200)));
+    const includeUnresolved = String(req.query.includeUnresolved || 'true').toLowerCase() !== 'false';
+    const store = db.getWhatsAppStore() as any;
+    const byEnterprise = store?.webhookLogsByEnterprise && typeof store.webhookLogsByEnterprise === 'object'
+      ? store.webhookLogsByEnterprise
+      : {};
+    const ownLogs = Array.isArray(byEnterprise[enterpriseId]) ? byEnterprise[enterpriseId] : [];
+    const unresolvedLogs = includeUnresolved && Array.isArray(byEnterprise[WEBHOOK_UNRESOLVED_BUCKET])
+      ? byEnterprise[WEBHOOK_UNRESOLVED_BUCKET]
+      : [];
+
+    const logs = [...ownLogs, ...unresolvedLogs]
+      .sort((a: any, b: any) => Number(b?.timestamp || 0) - Number(a?.timestamp || 0))
+      .slice(0, limit);
+
+    return res.json({
+      success: true,
+      logs,
+      count: logs.length,
+      enterpriseId,
+      includeUnresolved,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao carregar logs de webhook.',
+    });
+  }
+});
+
+router.delete('/webhook/logs', async (req: AuthRequest, res: Response) => {
+  try {
+    const enterpriseId = resolveEnterpriseIdOrReject(req, res);
+    if (!enterpriseId) return;
+
+    const store = db.getWhatsAppStore() as any;
+    const byEnterprise = store?.webhookLogsByEnterprise && typeof store.webhookLogsByEnterprise === 'object'
+      ? store.webhookLogsByEnterprise
+      : {};
+
+    db.updateWhatsAppStore({
+      webhookLogsByEnterprise: {
+        ...byEnterprise,
+        [enterpriseId]: [],
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: 'Logs de webhook limpos com sucesso.',
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao limpar logs de webhook.',
+    });
+  }
+});
 
 router.get('/dispatch/audience', async (req: AuthRequest, res: Response) => {
   try {
@@ -997,7 +1450,12 @@ router.post('/send', async (req: AuthRequest, res: Response) => {
         message: 'Informe telefone e mensagem.'
       });
     }
-    if (!getEnterprisePhoneSet(enterpriseId).has(normalizePhoneDigits(phone))) {
+    const normalizedPhone = normalizePhoneDigits(phone);
+    const isKnownEnterprisePhone = getEnterprisePhoneSet(enterpriseId).has(normalizedPhone);
+    const providerConfig = getEnterpriseProviderConfig(enterpriseId);
+    const externalEnabled = providerConfig.mode === 'EXTERNAL' && providerConfig.external.enabled;
+
+    if (!isKnownEnterprisePhone && !externalEnabled) {
       return res.status(403).json({
         success: false,
         message: 'Telefone não pertence à unidade selecionada.',
@@ -1032,6 +1490,26 @@ router.post('/send', async (req: AuthRequest, res: Response) => {
     const result = externalDispatch.handledByExternal
       ? externalDispatch.result
       : await whatsappSession.sendMessage(String(phone), String(message));
+
+    if (externalDispatch.handledByExternal) {
+      const phoneDigits = normalizePhoneDigits(phone);
+      if (phoneDigits) {
+        rememberLeadPhoneForEnterprise(enterpriseId, phoneDigits);
+      }
+      const knownClient = db.getClients(enterpriseId).find((client: any) => {
+        const ownPhone = normalizePhoneDigits(client?.phone);
+        const parentPhone = normalizePhoneDigits(client?.parentWhatsapp);
+        return phoneDigits === ownPhone || phoneDigits === parentPhone;
+      });
+      await whatsappSession.ingestExternalOutboundMessage({
+        number: phoneDigits,
+        name: String(knownClient?.name || '').trim(),
+        message: String(message),
+        messageId: String((result as any)?.messageId || (result as any)?.id || '').trim(),
+        timestamp: (result as any)?.timestamp,
+      });
+    }
+
     markDispatchIdempotencySent({
       enterpriseId,
       fingerprint: reservation.fingerprint,
@@ -1292,10 +1770,21 @@ router.post('/send-request-payment', async (req: AuthRequest, res: Response) => 
     } = req.body || {};
 
     const target = String(number || '').trim();
-    if (!target || !Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+    const providerConfig = getEnterpriseProviderConfig(enterpriseId);
+    const providerCode = String(providerConfig?.external?.providerCode || '').trim().toUpperCase();
+    const paymentPath = String(providerConfig?.external?.paymentPath || '').trim();
+    const isUazapiPixButton = Boolean(providerConfig?.external?.enabled)
+      && providerCode === 'UAZAPI'
+      && paymentPath === '/send/pix-button';
+
+    const parsedAmount = Number(amount);
+    const hasValidAmount = Number.isFinite(parsedAmount) && parsedAmount > 0;
+    if (!target || (!isUazapiPixButton && !hasValidAmount)) {
       return res.status(400).json({
         success: false,
-        message: 'Informe number e amount válido para solicitação de pagamento.',
+        message: isUazapiPixButton
+          ? 'Informe number válido para envio de botão PIX.'
+          : 'Informe number e amount válido para solicitação de pagamento.',
       });
     }
 
@@ -1315,7 +1804,7 @@ router.post('/send-request-payment', async (req: AuthRequest, res: Response) => 
         footer: String(footer || '').trim(),
         itemName: String(itemName || '').trim(),
         invoiceNumber: String(invoiceNumber || '').trim(),
-        amount: Number(amount),
+        amount: hasValidAmount ? parsedAmount : undefined,
         pixKey: String(pixKey || '').trim(),
         pixType: String(pixType || '').trim().toUpperCase() as any,
         pixName: String(pixName || '').trim(),
@@ -1351,12 +1840,13 @@ router.get('/chats', async (_req: Request, res: Response) => {
     if (!enterpriseId) return;
 
     const allowedPhones = getEnterprisePhoneSet(enterpriseId);
+    const leadPhones = getLeadPhoneSetForEnterprise(enterpriseId);
     const chats = await whatsappSession.getClientChats();
     res.json({
       success: true,
       chats: (Array.isArray(chats) ? chats : []).filter((chat: any) => {
         const phone = normalizePhoneDigits(chat?.phone || extractPhoneFromChatId(String(chat?.chatId || '')));
-        return phone && allowedPhones.has(phone);
+        return Boolean(phone && (allowedPhones.has(phone) || leadPhones.has(phone)));
       })
     });
   } catch (err) {
@@ -1706,12 +2196,46 @@ router.post('/send-to-chat', async (req: AuthRequest, res: Response) => {
         message: 'Informe chatId e message.'
       });
     }
-    if (!isChatAllowedForEnterprise(String(chatId || ''), enterpriseId)) {
+    const providerConfig = getEnterpriseProviderConfig(enterpriseId);
+    const externalEnabled = providerConfig.mode === 'EXTERNAL' && providerConfig.external.enabled;
+    const incomingChatId = String(chatId || '');
+    if (!isChatAllowedForEnterprise(incomingChatId, enterpriseId) && !externalEnabled) {
       return res.status(403).json({ success: false, message: 'Conversa não pertence à unidade selecionada.' });
     }
 
+    const normalizedChatId = String(chatId || '').trim();
+    const externalTarget = normalizedChatId.includes('@newsletter')
+      ? normalizedChatId
+      : extractPhoneFromChatId(normalizedChatId);
+
+    if (externalEnabled && externalTarget) {
+      rememberLeadPhoneForEnterprise(enterpriseId, externalTarget);
+    }
+
+    const externalDispatch = await sendByConfiguredProvider({
+      enterpriseId,
+      phone: externalTarget,
+      message: String(message),
+    });
+
+    if (externalDispatch.handledByExternal) {
+      const result = externalDispatch.result;
+      await whatsappSession.ingestExternalOutboundMessage({
+        chatId: normalizedChatId,
+        number: externalTarget,
+        message: String(message),
+        messageId: String((result as any)?.messageId || (result as any)?.id || '').trim(),
+        timestamp: (result as any)?.timestamp,
+      });
+      return res.json({
+        ...(result as any),
+        success: true,
+        chatId: normalizedChatId,
+      });
+    }
+
     const result = await whatsappSession.sendMessageToChat(
-      String(chatId),
+      normalizedChatId,
       String(message),
       {
         source: 'human',
@@ -1835,7 +2359,9 @@ router.post('/send-media-to-chat', async (req: AuthRequest, res: Response) => {
       });
     }
 
-    if (!isChatAllowedForEnterprise(String(chatId || ''), enterpriseId)) {
+    const providerConfig = getEnterpriseProviderConfig(enterpriseId);
+    const externalEnabled = providerConfig.mode === 'EXTERNAL' && providerConfig.external.enabled;
+    if (!isChatAllowedForEnterprise(String(chatId || ''), enterpriseId) && !externalEnabled) {
       return res.status(403).json({ success: false, message: 'Conversa não pertence à unidade selecionada.' });
     }
 
@@ -1843,6 +2369,9 @@ router.post('/send-media-to-chat', async (req: AuthRequest, res: Response) => {
     const externalTarget = normalizedChatId.includes('@newsletter')
       ? normalizedChatId
       : extractPhoneFromChatId(normalizedChatId);
+    if (externalEnabled && externalTarget) {
+      rememberLeadPhoneForEnterprise(enterpriseId, externalTarget);
+    }
     const externalMedia = await sendMediaByConfiguredProvider({
       enterpriseId,
       target: externalTarget,
@@ -1871,6 +2400,18 @@ router.post('/send-media-to-chat', async (req: AuthRequest, res: Response) => {
           disableAiAgentOnHumanSend: true
         }
       );
+
+    if (externalMedia.handledByExternal) {
+      const previewText = String(message || '').trim()
+        || (attachment?.fileName ? `[Arquivo enviado: ${String(attachment.fileName)}]` : '[Arquivo enviado]');
+      await whatsappSession.ingestExternalOutboundMessage({
+        chatId: normalizedChatId,
+        number: externalTarget,
+        message: previewText,
+        messageId: String((result as any)?.messageId || (result as any)?.id || '').trim(),
+        timestamp: (result as any)?.timestamp,
+      });
+    }
 
     res.json(result);
   } catch (err) {

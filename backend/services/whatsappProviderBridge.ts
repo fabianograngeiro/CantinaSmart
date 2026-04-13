@@ -26,6 +26,15 @@ export type WhatsAppExternalProviderConfig = {
   paymentMethod: ExternalProviderHttpMethod;
   bulkPath: string;
   bulkMethod: ExternalProviderHttpMethod;
+  webhook: {
+    enabled: boolean;
+    method: ExternalProviderHttpMethod;
+    url: string;
+    addUrlEvents: boolean;
+    addUrlTypesMessages: boolean;
+    events: string[];
+    excludeMessages: string[];
+  };
   commonFields: Record<string, unknown>;
 };
 
@@ -43,26 +52,35 @@ type ProviderRequestContext = {
 
 const DEFAULT_EXTERNAL_CONFIG: WhatsAppExternalProviderConfig = {
   enabled: false,
-  providerCode: 'CUSTOM',
+  providerCode: 'UAZAPI',
   baseUrl: '',
   subdomain: '',
   token: '',
-  tokenHeaderName: 'Authorization',
-  tokenPrefix: 'Bearer',
-  testPath: '/connection/test',
+  tokenHeaderName: 'token',
+  tokenPrefix: '',
+  testPath: '/send/text',
   testMethod: 'POST',
-  sendPath: '/message/send',
+  sendPath: '/send/text',
   sendMethod: 'POST',
-  mediaPath: '/message/send-media',
+  mediaPath: '/send/media',
   mediaMethod: 'POST',
-  menuPath: '/message/send-menu',
+  menuPath: '/send/menu',
   menuMethod: 'POST',
-  carouselPath: '/message/send-carousel',
+  carouselPath: '/send/carousel',
   carouselMethod: 'POST',
-  paymentPath: '/message/request-payment',
+  paymentPath: '/send/pix-button',
   paymentMethod: 'POST',
-  bulkPath: '/message/send-bulk',
+  bulkPath: '/send/text',
   bulkMethod: 'POST',
+  webhook: {
+    enabled: false,
+    method: 'POST',
+    url: '',
+    addUrlEvents: false,
+    addUrlTypesMessages: false,
+    events: ['messages'],
+    excludeMessages: ['wasSentByApi', 'isGroupYes'],
+  },
   commonFields: {},
 };
 
@@ -89,6 +107,32 @@ const normalizeObjectRecord = (value: unknown, fallback: Record<string, unknown>
   return value as Record<string, unknown>;
 };
 
+const normalizeStringArray = (value: unknown, fallback: string[]) => {
+  if (!Array.isArray(value)) return fallback;
+  const normalized = value
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+  return normalized.length > 0 ? Array.from(new Set(normalized)) : fallback;
+};
+
+const resolveProviderPath = (
+  incomingValue: unknown,
+  existingValue: unknown,
+  defaultValue: string,
+  legacyFallback?: string
+) => {
+  const incomingText = String(incomingValue || '').trim();
+  if (incomingText) return normalizePath(incomingText, defaultValue);
+
+  const existingText = String(existingValue || '').trim();
+  const normalizedExisting = normalizePath(existingText, defaultValue);
+  if (existingText && (!legacyFallback || normalizedExisting !== normalizePath(legacyFallback, legacyFallback))) {
+    return normalizedExisting;
+  }
+
+  return defaultValue;
+};
+
 const normalizeExternalConfig = (value: any, existing?: WhatsAppExternalProviderConfig): WhatsAppExternalProviderConfig => {
   const safeExisting = existing || DEFAULT_EXTERNAL_CONFIG;
   const incoming = value && typeof value === 'object' ? value : {};
@@ -96,13 +140,17 @@ const normalizeExternalConfig = (value: any, existing?: WhatsAppExternalProvider
   const incomingToken = String(incoming.token || '').trim();
   const resolvedToken = incomingToken || String(safeExisting.token || '').trim();
 
-  const providerCode = String(incoming.providerCode || safeExisting.providerCode || 'CUSTOM').trim().toUpperCase() || 'CUSTOM';
+  const providerCode = String(incoming.providerCode || safeExisting.providerCode || 'UAZAPI').trim().toUpperCase() || 'UAZAPI';
+  const providerCodeChanged = providerCode !== String(safeExisting.providerCode || '').trim().toUpperCase();
   const defaultSendPath = providerCode === 'UAZAPI' ? '/send/text' : DEFAULT_EXTERNAL_CONFIG.sendPath;
   const defaultMediaPath = providerCode === 'UAZAPI' ? '/send/media' : DEFAULT_EXTERNAL_CONFIG.mediaPath;
   const defaultMenuPath = providerCode === 'UAZAPI' ? '/send/menu' : DEFAULT_EXTERNAL_CONFIG.menuPath;
   const defaultCarouselPath = providerCode === 'UAZAPI' ? '/send/carousel' : DEFAULT_EXTERNAL_CONFIG.carouselPath;
-  const defaultPaymentPath = providerCode === 'UAZAPI' ? '/send/request-payment' : DEFAULT_EXTERNAL_CONFIG.paymentPath;
+  const defaultPaymentPath = providerCode === 'UAZAPI' ? '/send/pix-button' : DEFAULT_EXTERNAL_CONFIG.paymentPath;
   const defaultBulkPath = providerCode === 'UAZAPI' ? '/send/text' : DEFAULT_EXTERNAL_CONFIG.bulkPath;
+  const defaultTestPath = providerCode === 'UAZAPI' ? '/send/text' : DEFAULT_EXTERNAL_CONFIG.testPath;
+  const defaultTokenHeaderName = providerCode === 'UAZAPI' ? 'token' : 'Authorization';
+  const defaultTokenPrefix = providerCode === 'UAZAPI' ? '' : 'Bearer';
 
   return {
     enabled: incoming.enabled !== undefined ? Boolean(incoming.enabled) : Boolean(safeExisting.enabled),
@@ -110,22 +158,59 @@ const normalizeExternalConfig = (value: any, existing?: WhatsAppExternalProvider
     baseUrl: String(incoming.baseUrl || safeExisting.baseUrl || '').trim().replace(/\/+$/, ''),
     subdomain: String(incoming.subdomain || safeExisting.subdomain || '').trim(),
     token: resolvedToken,
-    tokenHeaderName: String(incoming.tokenHeaderName || safeExisting.tokenHeaderName || 'Authorization').trim() || 'Authorization',
-    tokenPrefix: String(incoming.tokenPrefix || safeExisting.tokenPrefix || 'Bearer').trim(),
-    testPath: normalizePath(incoming.testPath, safeExisting.testPath || DEFAULT_EXTERNAL_CONFIG.testPath),
+    tokenHeaderName: String(
+      incoming.tokenHeaderName
+      || (providerCodeChanged ? defaultTokenHeaderName : safeExisting.tokenHeaderName)
+      || defaultTokenHeaderName
+    ).trim() || defaultTokenHeaderName,
+    tokenPrefix: String(
+      incoming.tokenPrefix
+      || (providerCodeChanged ? defaultTokenPrefix : safeExisting.tokenPrefix)
+      || defaultTokenPrefix
+    ).trim(),
+    testPath: providerCode === 'UAZAPI'
+      ? resolveProviderPath(incoming.testPath, safeExisting.testPath, defaultTestPath, '/connection/test')
+      : normalizePath(incoming.testPath, providerCodeChanged ? defaultTestPath : (safeExisting.testPath || defaultTestPath)),
     testMethod: normalizeMethod(incoming.testMethod, safeExisting.testMethod || DEFAULT_EXTERNAL_CONFIG.testMethod),
-    sendPath: normalizePath(incoming.sendPath, safeExisting.sendPath || defaultSendPath),
+    sendPath: providerCode === 'UAZAPI'
+      ? resolveProviderPath(incoming.sendPath, safeExisting.sendPath, defaultSendPath, DEFAULT_EXTERNAL_CONFIG.sendPath)
+      : normalizePath(incoming.sendPath, providerCodeChanged ? defaultSendPath : (safeExisting.sendPath || defaultSendPath)),
     sendMethod: normalizeMethod(incoming.sendMethod, safeExisting.sendMethod || DEFAULT_EXTERNAL_CONFIG.sendMethod),
-    mediaPath: normalizePath(incoming.mediaPath, safeExisting.mediaPath || defaultMediaPath),
+    mediaPath: providerCode === 'UAZAPI'
+      ? resolveProviderPath(incoming.mediaPath, safeExisting.mediaPath, defaultMediaPath, DEFAULT_EXTERNAL_CONFIG.mediaPath)
+      : normalizePath(incoming.mediaPath, providerCodeChanged ? defaultMediaPath : (safeExisting.mediaPath || defaultMediaPath)),
     mediaMethod: normalizeMethod(incoming.mediaMethod, safeExisting.mediaMethod || DEFAULT_EXTERNAL_CONFIG.mediaMethod),
-    menuPath: normalizePath(incoming.menuPath, safeExisting.menuPath || defaultMenuPath),
+    menuPath: providerCode === 'UAZAPI'
+      ? resolveProviderPath(incoming.menuPath, safeExisting.menuPath, defaultMenuPath, DEFAULT_EXTERNAL_CONFIG.menuPath)
+      : normalizePath(incoming.menuPath, providerCodeChanged ? defaultMenuPath : (safeExisting.menuPath || defaultMenuPath)),
     menuMethod: normalizeMethod(incoming.menuMethod, safeExisting.menuMethod || DEFAULT_EXTERNAL_CONFIG.menuMethod),
-    carouselPath: normalizePath(incoming.carouselPath, safeExisting.carouselPath || defaultCarouselPath),
+    carouselPath: providerCode === 'UAZAPI'
+      ? resolveProviderPath(incoming.carouselPath, safeExisting.carouselPath, defaultCarouselPath, DEFAULT_EXTERNAL_CONFIG.carouselPath)
+      : normalizePath(incoming.carouselPath, providerCodeChanged ? defaultCarouselPath : (safeExisting.carouselPath || defaultCarouselPath)),
     carouselMethod: normalizeMethod(incoming.carouselMethod, safeExisting.carouselMethod || DEFAULT_EXTERNAL_CONFIG.carouselMethod),
-    paymentPath: normalizePath(incoming.paymentPath, safeExisting.paymentPath || defaultPaymentPath),
+    paymentPath: providerCode === 'UAZAPI'
+      ? resolveProviderPath(incoming.paymentPath, safeExisting.paymentPath, defaultPaymentPath, DEFAULT_EXTERNAL_CONFIG.paymentPath)
+      : normalizePath(incoming.paymentPath, providerCodeChanged ? defaultPaymentPath : (safeExisting.paymentPath || defaultPaymentPath)),
     paymentMethod: normalizeMethod(incoming.paymentMethod, safeExisting.paymentMethod || DEFAULT_EXTERNAL_CONFIG.paymentMethod),
-    bulkPath: normalizePath(incoming.bulkPath, safeExisting.bulkPath || defaultBulkPath),
+    bulkPath: providerCode === 'UAZAPI'
+      ? resolveProviderPath(incoming.bulkPath, safeExisting.bulkPath, defaultBulkPath, DEFAULT_EXTERNAL_CONFIG.bulkPath)
+      : normalizePath(incoming.bulkPath, providerCodeChanged ? defaultBulkPath : (safeExisting.bulkPath || defaultBulkPath)),
     bulkMethod: normalizeMethod(incoming.bulkMethod, safeExisting.bulkMethod || DEFAULT_EXTERNAL_CONFIG.bulkMethod),
+    webhook: {
+      enabled: incoming?.webhook?.enabled !== undefined
+        ? Boolean(incoming.webhook.enabled)
+        : Boolean(safeExisting?.webhook?.enabled),
+      method: normalizeMethod(incoming?.webhook?.method, safeExisting?.webhook?.method || 'POST'),
+      url: String(incoming?.webhook?.url || safeExisting?.webhook?.url || '').trim(),
+      addUrlEvents: incoming?.webhook?.addUrlEvents !== undefined
+        ? Boolean(incoming.webhook.addUrlEvents)
+        : Boolean(safeExisting?.webhook?.addUrlEvents),
+      addUrlTypesMessages: incoming?.webhook?.addUrlTypesMessages !== undefined
+        ? Boolean(incoming.webhook.addUrlTypesMessages)
+        : Boolean(safeExisting?.webhook?.addUrlTypesMessages),
+      events: normalizeStringArray(incoming?.webhook?.events, normalizeStringArray(safeExisting?.webhook?.events, ['messages'])),
+      excludeMessages: normalizeStringArray(incoming?.webhook?.excludeMessages, normalizeStringArray(safeExisting?.webhook?.excludeMessages, ['wasSentByApi', 'isGroupYes'])),
+    },
     commonFields: normalizeObjectRecord(incoming.commonFields, normalizeObjectRecord(safeExisting.commonFields, {})),
   };
 };
@@ -152,11 +237,47 @@ const maskSecret = (value: string) => {
   return `${token.slice(0, 4)}${'*'.repeat(token.length - 8)}${token.slice(-4)}`;
 };
 
+const normalizeSubdomainInput = (value: string, rawBaseUrl: string) => {
+  let normalized = String(value || '').trim();
+  if (!normalized) return '';
+
+  // Accept values such as "https://instancia.uazapi.com" or "instancia.uazapi.com"
+  // and reduce them to only the instance token expected by {subdomain}.
+  try {
+    const asUrl = new URL(normalized);
+    normalized = asUrl.hostname;
+  } catch {
+    normalized = normalized.replace(/^(https?:\/\/)+/i, '');
+  }
+
+  normalized = normalized
+    .split('/')[0]
+    .split('?')[0]
+    .trim()
+    .replace(/\.+$/, '')
+    .replace(/^(https?:\/\/)+/i, '');
+
+  const lowerBase = String(rawBaseUrl || '').toLowerCase();
+  if (lowerBase.includes('{subdomain}.uazapi.com')) {
+    normalized = normalized.replace(/\.uazapi\.com$/i, '');
+  }
+
+  if (normalized.includes('.')) {
+    normalized = normalized.split('.')[0];
+  }
+
+  return normalized.replace(/[^a-zA-Z0-9-]/g, '').trim();
+};
+
 const buildBaseUrl = (config: WhatsAppExternalProviderConfig) => {
   const rawBaseUrl = String(config.baseUrl || '').trim().replace(/\/+$/, '');
   if (!rawBaseUrl) return '';
   if (rawBaseUrl.includes('{subdomain}')) {
-    return rawBaseUrl.split('{subdomain}').join(String(config.subdomain || '').trim());
+    const subdomain = normalizeSubdomainInput(String(config.subdomain || ''), rawBaseUrl);
+    if (!subdomain) {
+      throw new Error('Subdomain/instância da API externa não informado. Preencha em CONTA.');
+    }
+    return rawBaseUrl.split('{subdomain}').join(subdomain);
   }
   return rawBaseUrl;
 };
@@ -195,9 +316,21 @@ const callExternalEndpoint = async (
   path: string,
   body: Record<string, unknown>
 ) => {
+  const providerCode = String(config.providerCode || '').trim().toUpperCase();
+  if (providerCode === 'UAZAPI' && !String(config.token || '').trim()) {
+    throw new Error('Token da UAZAPI não informado. Preencha em CONTA e salve a configuração.');
+  }
+
   const endpointUrl = buildEndpointUrl(config, path);
   if (!endpointUrl) {
     throw new Error('Base URL da API externa não configurada.');
+  }
+
+  try {
+    // Validate URL format early to avoid opaque fetch errors.
+    new URL(endpointUrl);
+  } catch {
+    throw new Error(`Endpoint externo inválido: ${endpointUrl}`);
   }
 
   const fetchFn = (globalThis as any).fetch as ((input: string, init?: any) => Promise<any>) | undefined;
@@ -206,11 +339,17 @@ const callExternalEndpoint = async (
   }
 
   const isGet = method === 'GET';
-  const response = await fetchFn(endpointUrl, {
-    method,
-    headers: createAuthHeaders(config),
-    body: isGet ? undefined : JSON.stringify(body || {}),
-  });
+  let response: any;
+  try {
+    response = await fetchFn(endpointUrl, {
+      method,
+      headers: createAuthHeaders(config),
+      body: isGet ? undefined : JSON.stringify(body || {}),
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err || 'erro desconhecido');
+    throw new Error(`Falha de rede ao chamar API externa (${endpointUrl}): ${detail}`);
+  }
 
   const rawText = await response.text();
   const parsed = safeJsonParse(rawText);
@@ -227,6 +366,11 @@ const getProviderConfigMap = () => {
   const store = db.getWhatsAppStore() as any;
   const map = store?.providerConfigByEnterprise;
   return map && typeof map === 'object' ? map : {};
+};
+
+const canUseExternalAdvancedProvider = (config: WhatsAppProviderConfig) => {
+  const providerCode = String(config?.external?.providerCode || '').trim().toUpperCase();
+  return Boolean(config?.external?.enabled) && Boolean(providerCode);
 };
 
 const saveProviderConfigMap = (map: Record<string, any>) => {
@@ -294,20 +438,45 @@ export const testEnterpriseProviderConnection = async (enterpriseId: string) => 
     throw new Error('Configure a Base URL para testar o provedor externo.');
   }
 
-  const response = await callExternalEndpoint(
+  const providerCode = String(config.external.providerCode || '').trim().toUpperCase();
+  const normalizedTestPath = normalizePath(config.external.testPath, '/');
+  const isUazapiTextTest = providerCode === 'UAZAPI' && normalizedTestPath === '/send/text';
+  const requestBody = isUazapiTextTest
+    ? {
+      number: '5500000000000',
+      text: '[CantinaSmart] Teste de conectividade da API externa',
+    }
+    : {
+      subdomain: config.external.subdomain,
+      enterpriseId: String(enterpriseId || '').trim(),
+    };
+
+  let response = await callExternalEndpoint(
     config.external,
     config.external.testMethod,
     config.external.testPath,
-    {
-      subdomain: config.external.subdomain,
-      enterpriseId: String(enterpriseId || '').trim(),
-    }
+    requestBody
   );
 
+  if (!response.ok && response.status === 405 && providerCode === 'UAZAPI') {
+    const alternateMethod: ExternalProviderHttpMethod = config.external.testMethod === 'GET' ? 'POST' : 'GET';
+    response = await callExternalEndpoint(
+      config.external,
+      alternateMethod,
+      config.external.testPath,
+      requestBody
+    );
+  }
+
+  const acceptedAsConnection = response.ok
+    || (isUazapiTextTest && (response.status === 400 || response.status === 422));
+
   return {
-    success: response.ok,
+    success: acceptedAsConnection,
     mode: config.mode,
-    message: response.ok ? 'Conexão externa validada.' : 'Falha no teste da API externa.',
+    message: acceptedAsConnection
+      ? 'Conexão externa validada.'
+      : 'Falha no teste da API externa.',
     details: {
       status: response.status,
       endpointUrl: response.endpointUrl,
@@ -659,7 +828,7 @@ export const sendMenuByConfiguredProvider = async (params: {
   };
 }) => {
   const config = getEnterpriseProviderConfig(params.enterpriseId);
-  if (config.mode !== 'EXTERNAL' || !config.external.enabled) {
+  if (!canUseExternalAdvancedProvider(config)) {
     return {
       handledByExternal: false,
       result: null,
@@ -744,7 +913,7 @@ export const sendCarouselByConfiguredProvider = async (params: {
   trackId?: string;
 }) => {
   const config = getEnterpriseProviderConfig(params.enterpriseId);
-  if (config.mode !== 'EXTERNAL' || !config.external.enabled) {
+  if (!canUseExternalAdvancedProvider(config)) {
     return {
       handledByExternal: false,
       result: null,
@@ -828,7 +997,7 @@ export const sendPaymentRequestByConfiguredProvider = async (params: {
     footer?: string;
     itemName?: string;
     invoiceNumber?: string;
-    amount: number;
+    amount?: number;
     pixKey?: string;
     pixType?: 'CPF' | 'CNPJ' | 'PHONE' | 'EMAIL' | 'EVP';
     pixName?: string;
@@ -841,7 +1010,7 @@ export const sendPaymentRequestByConfiguredProvider = async (params: {
   };
 }) => {
   const config = getEnterpriseProviderConfig(params.enterpriseId);
-  if (config.mode !== 'EXTERNAL' || !config.external.enabled) {
+  if (!canUseExternalAdvancedProvider(config)) {
     return {
       handledByExternal: false,
       result: null,
@@ -853,8 +1022,12 @@ export const sendPaymentRequestByConfiguredProvider = async (params: {
   const req = params.request || ({} as any);
   const number = normalizeExternalTarget(providerCode, String(req.number || '').trim());
   const amount = Number(req.amount);
+  const normalizedPaymentPath = normalizePath(config.external.paymentPath, '/');
+  const isUazapiPixButton = providerCode === 'UAZAPI' && normalizedPaymentPath === '/send/pix-button';
   if (!number) throw new Error('Número/ID do chat é obrigatório.');
-  if (!Number.isFinite(amount) || amount <= 0) throw new Error('amount é obrigatório e deve ser maior que zero.');
+  if (!isUazapiPixButton && (!Number.isFinite(amount) || amount <= 0)) {
+    throw new Error('amount é obrigatório e deve ser maior que zero.');
+  }
 
   if (providerCode === 'UAZAPI') {
     void triggerUazapiPresenceUpdate(config.external, number, 'composing').catch(() => {});
@@ -865,25 +1038,40 @@ export const sendPaymentRequestByConfiguredProvider = async (params: {
     pixTypeRaw === 'CPF' || pixTypeRaw === 'CNPJ' || pixTypeRaw === 'PHONE' || pixTypeRaw === 'EMAIL'
   ) ? pixTypeRaw : 'EVP';
 
-  const payload = {
-    ...commonFields,
-    number,
-    title: String(req.title || '').trim() || undefined,
-    text: String(req.text || '').trim() || undefined,
-    footer: String(req.footer || '').trim() || undefined,
-    itemName: String(req.itemName || '').trim() || undefined,
-    invoiceNumber: String(req.invoiceNumber || '').trim() || undefined,
-    amount,
-    pixKey: String(req.pixKey || '').trim() || undefined,
-    pixType: safePixType,
-    pixName: String(req.pixName || '').trim() || undefined,
-    paymentLink: String(req.paymentLink || '').trim() || undefined,
-    fileUrl: String(req.fileUrl || '').trim() || undefined,
-    fileName: String(req.fileName || '').trim() || undefined,
-    boletoCode: String(req.boletoCode || '').trim() || undefined,
-    track_source: String(req.trackSource || '').trim() || undefined,
-    track_id: String(req.trackId || '').trim() || undefined,
-  };
+  const pixKey = String(req.pixKey || '').trim();
+  if (isUazapiPixButton && !pixKey) {
+    throw new Error('pixKey é obrigatório para o endpoint /send/pix-button.');
+  }
+
+  const payload = isUazapiPixButton
+    ? {
+      ...commonFields,
+      number,
+      pixKey,
+      pixType: safePixType,
+      pixName: String(req.pixName || '').trim() || 'Pix',
+      track_source: String(req.trackSource || '').trim() || undefined,
+      track_id: String(req.trackId || '').trim() || undefined,
+    }
+    : {
+      ...commonFields,
+      number,
+      title: String(req.title || '').trim() || undefined,
+      text: String(req.text || '').trim() || undefined,
+      footer: String(req.footer || '').trim() || undefined,
+      itemName: String(req.itemName || '').trim() || undefined,
+      invoiceNumber: String(req.invoiceNumber || '').trim() || undefined,
+      amount,
+      pixKey: pixKey || undefined,
+      pixType: safePixType,
+      pixName: String(req.pixName || '').trim() || undefined,
+      paymentLink: String(req.paymentLink || '').trim() || undefined,
+      fileUrl: String(req.fileUrl || '').trim() || undefined,
+      fileName: String(req.fileName || '').trim() || undefined,
+      boletoCode: String(req.boletoCode || '').trim() || undefined,
+      track_source: String(req.trackSource || '').trim() || undefined,
+      track_id: String(req.trackId || '').trim() || undefined,
+    };
 
   const response = await callExternalEndpoint(
     config.external,

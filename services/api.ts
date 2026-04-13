@@ -420,19 +420,35 @@ export class ApiService {
 
   // ===== ENTERPRISES =====
   static async getEnterprises() {
-    const response = await fetch(`${API_URL}/enterprises`, {
-      headers: this.getHeaders(),
-    });
-    if (!response.ok) throw new Error('Falha ao buscar empresas');
-    return response.json();
+    try {
+      const response = await fetch(`${API_URL}/enterprises`, {
+        headers: this.getHeaders(),
+      });
+      this.handleUnauthorized(response);
+      if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao buscar empresas'));
+      return response.json();
+    } catch (err) {
+      if (err instanceof TypeError) {
+        throw new Error('Backend indisponível no momento. Verifique se a API está rodando e acessível.');
+      }
+      throw err;
+    }
   }
 
   static async getEnterprise(id: string) {
-    const response = await fetch(`${API_URL}/enterprises/${id}`, {
-      headers: this.getHeaders(),
-    });
-    if (!response.ok) throw new Error('Falha ao buscar empresa');
-    return response.json();
+    try {
+      const response = await fetch(`${API_URL}/enterprises/${id}`, {
+        headers: this.getHeaders(),
+      });
+      this.handleUnauthorized(response);
+      if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao buscar empresa'));
+      return response.json();
+    } catch (err) {
+      if (err instanceof TypeError) {
+        throw new Error('Backend indisponível no momento. Verifique se a API está rodando e acessível.');
+      }
+      throw err;
+    }
   }
 
   static async createEnterprise(data: any) {
@@ -1808,6 +1824,38 @@ export class ApiService {
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text || 'Falha ao limpar logs de disparo');
+    }
+    return response.json();
+  }
+
+  static async getWhatsAppWebhookLogs(params: { limit?: number; includeUnresolved?: boolean } = {}) {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const qs = new URLSearchParams({
+      enterpriseId,
+      limit: String(Math.max(1, Math.min(500, Number(params.limit || 200)))),
+      includeUnresolved: String(params.includeUnresolved !== false),
+    });
+
+    const response = await fetch(`${API_URL}/whatsapp/webhook/logs?${qs.toString()}`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao carregar logs de webhook');
+    }
+    return response.json();
+  }
+
+  static async clearWhatsAppWebhookLogs() {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const qs = new URLSearchParams({ enterpriseId });
+    const response = await fetch(`${API_URL}/whatsapp/webhook/logs?${qs.toString()}`, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao limpar logs de webhook');
     }
     return response.json();
   }

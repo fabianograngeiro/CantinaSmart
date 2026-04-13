@@ -55,6 +55,8 @@ interface DatabaseShape {
     aiConfig?: any;
     syncDiagnostics?: any;
     agendaByEnterprise?: Record<string, any[]>;
+    leadPhonesByEnterprise?: Record<string, string[]>;
+    webhookLogsByEnterprise?: Record<string, any[]>;
     dispatchAutomationsByEnterprise?: Record<string, any>;
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
@@ -94,6 +96,8 @@ const createEmptyDatabase = (): DatabaseShape => ({
   schoolCalendars: [],
   whatsappStore: {
     agendaByEnterprise: {},
+    leadPhonesByEnterprise: {},
+    webhookLogsByEnterprise: {},
     providerConfigByEnterprise: {},
   },
 });
@@ -134,6 +138,8 @@ export class Database {
     aiConfig?: any;
     syncDiagnostics?: any;
     agendaByEnterprise?: Record<string, any[]>;
+    leadPhonesByEnterprise?: Record<string, string[]>;
+    webhookLogsByEnterprise?: Record<string, any[]>;
     dispatchAutomationsByEnterprise?: Record<string, any>;
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
@@ -1739,6 +1745,12 @@ export class Database {
     if (!this.whatsappStore.agendaByEnterprise || typeof this.whatsappStore.agendaByEnterprise !== 'object') {
       this.whatsappStore.agendaByEnterprise = {};
     }
+    if (!this.whatsappStore.leadPhonesByEnterprise || typeof this.whatsappStore.leadPhonesByEnterprise !== 'object') {
+      this.whatsappStore.leadPhonesByEnterprise = {};
+    }
+    if (!this.whatsappStore.webhookLogsByEnterprise || typeof this.whatsappStore.webhookLogsByEnterprise !== 'object') {
+      this.whatsappStore.webhookLogsByEnterprise = {};
+    }
     if (!this.whatsappStore.providerConfigByEnterprise || typeof this.whatsappStore.providerConfigByEnterprise !== 'object') {
       this.whatsappStore.providerConfigByEnterprise = {};
     }
@@ -2595,6 +2607,8 @@ export class Database {
     aiConfig?: any;
     syncDiagnostics?: any;
     agendaByEnterprise?: Record<string, any[]>;
+    leadPhonesByEnterprise?: Record<string, string[]>;
+    webhookLogsByEnterprise?: Record<string, any[]>;
     dispatchAutomationsByEnterprise?: Record<string, any>;
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
@@ -2609,6 +2623,9 @@ export class Database {
       agendaByEnterprise: patch?.agendaByEnterprise && typeof patch.agendaByEnterprise === 'object'
         ? patch.agendaByEnterprise
         : ((this.getWhatsAppStore() as any)?.agendaByEnterprise || {}),
+      webhookLogsByEnterprise: patch?.webhookLogsByEnterprise && typeof patch.webhookLogsByEnterprise === 'object'
+        ? patch.webhookLogsByEnterprise
+        : ((this.getWhatsAppStore() as any)?.webhookLogsByEnterprise || {}),
       providerConfigByEnterprise: patch?.providerConfigByEnterprise && typeof patch.providerConfigByEnterprise === 'object'
         ? patch.providerConfigByEnterprise
         : ((this.getWhatsAppStore() as any)?.providerConfigByEnterprise || {}),
