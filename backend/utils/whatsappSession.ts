@@ -1799,6 +1799,17 @@ class WhatsAppSessionManager {
     return mapped;
   }
 
+  private resolveCanonicalChatJid(chatJid: string) {
+    const normalized = this.stripDeviceSuffix(String(chatJid || '').trim());
+    if (!this.isClientJid(normalized) || this.isSelfJid(normalized)) return normalized;
+    const phoneDigits = this.getPhoneFromJid(normalized);
+    if (!phoneDigits) return normalized;
+    for (const existingJid of this.chatMap.keys()) {
+      if (this.getPhoneFromJid(existingJid) === phoneDigits) return existingJid;
+    }
+    return normalized;
+  }
+
   private rememberLidMapping(lidValue: string, jidValue: string) {
     const lid = this.normalizeLidJid(lidValue);
     if (!lid) return;
@@ -7090,7 +7101,8 @@ class WhatsAppSessionManager {
     timestamp?: string | number;
   }) {
     const target = String(input.chatId || input.number || '').trim();
-    const jid = this.toBaileysJid(target);
+    const resolved = this.toBaileysJid(target);
+    const jid = this.resolveCanonicalChatJid(resolved);
     if (!jid || !this.isClientJid(jid) || this.isSelfJid(jid)) {
       throw new Error('Destinatário de origem inválido para ingestão externa.');
     }
@@ -7164,7 +7176,8 @@ class WhatsAppSessionManager {
     timestamp?: string | number;
   }) {
     const target = String(input.chatId || input.number || '').trim();
-    const jid = this.toBaileysJid(target);
+    const resolved = this.toBaileysJid(target);
+    const jid = this.resolveCanonicalChatJid(resolved);
     if (!jid || !this.isClientJid(jid) || this.isSelfJid(jid)) {
       throw new Error('Destinatário de destino inválido para persistência externa.');
     }

@@ -373,12 +373,12 @@ const extractInboundWebhookMessage = (payload: any) => {
 
   const message = String(
     body?.text
-    || body?.message
+    || (typeof body?.message === 'string' ? body.message : '')
     || body?.body
-    || externalMessage?.text
-    || externalMessage?.content
+    || (typeof externalMessage?.text === 'string' ? externalMessage.text : '')
+    || (typeof externalMessage?.content === 'string' ? externalMessage.content : '')
     || nested?.text
-    || nested?.message
+    || (typeof nested?.message === 'string' ? nested.message : '')
     || nested?.body
     || messageTextFromNestedObject
     || ''
