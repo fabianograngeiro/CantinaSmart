@@ -1125,6 +1125,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   ];
 
   const normalizePhone = (raw?: string) => String(raw || '').replace(/\D/g, '');
+  const resolveChatPhoneDigits = (chat: ChatSummary) => {
+    const direct = normalizePhone(chat.phone);
+    if (direct) return direct;
+    const rawChatId = String(chat.chatId || '').trim();
+    if (!rawChatId) return '';
+    const base = rawChatId.includes('@') ? rawChatId.split('@')[0] : rawChatId;
+    return normalizePhone(base);
+  };
   const hasPhoneVariantIntersection = (left?: string, right?: string) => {
     const leftVariants = buildPhoneVariants(left);
     const rightVariants = buildPhoneVariants(right);
@@ -2084,7 +2092,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     const contactNameTerm = chatSearchName.trim().toLowerCase();
     const mappedChats = chats
       .map((chat) => {
-        const mappedClient = Array.from(buildPhoneVariants(chat.phone))
+        const resolvedPhone = resolveChatPhoneDigits(chat) || chat.phone;
+        const mappedClient = Array.from(buildPhoneVariants(resolvedPhone))
           .map((variant) => clientByPhone.get(variant))
           .find(Boolean) || null;
         const responsibleName = resolveResponsibleName(mappedClient);
@@ -2094,6 +2103,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         const labels = resolveContactLabels(mappedClient);
         return {
           ...chat,
+          phone: resolvedPhone,
           displayName,
           registrationId: mappedClient?.registrationId || '',
           contactType,
@@ -2247,7 +2257,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
   const selectedChatClient = useMemo(() => {
     if (!selectedChat) return null;
-    return Array.from(buildPhoneVariants(selectedChat.phone))
+    const resolvedPhone = selectedChat.phone || resolveChatPhoneDigits(selectedChat);
+    return Array.from(buildPhoneVariants(resolvedPhone))
       .map((variant) => clientByPhone.get(variant))
       .find(Boolean) || null;
   }, [selectedChat, clientByPhone]);
