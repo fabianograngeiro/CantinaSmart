@@ -154,12 +154,41 @@ const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({ currentUser }) 
 
     setIsResetting(true);
     try {
-      await ApiService.resetDatabase();
-      alert('✅ Database resetada com sucesso! A página será recarregada.');
+      try {
+        await ApiService.resetDatabase();
+      } catch (firstError) {
+        const raw = String((firstError as any)?.message || '');
+        const challengeId = (raw.match(/challengeId:\s*([^\s]+)/i)?.[1] || '').trim();
+        const phrase = (raw.match(/phrase:\s*(.+?)(?:\s+expira em|\s+Repita a acao|$)/i)?.[1] || '').trim();
+        if (!challengeId || !phrase) {
+          throw firstError;
+        }
+
+        const reason = window.prompt(
+          'Informe o motivo operacional do reset (minimo 8 caracteres):',
+          'Reset completo autorizado pela administracao'
+        );
+        if (reason === null) {
+          return;
+        }
+
+        await ApiService.resetDatabase({
+          confirmationChallengeId: challengeId,
+          confirmationPhrase: phrase,
+          confirmationReason: String(reason || '').trim(),
+        });
+      }
+
+      ApiService.clearToken();
+      localStorage.removeItem('canteen_auth_user');
+      localStorage.removeItem('canteen_active_enterprise');
+      alert('Database resetada com sucesso! A pagina sera recarregada.');
+      window.location.hash = '#/';
       window.location.reload();
     } catch (err) {
       console.error('Erro ao resetar database:', err);
-      alert('❌ Erro ao resetar database. Verifique o console.');
+      alert(err instanceof Error ? err.message : 'Erro ao resetar database. Verifique o console.');
+    } finally {
       setIsResetting(false);
     }
   };

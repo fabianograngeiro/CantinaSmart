@@ -170,12 +170,15 @@ const buildExistingDeliveryState = (transactions: any[]) => {
     }
 
     const description = String(tx?.description || '').toLowerCase();
-    if (!description.includes('entrega do dia')) return;
-
+    const method = normalizeToken(tx?.paymentMethod || tx?.method);
     const clientId = String(tx?.clientId || '').trim();
     const planName = normalizeToken(tx?.plan || tx?.planName || tx?.item);
     const deliveryDate = normalizeDateKey(tx?.deliveryDate || tx?.scheduledDate || tx?.mealDate || tx?.date);
     if (!clientId || !planName || !deliveryDate) return;
+
+    const isPlanConsumption = type === 'CONSUMO' && (method.includes('PLANO') || Boolean(String(tx?.planId || tx?.originPlanId || '').trim()));
+    const looksLikeDelivery = description.includes('entrega do dia') || description.includes('retroativa');
+    if (!isPlanConsumption && !looksLikeDelivery) return;
 
     const key = `${clientId}|${planName}|${deliveryDate}`;
     const current = Number(deliveryBalanceByKey.get(key) || 0);

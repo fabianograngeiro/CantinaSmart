@@ -420,19 +420,35 @@ export class ApiService {
 
   // ===== ENTERPRISES =====
   static async getEnterprises() {
-    const response = await fetch(`${API_URL}/enterprises`, {
-      headers: this.getHeaders(),
-    });
-    if (!response.ok) throw new Error('Falha ao buscar empresas');
-    return response.json();
+    try {
+      const response = await fetch(`${API_URL}/enterprises`, {
+        headers: this.getHeaders(),
+      });
+      this.handleUnauthorized(response);
+      if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao buscar empresas'));
+      return response.json();
+    } catch (err) {
+      if (err instanceof TypeError) {
+        throw new Error('Backend indisponível no momento. Verifique se a API está rodando e acessível.');
+      }
+      throw err;
+    }
   }
 
   static async getEnterprise(id: string) {
-    const response = await fetch(`${API_URL}/enterprises/${id}`, {
-      headers: this.getHeaders(),
-    });
-    if (!response.ok) throw new Error('Falha ao buscar empresa');
-    return response.json();
+    try {
+      const response = await fetch(`${API_URL}/enterprises/${id}`, {
+        headers: this.getHeaders(),
+      });
+      this.handleUnauthorized(response);
+      if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao buscar empresa'));
+      return response.json();
+    } catch (err) {
+      if (err instanceof TypeError) {
+        throw new Error('Backend indisponível no momento. Verifique se a API está rodando e acessível.');
+      }
+      throw err;
+    }
   }
 
   static async createEnterprise(data: any) {
@@ -992,10 +1008,12 @@ export class ApiService {
     return response.json();
   }
 
-  static async getTransactionDeletePreview(id: string, options?: { includeOriginCredit?: boolean }) {
+  static async getTransactionDeletePreview(id: string, options?: { includeOriginCredit?: boolean; purgeClientHistory?: boolean }) {
     const includeOriginCredit = options?.includeOriginCredit ? 'true' : undefined;
+    const purgeClientHistory = options?.purgeClientHistory ? 'true' : undefined;
     const response = await fetch(this.buildApiUrl(`/transactions/${id}/delete-preview`, {
       includeOriginCredit,
+      purgeClientHistory,
     }), {
       headers: this.getHeaders(),
     });
@@ -1006,10 +1024,11 @@ export class ApiService {
 
   static async deleteTransaction(
     id: string,
-    metadata?: { deletedByName?: string; deleteReason?: string; includeOriginCredit?: boolean }
+    metadata?: { deletedByName?: string; deleteReason?: string; includeOriginCredit?: boolean; purgeClientHistory?: boolean }
   ) {
     const includeOriginCredit = Boolean(metadata?.includeOriginCredit);
-    const preview = await this.getTransactionDeletePreview(id, { includeOriginCredit });
+    const purgeClientHistory = Boolean(metadata?.purgeClientHistory);
+    const preview = await this.getTransactionDeletePreview(id, { includeOriginCredit, purgeClientHistory });
     const response = await fetch(`${API_URL}/transactions/${id}`, {
       method: 'DELETE',
       headers: this.getHeaders(),
@@ -1017,6 +1036,7 @@ export class ApiService {
         deletedByName: String(metadata?.deletedByName || '').trim(),
         deleteReason: String(metadata?.deleteReason || '').trim(),
         includeOriginCredit,
+        purgeClientHistory,
         confirmDeleteCount: Number(preview?.deleteCount || 0),
       }),
     });
@@ -1274,8 +1294,12 @@ export class ApiService {
     return response.json();
   }
 
-  static async downloadDatabaseBackup(): Promise<{ blob: Blob; filename: string }> {
-    const response = await fetch(`${API_URL}/system/backup`, {
+  static async downloadDatabaseBackup(options?: { scope?: 'GLOBAL' | 'REDE' | 'UNIDADE'; enterpriseId?: string; includeProductImages?: boolean }): Promise<{ blob: Blob; filename: string }> {
+    const response = await fetch(this.buildApiUrl('/system/backup', {
+      scope: String(options?.scope || '').trim() || undefined,
+      enterpriseId: String(options?.enterpriseId || '').trim() || undefined,
+      includeProductImages: options?.includeProductImages === false ? 'false' : undefined,
+    }), {
       headers: this.getHeaders(),
     });
 
@@ -1398,6 +1422,49 @@ export class ApiService {
     return response.json();
   }
 
+  static async getWhatsAppProviderConfig() {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(this.buildApiUrl('/whatsapp/provider-config', { enterpriseId }), {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao carregar configuração do provedor WhatsApp');
+    }
+    return response.json();
+  }
+
+  static async saveWhatsAppProviderConfig(config: any) {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(`${API_URL}/whatsapp/provider-config`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify({
+        enterpriseId,
+        config: config || {},
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao salvar configuração do provedor WhatsApp');
+    }
+    return response.json();
+  }
+
+  static async testWhatsAppProviderConnection() {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(`${API_URL}/whatsapp/provider-config/test`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ enterpriseId }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao testar conexão com provedor WhatsApp');
+    }
+    return response.json();
+  }
+
   static async initWhatsAppSession() {
     const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(`${API_URL}/whatsapp/init`, {
@@ -1474,6 +1541,99 @@ export class ApiService {
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text || 'Falha ao enviar mensagens em lote');
+    }
+    return response.json();
+  }
+
+  static async sendWhatsAppInteractiveMenu(payload: {
+    number: string;
+    type: 'button' | 'list' | 'poll' | 'carousel';
+    text: string;
+    choices: string[];
+    footerText?: string;
+    listButton?: string;
+    selectableCount?: number;
+    imageButton?: string;
+    trackSource?: string;
+    trackId?: string;
+  }) {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(`${API_URL}/whatsapp/send-menu`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({
+        enterpriseId,
+        ...(payload || {}),
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao enviar menu interativo');
+    }
+    return response.json();
+  }
+
+  static async sendWhatsAppCarousel(payload: {
+    number: string;
+    text: string;
+    carousel: Array<{
+      text: string;
+      image: string;
+      buttons: Array<{
+        id: string;
+        text: string;
+        type: 'REPLY' | 'URL' | 'COPY' | 'CALL';
+      }>;
+    }>;
+    trackSource?: string;
+    trackId?: string;
+  }) {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(`${API_URL}/whatsapp/send-carousel`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({
+        enterpriseId,
+        ...(payload || {}),
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao enviar carrossel');
+    }
+    return response.json();
+  }
+
+  static async sendWhatsAppRequestPayment(payload: {
+    number: string;
+    title?: string;
+    text?: string;
+    footer?: string;
+    itemName?: string;
+    invoiceNumber?: string;
+    amount: number;
+    pixKey?: string;
+    pixType?: 'CPF' | 'CNPJ' | 'PHONE' | 'EMAIL' | 'EVP';
+    pixName?: string;
+    paymentLink?: string;
+    fileUrl?: string;
+    fileName?: string;
+    boletoCode?: string;
+    trackSource?: string;
+    trackId?: string;
+  }) {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(`${API_URL}/whatsapp/send-request-payment`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({
+        enterpriseId,
+        ...(payload || {}),
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao solicitar pagamento');
     }
     return response.json();
   }
@@ -1664,6 +1824,38 @@ export class ApiService {
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text || 'Falha ao limpar logs de disparo');
+    }
+    return response.json();
+  }
+
+  static async getWhatsAppWebhookLogs(params: { limit?: number; includeUnresolved?: boolean } = {}) {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const qs = new URLSearchParams({
+      enterpriseId,
+      limit: String(Math.max(1, Math.min(500, Number(params.limit || 200)))),
+      includeUnresolved: String(params.includeUnresolved !== false),
+    });
+
+    const response = await fetch(`${API_URL}/whatsapp/webhook/logs?${qs.toString()}`, {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao carregar logs de webhook');
+    }
+    return response.json();
+  }
+
+  static async clearWhatsAppWebhookLogs() {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const qs = new URLSearchParams({ enterpriseId });
+    const response = await fetch(`${API_URL}/whatsapp/webhook/logs?${qs.toString()}`, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao limpar logs de webhook');
     }
     return response.json();
   }

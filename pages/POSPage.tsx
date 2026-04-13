@@ -1,4 +1,4 @@
-
+﻿
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -12,6 +12,7 @@ import {
   ArrowLeft, ChevronDown, Plus
 } from 'lucide-react';
 import { ApiService } from '../services/api';
+import UnitSalesTransactionsPage from './UnitSalesTransactionsPage';
 import { Client, Product, SaleItem, PaymentMethod, PaymentEntry, SuspendedSale, Role, User as UserType, Enterprise, TransactionRecord, Plan } from '../types';
 import { resolveUserAvatar } from '../utils/avatar';
 import { extractSchoolCalendarOperationalData } from '../utils/schoolCalendar';
@@ -107,7 +108,7 @@ const POSPage: React.FC<POSPageProps> = ({ currentUser, activeEnterprise, onRegi
   return <StandardPOSInterface currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={onRegisterTransaction} />;
 };
 
-/* --- MONITOR DE MOVIMENTAÇÃO (VUE OWNER) --- */
+/* --- MONITOR DE MOVIMENTA�?�fO (VUE OWNER) --- */
 const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnterprise }) => {
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
@@ -246,7 +247,7 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
 
                <div className="p-4 flex-1">
                   {!activeAlertDetail ? (
-                    /* VISÃO DE RESUMO DOS ALERTAS */
+                    /* VIS�fO DE RESUMO DOS ALERTAS */
                     <div className="space-y-3 animate-in fade-in zoom-in-95">
                        <AlertItem 
                          label="Estoque Crítico (Zerar)" 
@@ -278,7 +279,7 @@ const OwnerPOSMonitor: React.FC<{ activeEnterprise: Enterprise }> = ({ activeEnt
                        </div>
                     </div>
                   ) : (
-                    /* VISÃO DETALHADA DO ALERTA SELECIONADO */
+                    /* VIS�fO DETALHADA DO ALERTA SELECIONADO */
                     <div className="space-y-4 animate-in slide-in-from-right-4 duration-300">
                        <div className="mb-4">
                           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Listagem de Ocorrências</p>
@@ -434,7 +435,7 @@ const AlertItem = ({ label, value, color, onClick }: any) => {
 };
 
 
-/* --- INTERFACE PADRÃO (VUE OPERADOR) --- */
+/* --- INTERFACE PADR�fO (VUE OPERADOR) --- */
 const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: Enterprise; onRegisterTransaction?: (transaction: TransactionRecord) => void }> = ({ currentUser, activeEnterprise, onRegisterTransaction }) => {
   const navigate = useNavigate();
   const activeEnterpriseId = activeEnterprise.id;
@@ -463,6 +464,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
   // Estado de pagamento split inline (sem modal)
   const [isServiceActionModalOpen, setIsServiceActionModalOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [historySearchTerm, setHistorySearchTerm] = useState('');
   const [serviceActionType, setServiceActionType] = useState<'CREDIT_STUDENT' | 'PAY_COLLAB' | null>(null);
   const [serviceActionAmount, setServiceActionAmount] = useState<string>('');
   const [activeSplitMethod, setActiveSplitMethod] = useState<PaymentMethod | null>(null);
@@ -1371,6 +1374,13 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
   const getPlanUnitRemaining = (client: Client | null, plan: Plan) => {
     if (!client) return 0;
+    const balancesRaw = ((client as any).planCreditBalances || {}) as Record<string, any>;
+    const byId = balancesRaw?.[plan.id];
+    const byNameKey = Object.keys(balancesRaw || {}).find((key) =>
+      String(balancesRaw[key]?.planName || '').trim().toUpperCase() === String(plan.name || '').trim().toUpperCase()
+    );
+    const balanceEntry = (byId || (byNameKey ? balancesRaw[byNameKey] : undefined) || {}) as any;
+
     const selectedConfigs = Array.isArray((client as any).selectedPlansConfig)
       ? ((client as any).selectedPlansConfig as Array<any>)
       : [];
@@ -1405,7 +1415,19 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       && String(item.planId || '') === String(plan.id)
     ).length;
 
-    return Math.max(0, totalConfigured - usedInTransactions - pendingInCart);
+    const calendarRemainingUnits = Math.max(0, totalConfigured - usedInTransactions - pendingInCart);
+    const unitPrice = Number(getPlanUnitPriceForClient(client, plan, plan.id, plan.name) || 0);
+    const balanceUnitsDirect = Number(balanceEntry?.balanceUnits);
+    const balanceValue = Math.max(0, Number(balanceEntry?.balance || 0));
+    const balanceUnitsFromValue = unitPrice > 0
+      ? Number((balanceValue / unitPrice).toFixed(4))
+      : 0;
+    const balanceRemainingUnits = Number.isFinite(balanceUnitsDirect) && balanceUnitsDirect >= 0
+      ? Math.max(0, balanceUnitsDirect)
+      : Math.max(0, balanceUnitsFromValue);
+
+    // Mantém unidade exibida coerente com o saldo monetário do plano.
+    return Math.max(calendarRemainingUnits, balanceRemainingUnits);
   };
 
   const getPlanUnitPriceForClient = (client: Client | null, plan: Plan | null, fallbackPlanId?: string, fallbackPlanName?: string) => {
@@ -2269,6 +2291,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
         const remainingDates = selectedDates
           .filter((dateKey) => !retroactiveConsumedDates.includes(dateKey))
           .sort();
+        const totalSelectedDatesCount = selectedDates.length;
         return {
           planId: parsedPlanId || `plan_virtual_${String(parsedPlanName).trim().toLowerCase().replace(/\s+/g, '_')}`,
           planName: String(parsedPlanName).trim() || 'PLANO',
@@ -2276,6 +2299,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           selectedDays: Array.from(new Set(item.selectedDays || [])),
           selectedDates: remainingDates,
           retroactiveConsumedDates,
+          totalSelectedDatesCount,
           planPrice: planFromId?.price || 0
         };
       });
@@ -2374,7 +2398,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           const safeProgressTotal = Math.max(previousTotalUnits, previousConsumedUnits);
           const hasPreviousData = safeProgressTotal > 0.0001 || previousBalanceValue > 0.0001;
           const previousSummary = hasPreviousData
-            ? `Anterior ${formatUnitsForItem(previousConsumedUnits)}/${formatUnitsForItem(safeProgressTotal)} • Saldo R$ ${formatCurrencyBRL(previousBalanceValue)}`
+            ? `Anterior ${formatUnitsForItem(previousConsumedUnits)}/${formatUnitsForItem(safeProgressTotal)} �?� Saldo R$ ${formatCurrencyBRL(previousBalanceValue)}`
             : '';
 
           return {
@@ -2391,6 +2415,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           selectedDays: string[];
           selectedDates: string[];
           retroactiveConsumedDates: string[];
+          totalSelectedDatesCount?: number;
           planPrice: number;
         }) => {
           if (!planCredit.planName) return;
@@ -2513,7 +2538,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
             planId: planCredit.planId,
             selectedDates: planCredit.selectedDates,
             selectedDays: planCredit.selectedDays,
-            planUnits: planCredit.selectedDates?.length ?? 0,
+            // Compra total do plano (datas futuras + retroativas já consumidas).
+            planUnits: Number(planCredit.totalSelectedDatesCount || planCredit.selectedDates?.length || 0),
             planUnitValue: planCredit.planPrice ?? 0,
             purchaseRefCode: String(planCredit.purchaseRefCode || '').trim()
           })));
@@ -2544,7 +2570,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                 amount: Number((planCredit.planPrice || 0).toFixed(2)),
                 total: 0,
                 description: `Baixa retroativa automática do plano ${planCredit.planName} (ref. ${referenceDateKey})`,
-                item: `${planCredit.planName} • ref. ${referenceDateKey}`,
+                item: `${planCredit.planName} �?� ref. ${referenceDateKey}`,
                 plan: planCredit.planName,
                 planId: planCredit.planId,
                 paymentMethod: 'PLANO',
@@ -3295,7 +3321,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                         />
                         <div>
                            <p className="text-xs font-black text-gray-800">{client.name}</p>
-                           <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{client.registrationId} • {client.class || 'Docente'}</p>
+                           <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{client.registrationId} �?� {client.class || 'Docente'}</p>
                         </div>
                         <ChevronRight className="ml-auto text-gray-300" size={16} />
                      </button>
@@ -3381,7 +3407,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                   <div className="flex items-center justify-between mt-1">
                     <span className="text-[9px] text-indigo-600 font-black uppercase">Consumo un.</span>
                     <span className={`text-[9px] font-black ${remainingUnits > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                      Saldo: {remainingUnits} un • R$ {formatCurrencyBRL(remainingValue)}
+                      Saldo: {remainingUnits} un | R$ {formatCurrencyBRL(remainingValue)}
                     </span>
                   </div>
                 </button>
@@ -3489,37 +3515,28 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                    >
                      Pagar Consumo Mês
                    </button>
+                    <button
+                      onClick={() => {
+                        setHistorySearchTerm(String(selectedClient?.name || '').trim());
+                        setIsHistoryModalOpen(true);
+                      }}
+                      className="w-full px-2 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest bg-indigo-600 text-white hover:bg-indigo-700 transition-all"
+                    >
+                      HISTORICO
+                    </button>
                  </div>
                </div>
                {selectedClient.type !== 'COLABORADOR' && (
                  <div className="space-y-1.5">
                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Saldos do Cliente</p>
                    <div className="grid grid-cols-1 gap-1.5">
-                     <div className={`p-3 rounded-xl border ${effectiveCantinaBalance < 0 ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}>
-                       <p className={`text-[9px] font-black uppercase tracking-widest ${effectiveCantinaBalance < 0 ? 'text-red-600' : 'text-emerald-600'}`}>Cantina</p>
+                     <div className={`p-3 rounded-xl border ${Number(selectedClient.balance || 0) < 0 ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}>
+                       <p className={`text-[9px] font-black uppercase tracking-widest ${Number(selectedClient.balance || 0) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>Cantina Balcão</p>
                        <div className="mt-1 flex items-center justify-between gap-2">
-                         <p className={`text-sm font-black ${effectiveCantinaBalance < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
-                           R$ {effectiveCantinaBalance.toFixed(2)}
+                         <p className={`text-sm font-black ${Number(selectedClient.balance || 0) < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                           R$ {Number(selectedClient.balance || 0).toFixed(2)}
                          </p>
-                         {effectiveCantinaBalance < 0 && (
-                           <button
-                             type="button"
-                             onClick={handlePayNegativeBalance}
-                             disabled={negativeBalanceAmountToPay <= 0}
-                             className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed transition-all"
-                           >
-                             {negativeBalanceAmountToPay <= 0 ? 'No carrinho' : 'Pagar'}
-                           </button>
-                         )}
                        </div>
-                       {pendingCantinaDiscount > 0 && (
-                         <p className="text-[9px] font-black text-red-500 mt-1">- R$ {pendingCantinaDiscount.toFixed(2)} pendente no carrinho</p>
-                       )}
-                       {pendingNegativeBalancePayment > 0 && (
-                         <p className="text-[9px] font-black text-emerald-700 mt-1">
-                           + R$ {pendingNegativeBalancePayment.toFixed(2)} para quitar saldo no carrinho
-                         </p>
-                       )}
                      </div>
                      {sessionPlanMiniCards.length > 0 ? sessionPlanMiniCards.map((planCard) => (
                        <div key={planCard.key} className={`p-3 rounded-xl border ${planCard.isActive ? 'bg-indigo-50 border-indigo-100' : 'bg-gray-50 border-gray-100'}`}>
@@ -3528,17 +3545,9 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                          </p>
                          <p className="text-[10px] font-black text-indigo-700 mt-1">
                            {planCard.unitsRemaining !== null
-                             ? `Saldo: ${planCard.unitsRemaining} un • R$ ${formatCurrencyBRL(planCard.remainingValue || 0)}`
+                            ? `Saldo: ${planCard.unitsRemaining} un | R$ ${formatCurrencyBRL(planCard.remainingValue || 0)}`
                              : 'Saldo: --'}
                          </p>
-                         {(planCard.creditValue || 0) > 0 && (
-                           <p className="text-[10px] font-black text-emerald-600">
-                             Crédito extra: R$ {formatCurrencyBRL(planCard.creditValue || 0)}
-                           </p>
-                         )}
-                        {planCard.pendingDiscount > 0 && (
-                          <p className="text-[9px] font-black text-red-500 mt-1">- R$ {formatCurrencyBRL(planCard.pendingDiscount)} pendente no carrinho</p>
-                        )}
                        </div>
                      )) : (
                        <div className="p-3 rounded-xl border bg-gray-50 border-gray-100">
@@ -3552,7 +3561,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                {selectedClient.type === 'COLABORADOR' && (
                  <div className="p-3 bg-amber-50 border-l-4 border-amber-500 rounded-lg">
                    <p className="text-[10px] font-black text-amber-900 uppercase tracking-widest mb-1">
-                     💼 Modo Colaborador
+                     �Y'� Modo Colaborador
                    </p>
                    <p className="text-xs text-amber-800 leading-tight">
                      Consumo será registrado como dívida a vencer conforme data de pagamento configurada.
@@ -3602,8 +3611,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                             {item.serviceAction && (
                               <p className="text-[9px] font-black uppercase tracking-widest text-indigo-500 mt-0.5">
                                 {item.serviceAction === 'CREDIT_STUDENT_FREE' && 'Crédito Livre Cantina'}
-                                {item.serviceAction === 'CREDIT_STUDENT_PLAN' && `Crédito Plano${item.planName ? ` • ${item.planName}` : ''}`}
-                                {item.serviceAction === 'PLAN_CONSUMPTION' && `Consumo Plano${item.planName ? ` • ${item.planName}` : ''}`}
+                                {item.serviceAction === 'CREDIT_STUDENT_PLAN' && `Crédito Plano${item.planName ? ` �?� ${item.planName}` : ''}`}
+                                {item.serviceAction === 'PLAN_CONSUMPTION' && `Consumo Plano${item.planName ? ` �?� ${item.planName}` : ''}`}
                                 {item.serviceAction === 'PAY_COLLAB' && 'Pagamento Consumo Colaborador'}
                               </p>
                             )}
@@ -3635,13 +3644,13 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                             ) : item.serviceAction === 'CREDIT_STUDENT_PLAN' && item.planUnitPrice ? (
                               <p className="text-xs font-black mt-1">
                                   <span className="text-indigo-600">{(item.planSelectedCount ?? item.quantity)}x</span>
-                                <span className="text-gray-400 mx-1">•</span>
+                                <span className="text-gray-400 mx-1">�?�</span>
                                 <span className="text-emerald-600">R$ {Number(item.planUnitPrice).toFixed(2)}</span>
                               </p>
                             ) : (
                               <p className="text-xs font-black mt-1">
                                 <span className="text-indigo-600">{item.quantity}x</span>
-                                <span className="text-gray-400 mx-1">•</span>
+                                <span className="text-gray-400 mx-1">�?�</span>
                                 <span className="text-emerald-600">R$ {item.price.toFixed(2)}</span>
                               </p>
                             )}
@@ -3872,6 +3881,35 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           </div>
         </div>
       </div>
+
+      {isHistoryModalOpen && (
+        <div className="fixed inset-0 z-[120] bg-black/55 backdrop-blur-sm p-3 md:p-6">
+          <div className="w-full h-full bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+            <div className="h-12 px-4 border-b bg-slate-50 flex items-center justify-between">
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-600">
+                Hist�rico de Compras
+              </p>
+              <button
+                type="button"
+                onClick={() => setIsHistoryModalOpen(false)}
+                className="h-8 w-8 rounded-lg border border-slate-200 text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-all flex items-center justify-center"
+                aria-label="Fechar hist�rico"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-auto">
+              <UnitSalesTransactionsPage
+                key={`history-${historySearchTerm}`}
+                activeEnterprise={activeEnterprise}
+                transactions={(Array.isArray(posTransactions) ? posTransactions : []) as any}
+                currentUser={currentUser}
+                initialSearchTerm={historySearchTerm}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {isQuickClientModalOpen && (
         <div className="fixed inset-0 z-[102] flex items-center justify-center p-4 overflow-y-auto">
@@ -4169,7 +4207,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                 >
                                   <p className="text-sm font-black text-gray-800">{collaborator.name}</p>
                                   <p className="text-[11px] font-semibold text-gray-500">
-                                    {collaborator.registrationId ? `#${collaborator.registrationId}` : 'Sem matrícula'} • {collaborator.class || 'Sem setor'}
+                                    {collaborator.registrationId ? `#${collaborator.registrationId}` : 'Sem matrícula'} �?� {collaborator.class || 'Sem setor'}
                                   </p>
                                 </button>
                               );
@@ -4531,14 +4569,14 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                 {isSelected && (
                                   <div className="mt-3">
                                     <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">
-                                      {selectedDatesCount} dia(s) do mês selecionado(s) • Subtotal: R$ {subtotal.toFixed(2)}
+                                      {selectedDatesCount} dia(s) do mês selecionado(s) �?� Subtotal: R$ {subtotal.toFixed(2)}
                                     </p>
                                     <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mt-1">
-                                      Saldo livre: R$ {availableBalance.toFixed(2)} • Cobrança mínima: R$ {discountedSubtotal.toFixed(2)}
+                                      Saldo livre: R$ {availableBalance.toFixed(2)} �?� Cobrança mínima: R$ {discountedSubtotal.toFixed(2)}
                                     </p>
                                     {serverPreview && (
                                       <p className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest mt-1">
-                                        Saldo bruto: R$ {Number(rawBalance || 0).toFixed(2)} • Reservado: {Number(reservedUnits || 0)} un (R$ {Number(reservedValue || 0).toFixed(2)}) • Bruto novas datas: R$ {Number(planGross || 0).toFixed(2)}
+                                        Saldo bruto: R$ {Number(rawBalance || 0).toFixed(2)} | Reservado: {Number(reservedUnits || 0)} un (R$ {Number(reservedValue || 0).toFixed(2)}) | Bruto novas datas: R$ {Number(planGross || 0).toFixed(2)}
                                       </p>
                                     )}
                                     {!serverPreview && isStudentCreditPlanPreviewLoading && selectedDatesCount > 0 && (
@@ -4694,12 +4732,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                               )}
                                               {isDeliveredDate && (
                                                 <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 text-white text-[9px] leading-none flex items-center justify-center">
-                                                  ✓
+                                                  �o"
                                                 </span>
                                               )}
                                               {isRegisteredDate && (
                                                 <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-white text-[9px] leading-none flex items-center justify-center">
-                                                  •
+                                                  �?�
                                                 </span>
                                               )}
                                               {isSchoolBlockedDate && (
@@ -5013,3 +5051,5 @@ const PaymentButton = ({ onClick, icon, label, color, disabled, isSelected }: an
 };
 
 export default POSPage;
+
+

@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { db } from '../database.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { processOverduePlanConsumptions } from '../services/planConsumptionAutoProcessor.js';
-import { canAccessAllEnterprises, getRequesterEnterpriseIds, requesterCanAccessEnterprise } from '../utils/enterpriseAccess.js';
+import { canAccessAllEnterprises, getRequesterEnterpriseIds, normalizeRole, requesterCanAccessEnterprise } from '../utils/enterpriseAccess.js';
 import {
   appendDestructiveActionAudit,
   createDestructivePayloadFingerprint,
@@ -19,7 +19,23 @@ const resolveRoleLabel = (role?: string) => {
   return normalized.replace(/_/g, ' ');
 };
 
-const canDeleteTransactionByRole = (role?: string) => canAccessAllEnterprises(role);
+const canDeleteTransactionByRole = (role?: string) => {
+  const normalized = normalizeRole(role);
+  return normalized === 'SUPERADMIN'
+    || normalized === 'ADMIN_SISTEMA'
+    || normalized === 'ADMIN'
+    || normalized === 'OWNER'
+    || normalized === 'GERENTE';
+};
+
+const canPurgeClientHistoryByRole = (role?: string) => {
+  const normalized = normalizeRole(role);
+  return normalized === 'SUPERADMIN'
+    || normalized === 'ADMIN_SISTEMA'
+    || normalized === 'ADMIN'
+    || normalized === 'OWNER'
+    || normalized === 'GERENTE';
+};
 
 const normalizeToken = (value: unknown) => String(value || '')
   .trim()
@@ -647,7 +663,9 @@ router.get('/:id/delete-preview', (req: AuthRequest, res: Response) => {
   }
 
   const includeOriginCredit = String(req.query?.includeOriginCredit || '').trim().toLowerCase() === 'true';
-  const preview = db.getTransactionDeletePreview(req.params.id, { includeOriginCredit });
+  const requestedPurgeClientHistory = String(req.query?.purgeClientHistory || '').trim().toLowerCase() === 'true';
+  const purgeClientHistory = requestedPurgeClientHistory && canPurgeClientHistoryByRole(req.userRole);
+  const preview = db.getTransactionDeletePreview(req.params.id, { includeOriginCredit, purgeClientHistory });
   if (!preview) {
     return res.status(404).json({ error: 'Transação não encontrada' });
   }
@@ -669,7 +687,9 @@ router.delete('/:id', (req: AuthRequest, res: Response) => {
   }
 
   const includeOriginCredit = Boolean(req.body?.includeOriginCredit);
-  const preview = db.getTransactionDeletePreview(req.params.id, { includeOriginCredit });
+  const requestedPurgeClientHistory = Boolean(req.body?.purgeClientHistory);
+  const purgeClientHistory = requestedPurgeClientHistory && canPurgeClientHistoryByRole(req.userRole);
+  const preview = db.getTransactionDeletePreview(req.params.id, { includeOriginCredit, purgeClientHistory });
   if (!preview) {
     return res.status(404).json({ error: 'Transação não encontrada' });
   }
@@ -704,6 +724,7 @@ router.delete('/:id', (req: AuthRequest, res: Response) => {
     requesterUserId: String(req.userId || '').trim(),
     requesterRole: String(req.userRole || '').trim(),
     includeOriginCredit,
+    purgeClientHistory,
   });
   if (!deleted) {
     return res.status(404).json({ error: 'Transação não encontrada' });

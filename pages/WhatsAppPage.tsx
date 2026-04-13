@@ -29,15 +29,16 @@ import {
   Wallet,
   UtensilsCrossed,
   CalendarDays,
-  CheckCheck
+  CheckCheck,
+  Sparkles,
 } from 'lucide-react';
 import { Client, Enterprise, Plan, User } from '../types';
 import ApiService from '../services/api';
 import WhatsAppQrConnector from '../components/WhatsAppQrConnector';
 import notificationService from '../services/notificationService';
 import { formatPhoneWithCountryTag } from '../utils/phone';
-import { drawEnterpriseLogoOnPdf } from '../utils/enterpriseBranding';
 import CentralDisparos from '../components/whatsapp-disparos/CentralDisparos';
+import EnvioAvancadoModal from '../components/EnvioAvancadoModal';
 
 interface WhatsAppPageProps {
   currentUser: User;
@@ -51,6 +52,47 @@ type WhatsAppStatusSnapshot = {
   qrDataUrl: string | null;
   phoneNumber: string | null;
   lastError: string | null;
+  providerMode?: 'NATIVE' | 'EXTERNAL';
+  providerCode?: string;
+};
+
+type WhatsAppProviderMode = 'NATIVE' | 'EXTERNAL';
+type ExternalProviderHttpMethod = 'GET' | 'POST' | 'PUT';
+type WhatsAppProviderConfigState = {
+  mode: WhatsAppProviderMode;
+  external: {
+    enabled: boolean;
+    providerCode: string;
+    baseUrl: string;
+    subdomain: string;
+    token: string;
+    hasToken: boolean;
+    tokenMasked: string;
+    tokenHeaderName: string;
+    tokenPrefix: string;
+    testPath: string;
+    testMethod: ExternalProviderHttpMethod;
+    sendPath: string;
+    sendMethod: ExternalProviderHttpMethod;
+    mediaPath: string;
+    mediaMethod: ExternalProviderHttpMethod;
+    menuPath: string;
+    menuMethod: ExternalProviderHttpMethod;
+    carouselPath: string;
+    carouselMethod: ExternalProviderHttpMethod;
+    paymentPath: string;
+    paymentMethod: ExternalProviderHttpMethod;
+    bulkPath: string;
+    bulkMethod: ExternalProviderHttpMethod;
+    webhookEnabled: boolean;
+    webhookMethod: ExternalProviderHttpMethod;
+    webhookUrl: string;
+    webhookAddUrlEvents: boolean;
+    webhookAddUrlTypesMessages: boolean;
+    webhookEventsCsv: string;
+    webhookExcludeMessagesCsv: string;
+    commonFieldsJson: string;
+  };
 };
 
 type ChatSummary = {
@@ -127,6 +169,21 @@ type AiAuditLogEntry = {
   details: string;
 };
 
+type WebhookLogEntry = {
+  id: string;
+  timestamp: number;
+  enterpriseId: string;
+  status: 'RECEIVED' | 'IGNORED' | 'ERROR' | string;
+  reason?: string;
+  fromMe?: boolean;
+  number?: string;
+  chatId?: string;
+  message?: string;
+  messageId?: string;
+  error?: string;
+  payloadPreview?: string;
+};
+
 type ScheduledItem = {
   id: string;
   chatId: string;
@@ -144,7 +201,8 @@ type ScheduledItem = {
 };
 
 type ReportPeriodMode = 'WEEKLY' | 'BIWEEKLY' | 'CUSTOM';
-type CrmView = 'DASHBOARD' | 'CONVERSAS' | 'CONTATOS' | 'CAMPANHAS' | 'AI_CONFIG' | 'AI_FLOW' | 'CONTA';
+type ChatConversationReportPeriod = 'THIS_WEEK' | 'LAST_7_DAYS' | 'LAST_15_DAYS' | 'MONTHLY' | 'YEARLY';
+type CrmView = 'DASHBOARD' | 'CONVERSAS' | 'CONTATOS' | 'CAMPANHAS' | 'AI_CONFIG' | 'AI_FLOW' | 'WEBHOOK_LOGS' | 'CONTA';
 type CampaignMode = 'BROADCAST' | 'RECURRING' | 'FOLLOWUP';
 type CampaignAudience = 'ALL' | 'ALUNO' | 'COLABORADOR' | `LABEL:${string}`;
 type CampaignSubTab = 'NOVA_CAMPANHA' | 'GERENCIAR_CAMPANHA';
@@ -172,6 +230,9 @@ type PlanConsumptionPdfTransactionRow = {
   planName: string;
   movementType: 'CONSUMO' | 'CREDITO' | 'OUTRO';
   amount: number;
+  paymentMethod?: string;
+  status?: string;
+  referenceDate?: string;
 };
 
 type PlanConsumptionRecipientStudentProfile = {
@@ -340,6 +401,14 @@ const WHATSAPP_AI_CONFIG_KEY = 'whatsapp_ai_config';
 const WHATSAPP_CAMPAIGN_REPORTS_KEY = 'whatsapp_campaign_reports';
 const WHATSAPP_PLAN_CONSUMPTION_REPORTS_KEY = 'whatsapp_plan_consumption_reports';
 const WHATSAPP_OPEN_CONTEXT_KEY = 'whatsapp_open_context';
+
+const CHAT_CONVERSATION_REPORT_PERIOD_OPTIONS: Array<{ key: ChatConversationReportPeriod; label: string; description: string }> = [
+  { key: 'THIS_WEEK', label: 'Esta semana', description: 'Segunda-feira até hoje' },
+  { key: 'LAST_7_DAYS', label: 'Últimos 7 dias', description: 'Janela móvel de 7 dias' },
+  { key: 'LAST_15_DAYS', label: 'Últimos 15 dias', description: 'Janela móvel de 15 dias' },
+  { key: 'MONTHLY', label: 'Mensal', description: 'Do 1º dia do mês até hoje' },
+  { key: 'YEARLY', label: 'Anual', description: 'Do 1º dia do ano até hoje' },
+];
 
 const normalizeSearchValue = (value?: string) =>
   String(value || '')
@@ -691,6 +760,43 @@ const getDefaultAiConfig = (): AiConfigState => ({
   ],
 });
 
+const getDefaultWhatsAppProviderConfig = (): WhatsAppProviderConfigState => ({
+  mode: 'NATIVE',
+  external: {
+    enabled: false,
+    providerCode: 'UAZAPI',
+    baseUrl: '',
+    subdomain: '',
+    token: '',
+    hasToken: false,
+    tokenMasked: '',
+    tokenHeaderName: 'token',
+    tokenPrefix: '',
+    testPath: '/send/text',
+    testMethod: 'POST',
+    sendPath: '/send/text',
+    sendMethod: 'POST',
+    mediaPath: '/send/media',
+    mediaMethod: 'POST',
+    menuPath: '/send/menu',
+    menuMethod: 'POST',
+    carouselPath: '/send/carousel',
+    carouselMethod: 'POST',
+    paymentPath: '/send/pix-button',
+    paymentMethod: 'POST',
+    bulkPath: '/send/text',
+    bulkMethod: 'POST',
+    webhookEnabled: false,
+    webhookMethod: 'POST',
+    webhookUrl: '',
+    webhookAddUrlEvents: false,
+    webhookAddUrlTypesMessages: false,
+    webhookEventsCsv: 'messages',
+    webhookExcludeMessagesCsv: 'wasSentByApi, isGroupYes',
+    commonFieldsJson: '{}',
+  },
+});
+
 const AI_PROVIDER_MODELS: Record<AiProvider, string[]> = {
   openai: ['gpt-4.1-mini', 'gpt-4.1', 'gpt-4o-mini'],
   gemini: ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-pro'],
@@ -839,6 +945,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const [feedback, setFeedback] = useState('');
   const [aiAuditLogs, setAiAuditLogs] = useState<AiAuditLogEntry[]>([]);
   const [aiHandoffRequests, setAiHandoffRequests] = useState<AiHandoffRequest[]>([]);
+  const [webhookLogs, setWebhookLogs] = useState<WebhookLogEntry[]>([]);
+  const [isLoadingWebhookLogs, setIsLoadingWebhookLogs] = useState(false);
 
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [chatSearchName, setChatSearchName] = useState('');
@@ -858,11 +966,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const [isLoadingStudentConsumedToday, setIsLoadingStudentConsumedToday] = useState(false);
   const [scheduleAt, setScheduleAt] = useState('');
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+    const [isEnvioAvancadoOpen, setIsEnvioAvancadoOpen] = useState(false);
   const [scheduledItems, setScheduledItems] = useState<ScheduledItem[]>([]);
   const [isScheduling, setIsScheduling] = useState(false);
   const [reportPeriodMode, setReportPeriodMode] = useState<ReportPeriodMode>('WEEKLY');
   const [reportStartDate, setReportStartDate] = useState('');
   const [reportEndDate, setReportEndDate] = useState('');
+  const [isReportPeriodModalOpen, setIsReportPeriodModalOpen] = useState(false);
+  const [chatConversationReportPeriod, setChatConversationReportPeriod] = useState<ChatConversationReportPeriod>('THIS_WEEK');
   const [isSendingReport, setIsSendingReport] = useState(false);
   const [isSendingChat, setIsSendingChat] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState('');
@@ -953,6 +1064,9 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   });
   const [aiConfig, setAiConfig] = useState<AiConfigState>(getDefaultAiConfig);
   const [savedAiConfig, setSavedAiConfig] = useState<AiConfigState>(getDefaultAiConfig);
+  const [providerConfig, setProviderConfig] = useState<WhatsAppProviderConfigState>(getDefaultWhatsAppProviderConfig);
+  const [isSavingProviderConfig, setIsSavingProviderConfig] = useState(false);
+  const [isTestingProviderConfig, setIsTestingProviderConfig] = useState(false);
   const [selectedAiContextId, setSelectedAiContextId] = useState<number | null>(null);
   const [selectedAiFlowNodeId, setSelectedAiFlowNodeId] = useState<string | null>(null);
   const [aiFlowNodePositions, setAiFlowNodePositions] = useState<Record<string, { x: number; y: number }>>({});
@@ -1113,6 +1227,40 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
   const formatDatePt = (value: Date) => value.toLocaleDateString('pt-BR');
 
+  const resolveConversationReportRange = (period: ChatConversationReportPeriod) => {
+    const endDate = toDateOnly(new Date());
+    const startDate = toDateOnly(endDate);
+    let periodSuffix = '';
+
+    if (period === 'THIS_WEEK') {
+      const weekDay = (endDate.getDay() + 6) % 7;
+      startDate.setDate(endDate.getDate() - weekDay);
+      periodSuffix = '(Esta semana)';
+    } else if (period === 'LAST_7_DAYS') {
+      startDate.setDate(endDate.getDate() - 6);
+      periodSuffix = '(Últimos 7 dias)';
+    } else if (period === 'LAST_15_DAYS') {
+      startDate.setDate(endDate.getDate() - 14);
+      periodSuffix = '(Últimos 15 dias)';
+    } else if (period === 'MONTHLY') {
+      startDate.setDate(1);
+      periodSuffix = '(Mensal)';
+    } else {
+      startDate.setMonth(0, 1);
+      periodSuffix = '(Anual)';
+    }
+
+    const rangeStart = toDateOnly(startDate);
+    const rangeEnd = new Date(endDate);
+    rangeEnd.setHours(23, 59, 59, 999);
+
+    return {
+      startDate: rangeStart,
+      endDate: rangeEnd,
+      periodLabel: `${formatDatePt(startDate)} até ${formatDatePt(endDate)} ${periodSuffix}`,
+    };
+  };
+
   const getEnterpriseWorkingWeekDays = () => {
     const opening = activeEnterprise?.openingHours || {};
     const set = new Set<number>();
@@ -1131,9 +1279,15 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   };
 
   const normalizeTxDate = (tx: any) => {
-    const raw = String(tx?.timestamp || tx?.date || '');
-    const parsed = raw ? new Date(raw) : null;
-    if (parsed && Number.isFinite(parsed.getTime())) return parsed;
+    const direct = new Date(tx?.timestamp || `${tx?.date || ''}T${tx?.time || '00:00'}`);
+    if (Number.isFinite(direct.getTime())) return direct;
+
+    const fallbackRaw = String(tx?.createdAt || tx?.updatedAt || '');
+    if (fallbackRaw) {
+      const fallbackParsed = new Date(fallbackRaw);
+      if (Number.isFinite(fallbackParsed.getTime())) return fallbackParsed;
+    }
+
     return null;
   };
 
@@ -1151,6 +1305,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   }, [clients]);
 
   const refreshStatus = async () => {
+    if (!activeEnterprise?.id) return;
     try {
       const data = await ApiService.getWhatsAppStatus();
       setStatus({
@@ -1159,7 +1314,9 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         qrAvailable: Boolean(data?.qrAvailable),
         qrDataUrl: data?.qrDataUrl || null,
         phoneNumber: data?.phoneNumber || null,
-        lastError: data?.lastError || null
+        lastError: data?.lastError || null,
+        providerMode: String(data?.providerMode || '').toUpperCase() === 'EXTERNAL' ? 'EXTERNAL' : 'NATIVE',
+        providerCode: String(data?.providerCode || '').trim() || 'UAZAPI',
       });
     } catch (err) {
       console.error('Erro ao buscar status do WhatsApp:', err);
@@ -1172,7 +1329,12 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   };
 
   const loadChats = async (showSpinner = true) => {
-    if (!status.connected) {
+    if (!activeEnterprise?.id) {
+      setChats([]);
+      return;
+    }
+    const canUseExternalProvider = providerConfig.mode === 'EXTERNAL' && providerConfig.external.enabled;
+    if (!status.connected && !canUseExternalProvider) {
       setChats([]);
       return;
     }
@@ -1203,6 +1365,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   };
 
   const loadMessages = async (chatId: string, showSpinner = true) => {
+    if (!activeEnterprise?.id || !chatId) {
+      setMessages([]);
+      return;
+    }
     if (showSpinner) {
       setMessagesLoading(true);
     }
@@ -1233,7 +1399,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   };
 
   const loadSchedules = async (chatId?: string) => {
-    if (!chatId) {
+    if (!activeEnterprise?.id || !chatId) {
       setScheduledItems([]);
       return;
     }
@@ -1250,6 +1416,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   };
 
   const loadAiAudit = async (limit = 20) => {
+    if (!activeEnterprise?.id) {
+      setAiAuditLogs([]);
+      return;
+    }
     try {
       const data = await ApiService.getWhatsAppAiAudit(limit);
       const logs = Array.isArray(data?.logs) ? data.logs : [];
@@ -1261,6 +1431,11 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   };
 
   const loadAiHandoffRequests = async () => {
+    if (!activeEnterprise?.id) {
+      setAiHandoffRequests([]);
+      notifiedHandoffIdsRef.current.clear();
+      return;
+    }
     try {
       const data = await ApiService.getWhatsAppAiHandoffRequests();
       const nextRequests = Array.isArray(data?.requests) ? data.requests : [];
@@ -1287,6 +1462,228 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     } catch (err) {
       console.error('Erro ao carregar solicitações de handoff da IA:', err);
       setAiHandoffRequests([]);
+    }
+  };
+
+  const loadWebhookLogs = async (showLoading = true) => {
+    if (!activeEnterprise?.id) {
+      setWebhookLogs([]);
+      return;
+    }
+    if (showLoading) {
+      setIsLoadingWebhookLogs(true);
+    }
+    try {
+      const data = await ApiService.getWhatsAppWebhookLogs({
+        limit: 200,
+        includeUnresolved: true,
+      });
+      const logs = Array.isArray(data?.logs) ? data.logs : [];
+      setWebhookLogs(logs);
+    } catch (err) {
+      console.error('Erro ao carregar logs de webhook:', err);
+      setWebhookLogs([]);
+    } finally {
+      if (showLoading) {
+        setIsLoadingWebhookLogs(false);
+      }
+    }
+  };
+
+  const loadProviderConfig = async () => {
+    try {
+      const result = await ApiService.getWhatsAppProviderConfig();
+      const incoming = result?.config && typeof result.config === 'object' ? result.config : {};
+      const incomingProviderCode = String(incoming?.external?.providerCode || 'UAZAPI').trim().toUpperCase() || 'UAZAPI';
+      const useUazapiDefaults = incomingProviderCode === 'UAZAPI';
+      setProviderConfig({
+        mode: String(incoming.mode || '').toUpperCase() === 'EXTERNAL' ? 'EXTERNAL' : 'NATIVE',
+        external: {
+          enabled: Boolean(incoming?.external?.enabled),
+          providerCode: incomingProviderCode,
+          baseUrl: String(incoming?.external?.baseUrl || '').trim(),
+          subdomain: String(incoming?.external?.subdomain || '').trim(),
+          token: '',
+          hasToken: Boolean(incoming?.external?.hasToken),
+          tokenMasked: String(incoming?.external?.tokenMasked || '').trim(),
+          tokenHeaderName: String(incoming?.external?.tokenHeaderName || (useUazapiDefaults ? 'token' : 'Authorization')).trim() || (useUazapiDefaults ? 'token' : 'Authorization'),
+          tokenPrefix: String(incoming?.external?.tokenPrefix || (useUazapiDefaults ? '' : 'Bearer')).trim(),
+          testPath: String(incoming?.external?.testPath || (useUazapiDefaults ? '/send/text' : '/connection/test')).trim() || (useUazapiDefaults ? '/send/text' : '/connection/test'),
+          testMethod: String(incoming?.external?.testMethod || 'POST').toUpperCase() === 'GET'
+            ? 'GET'
+            : String(incoming?.external?.testMethod || 'POST').toUpperCase() === 'PUT'
+              ? 'PUT'
+              : 'POST',
+          sendPath: String(incoming?.external?.sendPath || (useUazapiDefaults ? '/send/text' : '/message/send')).trim() || (useUazapiDefaults ? '/send/text' : '/message/send'),
+          sendMethod: String(incoming?.external?.sendMethod || 'POST').toUpperCase() === 'GET'
+            ? 'GET'
+            : String(incoming?.external?.sendMethod || 'POST').toUpperCase() === 'PUT'
+              ? 'PUT'
+              : 'POST',
+          mediaPath: String(incoming?.external?.mediaPath || (useUazapiDefaults ? '/send/media' : '/message/send-media')).trim() || (useUazapiDefaults ? '/send/media' : '/message/send-media'),
+          mediaMethod: String(incoming?.external?.mediaMethod || 'POST').toUpperCase() === 'GET'
+            ? 'GET'
+            : String(incoming?.external?.mediaMethod || 'POST').toUpperCase() === 'PUT'
+              ? 'PUT'
+              : 'POST',
+          menuPath: String(incoming?.external?.menuPath || (useUazapiDefaults ? '/send/menu' : '/message/send-menu')).trim() || (useUazapiDefaults ? '/send/menu' : '/message/send-menu'),
+          menuMethod: String(incoming?.external?.menuMethod || 'POST').toUpperCase() === 'GET'
+            ? 'GET'
+            : String(incoming?.external?.menuMethod || 'POST').toUpperCase() === 'PUT'
+              ? 'PUT'
+              : 'POST',
+          carouselPath: String(incoming?.external?.carouselPath || (useUazapiDefaults ? '/send/carousel' : '/message/send-carousel')).trim() || (useUazapiDefaults ? '/send/carousel' : '/message/send-carousel'),
+          carouselMethod: String(incoming?.external?.carouselMethod || 'POST').toUpperCase() === 'GET'
+            ? 'GET'
+            : String(incoming?.external?.carouselMethod || 'POST').toUpperCase() === 'PUT'
+              ? 'PUT'
+              : 'POST',
+          paymentPath: String(incoming?.external?.paymentPath || (useUazapiDefaults ? '/send/pix-button' : '/message/request-payment')).trim() || (useUazapiDefaults ? '/send/pix-button' : '/message/request-payment'),
+          paymentMethod: String(incoming?.external?.paymentMethod || 'POST').toUpperCase() === 'GET'
+            ? 'GET'
+            : String(incoming?.external?.paymentMethod || 'POST').toUpperCase() === 'PUT'
+              ? 'PUT'
+              : 'POST',
+          bulkPath: String(incoming?.external?.bulkPath || (useUazapiDefaults ? '/send/text' : '/message/send-bulk')).trim() || (useUazapiDefaults ? '/send/text' : '/message/send-bulk'),
+          bulkMethod: String(incoming?.external?.bulkMethod || 'POST').toUpperCase() === 'GET'
+            ? 'GET'
+            : String(incoming?.external?.bulkMethod || 'POST').toUpperCase() === 'PUT'
+              ? 'PUT'
+              : 'POST',
+          webhookEnabled: Boolean(incoming?.external?.webhook?.enabled),
+          webhookMethod: String(incoming?.external?.webhook?.method || 'POST').toUpperCase() === 'GET'
+            ? 'GET'
+            : String(incoming?.external?.webhook?.method || 'POST').toUpperCase() === 'PUT'
+              ? 'PUT'
+              : 'POST',
+          webhookUrl: String(incoming?.external?.webhook?.url || '').trim(),
+          webhookAddUrlEvents: Boolean(incoming?.external?.webhook?.addUrlEvents),
+          webhookAddUrlTypesMessages: Boolean(incoming?.external?.webhook?.addUrlTypesMessages),
+          webhookEventsCsv: Array.isArray(incoming?.external?.webhook?.events)
+            ? incoming.external.webhook.events.map((item: unknown) => String(item || '').trim()).filter(Boolean).join(', ')
+            : 'messages',
+          webhookExcludeMessagesCsv: Array.isArray(incoming?.external?.webhook?.excludeMessages)
+            ? incoming.external.webhook.excludeMessages.map((item: unknown) => String(item || '').trim()).filter(Boolean).join(', ')
+            : 'wasSentByApi, isGroupYes',
+          commonFieldsJson: (() => {
+            try {
+              const safeObj = incoming?.external?.commonFields && typeof incoming.external.commonFields === 'object'
+                ? incoming.external.commonFields
+                : {};
+              return JSON.stringify(safeObj, null, 2);
+            } catch {
+              return '{}';
+            }
+          })(),
+        },
+      });
+    } catch (err) {
+      console.error('Erro ao carregar configuração do provedor WhatsApp:', err);
+      setProviderConfig(getDefaultWhatsAppProviderConfig());
+    }
+  };
+
+  const handleSaveProviderConfig = async () => {
+    setIsSavingProviderConfig(true);
+    try {
+      if (providerConfig.mode === 'EXTERNAL' && providerConfig.external.enabled) {
+        const providerCode = String(providerConfig.external.providerCode || '').trim().toUpperCase();
+        const baseUrl = String(providerConfig.external.baseUrl || '').trim();
+        const subdomain = String(providerConfig.external.subdomain || '').trim();
+        const token = String(providerConfig.external.token || '').trim();
+        if (!providerCode) {
+          throw new Error('Selecione o provedor externo antes de salvar.');
+        }
+        if (!baseUrl) {
+          throw new Error('Informe a Base URL da API externa.');
+        }
+        if (baseUrl.includes('{subdomain}') && !subdomain) {
+          throw new Error('Informe o Subdomain/Instância para gerar a URL final da API externa.');
+        }
+        if (!token && !providerConfig.external.hasToken) {
+          throw new Error('Informe o Token da API externa antes de salvar.');
+        }
+        if (providerCode === 'UAZAPI' && !subdomain) {
+          throw new Error('No provedor UAZAPI o campo Subdomain/Instância é obrigatório.');
+        }
+      }
+
+      let parsedCommonFields: Record<string, unknown> = {};
+      try {
+        const raw = String(providerConfig.external.commonFieldsJson || '{}').trim() || '{}';
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('Campos comuns devem ser um objeto JSON.');
+        }
+        parsedCommonFields = parsed as Record<string, unknown>;
+      } catch (parseErr) {
+        throw new Error(parseErr instanceof Error ? parseErr.message : 'JSON inválido em campos comuns.');
+      }
+      const payload = {
+        mode: providerConfig.mode,
+        external: {
+          enabled: providerConfig.external.enabled,
+          providerCode: providerConfig.external.providerCode,
+          baseUrl: providerConfig.external.baseUrl,
+          subdomain: providerConfig.external.subdomain,
+          token: providerConfig.external.token,
+          tokenHeaderName: providerConfig.external.tokenHeaderName,
+          tokenPrefix: providerConfig.external.tokenPrefix,
+          testPath: providerConfig.external.testPath,
+          testMethod: providerConfig.external.testMethod,
+          sendPath: providerConfig.external.sendPath,
+          sendMethod: providerConfig.external.sendMethod,
+          mediaPath: providerConfig.external.mediaPath,
+          mediaMethod: providerConfig.external.mediaMethod,
+          menuPath: providerConfig.external.menuPath,
+          menuMethod: providerConfig.external.menuMethod,
+          carouselPath: providerConfig.external.carouselPath,
+          carouselMethod: providerConfig.external.carouselMethod,
+          paymentPath: providerConfig.external.paymentPath,
+          paymentMethod: providerConfig.external.paymentMethod,
+          bulkPath: providerConfig.external.bulkPath,
+          bulkMethod: providerConfig.external.bulkMethod,
+          webhook: {
+            enabled: providerConfig.external.webhookEnabled,
+            method: providerConfig.external.webhookMethod,
+            url: String(providerConfig.external.webhookUrl || '').trim() || (isUazapiExternal ? webhookFinalUrl : ''),
+            addUrlEvents: providerConfig.external.webhookAddUrlEvents,
+            addUrlTypesMessages: providerConfig.external.webhookAddUrlTypesMessages,
+            events: String(providerConfig.external.webhookEventsCsv || '')
+              .split(',')
+              .map((item) => item.trim())
+              .filter(Boolean),
+            excludeMessages: String(providerConfig.external.webhookExcludeMessagesCsv || '')
+              .split(',')
+              .map((item) => item.trim())
+              .filter(Boolean),
+          },
+          commonFields: parsedCommonFields,
+        },
+      };
+      await ApiService.saveWhatsAppProviderConfig(payload);
+      await loadProviderConfig();
+      await refreshStatus();
+      setFeedback('Configuração do provedor WhatsApp salva.');
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Falha ao salvar configuração do provedor WhatsApp.');
+    } finally {
+      setIsSavingProviderConfig(false);
+    }
+  };
+
+  const handleTestProviderConnection = async () => {
+    setIsTestingProviderConfig(true);
+    try {
+      const result = await ApiService.testWhatsAppProviderConnection();
+      const statusCode = Number(result?.details?.status || 0);
+      const endpoint = String(result?.details?.endpointUrl || '').trim();
+      setFeedback(`Teste concluído (${statusCode || 200})${endpoint ? ` em ${endpoint}` : ''}.`);
+      await refreshStatus();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Falha ao testar conexão com provedor WhatsApp.');
+    } finally {
+      setIsTestingProviderConfig(false);
     }
   };
 
@@ -1333,6 +1730,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         refreshStatus(),
         loadAiAudit(20),
         loadAiHandoffRequests(),
+        loadProviderConfig(),
       ]);
       setClients(Array.isArray(clientsData) ? clientsData : []);
       setPlans(Array.isArray(plansData) ? plansData : []);
@@ -1461,6 +1859,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   }, [activeEnterprise?.collaboratorPaymentStartDay, activeEnterprise?.collaboratorPaymentDueDay]);
 
   useEffect(() => {
+    if (!activeEnterprise?.id) return;
     let cancelled = false;
 
     const loadAiConfigFromBackend = async () => {
@@ -1485,19 +1884,26 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [activeEnterprise?.id]);
 
   useEffect(() => {
     localStorage.setItem(NEW_CHAT_COUNTRY_CODE_KEY, newChatCountryCode);
   }, [newChatCountryCode]);
 
   useEffect(() => {
-    if (status.connected && activeTab === 'CRM') {
+    const canUseExternalProvider = providerConfig.mode === 'EXTERNAL' && providerConfig.external.enabled;
+    if (activeEnterprise?.id && (status.connected || canUseExternalProvider) && activeTab === 'CRM') {
       loadChats();
     }
-  }, [status.connected, activeTab]);
+  }, [activeEnterprise?.id, status.connected, providerConfig.mode, providerConfig.external.enabled, activeTab]);
 
   useEffect(() => {
+    if (!activeEnterprise?.id) {
+      setAiAuditLogs([]);
+      setAiHandoffRequests([]);
+      return () => undefined;
+    }
+
     const timer = window.setInterval(async () => {
       if (pollingInFlightRef.current) return;
       pollingInFlightRef.current = true;
@@ -1507,7 +1913,11 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         if (activeTab === 'CRM') {
           await loadAiAudit(20);
           await loadAiHandoffRequests();
-          if (status.connected) {
+          if (crmView === 'WEBHOOK_LOGS') {
+            await loadWebhookLogs(false);
+          }
+          const canUseExternalProvider = providerConfig.mode === 'EXTERNAL' && providerConfig.external.enabled;
+          if (status.connected || canUseExternalProvider) {
             await loadChats(false);
             if (selectedChatId) {
               await loadMessages(selectedChatId, false);
@@ -1521,13 +1931,19 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     }, 6000);
 
     return () => window.clearInterval(timer);
-  }, [activeTab, status.connected, selectedChatId]);
+  }, [activeTab, crmView, status.connected, providerConfig.mode, providerConfig.external.enabled, selectedChatId]);
+
+  useEffect(() => {
+    if (activeTab === 'CRM' && crmView === 'WEBHOOK_LOGS') {
+      loadWebhookLogs();
+    }
+  }, [activeTab, crmView, activeEnterprise?.id]);
 
   useEffect(() => {
     let cancelled = false;
 
     const loadAiAgentState = async () => {
-      if (!selectedChatId) {
+      if (!activeEnterprise?.id || !selectedChatId) {
         setAiAgentEnabledForChat(false);
         return;
       }
@@ -1546,7 +1962,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     return () => {
       cancelled = true;
     };
-  }, [selectedChatId]);
+  }, [activeEnterprise?.id, selectedChatId]);
 
   const recipients = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -1700,7 +2116,6 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       });
 
     const filteredDrafts = draftChats
-      .filter((draft) => String(draft.lastMessage || '').trim().length > 0)
       .filter((draft) => !backendChats.some((backend) => hasPhoneVariantIntersection(backend.phone, draft.phone)))
       .filter((chat) => {
       const matchesName =
@@ -1917,7 +2332,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     notificationService.informativo('Mensagem sugerida', 'Texto de cobrança preenchido no campo de resposta.');
   };
 
-  const handleSendConsumptionReport = async () => {
+  const handleSendConsumptionReport = async (period: ChatConversationReportPeriod) => {
     if (!selectedChatId) {
       setFeedback('Selecione uma conversa para enviar relatório.');
       return;
@@ -1931,38 +2346,37 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       return;
     }
 
-    // Sempre usa modo semanal com base nos dias de funcionamento configurados
-    const now = new Date();
-    const endDate = toDateOnly(now);
-    const startDate = toDateOnly(now);
-    startDate.setDate(startDate.getDate() - 6);
+    const { startDate, endDate, periodLabel } = resolveConversationReportRange(period);
 
     setIsSendingReport(true);
     try {
       const contactType = String(selectedChatClient.type || '').toUpperCase();
-      if (!['ALUNO', 'COLABORADOR'].includes(contactType)) {
-        setFeedback('Relatório disponível apenas para ALUNO e COLABORADOR.');
+      if (!['ALUNO', 'COLABORADOR', 'RESPONSAVEL'].includes(contactType)) {
+        setFeedback('Relatório disponível apenas para ALUNO, RESPONSÁVEL e COLABORADOR.');
         return;
       }
 
-      const reportClient = contactType === 'ALUNO'
-        ? (selectedStudent || selectedChatClient)
-        : selectedChatClient;
+      const reportClient = contactType === 'COLABORADOR'
+        ? selectedChatClient
+        : (selectedStudent || selectedChatClient);
 
       const txList = await ApiService.getTransactions({
         clientId: reportClient.id,
         enterpriseId: activeEnterprise.id
       });
       const transactions = Array.isArray(txList) ? txList : [];
-      const workingDays = getEnterpriseWorkingWeekDays();
+      const isAuditRecord = (tx: any) => {
+        const bag = [tx?.type, tx?.description, tx?.item, tx?.category]
+          .map((part) => String(part || '').toUpperCase())
+          .join(' ');
+        return bag.includes('AUDITORIA');
+      };
 
       const filtered = transactions.filter((tx: any) => {
+        if (isAuditRecord(tx)) return false;
         const txDate = normalizeTxDate(tx);
         if (!txDate) return false;
         if (txDate.getTime() < startDate.getTime() || txDate.getTime() > endDate.getTime()) return false;
-        if (workingDays.size > 0) {
-          return workingDays.has(txDate.getDay());
-        }
         return true;
       });
 
@@ -1972,118 +2386,182 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         return aTs - bTs;
       });
 
-      const parseAmountTx = (tx: any) => Math.abs(Number(tx?.amount ?? tx?.total ?? tx?.value ?? 0) || 0);
-      const isConsumption = (tx: any) => {
+      const resolveMovementType = (tx: any): 'CONSUMO' | 'CREDITO' | 'OUTRO' => {
         const txType = String(tx?.type || '').toUpperCase();
-        const marker = String(tx?.category || tx?.plan || tx?.description || '').toUpperCase();
-        return txType.includes('DEBIT') || txType.includes('CONSUMO') || marker.includes('CONSUMO');
+        const marker = String(tx?.category || tx?.movement || tx?.plan || tx?.description || tx?.item || '').toUpperCase();
+        if (
+          txType.includes('DEBIT')
+          || txType.includes('CONSUMO')
+          || marker.includes('CONSUMO')
+          || marker.includes('COMPRA')
+          || marker.includes('SAIDA')
+        ) {
+          return 'CONSUMO';
+        }
+        if (
+          txType.includes('CREDIT')
+          || txType.includes('CREDITO')
+          || marker.includes('CREDITO')
+          || marker.includes('RECARGA')
+          || marker.includes('ENTRADA')
+        ) {
+          return 'CREDITO';
+        }
+        return 'OUTRO';
       };
-      const isCredit = (tx: any) => {
-        const txType = String(tx?.type || '').toUpperCase();
-        return txType.includes('CREDIT') || txType.includes('CREDITO');
+
+      const formatClassLabel = (client: Client) => [
+        String(client.class || '').trim(),
+        String((client as any).classGrade || '').trim(),
+      ].filter(Boolean).join(' / ');
+
+      const resolveExtractPlanName = (tx: any) => {
+        const candidates = [tx?.planName, tx?.plan, tx?.originPlanName, tx?.originPlan, tx?.category]
+          .map((value) => String(value || '').trim())
+          .filter(Boolean);
+        for (const candidate of candidates) {
+          const normalized = normalizeSearchValue(candidate);
+          if (!normalized) continue;
+          if (normalized.includes('prepago') || normalized.includes('pre-pago')) return 'Crédito Cantina';
+          if (normalized === 'consumo' || normalized === 'credito') continue;
+          return formatClientPlanLabel(candidate);
+        }
+        const method = normalizeSearchValue(String(tx?.method || tx?.paymentMethod || ''));
+        if (method.includes('saldo') || method.includes('carteira')) return 'Crédito Cantina';
+        return '';
       };
-      const isReversal = (tx: any) => String(tx?.type || '').toUpperCase().includes('ESTORNO');
 
-      const totalConsumption = sorted.filter(isConsumption).reduce((acc, tx) => acc + parseAmountTx(tx), 0);
-      const totalCredits = sorted.filter(isCredit).reduce((acc, tx) => acc + parseAmountTx(tx), 0);
-      const totalEstornos = sorted.filter(isReversal).reduce((acc, tx) => acc + parseAmountTx(tx), 0);
-      const netPeriod = Number((totalCredits - totalConsumption).toFixed(2));
+      const resolveExtractDescription = (tx: any) => {
+        const txItems = Array.isArray(tx?.items) ? tx.items : [];
+        if (txItems.length > 0) {
+          const totalAmount = Math.abs(Number(tx?.amount ?? tx?.total ?? tx?.value ?? 0) || 0);
+          const totalQty = txItems.reduce((acc: number, item: any) => {
+            const qtyRaw = Number(item?.quantity || 1);
+            const qty = Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1;
+            return acc + qty;
+          }, 0);
+          const labels = txItems
+            .map((item: any) => {
+              const name = String(item?.name || item?.productName || '').trim();
+              const qtyRaw = Number(item?.quantity || 1);
+              const qty = Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1;
+              const unitRaw = Number(item?.unitPrice ?? item?.price ?? item?.unit_value ?? 0);
+              const itemTotalRaw = Number(item?.total ?? item?.subtotal ?? item?.value ?? item?.amount ?? 0);
+              const itemTotal = Number.isFinite(itemTotalRaw) && itemTotalRaw > 0
+                ? itemTotalRaw
+                : (Number.isFinite(unitRaw) && unitRaw > 0 ? unitRaw * qty : (totalAmount > 0 && totalQty > 0 ? (totalAmount / totalQty) * qty : 0));
+              const totalLabel = itemTotal > 0 ? ` (${formatCurrencyBr(itemTotal)})` : '';
+              return name ? `${qty}x ${name}${totalLabel}` : '';
+            })
+            .filter(Boolean);
+          if (labels.length > 0) return labels.join(' | ');
+        }
+        return String(tx?.item || tx?.description || '-').trim() || '-';
+      };
 
-      const periodLabel = `${formatDatePt(startDate)} até ${formatDatePt(endDate)} (Semanal)`;
-      const clientPhone = String((reportClient as any).phone || (reportClient as any).phone1 || '-').trim() || '-';
-      const perfilLabel = contactType === 'COLABORADOR' ? 'Colaborador' : 'Aluno';
+      const paymentMethodForExtract = (tx: any, movementType: 'CONSUMO' | 'CREDITO' | 'OUTRO', planName: string) => {
+        const normalizedMethod = normalizeSearchValue(String(tx?.method || tx?.paymentMethod || ''));
+        const isCantinaConsumption = movementType === 'CONSUMO'
+          && (normalizeSearchValue(planName).includes('credito cantina') || normalizedMethod.includes('saldo') || normalizedMethod.includes('carteira'));
+        const isPlanConsumption = movementType === 'CONSUMO' && !isCantinaConsumption;
+        if (movementType === 'CREDITO') {
+          return String(tx?.method || tx?.paymentMethod || 'CRÉDITO').trim() || 'CRÉDITO';
+        }
+        if (isPlanConsumption) return 'SALDO PLANO';
+        if (isCantinaConsumption) return 'SALDO CANTINA';
+        return 'VENDA BALCÃO';
+      };
 
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const marginX = 40;
-      const logoSize = 26;
-      const textStartX = marginX + logoSize + 10;
-      drawEnterpriseLogoOnPdf(doc, String(activeEnterprise?.logo || '').trim(), marginX, 18, logoSize, 'CS');
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(15);
-      doc.text('Relatório de Movimentações - WhatsApp', textStartX, 36);
-
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Empresa: ${activeEnterprise.name || '-'}`, textStartX, 56);
-      doc.text(`Escola: ${activeEnterprise.attachedSchoolName || '-'}`, textStartX, 72);
-      doc.text(`Contato: ${reportClient.name || '-'}`, textStartX, 88);
-      doc.text(`Tipo: ${contactType}`, textStartX, 104);
-      doc.text(`Período: ${periodLabel}`, textStartX, 120);
-
-      doc.text(`Telefone: ${clientPhone}`, 320, 88);
-      doc.text(`Perfil: ${perfilLabel}`, 320, 104);
-      doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 320, 120);
-
-      const bodyRows = sorted.map((tx: any) => {
+      const transactionRows: PlanConsumptionPdfTransactionRow[] = sorted.map((tx: any) => {
         const txDate = normalizeTxDate(tx);
-        const dateLabel = txDate ? txDate.toLocaleDateString('pt-BR') : '-';
-        const timeLabel = txDate ? txDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '-';
-        const description = String(tx?.description || tx?.item || tx?.plan || tx?.category || 'Movimentação');
-        const txType = isConsumption(tx) ? 'CONSUMO' : isCredit(tx) ? 'CRÉDITO' : isReversal(tx) ? 'ESTORNO' : String(tx?.type || '-');
-        const rowOwner = String((tx as any)?.studentName || (tx as any)?.clientName || reportClient.name || '-');
-        const amount = parseAmountTx(tx);
-        return [
-          `${dateLabel} ${timeLabel}`,
-          rowOwner,
-          txType,
-          description,
-          `R$ ${amount.toFixed(2)}`
-        ];
+        const movementType = resolveMovementType(tx);
+        const planName = resolveExtractPlanName(tx) || 'Crédito Cantina';
+        return {
+          studentName: String(reportClient.name || '').trim() || 'Contato',
+          dateLabel: txDate ? txDate.toLocaleDateString('pt-BR') : '-',
+          timeLabel: txDate ? txDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '-',
+          timestamp: txDate?.getTime() || 0,
+          description: resolveExtractDescription(tx),
+          planName,
+          movementType,
+          amount: Math.abs(Number(tx?.amount ?? tx?.total ?? tx?.value ?? 0) || 0),
+          paymentMethod: paymentMethodForExtract(tx, movementType, planName),
+          status: String(tx?.status || (movementType === 'CREDITO' ? 'USUÁRIO' : 'SISTEMA')).trim() || 'Concluída',
+          referenceDate: String(tx?.referenceDate || tx?.deliveryDate || tx?.scheduledDate || '').trim(),
+        };
       });
 
-      autoTable(doc, {
-        startY: 146,
-        head: [['Data/Hora', 'Aluno/Colaborador', 'Tipo', 'Descrição', 'Valor']],
-        body: bodyRows.length > 0 ? bodyRows : [['-', '-', '-', 'Sem movimentações no período selecionado', 'R$ 0,00']],
-        styles: { fontSize: 8.5, cellPadding: 5 },
-        headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
-        columnStyles: {
-          0: { cellWidth: 100 },
-          1: { cellWidth: 120 },
-          2: { cellWidth: 75 },
-          3: { cellWidth: 165 },
-          4: { cellWidth: 85, halign: 'right' }
-        },
-        margin: { left: marginX, right: marginX }
+      const planRowMap = new Map<string, PlanConsumptionPdfPlanRow>();
+      const ensurePlanRow = (planName: string, prepaid = false) => {
+        const key = normalizeSearchValue(planName) || (prepaid ? 'prepago' : 'plano');
+        const current = planRowMap.get(key) || {
+          studentName: String(reportClient.name || '').trim() || 'Contato',
+          classLabel: formatClassLabel(reportClient),
+          planName,
+          unitValue: 0,
+          consumedQty: 0,
+          consumedSubtotal: 0,
+          currentBalance: 0,
+          currentBalanceUnits: 0,
+          prepaid,
+        };
+        planRowMap.set(key, current);
+        return current;
+      };
+
+      Object.values((((reportClient as any).planCreditBalances || {}) as Record<string, any>)).forEach((entry: any) => {
+        const rawPlanName = String(entry?.planName || '').trim() || 'Plano';
+        const prepaid = normalizeSearchValue(rawPlanName).includes('prepago') || normalizeSearchValue(rawPlanName).includes('credito cantina');
+        const row = ensurePlanRow(prepaid ? 'Crédito Cantina' : formatClientPlanLabel(rawPlanName), prepaid);
+        row.unitValue = Number(entry?.unitValue || entry?.planPrice || row.unitValue || 0);
+        row.currentBalance = Number(entry?.balance || row.currentBalance || 0);
+        row.currentBalanceUnits = Number(entry?.balanceUnits || row.currentBalanceUnits || 0);
       });
 
-      const finalY = (doc as any).lastAutoTable?.finalY || 170;
-
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      doc.text('Rodapé de Totais e Saldos', marginX, finalY + 24);
-      doc.setFont('helvetica', 'normal');
-
-      const footerLines = [
-        `Total de movimentações: ${sorted.length}`,
-        `Total créditos: R$ ${totalCredits.toFixed(2)}`,
-        `Total estornos: R$ ${totalEstornos.toFixed(2)}`,
-        `Total consumo: R$ ${totalConsumption.toFixed(2)}`,
-        `Saldo líquido do período: R$ ${netPeriod.toFixed(2)}`,
-      ];
-
-      const currentBalance = Number(reportClient.balance || 0);
-      if (currentBalance !== 0 || contactType === 'ALUNO') {
-        footerLines.push(`Saldo atual: R$ ${currentBalance.toFixed(2)}`);
+      if (Math.abs(Number((reportClient as any).balance || 0)) > 0.0001) {
+        const prepaidRow = ensurePlanRow('Crédito Cantina', true);
+        prepaidRow.currentBalance = Number((reportClient as any).balance || 0);
       }
 
-      footerLines.forEach((line, index) => {
-        doc.text(`- ${line}`, marginX, finalY + 42 + (index * 14));
+      transactionRows.forEach((row) => {
+        const prepaid = normalizeSearchValue(row.planName).includes('credito cantina');
+        const planRow = ensurePlanRow(row.planName, prepaid);
+        if (row.movementType === 'CONSUMO') {
+          planRow.consumedQty += 1;
+          planRow.consumedSubtotal += Number(row.amount || 0);
+        }
       });
 
-      doc.setFontSize(8);
-      doc.text(
-        `Gerado em ${new Date().toLocaleString('pt-BR')} por ${activeEnterprise.name || 'Cantina Smart'}`,
-        pageWidth - marginX,
-        doc.internal.pageSize.getHeight() - 18,
-        { align: 'right' }
-      );
+      const reportProfile: PlanConsumptionRecipientReportProfile = {
+        kind: contactType === 'COLABORADOR' ? 'COLABORADOR' : 'RESPONSAVEL',
+        responsibleName: contactType === 'COLABORADOR'
+          ? String(reportClient.name || '').trim()
+          : String((selectedChatClient as any).parentName || (selectedChatClient as any).guardianName || selectedChatClient.name || reportClient.name || '').trim(),
+        contactName: String(selectedChatClient.name || reportClient.name || '').trim(),
+        contactPhone: String((selectedChatClient as any).phone || (selectedChatClient as any).phone1 || '').trim(),
+        students: [{
+          id: String(reportClient.id || ''),
+          name: String(reportClient.name || '').trim() || 'Contato',
+          classLabel: formatClassLabel(reportClient) || '-',
+          type: contactType === 'COLABORADOR' ? 'COLABORADOR' : 'ALUNO',
+        }],
+        planRows: Array.from(planRowMap.values()),
+        transactionRows,
+        totalConsumption: transactionRows.filter((row) => row.movementType === 'CONSUMO').reduce((acc, row) => acc + Number(row.amount || 0), 0),
+        totalCredits: transactionRows.filter((row) => row.movementType === 'CREDITO').reduce((acc, row) => acc + Number(row.amount || 0), 0),
+      };
 
-      const pdfDataUri = doc.output('datauristring');
-      const fileBase = String(reportClient.name || 'relatorio').trim().toLowerCase().replace(/\s+/g, '_');
-      const fileName = `relatorio_${fileBase}_${new Date().toISOString().slice(0, 10)}.pdf`;
+      const reportAttachment = buildPlanConsumptionPdfAttachment({
+        phone: String((selectedChatClient as any).phone || (selectedChatClient as any).phone1 || '').trim(),
+        chatId: selectedChatId,
+        contactName: reportProfile.contactName,
+        message: '',
+        detailLines: [],
+        targetCount: 1,
+        kindSet: [contactType === 'COLABORADOR' ? 'COLABORADOR_RELATORIO' : 'RESPONSAVEL_RELATORIO'],
+        variableValues: {},
+        reportProfile,
+      }, periodLabel);
 
       const queueResult = await ApiService.sendWhatsAppMessageToChat(
         selectedChatId,
@@ -2096,12 +2574,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       await ApiService.sendWhatsAppMediaToChat(
         selectedChatId,
         formatOutgoingMessage('Segue relatório em PDF.'),
-        {
-          mediaType: 'document',
-          base64Data: pdfDataUri,
-          mimeType: 'application/pdf',
-          fileName
-        }
+        reportAttachment
       );
       await ApiService.sendWhatsAppMessageToChat(
         selectedChatId,
@@ -2111,6 +2584,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       setFeedback('Relatório em PDF enviado com sucesso.');
       await loadMessages(selectedChatId);
       await loadChats(false);
+      return;
     } catch (err) {
       setFeedback(err instanceof Error ? err.message : 'Erro ao enviar relatório em PDF.');
     } finally {
@@ -3427,10 +3901,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     periodLabelOverride?: string
   ): ChatAttachment => {
     const profile = recipient.reportProfile;
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-    const pageWidth = doc.internal.pageSize.getWidth();
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const generatedAt = new Date();
-    const logoSize = 18;
 
     const formatNumber = (value: number) => Number(value || 0).toLocaleString('pt-BR', {
       minimumFractionDigits: Number.isInteger(Number(value || 0)) ? 0 : 2,
@@ -3445,7 +3917,37 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       .toLowerCase();
 
     const periodLabel = periodLabelOverride || recipient.variableValues?.periodo_referencia || '-';
-    const leftX = 28;
+
+    const repairMojibakeText = (value?: string) => {
+      const text2 = String(value || '');
+      if (!text2 || !/[ÃÂ]/.test(text2)) return text2;
+      try {
+        const bytes2 = new Uint8Array(Array.from(text2).map((char) => char.charCodeAt(0) & 0xff));
+        const decoded2 = new TextDecoder('utf-8', { fatal: false }).decode(bytes2);
+        return decoded2 || text2;
+      } catch {
+        return text2;
+      }
+    };
+
+    const sanitizeReportText = (value: unknown, fallback = '-') => {
+      const repaired = repairMojibakeText(String(value ?? ''));
+      const normalized = repaired
+        .normalize('NFKC')
+        .replace(/[\u0000-\u001F\u007F]/g, ' ')
+        .replace(/\uFFFD/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!normalized) return fallback;
+      return normalized.replace(/[^\x20-\x7E\u00A0-\u00FF]/g, ' ').trim() || fallback;
+    };
+
+    const formatDateBr = (iso?: string) => {
+      if (!iso) return '';
+      const d = new Date(String(iso).slice(0, 10) + 'T00:00:00');
+      if (!Number.isFinite(d.getTime())) return String(iso).slice(0, 10);
+      return d.toLocaleDateString('pt-BR');
+    };
 
     const classifyTxKind = (row: PlanConsumptionPdfTransactionRow): 'CREDITO' | 'CONSUMO' | 'ESTORNO' | 'CREDITO_ESTORNO' | 'OUTRO' => {
       const text = normalizeSearchValue(`${row.description} ${row.planName}`);
@@ -3457,44 +3959,122 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       return 'OUTRO';
     };
 
+    // === HEADER: Blue banner ===
     doc.setFillColor(37, 99, 235);
-    doc.rect(0, 0, pageWidth, 20, 'F');
-    drawEnterpriseLogoOnPdf(doc, String(activeEnterprise?.logo || '').trim(), leftX, 1.5, logoSize, 'CS');
+    doc.rect(0, 0, 297, 16, 'F');
     doc.setTextColor(255, 255, 255);
+    doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11.5);
-    doc.text('EXTRATO DE TRANSAÇÕES DA UNIDADE', leftX + logoSize + 6, 14);
+    doc.text('EXTRATO DE TRANSAÇÕES DA UNIDADE', 14, 10.4);
 
-    doc.setTextColor(31, 41, 55);
+    // === Logo ===
+    const logoSize = 16;
+    const logoX = 14;
+    const logoY = 20;
+    doc.setDrawColor(203, 213, 225);
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(logoX, logoY, logoSize, logoSize, 2, 2, 'FD');
+    const enterpriseLogo = String((activeEnterprise as any)?.logo || '').trim();
+    if (enterpriseLogo.startsWith('data:image/')) {
+      try {
+        const imageType = enterpriseLogo.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+        doc.addImage(enterpriseLogo, imageType, logoX + 1.1, logoY + 1.1, logoSize - 2.2, logoSize - 2.2);
+      } catch {
+        doc.setTextColor(51, 65, 85);
+        doc.setFontSize(8.5);
+        doc.setFont('helvetica', 'bold');
+        doc.text('CA', logoX + (logoSize / 2), logoY + 10, { align: 'center' });
+      }
+    } else {
+      doc.setTextColor(51, 65, 85);
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'bold');
+      doc.text('CA', logoX + (logoSize / 2), logoY + 10, { align: 'center' });
+    }
+
+    // === Enterprise name ===
+    doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
-    doc.text(activeEnterprise?.name || 'Cantina', leftX, 40);
+    doc.setFontSize(15);
+    doc.text(sanitizeReportText(activeEnterprise?.name, 'Empresa'), logoX + logoSize + 4, 26.8);
+
+    // === Enterprise info line ===
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
+    doc.setFontSize(8.6);
     const enterpriseInfo = [
-      activeEnterprise?.attachedSchoolName ? `Escola: ${activeEnterprise.attachedSchoolName}` : null,
+      activeEnterprise?.attachedSchoolName ? `Escola: ${sanitizeReportText(activeEnterprise.attachedSchoolName, '-')}` : null,
       activeEnterprise?.phone1 ? `Contato: ${formatPhoneWithCountryTag(activeEnterprise.phone1, '-')}` : null,
-      activeEnterprise?.address ? activeEnterprise.address : null,
+      activeEnterprise?.address ? sanitizeReportText(activeEnterprise.address, '-') : null,
     ].filter(Boolean).join(' • ');
-    const enterpriseLines = doc.splitTextToSize(enterpriseInfo || '-', pageWidth - (leftX * 2));
-    doc.text(enterpriseLines, leftX, 54);
+    const enterpriseInfoLines = doc.splitTextToSize(enterpriseInfo || '-', 247);
+    doc.text(enterpriseInfoLines, logoX + logoSize + 4, 32.5);
+    const enterpriseBottomY = 32.5 + ((enterpriseInfoLines.length - 1) * 3.9);
 
-    const contactY = 54 + ((enterpriseLines.length - 1) * 10) + 12;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.text(`Responsável/Contato: ${profile.contactName || '-'}`, leftX, contactY);
+    // === Info box ===
+    const infoBoxY = enterpriseBottomY + 4;
+    const hasMultipleStudents = profile.students.length > 1;
+    const infoBoxHeight = hasMultipleStudents
+      ? Math.max(23, 11 + (profile.students.length * 4.4))
+      : 23;
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(14, infoBoxY, 269, infoBoxHeight, 2.5, 2.5, 'FD');
+
+    doc.setTextColor(15, 23, 42);
+    if (hasMultipleStudents) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.7);
+      doc.text('Dados separados por aluno', 17, infoBoxY + 6.3);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.1);
+      profile.students.forEach((student, idx) => {
+        const phoneText = formatPhoneWithCountryTag(profile.contactPhone, '-');
+        const line = `${idx + 1}. Aluno: ${sanitizeReportText(student.name, '-')} | Responsável: ${sanitizeReportText(profile.responsibleName, '-')} | Contato: ${phoneText}`;
+        doc.text(doc.splitTextToSize(line, 260).slice(0, 1), 17, infoBoxY + 11.2 + (idx * 4.4));
+      });
+    } else {
+      const responsibleLabel = profile.kind === 'COLABORADOR' ? 'Colaborador' : 'Responsável(is)';
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.7);
+      doc.text(`${responsibleLabel}: ${sanitizeReportText(profile.responsibleName, '-')}`, 17, infoBoxY + 6.3);
+
+      const contactLine = `${sanitizeReportText(profile.contactName, 'Responsável')} (${formatPhoneWithCountryTag(profile.contactPhone, '-')})`;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.2);
+      const respLines = doc.splitTextToSize(`Contato responsável: ${contactLine}`, 175);
+      doc.text(respLines.slice(0, 2), 17, infoBoxY + 11.3);
+
+      const studentNames = profile.students
+        .map((s) => sanitizeReportText(s.name, ''))
+        .filter(Boolean)
+        .join(', ') || '-';
+      const studentTypeLabel = profile.kind === 'COLABORADOR' ? 'Colaborador' : 'Aluno(s)';
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.1);
+      const studentLabel = `${studentTypeLabel}: ${studentNames}`;
+      const studentLabelLines = doc.splitTextToSize(studentLabel, 82);
+      doc.text(studentLabelLines.slice(0, 2), 196, infoBoxY + 7.2);
+
+      const classYearLabel = profile.students
+        .map((s) => sanitizeReportText(s.classLabel, ''))
+        .filter(Boolean)
+        .join(' | ') || '-';
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.2);
+      const classLabelLines = doc.splitTextToSize(`Turma/Ano: ${classYearLabel}`, 82);
+      doc.text(classLabelLines.slice(0, 2), 196, infoBoxY + 14.9);
+    }
+
+    // === Period + generated date lines ===
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    const contactDetails = [
-      `Telefone: ${formatPhoneWithCountryTag(profile.contactPhone, '-')}`,
-      `Perfil: ${profile.kind === 'RESPONSAVEL' ? 'Responsável' : 'Colaborador'}`,
-      `Período: ${periodLabel}`,
-    ].join(' • ');
-    doc.text(contactDetails, leftX, contactY + 12);
-    const studentsLine = `Aluno(s) relacionado(s): ${profile.students.map((item) => item.name).join(', ') || '-'}`;
-    doc.text(doc.splitTextToSize(studentsLine, pageWidth - (leftX * 2)), leftX, contactY + 24);
-    doc.text(`Gerado em: ${generatedAt.toLocaleString('pt-BR')}`, pageWidth - leftX, contactY + 12, { align: 'right' });
+    doc.setFontSize(8.1);
+    doc.text(`Período: ${periodLabel}`, 14, infoBoxY + infoBoxHeight + 6);
+    doc.text(`Gerado em: ${generatedAt.toLocaleString('pt-BR')}`, 283, infoBoxY + infoBoxHeight + 6, { align: 'right' });
 
+    const summaryTopY = infoBoxY + infoBoxHeight + 9;
+
+    // === Compute totals ===
     const totalCredits = profile.transactionRows
       .filter((row) => {
         const kind = classifyTxKind(row);
@@ -3509,39 +4089,37 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       .reduce((acc, row) => acc + Math.abs(Number(row.amount || 0)), 0);
     const finalBalance = totalCredits - totalConsumption;
 
-    const cardsTopY = contactY + 34;
-
+    // === Group by plan ===
     const groupedByPlan = new Map<string, PlanConsumptionPdfTransactionRow[]>();
     profile.transactionRows.forEach((row) => {
-      const planName = String(row.planName || '').trim() || 'PRÉ-PAGA';
+      const planName = sanitizeReportText(row.planName, 'PRÉ-PAGA');
       if (!groupedByPlan.has(planName)) groupedByPlan.set(planName, []);
       groupedByPlan.get(planName)!.push(row);
     });
 
-    const tableColumn = ['Data/Hora', 'Descrição', 'Tipo', 'Valor', 'Status'];
+    const tableColumn = ['Data/Hora', 'Descrição', 'Tipo', 'Valor', 'Forma Pgto', 'Status'];
     const tableRows: any[] = [];
     const orderedPlans = Array.from(groupedByPlan.keys()).sort((a, b) => a.localeCompare(b, 'pt-BR'));
     const planSummaryCards: Array<{ planName: string; consumedText: string; balanceText: string; isPrepaid: boolean }> = [];
 
-    const drawPlanSummaryCards = (y: number) => {
+    const drawPlanSummaryCards = (x: number, y: number) => {
       if (planSummaryCards.length === 0) return y;
-
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
+      doc.setFontSize(9.5);
       doc.setTextColor(30, 64, 175);
-      doc.text('Resumo por plano', leftX, y);
+      doc.text('Resumo por plano', x, y);
 
-      const cardWidth = 170;
-      const cardHeight = 52;
-      const gapX = 8;
-      const gapY = 8;
+      const cardWidth = 85;
+      const cardHeight = 21;
+      const gapX = 6;
+      const gapY = 5;
       const cols = 3;
-      const startY = y + 6;
+      const startY = y + 4;
 
       planSummaryCards.forEach((summary, index) => {
         const row = Math.floor(index / cols);
         const col = index % cols;
-        const cardX = leftX + col * (cardWidth + gapX);
+        const cardX = x + col * (cardWidth + gapX);
         const cardY = startY + row * (cardHeight + gapY);
 
         if (summary.isPrepaid) {
@@ -3551,28 +4129,30 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           doc.setFillColor(239, 246, 255);
           doc.setDrawColor(96, 165, 250);
         }
-        doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 6, 6, 'FD');
+        doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 2.5, 2.5, 'FD');
 
-        doc.setTextColor(30, 41, 59);
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9.2);
-        const titleLines = doc.splitTextToSize(summary.planName, cardWidth - 12);
-        doc.text(titleLines[0] || '-', cardX + 6, cardY + 14);
+        doc.setFontSize(8);
+        doc.setTextColor(30, 41, 59);
+        const title = doc.splitTextToSize(summary.planName, cardWidth - 6);
+        doc.text(title[0] || '-', cardX + 3, cardY + 5.8);
 
-        doc.setTextColor(51, 65, 85);
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8.6);
-        const consumedLines = doc.splitTextToSize(summary.consumedText, cardWidth - 12);
-        doc.text(consumedLines[0] || '-', cardX + 6, cardY + 29);
-        const balanceLines = doc.splitTextToSize(summary.balanceText, cardWidth - 12);
-        doc.text(balanceLines[0] || '-', cardX + 6, cardY + 42);
+        doc.setFontSize(7.4);
+        doc.setTextColor(51, 65, 85);
+        const consumedLines = doc.splitTextToSize(summary.consumedText, cardWidth - 6);
+        doc.text(consumedLines[0] || '-', cardX + 3, cardY + 11.5);
+        const balanceLines = doc.splitTextToSize(summary.balanceText, cardWidth - 6);
+        doc.text(balanceLines[0] || '-', cardX + 3, cardY + 16.8);
       });
 
       const rows = Math.ceil(planSummaryCards.length / cols);
       return startY + rows * cardHeight + (rows - 1) * gapY;
     };
 
+    // === Build table rows and plan summary ===
     orderedPlans.forEach((planName) => {
+      const safePlanName = sanitizeReportText(planName, 'PRÉ-PAGA');
       const planRows = groupedByPlan.get(planName) || [];
       const planRowsForCurrentPlan = profile.planRows.filter(
         (row) => normalizeSearchValue(row.planName) === normalizeSearchValue(planName)
@@ -3586,16 +4166,16 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       if (isPrepaidPlan) {
         const currentBalanceMoney = planRowsForCurrentPlan.reduce((acc, row) => acc + Number(row.currentBalance || 0), 0);
         planSummaryCards.push({
-          planName,
+          planName: safePlanName,
           consumedText: `Consumo: ${formatCurrencyBr(consumedSubtotal)}`,
           balanceText: `Saldo atual: ${formatCurrencyBr(currentBalanceMoney)}`,
           isPrepaid: true,
         });
         tableRows.push([
           {
-            content: `PLANO: ${planName}`,
-            colSpan: 5,
-            styles: { fillColor: [219, 234, 254], textColor: [30, 64, 175], fontStyle: 'bold', halign: 'left' },
+            content: `PLANO: ${safePlanName}`,
+            colSpan: 6,
+            styles: { fillColor: [219, 234, 254], textColor: [30, 64, 175], fontStyle: 'bold', minCellHeight: 7.2, halign: 'left' },
           },
         ]);
       } else {
@@ -3612,7 +4192,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           : (avgUnitValue > 0 ? (currentBalanceMoney / avgUnitValue) : 0);
         const totalQty = consumedQty + currentBalanceQty;
         planSummaryCards.push({
-          planName,
+          planName: safePlanName,
           consumedText: `Consumido: ${formatNumber(consumedQty)}/${formatNumber(totalQty)} un. (${formatCurrencyBr(consumedSubtotal)})`,
           balanceText: `Restante: ${formatNumber(currentBalanceQty)} un. (${formatCurrencyBr(currentBalanceMoney)})`,
           isPrepaid: false,
@@ -3620,9 +4200,9 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         const planLineSuffix = ` • ${formatNumber(consumedQty)}/${formatNumber(totalQty)} un.`;
         tableRows.push([
           {
-            content: `PLANO: ${planName}${planLineSuffix}`,
-            colSpan: 5,
-            styles: { fillColor: [219, 234, 254], textColor: [30, 64, 175], fontStyle: 'bold', halign: 'left' },
+            content: `PLANO: ${safePlanName}${planLineSuffix}`,
+            colSpan: 6,
+            styles: { fillColor: [219, 234, 254], textColor: [30, 64, 175], fontStyle: 'bold', minCellHeight: 7.2, halign: 'left' },
           },
         ]);
       }
@@ -3638,79 +4218,34 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
               ? 'CRÉDITO/ESTORNO'
               : row.movementType;
           const isCredit = txKind === 'CREDITO' || txKind === 'CREDITO_ESTORNO';
+          const normalizedMethod = normalizeSearchValue(String(row.paymentMethod || ''));
+          const isCantinaConsumption = txKind === 'CONSUMO'
+            && (normalizeSearchValue(String(row.planName || '')).includes('credito cantina') || normalizedMethod.includes('saldo cantina'));
+          const isPlanConsumption = txKind === 'CONSUMO' && !isCantinaConsumption;
+          const paymentMethodLabel = isCredit
+            ? sanitizeReportText(row.paymentMethod, 'CRÉDITO')
+            : (isPlanConsumption ? 'SALDO PLANO' : (isCantinaConsumption ? 'SALDO CANTINA' : 'VENDA BALCÃO'));
           const amountLabel = `${isCredit ? '+' : '-'} ${formatCurrencyBr(Math.abs(Number(row.amount || 0)))}`;
-          const referenceDateLabel = row.dateLabel || '-';
+          const referenceDateLabel = (row.referenceDate ? formatDateBr(row.referenceDate) : null) || row.dateLabel || '-';
           const description = txKind === 'CREDITO_ESTORNO'
-            ? `[CRÉDITO DE ESTORNO • Ref. ${referenceDateLabel}] ${row.description || '-'}`
+            ? `[CREDITO DE ESTORNO - Ref. ${referenceDateLabel}] ${sanitizeReportText(row.description, '-')}`
             : txKind === 'ESTORNO'
-              ? `[ESTORNO] ${row.description || '-'}`
-              : row.description || '-';
+              ? `[ESTORNO] ${sanitizeReportText(row.description, '-')}`
+              : sanitizeReportText(row.description, '-');
           tableRows.push([
             `${row.dateLabel} ${row.timeLabel}`,
             description,
-            typeLabel,
+            sanitizeReportText(typeLabel, '-'),
             amountLabel,
-            'Concluída',
+            paymentMethodLabel,
+            sanitizeReportText(row.status, 'Concluída'),
           ]);
         });
     });
 
-    const tableStartY = drawPlanSummaryCards(cardsTopY) + 10;
-
-    autoTable(doc, {
-      startY: tableStartY,
-      margin: { left: leftX, right: leftX },
-      head: [tableColumn],
-      body: tableRows.length > 0 ? tableRows : [['-', 'Sem movimentações no período', '-', 'R$ 0,00', '-']],
-      styles: {
-        fontSize: 8.2,
-        cellPadding: 3,
-        textColor: [30, 41, 59],
-        overflow: 'linebreak',
-      },
-      headStyles: {
-        fillColor: [30, 41, 59],
-        textColor: [255, 255, 255],
-        fontStyle: 'bold',
-      },
-      alternateRowStyles: { fillColor: [248, 250, 252] },
-      columnStyles: {
-        0: { cellWidth: 86 },
-        1: { cellWidth: 302 },
-        2: { cellWidth: 78, halign: 'center' },
-        3: { cellWidth: 86, halign: 'right' },
-        4: { cellWidth: 72, halign: 'center' },
-      },
-      didParseCell: (hook) => {
-        if (hook.section !== 'body') return;
-        const row = hook.row.raw as any[];
-        if (Array.isArray(row) && row.length > 0 && row[0]?.colSpan) return;
-        const rawType = normalizeSearchValue(String(row?.[2] || '')).toUpperCase();
-        if (rawType.includes('ESTORNO') && !rawType.includes('CREDITO')) {
-          if (hook.column.index === 2 || hook.column.index === 3) {
-            hook.cell.styles.textColor = [180, 83, 9];
-          }
-        } else if (rawType.includes('CONSUMO') || rawType.includes('DEBIT')) {
-          if (hook.column.index === 2 || hook.column.index === 3) {
-            hook.cell.styles.textColor = [185, 28, 28];
-          }
-        } else if (rawType.includes('CREDITO')) {
-          if (hook.column.index === 2 || hook.column.index === 3) {
-            hook.cell.styles.textColor = [21, 128, 61];
-          }
-        }
-      },
-    });
-
-    const tableFinalY = (doc as any).lastAutoTable?.finalY || tableStartY + 8;
-    let totalsY = tableFinalY + 8;
-    const totalCardHeight = 44;
-    if (totalsY + totalCardHeight > doc.internal.pageSize.getHeight() - 24) {
-      doc.addPage();
-      totalsY = 28;
-    }
-    const totalCardWidth = 170;
-    const totalGap = 8;
+    // === Total cards ===
+    const totalCardHeight = 14;
+    const totalCardWidth = 86;
     const drawTotalCard = (x: number, y: number, title: string, value: string, tone: 'green' | 'red' | 'blue') => {
       if (tone === 'green') {
         doc.setFillColor(236, 253, 245);
@@ -3725,27 +4260,104 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         doc.setDrawColor(147, 197, 253);
         doc.setTextColor(30, 64, 175);
       }
-      doc.roundedRect(x, y, totalCardWidth, totalCardHeight, 6, 6, 'FD');
+      doc.roundedRect(x, y, totalCardWidth, totalCardHeight, 2.8, 2.8, 'FD');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.4);
-      doc.text(title, x + 8, y + 14);
-      doc.setFontSize(13.5);
-      doc.text(value, x + 8, y + 31);
+      doc.setFontSize(8.1);
+      doc.text(title, x + 3.5, y + 5.2);
+      doc.setFontSize(10.2);
+      doc.text(value, x + 3.5, y + 10.7);
     };
-    drawTotalCard(leftX, totalsY, 'Total Créditos', formatCurrencyBr(totalCredits), 'green');
-    drawTotalCard(leftX + totalCardWidth + totalGap, totalsY, 'Total Consumo', formatCurrencyBr(totalConsumption), 'red');
-    drawTotalCard(leftX + (totalCardWidth * 2) + (totalGap * 2), totalsY, 'Saldo Final', formatCurrencyBr(finalBalance), 'blue');
 
+    drawTotalCard(14, summaryTopY, 'Total Créditos', formatCurrencyBr(totalCredits), 'green');
+    drawTotalCard(105, summaryTopY, 'Total Consumo', formatCurrencyBr(totalConsumption), 'red');
+    drawTotalCard(196, summaryTopY, 'Saldo Final', formatCurrencyBr(finalBalance), 'blue');
+    doc.setTextColor(15, 23, 42);
+
+    const tableStartY = summaryTopY + totalCardHeight + 6;
+
+    // === Table ===
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows.length > 0 ? tableRows : [['-', 'Sem movimentações no período', '-', 'R$ 0,00', '-', '-']],
+      startY: tableStartY,
+      theme: 'grid',
+      styles: { fontSize: 8, cellPadding: 2.8, overflow: 'linebreak' },
+      headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
+      columnStyles: {
+        0: { cellWidth: 28 },
+        1: { cellWidth: 134 },
+        2: { cellWidth: 22, halign: 'center' },
+        3: { cellWidth: 28, halign: 'right' },
+        4: { cellWidth: 21, halign: 'center' },
+        5: { cellWidth: 30, halign: 'center' },
+      },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      didParseCell: (hook) => {
+        if (hook.section !== 'body') return;
+        const row = hook.row.raw as any[];
+        if (Array.isArray(row) && row.length === 1 && row[0]?.colSpan) return;
+        const rawType = String((row?.[2] || '')).toUpperCase();
+        const normalizedType = normalizeSearchValue(rawType).toUpperCase();
+        if (normalizedType.includes('ESTORNO') && !normalizedType.includes('CREDITO')) {
+          if (hook.column.index === 2 || hook.column.index === 3) {
+            hook.cell.styles.textColor = [180, 83, 9];
+          }
+        } else if (normalizedType.includes('CONSUMO') || normalizedType.includes('DEBIT')) {
+          if (hook.column.index === 2 || hook.column.index === 3) {
+            hook.cell.styles.textColor = [185, 28, 28];
+          }
+        } else if (normalizedType.includes('CREDITO')) {
+          if (hook.column.index === 2 || hook.column.index === 3) {
+            hook.cell.styles.textColor = [21, 128, 61];
+          }
+        }
+
+        if (hook.column.index === 4) {
+          const paymentText = normalizeSearchValue(String(row?.[4] || '')).toUpperCase();
+          hook.cell.styles.fontStyle = 'bold';
+          hook.cell.styles.halign = 'center';
+          if (paymentText.includes('SALDO PLANO')) {
+            hook.cell.styles.fillColor = [224, 242, 254];
+            hook.cell.styles.textColor = [30, 64, 175];
+          } else if (paymentText.includes('SALDO CANTINA')) {
+            hook.cell.styles.fillColor = [255, 247, 214];
+            hook.cell.styles.textColor = [146, 64, 14];
+          } else if (paymentText.includes('VENDA BALCAO') || paymentText.includes('VENDA BALCÃO')) {
+            hook.cell.styles.fillColor = [241, 245, 249];
+            hook.cell.styles.textColor = [51, 65, 85];
+          } else {
+            hook.cell.styles.fillColor = [220, 252, 231];
+            hook.cell.styles.textColor = [21, 128, 61];
+          }
+        }
+      },
+    });
+
+    // === Plan summary cards ===
+    const tableFinalY = (doc as any).lastAutoTable?.finalY || tableStartY + 8;
+    const pageBottom = doc.internal.pageSize.getHeight() - 14;
+    let planSummaryY = tableFinalY + 8;
+    const planSummaryRows = Math.ceil(planSummaryCards.length / 3);
+    const planSummaryHeight = planSummaryCards.length > 0
+      ? 4 + (planSummaryRows * 21) + (Math.max(0, planSummaryRows - 1) * 5)
+      : 0;
+    if (planSummaryCards.length > 0 && (planSummaryY + planSummaryHeight > pageBottom)) {
+      doc.addPage();
+      planSummaryY = 14;
+    }
+    drawPlanSummaryCards(14, planSummaryY);
+
+    // === Footer ===
     const pageCount = (doc as any).internal.getNumberOfPages();
     for (let i = 1; i <= pageCount; i += 1) {
       doc.setPage(i);
       doc.setFontSize(8);
-      doc.setTextColor(100, 116, 139);
+      doc.setTextColor(150);
       doc.text(
-        `Página ${i} de ${pageCount} • Cantina Smart • Relatório automático recorrente`,
-        pageWidth - leftX,
+        `Página ${i} de ${pageCount} - Gerado em ${generatedAt.toLocaleString('pt-BR')}`,
+        doc.internal.pageSize.getWidth() / 2,
         doc.internal.pageSize.getHeight() - 10,
-        { align: 'right' }
+        { align: 'center' }
       );
     }
 
@@ -3753,7 +4365,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       mediaType: 'document',
       base64Data: doc.output('datauristring'),
       mimeType: 'application/pdf',
-      fileName: `relatorio_planos_${safeFileName || 'contato'}_${generatedAt.toISOString().slice(0, 10)}.pdf`,
+      fileName: `extrato_transacoes_${safeFileName || 'contato'}_${generatedAt.toISOString().slice(0, 10)}.pdf`,
     };
   };
 
@@ -4784,7 +5396,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
   const handleReply = async () => {
     if (!selectedChatId) return;
-    if (!status.connected) {
+    const canUseExternalProvider = providerConfig.mode === 'EXTERNAL' && providerConfig.external.enabled;
+    if (!status.connected && !canUseExternalProvider) {
       setFeedback('Conecte o WhatsApp na aba QR CODE para enviar mensagens.');
       return;
     }
@@ -4917,6 +5530,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       phone: params.phone,
       name: params.displayName,
       displayName: params.displayName,
+      isKnownClient: true,
       unreadCount: 0,
       lastMessage: '',
       lastTimestamp: Date.now(),
@@ -4938,7 +5552,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   };
 
   const handleCreateDraftChat = async () => {
-    if (!status.connected) {
+    const isExternalMode = providerConfig.mode === 'EXTERNAL';
+    if (!status.connected && !isExternalMode) {
       setFeedback('Para abrir uma nova conversa, conecte o WhatsApp na aba QR CODE.');
       setActiveTab('SESSION_QR');
       return;
@@ -5072,6 +5687,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       || crmView === 'CONTATOS'
       || crmView === 'AI_CONFIG'
       || crmView === 'AI_FLOW'
+      || crmView === 'WEBHOOK_LOGS'
       || crmView === 'CONTA'
     ) return;
     setCrmView('CONVERSAS');
@@ -5457,6 +6073,34 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       || normalizedBackendError.includes('err_connection_refused')
     )
   );
+  const normalizedExternalProviderCode = String(providerConfig.external.providerCode || '').trim().toUpperCase();
+  const isUazapiExternal = providerConfig.mode === 'EXTERNAL' && normalizedExternalProviderCode === 'UAZAPI';
+  const externalProviderValidationError = (() => {
+    if (providerConfig.mode !== 'EXTERNAL' || !providerConfig.external.enabled) return '';
+    const providerCode = String(providerConfig.external.providerCode || '').trim().toUpperCase();
+    const baseUrl = String(providerConfig.external.baseUrl || '').trim();
+    const subdomain = String(providerConfig.external.subdomain || '').trim();
+    const token = String(providerConfig.external.token || '').trim();
+    if (!providerCode) return 'Selecione o provedor externo.';
+    if (!baseUrl) return 'Informe a Base URL da API externa.';
+    if (baseUrl.includes('{subdomain}') && !subdomain) return 'Informe o Subdomain/Instância.';
+    if (!token && !providerConfig.external.hasToken) return 'Informe o Token da API externa.';
+    if (providerCode === 'UAZAPI' && !subdomain) return 'No provedor UAZAPI o Subdomain/Instância é obrigatório.';
+    return '';
+  })();
+  const webhookFinalUrl = (() => {
+    const apiBaseRaw = String(import.meta.env.VITE_API_URL || '/api').trim();
+    const apiBase = apiBaseRaw.replace(/\/+$/, '') || '/api';
+    const suffix = '/whatsapp/webhook/external';
+    if (/^https?:\/\//i.test(apiBase)) {
+      return `${apiBase}${suffix}`;
+    }
+    if (typeof window !== 'undefined') {
+      const origin = String(window.location?.origin || '').replace(/\/+$/, '');
+      if (origin) return `${origin}${apiBase}${suffix}`;
+    }
+    return `${apiBase}${suffix}`;
+  })();
 
   return (
     <div className="whatsapp-shell space-y-4 p-4 rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(251,191,36,0.18),_transparent_45%),radial-gradient(circle_at_bottom_right,_rgba(15,23,42,0.08),_transparent_40%)] bg-white animate-in fade-in duration-500 shadow-[0_20px_45px_-30px_rgba(15,23,42,0.45)] dark:border-white/10 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-900 dark:text-zinc-100">
@@ -5489,7 +6133,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         </div>
       </div>
 
-      <div className="rounded-[20px] border border-slate-200/90 bg-white/95 p-2 grid grid-cols-2 md:grid-cols-5 gap-2 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.65)] dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
+      <div className="rounded-[20px] border border-slate-200/90 bg-white/95 p-2 grid grid-cols-2 md:grid-cols-7 gap-2 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.65)] dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
         <button
           onClick={() => {
             setActiveTab('CRM');
@@ -5547,7 +6191,33 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
               : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300'
           }`}
         >
-          Configurações
+          IA Config
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab('CRM');
+            setCrmView('CONTA');
+          }}
+          className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.14em] border transition-all ${
+            activeTab === 'CRM' && crmView === 'CONTA'
+              ? 'border-transparent bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-[0_8px_20px_-12px_rgba(249,115,22,0.85)]'
+              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300'
+          }`}
+        >
+          Conta
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab('CRM');
+            setCrmView('WEBHOOK_LOGS');
+          }}
+          className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.14em] border transition-all ${
+            activeTab === 'CRM' && crmView === 'WEBHOOK_LOGS'
+              ? 'border-transparent bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-[0_8px_20px_-12px_rgba(249,115,22,0.85)]'
+              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300'
+          }`}
+        >
+          Webhook Logs
         </button>
       </div>
 
@@ -5604,6 +6274,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                   <GitBranch size={16} />
                   AI Fluxo
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setCrmView('WEBHOOK_LOGS')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${crmView === 'WEBHOOK_LOGS' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'text-slate-600 hover:bg-cyan-50'}`}
+                >
+                  <FileText size={16} />
+                  Webhook Logs
+                </button>
               </nav>
 
               <div className="mt-auto pt-4 border-t border-cyan-100">
@@ -5634,7 +6312,13 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                   />
                 </div>
                 <span className="px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-black uppercase tracking-widest dark:bg-zinc-900 dark:text-zinc-300">
-                  {crmView === 'DASHBOARD' ? 'Painel' : crmView === 'CONVERSAS' ? 'Atendimento' : 'Configuração'}
+                  {crmView === 'DASHBOARD'
+                    ? 'Painel'
+                    : crmView === 'CONVERSAS'
+                      ? 'Atendimento'
+                      : crmView === 'WEBHOOK_LOGS'
+                        ? 'Webhook'
+                        : 'Configuração'}
                 </span>
                 <span
                   className={`px-3 py-2 rounded-xl text-xs font-black uppercase tracking-widest inline-flex items-center gap-2 ${
@@ -5810,7 +6494,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         <p className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Central de Atendimento</p>
                         <button
                           onClick={() => {
-                            if (!status.connected) {
+                            if (!status.connected && providerConfig.mode !== 'EXTERNAL') {
                               setFeedback('Para abrir uma nova conversa, conecte o WhatsApp na aba QR CODE.');
                               setActiveTab('SESSION_QR');
                               return;
@@ -6085,6 +6769,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                     ) : (
                       <>
                         <div className="shrink-0 sticky top-0 z-10 px-5 py-4 bg-white border-b border-slate-200 flex items-center justify-between dark:bg-zinc-900/80 dark:border-white/10">
+                          <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 overflow-hidden shadow-sm">
+                              {selectedChat.avatarUrl ? (
+                                <img src={selectedChat.avatarUrl} alt={selectedChat.displayName} className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="font-black text-xl">{String(selectedChat.displayName || '?').charAt(0).toUpperCase()}</span>
+                              )}
+                            </div>
                           <div>
                             <div className="flex items-center gap-2">
                               <p className="text-2xl font-black text-slate-900 dark:text-zinc-100">{selectedChat.displayName}</p>
@@ -6115,6 +6807,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                 IA {aiAgentEnabledForChat ? 'Auto ON' : 'Auto OFF'}
                               </span>
                             </div>
+                          </div>
                           </div>
                           <div className="flex items-center gap-2 text-slate-500 dark:text-zinc-400">
                             <button className="p-2 rounded-lg hover:bg-cyan-50 dark:hover:bg-zinc-800" type="button"><PhoneCall size={16} /></button>
@@ -6343,19 +7036,32 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                           >
                             <Bot size={15} />
                           </button>
+                          {providerConfig.mode === 'EXTERNAL' && (
+                            <button
+                              type="button"
+                              onClick={() => setIsEnvioAvancadoOpen(true)}
+                              disabled={!selectedChatId}
+                              className="p-3 rounded-xl border-2 border-amber-200 bg-amber-50 hover:bg-amber-100 disabled:opacity-50 text-amber-700 dark:bg-zinc-900 dark:border-amber-500/30 dark:text-amber-400 dark:hover:bg-zinc-800"
+                              title="Funções da API externa"
+                            >
+                              <Sparkles size={15} />
+                            </button>
+                          )}
                           <textarea
                             ref={chatReplyInputRef}
                             rows={2}
                             value={chatReply}
                             onChange={(e) => setChatReply(e.target.value)}
-                            placeholder={status.connected ? 'Digite uma mensagem...' : 'Conecte na aba QR CODE para enviar mensagens...'}
-                            disabled={!status.connected}
+                            placeholder={(status.connected || (providerConfig.mode === 'EXTERNAL' && providerConfig.external.enabled))
+                              ? 'Digite uma mensagem...'
+                              : 'Conecte na aba QR CODE para enviar mensagens...'}
+                            disabled={!(status.connected || (providerConfig.mode === 'EXTERNAL' && providerConfig.external.enabled))}
                             className="flex-1 px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-400 outline-none text-sm bg-white dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
                           />
                           <button
                             type="button"
                             onClick={handleReply}
-                            disabled={!status.connected || isSendingChat || (!chatReply.trim() && !chatAttachment)}
+                            disabled={(!(status.connected || (providerConfig.mode === 'EXTERNAL' && providerConfig.external.enabled))) || isSendingChat || (!chatReply.trim() && !chatAttachment)}
                             className="px-4 py-3 rounded-xl bg-[#065f46] hover:bg-emerald-800 disabled:opacity-60 text-white font-black"
                           >
                             <Send size={15} />
@@ -6489,18 +7195,18 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             </div>
 
                             <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-white/10 rounded-2xl border border-slate-200 bg-white p-3 dark:bg-zinc-900 dark:border-white/10">
-                              <p className="text-[11px] uppercase tracking-widest font-black text-slate-500">Relatório Consumo Semanal</p>
+                              <p className="text-[11px] uppercase tracking-widest font-black text-slate-500">Relatório de Consumo</p>
                               <p className="text-[10px] font-semibold text-slate-400 dark:text-zinc-500 leading-relaxed">
-                                Envia o consumo dos últimos 7 dias considerando os dias de funcionamento configurados.
+                                Escolha o período do histórico e envie o relatório completo em PDF.
                               </p>
                               <button
                                 type="button"
-                                onClick={handleSendConsumptionReport}
+                                onClick={() => setIsReportPeriodModalOpen(true)}
                                 disabled={isSendingReport || !selectedChatClient || !['ALUNO', 'COLABORADOR'].includes(String(selectedChatClient?.type || '').toUpperCase())}
                                 className="w-full px-3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
                               >
                                 <CalendarDays size={13} />
-                                {isSendingReport ? 'Enviando...' : 'Enviar relatório semanal'}
+                                {isSendingReport ? 'Enviando...' : 'Extrato de transações'}
                               </button>
                               <p className="text-[11px] font-semibold text-slate-500 dark:text-zinc-400">
                                 {selectedChatClient
@@ -8291,14 +8997,590 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                 </div>
               )}
 
+              {crmView === 'WEBHOOK_LOGS' && (
+                <div className="flex-1 p-6 bg-slate-50/60 overflow-y-auto">
+                  <section className="rounded-2xl border border-cyan-100 bg-white p-4 space-y-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="text-[11px] font-black uppercase tracking-widest text-cyan-600">Diagnostico</p>
+                        <h3 className="text-xl font-black text-slate-900">Logs de Webhook</h3>
+                        <p className="text-xs font-semibold text-slate-500 mt-1">
+                          Aqui voce visualiza eventos recebidos, ignorados e erros do endpoint webhook externo.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => loadWebhookLogs()}
+                          disabled={isLoadingWebhookLogs}
+                          className="px-3 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-300 text-white text-xs font-black uppercase tracking-widest"
+                        >
+                          {isLoadingWebhookLogs ? 'Atualizando...' : 'Atualizar'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!window.confirm('Deseja limpar os logs de webhook desta unidade?')) return;
+                            try {
+                              await ApiService.clearWhatsAppWebhookLogs();
+                              await loadWebhookLogs();
+                              setFeedback('Logs de webhook limpos.');
+                            } catch (err) {
+                              setFeedback(err instanceof Error ? err.message : 'Falha ao limpar logs de webhook.');
+                            }
+                          }}
+                          className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black uppercase tracking-widest"
+                        >
+                          Limpar Logs
+                        </button>
+                      </div>
+                    </div>
+
+                    {isLoadingWebhookLogs ? (
+                      <div className="text-sm font-semibold text-slate-500">Carregando logs...</div>
+                    ) : webhookLogs.length === 0 ? (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-5 text-sm font-semibold text-slate-500">
+                        Sem eventos de webhook por enquanto.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {webhookLogs.map((log) => {
+                          const statusTone = log.status === 'RECEIVED'
+                            ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                            : log.status === 'ERROR'
+                              ? 'bg-rose-100 text-rose-700 border-rose-200'
+                              : 'bg-amber-100 text-amber-700 border-amber-200';
+                          return (
+                            <article key={log.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className={`px-2 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-widest ${statusTone}`}>
+                                  {log.status}
+                                </span>
+                                <span className="text-[11px] font-semibold text-slate-500">
+                                  {new Date(Number(log.timestamp || Date.now())).toLocaleString('pt-BR')}
+                                </span>
+                                {log.reason && (
+                                  <span className="px-2 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                                    {log.reason}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                <p className="font-semibold text-slate-600">Chat: <span className="font-black text-slate-800">{log.chatId || '-'}</span></p>
+                                <p className="font-semibold text-slate-600">Numero: <span className="font-black text-slate-800">{log.number || '-'}</span></p>
+                                <p className="font-semibold text-slate-600">MessageId: <span className="font-black text-slate-800">{log.messageId || '-'}</span></p>
+                                <p className="font-semibold text-slate-600">fromMe: <span className="font-black text-slate-800">{String(Boolean(log.fromMe))}</span></p>
+                              </div>
+
+                              {log.message && (
+                                <p className="mt-2 text-xs font-semibold text-slate-700 whitespace-pre-wrap break-words">
+                                  {log.message}
+                                </p>
+                              )}
+
+                              {log.error && (
+                                <p className="mt-2 text-xs font-black text-rose-600 whitespace-pre-wrap break-words">
+                                  {log.error}
+                                </p>
+                              )}
+
+                              {log.payloadPreview && (
+                                <details className="mt-2">
+                                  <summary className="cursor-pointer text-[11px] font-black uppercase tracking-widest text-cyan-700">
+                                    Ver payload
+                                  </summary>
+                                  <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-2 text-[11px] text-slate-700 whitespace-pre-wrap break-words">
+                                    {log.payloadPreview}
+                                  </pre>
+                                </details>
+                              )}
+                            </article>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                </div>
+              )}
+
               {crmView === 'CONTA' && (
                 <div className="flex-1 p-8 bg-slate-50/60">
-                  <div className="rounded-2xl border border-cyan-100 bg-white p-6 max-w-2xl">
+                  <div className="rounded-2xl border border-cyan-100 bg-white p-6 max-w-4xl">
                     <p className="text-lg font-black text-slate-900">Conta</p>
                     <p className="mt-2 text-sm font-semibold text-slate-500">
                       Esta seção permanece para ajustes de conta e preferências da operação.
                     </p>
-                    <div className="mt-4 flex gap-2">
+                    <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <label className="space-y-1">
+                        <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Tipo de conexão</span>
+                        <select
+                          value={providerConfig.mode}
+                          onChange={(e) => setProviderConfig((prev) => {
+                            const nextMode = e.target.value === 'EXTERNAL' ? 'EXTERNAL' : 'NATIVE';
+                            if (nextMode !== 'EXTERNAL') {
+                              return {
+                                ...prev,
+                                mode: 'NATIVE',
+                              };
+                            }
+                            return {
+                              ...prev,
+                              mode: 'EXTERNAL',
+                              external: {
+                                ...prev.external,
+                                providerCode: String(prev.external.providerCode || 'UAZAPI').trim().toUpperCase() || 'UAZAPI',
+                                baseUrl: String(prev.external.baseUrl || '').trim() || 'https://{subdomain}.uazapi.com',
+                                tokenHeaderName: 'token',
+                                tokenPrefix: '',
+                                testPath: '/send/text',
+                                testMethod: 'POST',
+                                webhookMethod: 'POST',
+                                webhookEventsCsv: String(prev.external.webhookEventsCsv || '').trim() || 'messages',
+                                webhookExcludeMessagesCsv: String(prev.external.webhookExcludeMessagesCsv || '').trim() || 'wasSentByApi, isGroupYes',
+                              },
+                            };
+                          })}
+                          className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                        >
+                          <option value="NATIVE">WhatsApp Baileys (QR no Cantina Smart)</option>
+                          <option value="EXTERNAL">API Externa (UAZAPIGO)</option>
+                        </select>
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Status atual</span>
+                        <div className={`px-3 py-2.5 rounded-xl border text-sm font-black ${status.connected ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+                          {status.connected ? `Conectado (${status.providerMode || 'NATIVE'})` : 'Desconectado'}
+                        </div>
+                      </label>
+                    </div>
+                    {providerConfig.mode === 'NATIVE' && (
+                      <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                        <p className="text-sm font-black text-emerald-800">Modo Baileys ativo</p>
+                        <p className="mt-1 text-xs font-semibold text-emerald-700">
+                          Neste modo, a conexão é via QR Code do próprio Cantina Smart. Use a aba QR Code para conectar a sessão.
+                        </p>
+                      </div>
+                    )}
+                    {providerConfig.mode === 'EXTERNAL' && (
+                      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <label className="md:col-span-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={providerConfig.external.enabled}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                enabled: e.target.checked,
+                              },
+                            }))}
+                          />
+                          Ativar provedor externo
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Provedor externo</span>
+                          <select
+                            value={providerConfig.external.providerCode}
+                            onChange={(e) => setProviderConfig((prev) => {
+                              const nextProvider = String(e.target.value || 'UAZAPI').toUpperCase();
+                              const nextIsUazapi = nextProvider === 'UAZAPI';
+                              return {
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                providerCode: nextProvider,
+                                baseUrl: nextIsUazapi
+                                  ? (String(prev.external.baseUrl || '').trim() || 'https://{subdomain}.uazapi.com')
+                                  : prev.external.baseUrl,
+                                tokenHeaderName: nextIsUazapi ? 'token' : prev.external.tokenHeaderName,
+                                tokenPrefix: nextIsUazapi ? '' : prev.external.tokenPrefix,
+                                testPath: nextIsUazapi ? '/send/text' : prev.external.testPath,
+                                testMethod: nextIsUazapi ? 'POST' : prev.external.testMethod,
+                                sendPath: nextIsUazapi ? '/send/text' : prev.external.sendPath,
+                                sendMethod: nextIsUazapi ? 'POST' : prev.external.sendMethod,
+                                mediaPath: nextIsUazapi ? '/send/media' : prev.external.mediaPath,
+                                mediaMethod: nextIsUazapi ? 'POST' : prev.external.mediaMethod,
+                                menuPath: nextIsUazapi ? '/send/menu' : prev.external.menuPath,
+                                menuMethod: nextIsUazapi ? 'POST' : prev.external.menuMethod,
+                                carouselPath: nextIsUazapi ? '/send/carousel' : prev.external.carouselPath,
+                                carouselMethod: nextIsUazapi ? 'POST' : prev.external.carouselMethod,
+                                paymentPath: nextIsUazapi ? '/send/pix-button' : prev.external.paymentPath,
+                                paymentMethod: nextIsUazapi ? 'POST' : prev.external.paymentMethod,
+                                bulkPath: nextIsUazapi ? '/send/text' : prev.external.bulkPath,
+                                bulkMethod: nextIsUazapi ? 'POST' : prev.external.bulkMethod,
+                                webhookMethod: nextIsUazapi ? 'POST' : prev.external.webhookMethod,
+                                webhookEventsCsv: nextIsUazapi
+                                  ? (String(prev.external.webhookEventsCsv || '').trim() || 'messages')
+                                  : prev.external.webhookEventsCsv,
+                                webhookExcludeMessagesCsv: nextIsUazapi
+                                  ? (String(prev.external.webhookExcludeMessagesCsv || '').trim() || 'wasSentByApi, isGroupYes')
+                                  : prev.external.webhookExcludeMessagesCsv,
+                              },
+                            };})}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                          >
+                            <option value="UAZAPI">UAZAPIGO</option>
+                            <option value="CUSTOM">Outro provedor</option>
+                          </select>
+                        </label>
+                        {isUazapiExternal ? (
+                          <>
+                            <div className="md:col-span-2 rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3">
+                              <p className="text-sm font-black text-cyan-800">Configuração rápida UAZAPIGO</p>
+                              <p className="mt-1 text-xs font-semibold text-cyan-700">
+                                Preencha apenas subdomain/instância e token. Os demais parâmetros técnicos são aplicados automaticamente.
+                              </p>
+                            </div>
+                            <label className="space-y-1">
+                              <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Subdomain / Instância</span>
+                              <input
+                                value={providerConfig.external.subdomain}
+                                onChange={(e) => setProviderConfig((prev) => ({
+                                  ...prev,
+                                  external: {
+                                    ...prev.external,
+                                    subdomain: e.target.value,
+                                  },
+                                }))}
+                                className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                                placeholder="minha-instancia"
+                              />
+                            </label>
+                            <label className="space-y-1">
+                              <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Base URL (automática)</span>
+                              <input
+                                value={providerConfig.external.baseUrl || 'https://{subdomain}.uazapi.com'}
+                                readOnly
+                                className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 bg-slate-100 outline-none text-sm font-semibold text-slate-600"
+                              />
+                            </label>
+                            <label className="md:col-span-2 space-y-1">
+                              <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Token da instância</span>
+                              <input
+                                value={providerConfig.external.token}
+                                onChange={(e) => setProviderConfig((prev) => ({
+                                  ...prev,
+                                  external: {
+                                    ...prev.external,
+                                    token: e.target.value,
+                                  },
+                                }))}
+                                className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                                placeholder={providerConfig.external.hasToken ? `Atual: ${providerConfig.external.tokenMasked}` : 'Cole o token da API'}
+                              />
+                            </label>
+                            <div className="md:col-span-2 rounded-xl border border-cyan-200 bg-white px-4 py-3 space-y-3">
+                              <p className="text-xs font-black uppercase tracking-widest text-cyan-700">Webhook UAZAPIGO</p>
+                              <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={providerConfig.external.webhookEnabled}
+                                  onChange={(e) => setProviderConfig((prev) => ({
+                                    ...prev,
+                                    external: {
+                                      ...prev.external,
+                                      webhookEnabled: e.target.checked,
+                                    },
+                                  }))}
+                                />
+                                Habilitado
+                              </label>
+                              <label className="space-y-1 block">
+                                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">URL final (Cantina Smart)</span>
+                                <input
+                                  value={webhookFinalUrl}
+                                  readOnly
+                                  className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 bg-slate-100 outline-none text-xs font-semibold text-slate-600"
+                                />
+                              </label>
+                              <label className="space-y-1 block">
+                                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">URL webhook configurada na UAZAPI</span>
+                                <input
+                                  value={providerConfig.external.webhookUrl}
+                                  onChange={(e) => setProviderConfig((prev) => ({
+                                    ...prev,
+                                    external: {
+                                      ...prev.external,
+                                      webhookUrl: e.target.value,
+                                    },
+                                  }))}
+                                  className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-xs font-semibold"
+                                  placeholder={webhookFinalUrl}
+                                />
+                              </label>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
+                                  <input
+                                    type="checkbox"
+                                    checked={providerConfig.external.webhookAddUrlEvents}
+                                    onChange={(e) => setProviderConfig((prev) => ({
+                                      ...prev,
+                                      external: {
+                                        ...prev.external,
+                                        webhookAddUrlEvents: e.target.checked,
+                                      },
+                                    }))}
+                                  />
+                                  addUrlEvents
+                                </label>
+                                <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
+                                  <input
+                                    type="checkbox"
+                                    checked={providerConfig.external.webhookAddUrlTypesMessages}
+                                    onChange={(e) => setProviderConfig((prev) => ({
+                                      ...prev,
+                                      external: {
+                                        ...prev.external,
+                                        webhookAddUrlTypesMessages: e.target.checked,
+                                      },
+                                    }))}
+                                  />
+                                  addUrlTypesMessages
+                                </label>
+                              </div>
+                              <label className="space-y-1 block">
+                                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Escutar eventos (csv)</span>
+                                <input
+                                  value={providerConfig.external.webhookEventsCsv}
+                                  onChange={(e) => setProviderConfig((prev) => ({
+                                    ...prev,
+                                    external: {
+                                      ...prev.external,
+                                      webhookEventsCsv: e.target.value,
+                                    },
+                                  }))}
+                                  className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-xs font-semibold"
+                                  placeholder="messages"
+                                />
+                              </label>
+                              <label className="space-y-1 block">
+                                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Excluir dos eventos (csv)</span>
+                                <input
+                                  value={providerConfig.external.webhookExcludeMessagesCsv}
+                                  onChange={(e) => setProviderConfig((prev) => ({
+                                    ...prev,
+                                    external: {
+                                      ...prev.external,
+                                      webhookExcludeMessagesCsv: e.target.value,
+                                    },
+                                  }))}
+                                  className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-xs font-semibold"
+                                  placeholder="wasSentByApi, isGroupYes"
+                                />
+                              </label>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Subdomain / Instância</span>
+                          <input
+                            value={providerConfig.external.subdomain}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                subdomain: e.target.value,
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder="minha-instancia"
+                          />
+                        </label>
+                        <label className="md:col-span-2 space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Base URL (use {'{subdomain}'} se precisar)</span>
+                          <input
+                            value={providerConfig.external.baseUrl}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                baseUrl: e.target.value,
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder="https://api.exemplo.com/{subdomain}"
+                          />
+                        </label>
+                        <label className="md:col-span-2 space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Token</span>
+                          <input
+                            value={providerConfig.external.token}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                token: e.target.value,
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder={providerConfig.external.hasToken ? `Atual: ${providerConfig.external.tokenMasked}` : 'Cole o token da API'}
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Header do token</span>
+                          <input
+                            value={providerConfig.external.tokenHeaderName}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                tokenHeaderName: e.target.value,
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder="Authorization"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Prefixo do token</span>
+                          <input
+                            value={providerConfig.external.tokenPrefix}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                tokenPrefix: e.target.value,
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder="Bearer"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Endpoint teste</span>
+                          <input
+                            value={providerConfig.external.testPath}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                testPath: e.target.value,
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder="/connection/test"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Método teste</span>
+                          <select
+                            value={providerConfig.external.testMethod}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                testMethod: (e.target.value === 'GET' || e.target.value === 'PUT') ? e.target.value as ExternalProviderHttpMethod : 'POST',
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                          >
+                            <option value="POST">POST</option>
+                            <option value="GET">GET</option>
+                            <option value="PUT">PUT</option>
+                          </select>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Endpoint envio</span>
+                          <input
+                            value={providerConfig.external.sendPath}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                sendPath: e.target.value,
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder="/message/send"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Endpoint mídia</span>
+                          <input
+                            value={providerConfig.external.mediaPath}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                mediaPath: e.target.value,
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder="/send/media"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Endpoint disparo</span>
+                          <input
+                            value={providerConfig.external.bulkPath}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                bulkPath: e.target.value,
+                              },
+                            }))}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-semibold"
+                            placeholder="/message/send-bulk"
+                          />
+                        </label>
+                        <label className="md:col-span-2 space-y-1">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Campos comuns JSON (delay, readchat, readmessages, replyid, mentions, forward, track_source, track_id, placeholders)</span>
+                          <textarea
+                            value={providerConfig.external.commonFieldsJson}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                commonFieldsJson: e.target.value,
+                              },
+                            }))}
+                            rows={6}
+                            className="w-full px-3 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-xs font-mono"
+                            placeholder={`{
+  "delay": 1000,
+  "readchat": true
+}`}
+                          />
+                        </label>
+                        <div className="md:col-span-2 flex justify-end pt-1">
+                          {externalProviderValidationError && (
+                            <p className="mr-auto text-xs font-black text-rose-600">
+                              {externalProviderValidationError}
+                            </p>
+                          )}
+                          <button
+                            type="button"
+                            onClick={handleSaveProviderConfig}
+                            disabled={isSavingProviderConfig || Boolean(externalProviderValidationError)}
+                            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white text-xs font-black uppercase tracking-widest"
+                          >
+                            {isSavingProviderConfig ? 'Salvando...' : 'Salvar API Externa'}
+                          </button>
+                        </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    <div className="mt-5 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSaveProviderConfig}
+                        disabled={isSavingProviderConfig || Boolean(externalProviderValidationError)}
+                        className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white text-xs font-black uppercase tracking-widest"
+                      >
+                        {isSavingProviderConfig ? 'Salvando...' : 'Salvar Provedor'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleTestProviderConnection}
+                        disabled={isTestingProviderConfig}
+                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:bg-slate-300 text-white text-xs font-black uppercase tracking-widest"
+                      >
+                        {isTestingProviderConfig ? 'Testando...' : 'Testar Conexão'}
+                      </button>
                       <button
                         type="button"
                         onClick={() => setCrmView('CONVERSAS')}
@@ -8428,6 +9710,16 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         </div>
       )}
 
+      {isEnvioAvancadoOpen && selectedChat && (
+        <EnvioAvancadoModal
+          chatId={selectedChat.chatId}
+          phone={selectedChat.phone}
+          displayName={selectedChat.displayName}
+          onClose={() => setIsEnvioAvancadoOpen(false)}
+          onSent={() => setFeedback('Mensagem enviada com sucesso!')}
+        />
+      )}
+
       {isScheduleModalOpen && (
         <div className="fixed inset-0 z-[85] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md rounded-2xl bg-white border border-cyan-100 shadow-2xl overflow-hidden">
@@ -8474,6 +9766,69 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                   className="px-3 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:bg-gray-300 text-white text-xs font-black uppercase tracking-widest"
                 >
                   {isScheduling ? 'Agendando...' : 'Agendar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isReportPeriodModalOpen && (
+        <div className="fixed inset-0 z-[86] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white border border-cyan-100 shadow-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-cyan-100 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-cyan-600">Relatório de conversa</p>
+                <h3 className="text-lg font-black text-slate-900">Selecione o período</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsReportPeriodModalOpen(false)}
+                className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {CHAT_CONVERSATION_REPORT_PERIOD_OPTIONS.map((option) => {
+                  const isSelected = chatConversationReportPeriod === option.key;
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => setChatConversationReportPeriod(option.key)}
+                      className={`rounded-xl border px-3 py-3 text-left transition-all ${
+                        isSelected
+                          ? 'border-emerald-500 bg-emerald-50 shadow-[0_0_0_2px_rgba(16,185,129,0.18)]'
+                          : 'border-slate-200 bg-white hover:bg-slate-50'
+                      }`}
+                    >
+                      <p className="text-sm font-black text-slate-800">{option.label}</p>
+                      <p className="text-[11px] font-semibold text-slate-500 mt-1">{option.description}</p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsReportPeriodModalOpen(false)}
+                  className="px-3 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-black uppercase tracking-widest hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsReportPeriodModalOpen(false);
+                    await handleSendConsumptionReport(chatConversationReportPeriod);
+                  }}
+                  disabled={isSendingReport}
+                  className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white text-xs font-black uppercase tracking-widest"
+                >
+                  {isSendingReport ? 'Enviando...' : 'Gerar e enviar'}
                 </button>
               </div>
             </div>

@@ -55,10 +55,13 @@ interface DatabaseShape {
     aiConfig?: any;
     syncDiagnostics?: any;
     agendaByEnterprise?: Record<string, any[]>;
+    leadPhonesByEnterprise?: Record<string, string[]>;
+    webhookLogsByEnterprise?: Record<string, any[]>;
     dispatchAutomationsByEnterprise?: Record<string, any>;
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
     dispatchIdempotencyByEnterprise?: Record<string, any[]>;
+    providerConfigByEnterprise?: Record<string, any>;
     sessionBoundEnterpriseId?: string;
     sessionBoundAt?: string;
     updatedAt?: string;
@@ -93,6 +96,9 @@ const createEmptyDatabase = (): DatabaseShape => ({
   schoolCalendars: [],
   whatsappStore: {
     agendaByEnterprise: {},
+    leadPhonesByEnterprise: {},
+    webhookLogsByEnterprise: {},
+    providerConfigByEnterprise: {},
   },
 });
 
@@ -132,10 +138,13 @@ export class Database {
     aiConfig?: any;
     syncDiagnostics?: any;
     agendaByEnterprise?: Record<string, any[]>;
+    leadPhonesByEnterprise?: Record<string, string[]>;
+    webhookLogsByEnterprise?: Record<string, any[]>;
     dispatchAutomationsByEnterprise?: Record<string, any>;
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
     dispatchIdempotencyByEnterprise?: Record<string, any[]>;
+    providerConfigByEnterprise?: Record<string, any>;
     sessionBoundEnterpriseId?: string;
     sessionBoundAt?: string;
     updatedAt?: string;
@@ -1544,6 +1553,103 @@ export class Database {
   private normalizeIncomingData(raw: any): DatabaseShape {
     const safeRaw = raw && typeof raw === 'object' ? raw : {};
     const ensureArray = (value: any) => (Array.isArray(value) ? value : []);
+    const normalizeToken = (value: any) =>
+      String(value || '')
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase();
+    const normalizePhone = (value: any) => String(value || '').replace(/\D/g, '');
+    const parseClientTimestamp = (client: any) => {
+      const parsed = Date.parse(String(client?.updatedAt || client?.createdAt || ''));
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const buildStudentIdentityKey = (client: any) => {
+      const type = normalizeToken(client?.type);
+      if (type !== 'ALUNO') return '';
+
+      const enterpriseId = String(client?.enterpriseId || '').trim();
+      const registrationId = normalizeToken(client?.registrationId);
+      const name = normalizeToken(client?.name);
+      const phone = normalizePhone(client?.phone || client?.parentWhatsapp || '');
+
+      // Matricula is authoritative when present. Fallback to name+phone.
+      if (registrationId) return [enterpriseId, 'REG', registrationId].join('|');
+      if (name && phone) return [enterpriseId, 'NAME_PHONE', name, phone].join('|');
+      return '';
+    };
+    const resolveCanonicalClientId = (candidateId: string, remap: Map<string, string>) => {
+      let current = String(candidateId || '').trim();
+      const visited = new Set<string>();
+      while (current && remap.has(current) && !visited.has(current)) {
+        visited.add(current);
+        current = String(remap.get(current) || '').trim();
+      }
+      return current;
+    };
+
+    const rawClients = ensureArray(safeRaw.clients);
+    const rawTransactions = ensureArray(safeRaw.transactions);
+    const rawOrders = ensureArray(safeRaw.orders);
+    const duplicateGroups = new Map<string, any[]>();
+    rawClients.forEach((client: any) => {
+      const key = buildStudentIdentityKey(client);
+      if (!key) return;
+      if (!duplicateGroups.has(key)) duplicateGroups.set(key, []);
+      duplicateGroups.get(key)?.push(client);
+    });
+
+    const removedClientIdToCanonicalId = new Map<string, string>();
+    const canonicalByIdentityKey = new Map<string, string>();
+    for (const [key, group] of duplicateGroups.entries()) {
+      if (!Array.isArray(group) || group.length <= 1) continue;
+      const sorted = [...group].sort((a: any, b: any) => parseClientTimestamp(b) - parseClientTimestamp(a));
+      const winner = sorted[0];
+      const winnerId = String(winner?.id || '').trim();
+      if (!winnerId) continue;
+
+      canonicalByIdentityKey.set(key, winnerId);
+      sorted.slice(1).forEach((client: any) => {
+        const loserId = String(client?.id || '').trim();
+        if (!loserId || loserId === winnerId) return;
+        removedClientIdToCanonicalId.set(loserId, winnerId);
+      });
+    }
+
+    const dedupedClients: any[] = [];
+    const seenClientIds = new Set<string>();
+    rawClients.forEach((client: any) => {
+      const clientId = String(client?.id || '').trim();
+      const identityKey = buildStudentIdentityKey(client);
+      const canonicalId = identityKey ? String(canonicalByIdentityKey.get(identityKey) || '').trim() : '';
+      if (identityKey && canonicalId && clientId && clientId !== canonicalId) return;
+      if (clientId && seenClientIds.has(clientId)) return;
+      if (clientId) seenClientIds.add(clientId);
+      dedupedClients.push(client);
+    });
+
+    const remappedTransactions = rawTransactions.map((item: any) => {
+      const currentClientId = String(item?.clientId || '').trim();
+      if (!currentClientId) return item;
+      const canonicalClientId = resolveCanonicalClientId(currentClientId, removedClientIdToCanonicalId);
+      if (!canonicalClientId || canonicalClientId === currentClientId) return item;
+      return {
+        ...item,
+        clientId: canonicalClientId,
+      };
+    });
+
+    const remappedOrders = rawOrders.map((item: any) => {
+      const currentClientId = String(item?.clientId || '').trim();
+      if (!currentClientId) return item;
+      const canonicalClientId = resolveCanonicalClientId(currentClientId, removedClientIdToCanonicalId);
+      if (!canonicalClientId || canonicalClientId === currentClientId) return item;
+      return {
+        ...item,
+        clientId: canonicalClientId,
+      };
+    });
+
     const rawVersion = Number(safeRaw.schemaVersion);
     const detectedVersion = Number.isFinite(rawVersion) && rawVersion > 0
       ? Math.trunc(rawVersion)
@@ -1555,11 +1661,11 @@ export class Database {
       users: ensureArray(safeRaw.users),
       products: ensureArray(safeRaw.products),
       categories: ensureArray(safeRaw.categories),
-      clients: ensureArray(safeRaw.clients),
+      clients: dedupedClients,
       plans: ensureArray(safeRaw.plans),
       suppliers: ensureArray(safeRaw.suppliers),
-      transactions: ensureArray(safeRaw.transactions),
-      orders: ensureArray(safeRaw.orders),
+      transactions: remappedTransactions,
+      orders: remappedOrders,
       ingredients: ensureArray(safeRaw.ingredients),
       errorTickets: ensureArray((safeRaw as any).errorTickets),
       financialEntries: ensureArray((safeRaw as any).financialEntries),
@@ -1638,6 +1744,15 @@ export class Database {
       : {};
     if (!this.whatsappStore.agendaByEnterprise || typeof this.whatsappStore.agendaByEnterprise !== 'object') {
       this.whatsappStore.agendaByEnterprise = {};
+    }
+    if (!this.whatsappStore.leadPhonesByEnterprise || typeof this.whatsappStore.leadPhonesByEnterprise !== 'object') {
+      this.whatsappStore.leadPhonesByEnterprise = {};
+    }
+    if (!this.whatsappStore.webhookLogsByEnterprise || typeof this.whatsappStore.webhookLogsByEnterprise !== 'object') {
+      this.whatsappStore.webhookLogsByEnterprise = {};
+    }
+    if (!this.whatsappStore.providerConfigByEnterprise || typeof this.whatsappStore.providerConfigByEnterprise !== 'object') {
+      this.whatsappStore.providerConfigByEnterprise = {};
     }
   }
 
@@ -2492,10 +2607,13 @@ export class Database {
     aiConfig?: any;
     syncDiagnostics?: any;
     agendaByEnterprise?: Record<string, any[]>;
+    leadPhonesByEnterprise?: Record<string, string[]>;
+    webhookLogsByEnterprise?: Record<string, any[]>;
     dispatchAutomationsByEnterprise?: Record<string, any>;
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
     dispatchIdempotencyByEnterprise?: Record<string, any[]>;
+    providerConfigByEnterprise?: Record<string, any>;
     sessionBoundEnterpriseId?: string;
     sessionBoundAt?: string;
   }) {
@@ -2505,6 +2623,12 @@ export class Database {
       agendaByEnterprise: patch?.agendaByEnterprise && typeof patch.agendaByEnterprise === 'object'
         ? patch.agendaByEnterprise
         : ((this.getWhatsAppStore() as any)?.agendaByEnterprise || {}),
+      webhookLogsByEnterprise: patch?.webhookLogsByEnterprise && typeof patch.webhookLogsByEnterprise === 'object'
+        ? patch.webhookLogsByEnterprise
+        : ((this.getWhatsAppStore() as any)?.webhookLogsByEnterprise || {}),
+      providerConfigByEnterprise: patch?.providerConfigByEnterprise && typeof patch.providerConfigByEnterprise === 'object'
+        ? patch.providerConfigByEnterprise
+        : ((this.getWhatsAppStore() as any)?.providerConfigByEnterprise || {}),
       updatedAt: new Date().toISOString(),
     };
     this.saveData();
@@ -3331,10 +3455,11 @@ export class Database {
   private collectTransactionIdsForDeletion(
     targetTransaction: any,
     normalizedId: string,
-    options?: { includeOriginCredit?: boolean }
+    options?: { includeOriginCredit?: boolean; purgeClientHistory?: boolean }
   ) {
     const idsToDelete = new Set<string>([normalizedId]);
     const includeOriginCredit = Boolean(options?.includeOriginCredit);
+    const purgeClientHistory = Boolean(options?.purgeClientHistory);
 
     const isPlanCreditTx = (tx: any) => {
       const txType = this.normalizeToken(tx?.type);
@@ -3421,10 +3546,26 @@ export class Database {
       });
     }
 
+    if (purgeClientHistory) {
+      const targetClientId = String(targetTransaction?.clientId || '').trim();
+      const targetEnterpriseId = String(targetTransaction?.enterpriseId || '').trim();
+      if (targetClientId) {
+        this.transactions.forEach((tx: any) => {
+          const txId = String(tx?.id || '').trim();
+          if (!txId) return;
+          const txClientId = String(tx?.clientId || '').trim();
+          if (!txClientId || txClientId !== targetClientId) return;
+          const txEnterpriseId = String(tx?.enterpriseId || '').trim();
+          if (targetEnterpriseId && txEnterpriseId && txEnterpriseId !== targetEnterpriseId) return;
+          idsToDelete.add(txId);
+        });
+      }
+    }
+
     return idsToDelete;
   }
 
-  getTransactionDeletePreview(id: string, options?: { includeOriginCredit?: boolean }) {
+  getTransactionDeletePreview(id: string, options?: { includeOriginCredit?: boolean; purgeClientHistory?: boolean }) {
     const normalizedId = String(id || '').trim();
     if (!normalizedId) return null;
 
@@ -3432,7 +3573,11 @@ export class Database {
     if (!targetTransaction) return null;
 
     const includeOriginCredit = Boolean(options?.includeOriginCredit);
-    const idsToDelete = this.collectTransactionIdsForDeletion(targetTransaction, normalizedId, { includeOriginCredit });
+    const purgeClientHistory = Boolean(options?.purgeClientHistory);
+    const idsToDelete = this.collectTransactionIdsForDeletion(targetTransaction, normalizedId, {
+      includeOriginCredit,
+      purgeClientHistory,
+    });
     const removedTransactions = this.transactions.filter((tx: any) => {
       const txId = String(tx?.id || '').trim();
       return Boolean(txId) && idsToDelete.has(txId);
@@ -3484,6 +3629,7 @@ export class Database {
       targetType: String(targetTransaction?.type || '').trim().toUpperCase(),
       targetDescription: String(targetTransaction?.description || targetTransaction?.item || '').trim(),
       includeOriginCredit,
+      purgeClientHistory,
       canAlsoDeleteOriginCredit,
       linkedOriginTransactionId: canAlsoDeleteOriginCredit ? linkedOriginId : '',
       linkedOriginDescription: canAlsoDeleteOriginCredit
@@ -3940,6 +4086,7 @@ export class Database {
       requesterUserId?: string;
       requesterRole?: string;
       includeOriginCredit?: boolean;
+      purgeClientHistory?: boolean;
     }
   ) {
     const normalizedId = String(id || '').trim();
@@ -3950,6 +4097,7 @@ export class Database {
 
     const idsToDelete = this.collectTransactionIdsForDeletion(targetTransaction, normalizedId, {
       includeOriginCredit: Boolean(audit?.includeOriginCredit),
+      purgeClientHistory: Boolean(audit?.purgeClientHistory),
     });
 
     const removedTransactions = this.transactions.filter((tx: any) => {
@@ -4125,6 +4273,27 @@ export class Database {
       const rebuilt = this.rebuildClientPlanBalancesFromTransactions(normalized);
       return this.pruneClientPlanReferencesToActivePlans(rebuilt);
     });
+
+    if (Boolean(audit?.purgeClientHistory)) {
+      const targetClientId = String(targetTransaction?.clientId || '').trim();
+      const targetEnterpriseId = String(targetTransaction?.enterpriseId || '').trim();
+      if (targetClientId) {
+        this.clients = this.clients.map((client: any) => {
+          const clientId = String(client?.id || '').trim();
+          if (!clientId || clientId !== targetClientId) return client;
+          const clientEnterpriseId = String(client?.enterpriseId || '').trim();
+          if (targetEnterpriseId && clientEnterpriseId && clientEnterpriseId !== targetEnterpriseId) return client;
+          return {
+            ...client,
+            balance: 0,
+            amountDue: 0,
+            monthlyConsumption: 0,
+            selectedPlansConfig: [],
+            planCreditBalances: {},
+          };
+        });
+      }
+    }
 
     const now = new Date();
     const deleteReason = String(audit?.deleteReason || '').trim();

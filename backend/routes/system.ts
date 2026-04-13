@@ -7,7 +7,7 @@ import { promisify } from 'util';
 import { db } from '../database.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { hashPassword, generateToken } from '../utils/security.js';
-import { requesterCanAccessEnterprise } from '../utils/enterpriseAccess.js';
+import { getRequesterEnterpriseIds, requesterCanAccessEnterprise } from '../utils/enterpriseAccess.js';
 import {
   appendDestructiveActionAudit,
   createDestructivePayloadFingerprint,
@@ -23,6 +23,7 @@ const router = Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const exec = promisify(execCallback);
+const PRODUCT_PHOTOS_DIR = path.resolve(__dirname, '../products_photos');
 const isSystemAdmin = (role?: string) => {
   const normalized = String(role || '').trim().toUpperCase();
   return normalized === 'SUPERADMIN' || normalized === 'ADMIN_SISTEMA';
@@ -39,6 +40,7 @@ const resolveRequesterName = (req: AuthRequest) => {
 };
 
 const COLLAB_MIGRATION_TAG = 'COLLAB_CONSUMPTION_MIGRATION_V1';
+type BackupScope = 'GLOBAL' | 'REDE' | 'UNIDADE';
 
 interface DatabaseBackupShape {
   enterprises: any[];
@@ -210,6 +212,194 @@ const listSystemPrinters = async (): Promise<{ name: string; isDefault: boolean 
   }));
 };
 
+const normalizeRoleToken = (value: unknown) => String(value || '').trim().toUpperCase();
+
+const resolveAllowedBackupScopesByRole = (role: unknown): BackupScope[] => {
+  const normalized = normalizeRoleToken(role);
+  if (normalized === 'SUPERADMIN' || normalized === 'ADMIN_SISTEMA') {
+    return ['GLOBAL', 'REDE', 'UNIDADE'];
+  }
+  if (normalized === 'OWNER') {
+    return ['REDE', 'UNIDADE'];
+  }
+  return ['UNIDADE'];
+};
+
+const pickScopedObjectByEnterpriseIds = (value: any, allowedEnterpriseIds: Set<string>) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(([key]) => allowedEnterpriseIds.has(String(key || '').trim()))
+  );
+};
+
+const shouldKeepEntityByEnterprise = (entity: any, allowedEnterpriseIds: Set<string>) => {
+  const enterpriseId = String(entity?.enterpriseId || '').trim();
+  if (enterpriseId) return allowedEnterpriseIds.has(enterpriseId);
+
+  const enterpriseIds = Array.isArray(entity?.enterpriseIds)
+    ? entity.enterpriseIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (enterpriseIds.length > 0) {
+    return enterpriseIds.some((id: string) => allowedEnterpriseIds.has(id));
+  }
+
+  return false;
+};
+
+const filterEntitiesByEnterprise = (items: any, allowedEnterpriseIds: Set<string>) => {
+  const safeItems = Array.isArray(items) ? items : [];
+  return safeItems.filter((entity: any) => shouldKeepEntityByEnterprise(entity, allowedEnterpriseIds));
+};
+
+const scopeWhatsAppStoreByEnterprise = (store: any, allowedEnterpriseIds: Set<string>, scope: BackupScope) => {
+  if (scope === 'GLOBAL') {
+    return store && typeof store === 'object' ? store : {};
+  }
+
+  const safeStore = store && typeof store === 'object' ? store : {};
+  const scopedStore = {
+    agendaByEnterprise: pickScopedObjectByEnterpriseIds((safeStore as any)?.agendaByEnterprise, allowedEnterpriseIds),
+    providerConfigByEnterprise: pickScopedObjectByEnterpriseIds((safeStore as any)?.providerConfigByEnterprise, allowedEnterpriseIds),
+    dispatchAutomationsByEnterprise: pickScopedObjectByEnterpriseIds((safeStore as any)?.dispatchAutomationsByEnterprise, allowedEnterpriseIds),
+    dispatchAutomationProfilesByEnterprise: pickScopedObjectByEnterpriseIds((safeStore as any)?.dispatchAutomationProfilesByEnterprise, allowedEnterpriseIds),
+    dispatchLogsByEnterprise: pickScopedObjectByEnterpriseIds((safeStore as any)?.dispatchLogsByEnterprise, allowedEnterpriseIds),
+    dispatchIdempotencyByEnterprise: pickScopedObjectByEnterpriseIds((safeStore as any)?.dispatchIdempotencyByEnterprise, allowedEnterpriseIds),
+    syncDiagnosticsByEnterprise: pickScopedObjectByEnterpriseIds((safeStore as any)?.syncDiagnosticsByEnterprise, allowedEnterpriseIds),
+    updatedAt: String((safeStore as any)?.updatedAt || '').trim(),
+  } as Record<string, any>;
+
+  return scopedStore;
+};
+
+const buildScopedBackupPayload = (rawBackup: any, options: {
+  scope: BackupScope;
+  allowedEnterpriseIds: string[];
+  requestedByUserId: string;
+  requestedByName: string;
+  requestedByRole: string;
+}) => {
+  const safeRaw = rawBackup && typeof rawBackup === 'object' ? rawBackup : {};
+  const scope = options.scope;
+  const allowedEnterpriseIds = Array.from(new Set(options.allowedEnterpriseIds.map((id) => String(id || '').trim()).filter(Boolean)));
+  const allowedEnterpriseSet = new Set(allowedEnterpriseIds);
+
+  if (scope === 'GLOBAL') {
+    return {
+      ...safeRaw,
+      backupMeta: {
+        scope,
+        generatedAt: new Date().toISOString(),
+        requestedByUserId: options.requestedByUserId,
+        requestedByName: options.requestedByName,
+        requestedByRole: options.requestedByRole,
+        enterpriseIds: [],
+        isScoped: false,
+      },
+    };
+  }
+
+  const scopedPayload: Record<string, any> = {
+    schemaVersion: safeRaw.schemaVersion ?? 2,
+    enterprises: filterEntitiesByEnterprise(safeRaw.enterprises, allowedEnterpriseSet),
+    users: filterEntitiesByEnterprise(safeRaw.users, allowedEnterpriseSet),
+    products: filterEntitiesByEnterprise(safeRaw.products, allowedEnterpriseSet),
+    productSequence: Number(safeRaw.productSequence ?? 0),
+    categories: filterEntitiesByEnterprise(safeRaw.categories, allowedEnterpriseSet),
+    clients: filterEntitiesByEnterprise(safeRaw.clients, allowedEnterpriseSet),
+    plans: filterEntitiesByEnterprise(safeRaw.plans, allowedEnterpriseSet),
+    suppliers: filterEntitiesByEnterprise(safeRaw.suppliers, allowedEnterpriseSet),
+    transactions: filterEntitiesByEnterprise(safeRaw.transactions, allowedEnterpriseSet),
+    orders: filterEntitiesByEnterprise(safeRaw.orders, allowedEnterpriseSet),
+    ingredients: filterEntitiesByEnterprise(safeRaw.ingredients, allowedEnterpriseSet),
+    errorTickets: filterEntitiesByEnterprise(safeRaw.errorTickets, allowedEnterpriseSet),
+    financialEntries: filterEntitiesByEnterprise(safeRaw.financialEntries, allowedEnterpriseSet),
+    financialSettingsByEnterprise: pickScopedObjectByEnterpriseIds(safeRaw.financialSettingsByEnterprise, allowedEnterpriseSet),
+    systemSettings: {},
+    saasCashflowEntries: filterEntitiesByEnterprise(safeRaw.saasCashflowEntries, allowedEnterpriseSet),
+    taskReminders: filterEntitiesByEnterprise(safeRaw.taskReminders, allowedEnterpriseSet),
+    devAssistantConfig: {},
+    menus: filterEntitiesByEnterprise(safeRaw.menus, allowedEnterpriseSet),
+    schoolCalendars: filterEntitiesByEnterprise(safeRaw.schoolCalendars, allowedEnterpriseSet),
+    whatsappStore: scopeWhatsAppStoreByEnterprise(safeRaw.whatsappStore, allowedEnterpriseSet, scope),
+    backupMeta: {
+      scope,
+      generatedAt: new Date().toISOString(),
+      requestedByUserId: options.requestedByUserId,
+      requestedByName: options.requestedByName,
+      requestedByRole: options.requestedByRole,
+      enterpriseIds: allowedEnterpriseIds,
+      isScoped: true,
+    },
+  };
+
+  return scopedPayload;
+};
+
+const mimeTypeFromFileName = (fileName: string) => {
+  const lower = String(fileName || '').toLowerCase();
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  return 'application/octet-stream';
+};
+
+const resolveProductPhotoFileName = (imageUrl: unknown) => {
+  const raw = String(imageUrl || '').trim();
+  if (!raw.startsWith('/products_photos/')) return '';
+  return raw.replace('/products_photos/', '').trim();
+};
+
+const attachProductImagesToBackup = async (backupPayload: any, includeProductImages: boolean) => {
+  if (!includeProductImages) return backupPayload;
+  const safePayload = backupPayload && typeof backupPayload === 'object' ? backupPayload : {};
+  const products = Array.isArray((safePayload as any)?.products) ? (safePayload as any).products : [];
+  const files = Array.from(new Set<string>(
+    products
+      .map((product: any) => resolveProductPhotoFileName(product?.image))
+      .filter((value: string) => Boolean(value))
+  ));
+  if (files.length === 0) {
+    return {
+      ...safePayload,
+      assets: {
+        ...((safePayload as any)?.assets || {}),
+        productPhotos: [],
+      },
+    };
+  }
+
+  const encodedPhotos = await Promise.all(files.map(async (fileName) => {
+    const absolutePath = path.resolve(PRODUCT_PHOTOS_DIR, fileName);
+    try {
+      const buffer = await fs.readFile(absolutePath);
+      return {
+        fileName,
+        imageUrl: `/products_photos/${fileName}`,
+        mimeType: mimeTypeFromFileName(fileName),
+        sizeBytes: buffer.byteLength,
+        dataBase64: buffer.toString('base64'),
+      };
+    } catch {
+      return {
+        fileName,
+        imageUrl: `/products_photos/${fileName}`,
+        mimeType: mimeTypeFromFileName(fileName),
+        sizeBytes: 0,
+        dataBase64: '',
+        missing: true,
+      };
+    }
+  }));
+
+  return {
+    ...safePayload,
+    assets: {
+      ...((safePayload as any)?.assets || {}),
+      productPhotos: encodedPhotos,
+    },
+  };
+};
+
 router.get('/printers', authMiddleware, async (_req: AuthRequest, res: Response) => {
   try {
     const printers = await listSystemPrinters();
@@ -231,25 +421,89 @@ router.get('/printers', authMiddleware, async (_req: AuthRequest, res: Response)
   }
 });
 
-// Download completo da database atual
+// Download da database atual (global ou por escopo de perfil)
 router.get('/backup', authMiddleware, async (req: AuthRequest, res: Response) => {
-  if (!isSystemAdmin(req.userRole)) {
-    return res.status(403).json({ success: false, message: 'Acesso restrito ao SUPERADMIN/ADMIN_SISTEMA.' });
+  const requestedScopeRaw = String(req.query?.scope || '').trim().toUpperCase();
+  const requestedEnterpriseId = String(req.query?.enterpriseId || '').trim();
+  const userRole = String(req.userRole || '').trim().toUpperCase();
+  const includeProductImages = String(req.query?.includeProductImages || 'true').trim().toLowerCase() !== 'false';
+  const userId = String(req.userId || '').trim();
+  const requesterName = resolveRequesterName(req);
+
+  const allowedScopes = resolveAllowedBackupScopesByRole(userRole);
+  const defaultScope: BackupScope = isSystemAdmin(userRole)
+    ? 'GLOBAL'
+    : (userRole === 'OWNER' ? 'REDE' : 'UNIDADE');
+  const scope: BackupScope = (requestedScopeRaw === 'GLOBAL' || requestedScopeRaw === 'REDE' || requestedScopeRaw === 'UNIDADE')
+    ? (requestedScopeRaw as BackupScope)
+    : defaultScope;
+  if (!allowedScopes.includes(scope)) {
+    return res.status(403).json({
+      success: false,
+      message: `Perfil ${userRole || 'DESCONHECIDO'} nao pode gerar backup no escopo ${scope}.`,
+    });
   }
+
+  const requesterEnterpriseIds = getRequesterEnterpriseIds(req);
+  let scopedEnterpriseIds = requesterEnterpriseIds;
+
+  if (scope === 'UNIDADE') {
+    if (requestedEnterpriseId) {
+      if (!requesterCanAccessEnterprise(req, requestedEnterpriseId) && !isSystemAdmin(userRole)) {
+        return res.status(403).json({ success: false, message: 'Acesso negado para esta unidade.' });
+      }
+      scopedEnterpriseIds = [requestedEnterpriseId];
+    } else if (!isSystemAdmin(userRole) && requesterEnterpriseIds.length > 1) {
+      return res.status(400).json({
+        success: false,
+        message: 'Informe enterpriseId para backup de unidade.',
+      });
+    } else if (!isSystemAdmin(userRole) && requesterEnterpriseIds.length === 1) {
+      scopedEnterpriseIds = [requesterEnterpriseIds[0]];
+    } else if (isSystemAdmin(userRole)) {
+      return res.status(400).json({
+        success: false,
+        message: 'No escopo UNIDADE, informe enterpriseId.',
+      });
+    }
+  } else if (scope === 'REDE') {
+    if (requestedEnterpriseId) {
+      if (!requesterCanAccessEnterprise(req, requestedEnterpriseId) && !isSystemAdmin(userRole)) {
+        return res.status(403).json({ success: false, message: 'Acesso negado para esta unidade.' });
+      }
+      scopedEnterpriseIds = [requestedEnterpriseId];
+    } else if (!isSystemAdmin(userRole) && requesterEnterpriseIds.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'Nenhuma unidade vinculada ao usuario para backup de rede.',
+      });
+    }
+  }
+
   try {
     const databasePath = path.resolve(__dirname, '../data/database.json');
     const databaseRaw = await fs.readFile(databasePath, 'utf-8');
+    const parsedBackup = JSON.parse(databaseRaw);
+    const scopedBackupBase = buildScopedBackupPayload(parsedBackup, {
+      scope,
+      allowedEnterpriseIds: scopedEnterpriseIds,
+      requestedByUserId: userId,
+      requestedByName: requesterName,
+      requestedByRole: userRole,
+    });
+    const scopedBackup = await attachProductImagesToBackup(scopedBackupBase, includeProductImages);
+    const outputRaw = JSON.stringify(scopedBackup, null, 2);
 
     const now = new Date();
     const pad = (value: number) => String(value).padStart(2, '0');
     const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
-    const filename = `database-backup-${stamp}.json`;
+    const filename = `database-backup-${scope.toLowerCase()}-${stamp}.json`;
 
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.status(200).send(databaseRaw);
+    res.status(200).send(outputRaw);
   } catch (err) {
-    console.error('❌ [SYSTEM] Erro ao gerar backup da database:', err);
+    console.error('? [SYSTEM] Erro ao gerar backup da database:', err);
     res.status(500).json({
       success: false,
       message: 'Erro ao gerar backup da database',

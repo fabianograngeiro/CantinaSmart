@@ -28,6 +28,7 @@ interface UnitSalesTransactionsPageProps {
   activeEnterprise: Enterprise;
   transactions: TransactionRecord[];
   currentUser: UserType;
+  initialSearchTerm?: string;
 }
 
 type TimeFilter = 'TODAY' | '7DAYS' | 'MONTH' | 'YEAR' | 'CUSTOM';
@@ -110,6 +111,35 @@ const normalizeSearchText = (value?: string) =>
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
 
+const repairMojibakeText = (value?: string) => {
+  const text = String(value || '');
+  if (!text || !/[ÃÂ]/.test(text)) return text;
+  try {
+    const bytes = new Uint8Array(Array.from(text).map((char) => char.charCodeAt(0) & 0xff));
+    const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    return decoded || text;
+  } catch {
+    return text;
+  }
+};
+
+const sanitizeReportText = (value: unknown, fallback = '-') => {
+  const repaired = repairMojibakeText(String(value ?? ''));
+  const normalized = repaired
+    .normalize('NFKC')
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/\uFFFD/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return fallback;
+  return normalized.replace(/[^\x20-\x7E\u00A0-\u00FF]/g, ' ').trim() || fallback;
+};
+
+const isCantinaCreditPlan = (value?: string) => {
+  const normalized = normalizeSearchText(repairMojibakeText(value));
+  return normalized === 'credito cantina' || normalized.includes('credito cantina');
+};
+
 const getTransactionItemDetails = (row: ExtendedTransactionRecord): TransactionItemDetail[] => {
   const rawItems = Array.isArray(row.raw?.items) ? row.raw.items : [];
   if (rawItems.length > 0) {
@@ -182,7 +212,7 @@ const resolveExecutionSource = (tx: any): 'USUARIO' | 'SISTEMA' => {
 
 const normalizeRole = (value?: string) => String(value || '').trim().toUpperCase();
 
-const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ activeEnterprise, transactions, currentUser }) => {
+const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ activeEnterprise, transactions, currentUser, initialSearchTerm }) => {
   // Guard clause: se não houver enterprise ativa, retornar carregamento
   if (!activeEnterprise) {
     return (
@@ -200,7 +230,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   const [planFilter, setPlanFilter] = useState<string>('ALL');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(String(initialSearchTerm || '').trim());
   const [selectedTransaction, setSelectedTransaction] = useState<ExtendedTransactionRecord | null>(null);
   const [backendTransactions, setBackendTransactions] = useState<ExtendedTransactionRecord[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -250,9 +280,17 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
   const [reverseDate, setReverseDate] = useState('');
   const [isReversingPlanCredit, setIsReversingPlanCredit] = useState(false);
   const [schoolCalendarBlockedDatesByYear, setSchoolCalendarBlockedDatesByYear] = useState<Record<number, string[]>>({});
+
+  useEffect(() => {
+    setSearchTerm(String(initialSearchTerm || '').trim());
+  }, [initialSearchTerm]);
   const canHardDeleteTransactions = useMemo(() => {
     const role = normalizeRole(currentUser?.role);
-    return role === 'SUPERADMIN' || role === 'ADMIN_SISTEMA' || role === 'ADMIN';
+    return role === 'SUPERADMIN'
+      || role === 'ADMIN_SISTEMA'
+      || role === 'ADMIN'
+      || role === 'OWNER'
+      || role === 'GERENTE';
   }, [currentUser?.role]);
 
   const schoolCalendarYearsToLoad = useMemo(() => {
@@ -670,7 +708,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       const clientId = String(row.clientId || row.raw?.clientId || '').trim();
       const planId = String(row.raw?.planId || row.planId || '').trim();
       const planName = normalizedPlanName(String(row.raw?.plan || row.raw?.planName || row.plan || row.item || ''));
-      const isPlanRow = row.plan !== 'Venda' && row.plan !== 'Crédito Cantina';
+      const isPlanRow = row.plan !== 'Venda' && !isCantinaCreditPlan(row.plan);
       if (!clientId || !isPlanRow || (!planId && !planName)) return;
 
       const key = resolveCanonicalKey(clientId, planId, planName);
@@ -1343,9 +1381,12 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
         })
       : [];
 
-    const deleteMessage = isCreditPlanTx && relatedDeliveryTxs.length > 0
-      ? `Excluir a transação de crédito plano #${row.id} e suas ${relatedDeliveryTxs.length} entrega(s) do dia (${relatedDeliveryTxs.length === 1 ? 'entregue' : 'entregues e/ou pendentes'})? Esta ação não pode ser desfeita.`
-      : `Excluir a transação #${row.id}? Esta ação não pode ser desfeita.`;
+    const purgeClientHistory = Boolean(String(row.clientId || '').trim());
+    const deleteMessage = purgeClientHistory
+      ? `Excluir TODOS os registros financeiros e de plano deste aluno/colaborador (agendado, entregue, saldos e créditos), a partir da transação #${row.id}? Esta ação não pode ser desfeita.`
+      : (isCreditPlanTx && relatedDeliveryTxs.length > 0
+          ? `Excluir a transação de crédito plano #${row.id} e suas ${relatedDeliveryTxs.length} entrega(s) do dia (${relatedDeliveryTxs.length === 1 ? 'entregue' : 'entregues e/ou pendentes'})? Esta ação não pode ser desfeita.`
+          : `Excluir a transação #${row.id}? Esta ação não pode ser desfeita.`);
 
     setDeleteTargetTransaction(row);
     setDeletePromptMessage(deleteMessage);
@@ -1376,6 +1417,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       await ApiService.deleteTransaction(row.id, {
         deleteReason: normalizedReason,
         includeOriginCredit: true,
+        purgeClientHistory: Boolean(String(row.clientId || '').trim()),
       });
       
       if (selectedTransaction?.id === row.id) setSelectedTransaction(null);
@@ -1445,9 +1487,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
       for (const txId of selectedDeletableIds) {
         try {
+          const row = normalizedTransactions.find((tx) => String(tx.id || '').trim() === String(txId || '').trim());
           await ApiService.deleteTransaction(txId, {
             deleteReason: normalizedReason,
             includeOriginCredit: true,
+            purgeClientHistory: Boolean(String(row?.clientId || '').trim()),
           });
           successCount += 1;
           if (selectedTransaction?.id === txId) setSelectedTransaction(null);
@@ -1481,8 +1525,8 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     if (!row.clientId) return false;
     const method = String(row.raw?.method || row.raw?.paymentMethod || row.method || '').toUpperCase();
     const planId = String(row.raw?.planId || row.planId || '').trim();
-    const planLabel = String(row.plan || row.raw?.plan || '').trim().toUpperCase();
-    if (['VENDA', 'CRÉDITO CANTINA', 'CREDITO CANTINA'].includes(planLabel)) return false;
+    const planLabel = String(row.plan || row.raw?.plan || '').trim();
+    if (normalizeSearchText(planLabel) === 'venda' || isCantinaCreditPlan(planLabel)) return false;
     return Boolean(planId) || method.includes('PLANO');
   };
 
@@ -1557,7 +1601,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       if (originTx?.id) return `CP-${String(originTx.id).slice(-6).toUpperCase()}`;
     }
 
-    const isPlanRow = row.plan !== 'Venda' && row.plan !== 'Crédito Cantina';
+    const isPlanRow = row.plan !== 'Venda' && !isCantinaCreditPlan(row.plan);
     const isPlanConsumption = row.type === 'CONSUMO' && isPlanRow;
     if (!isPlanConsumption) {
       return row.id ? `CP-${String(row.id).slice(-6).toUpperCase()}` : '-';
@@ -2003,7 +2047,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
     normalizedTransactions.forEach((row) => {
       if (row.type !== 'CONSUMO') return;
-      const isPlanRow = row.plan !== 'Venda' && row.plan !== 'Crédito Cantina';
+      const isPlanRow = row.plan !== 'Venda' && !isCantinaCreditPlan(row.plan);
       if (!isPlanRow) return;
 
       const rowId = String(row.id || '').trim();
@@ -2167,16 +2211,16 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
         t.date,
         t.time,
         formatDateBr(t.referenceDate) || '-',
-        t.client,
-        t.plan,
-        formatTransactionItemsForExport(t),
-        t.type,
-        t.method,
+        sanitizeReportText(t.client, '-'),
+        sanitizeReportText(t.plan, '-'),
+        sanitizeReportText(formatTransactionItemsForExport(t), '-'),
+        sanitizeReportText(t.type, '-'),
+        sanitizeReportText(t.method, '-'),
         readTxAmount(t).toFixed(2),
-        t.status,
-        studentName,
-        responsibleName,
-        responsiblePhone
+        sanitizeReportText(t.status, '-'),
+        sanitizeReportText(studentName, ''),
+        sanitizeReportText(responsibleName, ''),
+        sanitizeReportText(responsiblePhone, '')
       ];
     });
 
@@ -2211,7 +2255,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
     const csvContent = csvLines.join("\n");
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
@@ -2426,11 +2470,12 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
     const safePlanName = (value?: string) => {
-      const normalized = String(value || '').trim();
+      const repaired = sanitizeReportText(value, '').trim();
+      const normalized = normalizeSearchText(repaired);
       if (!normalized) return 'PRÉ-PAGA';
-      const upper = normalized.toUpperCase();
-      if (['AVULSO', 'N/A', 'SEM PLANO', 'PREPAGO', 'PRÉ-PAGA', 'GERAL'].includes(upper)) return 'PRÉ-PAGA';
-      return normalized;
+      if (['avulso', 'n/a', 'sem plano', 'prepago', 'pre paga', 'pre-paga', 'geral'].includes(normalized)) return 'PRÉ-PAGA';
+      if (isCantinaCreditPlan(repaired) || normalized === 'cantina') return 'Crédito Cantina';
+      return repaired;
     };
 
     const periodLabel = timeFilter === 'TODAY'
@@ -2504,6 +2549,20 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     const studentNames = shouldShowResponsibleData
       ? Array.from(new Set(studentsInReport.map((client) => String(client.name || '').trim()).filter(Boolean)))
       : [];
+    const classYearLabel = Array.from(
+      new Set(
+        studentsInReport
+          .map((client) => {
+            const parts = [
+              String(client.class || '').trim(),
+              String((client as any).classGrade || '').trim(),
+              String((client as any).classType || '').trim(),
+            ].filter(Boolean);
+            return sanitizeReportText(parts.join(' • '), '');
+          })
+          .filter(Boolean)
+      )
+    ).join(' | ') || '-';
     const planUnitPriceByName = new Map<string, number>();
     (Array.isArray(editPlans) ? editPlans : []).forEach((plan: any) => {
       const key = normalizeSearchText(String(plan?.name || ''));
@@ -2578,7 +2637,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
     const resolvePlanCurrentBalanceInfo = (planName: string) => {
       const normalizedPlan = normalizeSearchText(planName);
-      if (normalizedPlan === normalizeSearchText('PRÉ-PAGA') || normalizedPlan === normalizeSearchText('PREPAGA')) {
+      if (
+        normalizedPlan === normalizeSearchText('PRÉ-PAGA')
+        || normalizedPlan === normalizeSearchText('PREPAGA')
+        || isCantinaCreditPlan(planName)
+      ) {
         const saldoCantina = reportClients.reduce((acc, client) => acc + Number(client.balance || 0), 0);
         const consumedTotal = Number(consumedValueByPlanMap.get(planName) || 0);
         return {
@@ -2703,14 +2766,14 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(15);
-    doc.text(activeEnterprise.name, logoX + logoSize + 4, 26.8);
+    doc.text(sanitizeReportText(activeEnterprise.name, 'Empresa'), logoX + logoSize + 4, 26.8);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.6);
     const enterpriseInfo = [
-      activeEnterprise.attachedSchoolName ? `Escola: ${activeEnterprise.attachedSchoolName}` : null,
-      activeEnterprise.phone1 ? `Contato: ${formatPhoneWithCountryTag(activeEnterprise.phone1, '-')}` : null,
-      activeEnterprise.address ? activeEnterprise.address : null,
+      activeEnterprise.attachedSchoolName ? `Escola: ${sanitizeReportText(activeEnterprise.attachedSchoolName, '-')}` : null,
+      activeEnterprise.phone1 ? `Contato: ${sanitizeReportText(formatPhoneWithCountryTag(activeEnterprise.phone1, '-'), '-')}` : null,
+      activeEnterprise.address ? sanitizeReportText(activeEnterprise.address, '-') : null,
     ].filter(Boolean).join(' • ');
     const enterpriseInfoLines = doc.splitTextToSize(enterpriseInfo || '-', 247);
     doc.text(enterpriseInfoLines, logoX + logoSize + 4, 32.5);
@@ -2759,6 +2822,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
         const studentLabel = `Aluno(s): ${studentNames.join(', ') || '-'}`;
         const studentLabelLines = doc.splitTextToSize(studentLabel, 82);
         doc.text(studentLabelLines.slice(0, 2), 196, infoBoxY + 7.2);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.2);
+        const classLabelLines = doc.splitTextToSize(`Turma/Ano: ${classYearLabel}`, 82);
+        doc.text(classLabelLines.slice(0, 2), 196, infoBoxY + 14.9);
       }
     } else {
       doc.setFont('helvetica', 'bold');
@@ -2780,7 +2848,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
     const summaryTopY = infoBoxY + infoBoxHeight + 9;
 
-    const tableColumn = ['Data/Hora', 'Descrição', 'Tipo', 'Valor', 'Status'];
+    const tableColumn = ['Data/Hora', 'Descrição', 'Tipo', 'Valor', 'Forma Pgto', 'Status'];
     const orderedPlans = Array.from(planGroups.keys()).sort((a, b) => a.localeCompare(b, 'pt-BR'));
     const tableRows: any[] = [];
     const planSummaryCards: Array<{ planName: string; consumedText: string; balanceText: string; isPrepaid: boolean }> = [];
@@ -2861,7 +2929,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       tableRows.push([
         {
           content: `PLANO: ${planName}${planLineSuffix}`,
-          colSpan: 5,
+          colSpan: 6,
           styles: {
             fillColor: [219, 234, 254],
             textColor: [30, 64, 175],
@@ -2876,30 +2944,86 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
         const amount = readTxAmount(t);
         const kind = classifyTxKind(t);
         const isCredit = kind === 'CREDITO' || kind === 'CREDITO_ESTORNO';
+        const rawType = String(t.raw?.type || t.type || '').toUpperCase();
+        const normalizedMethod = normalizeSearchText(String(t.method || t.raw?.method || t.raw?.paymentMethod || t.raw?.payment_method || ''));
+        const isVendaBalcao = rawType === 'VENDA_BALCAO' || normalizeSearchText(String(t.plan || '')) === 'venda';
+        const isCantinaConsumption = kind === 'CONSUMO'
+          && (
+            isCantinaCreditPlan(String(t.plan || ''))
+            || normalizedMethod.includes('saldo')
+            || normalizedMethod.includes('carteira')
+          );
+        const isPlanConsumption = kind === 'CONSUMO' && !isCantinaConsumption && !isVendaBalcao;
+        const paymentMethodLabel = isCredit
+          ? sanitizeReportText(
+            String(t.method || t.raw?.method || t.raw?.paymentMethod || t.raw?.payment_method || 'CRÉDITO'),
+            'CRÉDITO'
+          )
+          : (isPlanConsumption
+            ? 'SALDO PLANO'
+            : (isCantinaConsumption
+              ? 'SALDO CANTINA'
+              : (isVendaBalcao ? 'VENDA BALCÃO' : '-')));
         const valueLabel = `${isCredit ? '+' : '-'} R$ ${Math.abs(amount).toFixed(2)}`;
-        const baseDescription = formatTransactionItemsForExport(t) || String(t.description || t.item || '-');
+        const isPlanCreditPurchase = kind === 'CREDITO' && !isVendaBalcao && !isCantinaCreditPlan(String(t.plan || t.raw?.plan || ''));
+        const creditedUnits = isPlanCreditPurchase ? resolvePlanCreditPurchasedUnits(t) : 0;
+        const rawDescription = (formatTransactionItemsForExport(t) || String(t.description || t.item || '-'))
+          .replace(/^\s*\d+(?:[.,]\d+)?x\s+/i, '');
+        const baseDescription = isPlanCreditPurchase && creditedUnits > 0
+          ? `${formatUnitsProgressValue(creditedUnits)}x ${rawDescription}`
+          : rawDescription;
         const referenceDateLabel = formatDateBr(t.referenceDate) || formatDateBr(t.date) || '-';
-        const decoratedDescription = kind === 'ESTORNO'
+        const decoratedDescription = sanitizeReportText(kind === 'ESTORNO'
           ? `[ESTORNO] ${baseDescription}`
           : kind === 'CREDITO_ESTORNO'
             ? `[CRÉDITO DE ESTORNO • Ref. ${referenceDateLabel}] ${baseDescription}`
-            : baseDescription;
-        const typeLabel = kind === 'ESTORNO'
+            : baseDescription);
+        const typeLabel = sanitizeReportText(kind === 'ESTORNO'
           ? 'ESTORNO'
           : kind === 'CREDITO_ESTORNO'
             ? 'CRÉDITO/ESTORNO'
-            : t.type.replace('_', ' ');
+            : t.type.replace('_', ' '));
         tableRows.push([
           `${formatDateBr(t.date)} ${t.time}`,
           decoratedDescription,
           typeLabel,
           valueLabel,
-          t.status,
+          paymentMethodLabel,
+          sanitizeReportText(t.status, '-'),
         ]);
       });
     });
 
-    const tableStartY = drawPlanSummaryCards(14, summaryTopY) + 6;
+    const totalCardHeight = 14;
+    const totalCardWidth = 86;
+    const drawTotalCard = (x: number, y: number, title: string, value: string, tone: 'green' | 'red' | 'blue') => {
+      if (tone === 'green') {
+        doc.setFillColor(236, 253, 245);
+        doc.setDrawColor(134, 239, 172);
+        doc.setTextColor(21, 128, 61);
+      } else if (tone === 'red') {
+        doc.setFillColor(254, 242, 242);
+        doc.setDrawColor(252, 165, 165);
+        doc.setTextColor(185, 28, 28);
+      } else {
+        doc.setFillColor(239, 246, 255);
+        doc.setDrawColor(147, 197, 253);
+        doc.setTextColor(30, 64, 175);
+      }
+      doc.roundedRect(x, y, totalCardWidth, totalCardHeight, 2.8, 2.8, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.1);
+      doc.text(title, x + 3.5, y + 5.2);
+      doc.setFontSize(10.2);
+      doc.text(value, x + 3.5, y + 10.7);
+    };
+
+    drawTotalCard(14, summaryTopY, 'Total Créditos', formatCurrencyBr(totalCredits), 'green');
+    drawTotalCard(105, summaryTopY, 'Total Consumo', formatCurrencyBr(totalConsumption), 'red');
+    drawTotalCard(196, summaryTopY, 'Saldo Final', formatCurrencyBr(finalBalance), 'blue');
+    doc.setTextColor(15, 23, 42);
+
+    const tableStartY = summaryTopY + totalCardHeight + 6;
 
     autoTable(doc, {
       head: [tableColumn],
@@ -2910,10 +3034,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
       columnStyles: {
         0: { cellWidth: 28 },
-        1: { cellWidth: 150 },
-        2: { cellWidth: 27, halign: 'center' },
+        1: { cellWidth: 134 },
+        2: { cellWidth: 22, halign: 'center' },
         3: { cellWidth: 28, halign: 'right' },
-        4: { cellWidth: 30, halign: 'center' },
+        4: { cellWidth: 21, halign: 'center' },
+        5: { cellWidth: 30, halign: 'center' },
       },
       alternateRowStyles: { fillColor: [248, 250, 252] },
       didParseCell: (hook) => {
@@ -2935,44 +3060,41 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
             hook.cell.styles.textColor = [21, 128, 61];
           }
         }
+
+        if (hook.column.index === 4) {
+          const paymentText = normalizeSearchText(String(row?.[4] || '')).toUpperCase();
+          hook.cell.styles.fontStyle = 'bold';
+          hook.cell.styles.halign = 'center';
+
+          if (paymentText.includes('SALDO PLANO')) {
+            hook.cell.styles.fillColor = [224, 242, 254];
+            hook.cell.styles.textColor = [30, 64, 175];
+          } else if (paymentText.includes('SALDO CANTINA')) {
+            hook.cell.styles.fillColor = [255, 247, 214];
+            hook.cell.styles.textColor = [146, 64, 14];
+          } else if (paymentText.includes('VENDA BALCAO') || paymentText.includes('VENDA BALCÃO')) {
+            hook.cell.styles.fillColor = [241, 245, 249];
+            hook.cell.styles.textColor = [51, 65, 85];
+          } else {
+            hook.cell.styles.fillColor = [220, 252, 231];
+            hook.cell.styles.textColor = [21, 128, 61];
+          }
+        }
       },
     });
 
     const tableFinalY = (doc as any).lastAutoTable?.finalY || tableStartY + 8;
-    const cardYBase = tableFinalY + 2;
-    const cardHeight = 14;
-    const cardWidth = 86;
     const pageBottom = doc.internal.pageSize.getHeight() - 14;
-    let totalsY = cardYBase;
-    if (totalsY + cardHeight > pageBottom) {
+    let planSummaryY = tableFinalY + 8;
+    const planSummaryRows = Math.ceil(planSummaryCards.length / 3);
+    const planSummaryHeight = planSummaryCards.length > 0
+      ? 4 + (planSummaryRows * 21) + (Math.max(0, planSummaryRows - 1) * 5)
+      : 0;
+    if (planSummaryCards.length > 0 && (planSummaryY + planSummaryHeight > pageBottom)) {
       doc.addPage();
-      totalsY = 14;
+      planSummaryY = 14;
     }
-    const drawTotalCard = (x: number, y: number, title: string, value: string, tone: 'green' | 'red' | 'blue') => {
-      if (tone === 'green') {
-        doc.setFillColor(236, 253, 245);
-        doc.setDrawColor(134, 239, 172);
-        doc.setTextColor(21, 128, 61);
-      } else if (tone === 'red') {
-        doc.setFillColor(254, 242, 242);
-        doc.setDrawColor(252, 165, 165);
-        doc.setTextColor(185, 28, 28);
-      } else {
-        doc.setFillColor(239, 246, 255);
-        doc.setDrawColor(147, 197, 253);
-        doc.setTextColor(30, 64, 175);
-      }
-      doc.roundedRect(x, y, cardWidth, cardHeight, 2.8, 2.8, 'FD');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.1);
-      doc.text(title, x + 3.5, y + 5.2);
-      doc.setFontSize(10.2);
-      doc.text(value, x + 3.5, y + 10.7);
-    };
-
-    drawTotalCard(14, totalsY, 'Total Créditos', formatCurrencyBr(totalCredits), 'green');
-    drawTotalCard(105, totalsY, 'Total Consumo', formatCurrencyBr(totalConsumption), 'red');
-    drawTotalCard(196, totalsY, 'Saldo Final', formatCurrencyBr(finalBalance), 'blue');
+    drawPlanSummaryCards(14, planSummaryY);
 
     const pageCount = (doc as any).internal.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
@@ -3212,7 +3334,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                    </tr>
                  ) : filteredTransactions.map(row => {
                    const rowUnitsProgress = resolveRowUnitsProgress(row);
-                   const isPlanRow = row.plan !== 'Venda' && row.plan !== 'Crédito Cantina';
+                   const isPlanRow = row.plan !== 'Venda' && !isCantinaCreditPlan(row.plan);
                    const rowMarkedAsReversed = hasReversalForTransaction(row);
                    const baixaDateLabel = formatDateBr(row.date) || formatDateBr(String(row.raw?.timestamp || '').slice(0, 10));
                    const baixaTimeLabel = (() => {
