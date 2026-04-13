@@ -323,8 +323,38 @@ const extractInboundWebhookMessage = (payload: any) => {
   const externalMessage = body?.message && typeof body.message === 'object' ? body.message : {};
   const externalChat = body?.chat && typeof body.chat === 'object' ? body.chat : {};
 
-  const fromMeRaw = body?.fromMe ?? body?.isFromMe ?? nested?.fromMe ?? nested?.isFromMe ?? nestedKey?.fromMe;
-  const fromMe = String(fromMeRaw || '').toLowerCase() === 'true' || fromMeRaw === true;
+  const resolveMediaType = (value: unknown) => {
+    const token = String(value || '').trim().toLowerCase();
+    if (!token) return null;
+    if (/(image|photo|picture|img|jpeg|jpg|png|gif|webp|sticker)/.test(token)) return 'image';
+    if (/(audio|voice|ptt|ogg|mp3|wav|m4a|aac|opus|amr)/.test(token)) return 'audio';
+    if (/(document|file|pdf|doc|docx|xls|xlsx|ppt|pptx|zip|rar|txt|csv|video|mp4|mov|avi|mkv)/.test(token)) return 'document';
+    return null;
+  };
+
+  const fromMeRaw = body?.fromMe ?? body?.isFromMe ?? nested?.fromMe ?? nested?.isFromMe ?? nestedKey?.fromMe ?? externalMessage?.fromMe;
+  const wasSentByApi = externalMessage?.wasSentByApi ?? body?.wasSentByApi ?? nested?.wasSentByApi;
+  const ownerPhone = normalizePhoneDigits(
+    externalMessage?.owner
+    || body?.owner
+    || externalChat?.owner
+    || body?.instanceOwner
+    || ''
+  );
+  const senderPhone = normalizePhoneDigits(
+    externalMessage?.sender_pn
+    || externalMessage?.sender
+    || body?.sender
+    || body?.from
+    || ''
+  );
+  const fromMeByOwner = Boolean(ownerPhone && senderPhone && ownerPhone === senderPhone);
+  const fromMe = Boolean(
+    String(fromMeRaw || '').toLowerCase() === 'true'
+    || fromMeRaw === true
+    || wasSentByApi === true
+    || fromMeByOwner
+  );
 
   const number = String(
     body?.number
@@ -356,6 +386,45 @@ const extractInboundWebhookMessage = (payload: any) => {
     || externalChat?.wa_name
     || nested?.name
     || nested?.pushName
+    || ''
+  ).trim();
+
+  const avatarUrl = String(
+    externalChat?.image
+    || externalChat?.imagePreview
+    || externalChat?.avatar
+    || externalChat?.profilePicture
+    || ''
+  ).trim();
+
+  const rawMediaType =
+    externalMessage?.mediaType
+    || externalMessage?.messageType
+    || externalMessage?.type
+    || body?.mediaType
+    || body?.messageType
+    || nested?.mediaType
+    || nested?.messageType
+    || '';
+  const mediaType = resolveMediaType(rawMediaType)
+    || (nestedMessage?.imageMessage ? 'image' : null)
+    || (nestedMessage?.audioMessage ? 'audio' : null)
+    || (nestedMessage?.documentMessage || nestedMessage?.videoMessage ? 'document' : null);
+  const fileName = String(
+    externalMessage?.fileName
+    || externalMessage?.filename
+    || externalMessage?.file_name
+    || nestedMessage?.documentMessage?.fileName
+    || nestedMessage?.documentMessage?.title
+    || ''
+  ).trim();
+  const mimeType = String(
+    externalMessage?.mimeType
+    || externalMessage?.mimetype
+    || nestedMessage?.documentMessage?.mimetype
+    || nestedMessage?.imageMessage?.mimetype
+    || nestedMessage?.videoMessage?.mimetype
+    || nestedMessage?.audioMessage?.mimetype
     || ''
   ).trim();
 
@@ -409,6 +478,10 @@ const extractInboundWebhookMessage = (payload: any) => {
     message,
     messageId,
     timestamp,
+    mediaType,
+    fileName: fileName || null,
+    mimeType: mimeType || null,
+    avatarUrl: avatarUrl || null,
   };
 };
 
@@ -542,6 +615,10 @@ router.all('/webhook/external', async (req: Request, res: Response) => {
       message: webhook.message,
       messageId: webhook.messageId,
       timestamp: webhook.timestamp,
+      mediaType: webhook.mediaType,
+      fileName: webhook.fileName,
+      mimeType: webhook.mimeType,
+      avatarUrl: webhook.avatarUrl,
     });
 
     const inboundPhone = normalizePhoneDigits(webhook.number || webhook.chatId || result?.phone || '');
@@ -1696,7 +1773,17 @@ router.post('/send-menu', async (req: AuthRequest, res: Response) => {
       });
     }
 
-    if (!isSpecialTargetJid(target) && !getEnterprisePhoneSet(enterpriseId).has(normalizePhoneDigits(target))) {
+    const normalizedTarget = normalizePhoneDigits(target);
+    const providerConfig = getEnterpriseProviderConfig(enterpriseId);
+    const externalEnabled = providerConfig.mode === 'EXTERNAL' && providerConfig.external.enabled;
+    const isKnownPhone = normalizedTarget
+      ? getEnterprisePhoneSet(enterpriseId).has(normalizedTarget)
+      : false;
+    const isLeadPhone = normalizedTarget
+      ? getLeadPhoneSetForEnterprise(enterpriseId).has(normalizedTarget)
+      : false;
+
+    if (!isSpecialTargetJid(target) && !externalEnabled && !isKnownPhone && !isLeadPhone) {
       return res.status(403).json({
         success: false,
         message: 'Telefone não pertence à unidade selecionada.',
@@ -1751,7 +1838,17 @@ router.post('/send-carousel', async (req: AuthRequest, res: Response) => {
       });
     }
 
-    if (!isSpecialTargetJid(target) && !getEnterprisePhoneSet(enterpriseId).has(normalizePhoneDigits(target))) {
+    const normalizedTarget = normalizePhoneDigits(target);
+    const providerConfig = getEnterpriseProviderConfig(enterpriseId);
+    const externalEnabled = providerConfig.mode === 'EXTERNAL' && providerConfig.external.enabled;
+    const isKnownPhone = normalizedTarget
+      ? getEnterprisePhoneSet(enterpriseId).has(normalizedTarget)
+      : false;
+    const isLeadPhone = normalizedTarget
+      ? getLeadPhoneSetForEnterprise(enterpriseId).has(normalizedTarget)
+      : false;
+
+    if (!isSpecialTargetJid(target) && !externalEnabled && !isKnownPhone && !isLeadPhone) {
       return res.status(403).json({
         success: false,
         message: 'Telefone não pertence à unidade selecionada.',

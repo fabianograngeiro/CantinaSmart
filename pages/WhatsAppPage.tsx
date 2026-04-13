@@ -506,8 +506,32 @@ const extractFileNameFromPlaceholder = (value?: string) => {
   return String(match?.[1] || '').trim();
 };
 
-const formatChatPreviewText = (value?: string) => {
-  const text = String(value || '').trim();
+const normalizeMessageTextValue = (value: unknown) => {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === 'string' ? item : ''))
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+  }
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const candidates = ['text', 'message', 'content', 'caption', 'body', 'title', 'description'];
+    for (const key of candidates) {
+      const candidateValue = record[key];
+      if (typeof candidateValue === 'string' && candidateValue.trim()) {
+        return candidateValue;
+      }
+    }
+  }
+  return '';
+};
+
+const formatChatPreviewText = (value?: unknown) => {
+  const text = normalizeMessageTextValue(value).trim();
   if (!text) return '';
   if (text === '[Localização]') return 'Localização';
   if (text === '[Arquivo]') return 'Arquivo';
@@ -543,7 +567,7 @@ const detectPreviewMediaKind = (value?: string): 'audio' | 'document' | null => 
 };
 
 const formatMessageBodyForDisplay = (msg: ChatMessage) => {
-  const text = String(msg.body || '').trim();
+  const text = normalizeMessageTextValue(msg.body).trim();
   if (!text && msg.location) return '📍 Localização';
   if (!text) return '';
 

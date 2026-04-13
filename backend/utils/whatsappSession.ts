@@ -7099,6 +7099,11 @@ class WhatsAppSessionManager {
     message?: string;
     messageId?: string;
     timestamp?: string | number;
+    mediaType?: MediaType | string | null;
+    mimeType?: string | null;
+    fileName?: string | null;
+    mediaDataUrl?: string | null;
+    avatarUrl?: string | null;
   }) {
     const target = String(input.chatId || input.number || '').trim();
     const resolved = this.toBaileysJid(target);
@@ -7113,7 +7118,23 @@ class WhatsAppSessionManager {
       ? (rawTimestamp > 1_000_000_000_000 ? Math.floor(rawTimestamp / 1000) : Math.floor(rawTimestamp))
       : nowSec;
 
-    const body = String(input.body || input.message || '').trim() || '[Mensagem recebida]';
+    const resolvedMediaType = input.mediaType ? String(input.mediaType).trim().toLowerCase() : '';
+    const normalizedMediaType: MediaType | null =
+      resolvedMediaType === 'image' || resolvedMediaType === 'foto' || resolvedMediaType === 'photo'
+        ? 'image'
+        : resolvedMediaType === 'audio' || resolvedMediaType === 'voice' || resolvedMediaType === 'ptt'
+          ? 'audio'
+          : resolvedMediaType
+            ? 'document'
+            : null;
+    const fileName = String(input.fileName || '').trim();
+    let body = String(input.body || input.message || '').trim();
+    if (!body && normalizedMediaType) {
+      body = fileName ? `[Arquivo: ${fileName}]` : '[Arquivo]';
+    }
+    if (!body) {
+      body = '[Mensagem recebida]';
+    }
     const messageId = String(input.messageId || '').trim() || `ext_${timestamp}_${Math.floor(Math.random() * 100000)}`;
 
     const existingMessages = this.messageMap.get(jid) || [];
@@ -7126,11 +7147,20 @@ class WhatsAppSessionManager {
       };
     }
 
+    const avatarUrl = String(input.avatarUrl || '').trim();
+    if (avatarUrl) {
+      this.profilePictureMap.set(jid, avatarUrl);
+    }
+
     this.pushMessage(jid, {
       id: messageId,
       body,
       fromMe: false,
       timestamp,
+      mediaType: normalizedMediaType,
+      mimeType: String(input.mimeType || '').trim() || null,
+      fileName: fileName || null,
+      mediaDataUrl: String(input.mediaDataUrl || '').trim() || null,
     });
 
     const existing = this.chatMap.get(jid);
@@ -7149,6 +7179,7 @@ class WhatsAppSessionManager {
       lastTimestamp: timestamp,
       unreadCount: Math.max(0, Number(existing?.unreadCount || 0)) + 1,
       initiatedByClient: true,
+      avatarUrl: avatarUrl || undefined,
     });
 
     if (body !== '[Mensagem recebida]' && !this.isSyncProtectionActive()) {
@@ -7174,6 +7205,11 @@ class WhatsAppSessionManager {
     message?: string;
     messageId?: string;
     timestamp?: string | number;
+    mediaType?: MediaType | string | null;
+    mimeType?: string | null;
+    fileName?: string | null;
+    mediaDataUrl?: string | null;
+    avatarUrl?: string | null;
   }) {
     const target = String(input.chatId || input.number || '').trim();
     const resolved = this.toBaileysJid(target);
@@ -7188,7 +7224,23 @@ class WhatsAppSessionManager {
       ? (rawTimestamp > 1_000_000_000_000 ? Math.floor(rawTimestamp / 1000) : Math.floor(rawTimestamp))
       : nowSec;
 
-    const body = String(input.body || input.message || '').trim() || '[Mensagem enviada]';
+    const resolvedMediaType = input.mediaType ? String(input.mediaType).trim().toLowerCase() : '';
+    const normalizedMediaType: MediaType | null =
+      resolvedMediaType === 'image' || resolvedMediaType === 'foto' || resolvedMediaType === 'photo'
+        ? 'image'
+        : resolvedMediaType === 'audio' || resolvedMediaType === 'voice' || resolvedMediaType === 'ptt'
+          ? 'audio'
+          : resolvedMediaType
+            ? 'document'
+            : null;
+    const fileName = String(input.fileName || '').trim();
+    let body = String(input.body || input.message || '').trim();
+    if (!body && normalizedMediaType) {
+      body = fileName ? `[Arquivo: ${fileName}]` : '[Arquivo]';
+    }
+    if (!body) {
+      body = '[Mensagem enviada]';
+    }
     const messageId = String(input.messageId || '').trim() || `ext_out_${timestamp}_${Math.floor(Math.random() * 100000)}`;
 
     const existingMessages = this.messageMap.get(jid) || [];
@@ -7201,11 +7253,20 @@ class WhatsAppSessionManager {
       };
     }
 
+    const avatarUrl = String(input.avatarUrl || '').trim();
+    if (avatarUrl) {
+      this.profilePictureMap.set(jid, avatarUrl);
+    }
+
     this.pushMessage(jid, {
       id: messageId,
       body,
       fromMe: true,
       timestamp,
+      mediaType: normalizedMediaType,
+      mimeType: String(input.mimeType || '').trim() || null,
+      fileName: fileName || null,
+      mediaDataUrl: String(input.mediaDataUrl || '').trim() || null,
     });
 
     const existing = this.chatMap.get(jid);
@@ -7224,6 +7285,7 @@ class WhatsAppSessionManager {
       lastTimestamp: timestamp,
       unreadCount: Math.max(0, Number(existing?.unreadCount || 0)),
       initiatedByClient: Boolean(existing?.initiatedByClient),
+      avatarUrl: avatarUrl || undefined,
     });
 
     this.schedulePersistChatHistory();
