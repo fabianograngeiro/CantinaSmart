@@ -1325,9 +1325,9 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
   const clientByPhone = useMemo(() => {
     const map = new Map<string, Client>();
-    clients.forEach((client) => {
+    clients.forEach((client: Client) => {
       const phone = resolveClientPhone(client);
-      buildPhoneVariants(phone).forEach((variant) => {
+      buildPhoneVariants(phone).forEach((variant: string) => {
         if (!map.has(variant)) {
           map.set(variant, client);
         }
@@ -1352,7 +1352,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       });
     } catch (err) {
       console.error('Erro ao buscar status do WhatsApp:', err);
-      setStatus(prev => ({
+      setStatus((prev: WhatsAppStatusSnapshot) => ({
         ...prev,
         state: 'ERROR',
         lastError: 'Não foi possível conectar ao backend do WhatsApp.'
@@ -1381,7 +1381,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       }));
       setChats(nextChats);
       const backendChatIds = new Set(nextChats.map((chat: ChatSummary) => chat.chatId));
-      setDraftChats((prev) => prev.filter((draft) => {
+      setDraftChats((prev: ChatSummary[]) => prev.filter((draft: ChatSummary) => {
         if (backendChatIds.has(draft.chatId)) return false;
         const samePhoneInBackend = nextChats.some((chat: ChatSummary) => hasPhoneVariantIntersection(chat.phone, draft.phone));
         return !samePhoneInBackend;
@@ -1411,10 +1411,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         timestamp: normalizeTimestampMs((msg as any)?.timestamp) || 0,
       }));
       setMessages(nextMessages);
-      setAudioTranscriptions((prev) => {
+      setAudioTranscriptions((prev: Record<string, AudioTranscriptionState>) => {
         const validIds = new Set(nextMessages.map((msg: ChatMessage) => String(msg.id || '')));
         const next: Record<string, AudioTranscriptionState> = {};
-        Object.entries(prev as Record<string, AudioTranscriptionState>).forEach(([key, value]) => {
+        Object.entries(prev).forEach(([key, value]: [string, AudioTranscriptionState]) => {
           if (validIds.has(key)) next[key] = value;
         });
         return next;
@@ -1999,12 +1999,12 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const recipients = useMemo(() => {
     const term = search.trim().toLowerCase();
     return clients
-      .map((client) => ({
+      .map((client: Client) => ({
         client,
         phone: resolveClientPhone(client)
       }))
-      .filter((entry) => Boolean(entry.phone))
-      .filter((entry) => {
+      .filter((entry: { client: Client; phone: string }) => Boolean(entry.phone))
+      .filter((entry: { client: Client; phone: string }) => {
         if (!term) return true;
         return (
           entry.client.name.toLowerCase().includes(term)
@@ -2012,13 +2012,24 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           || String(entry.client.registrationId || '').toLowerCase().includes(term)
         );
       })
-      .sort((a, b) => a.client.name.localeCompare(b.client.name, 'pt-BR', { sensitivity: 'base' }));
+      .sort((a: { client: Client; phone: string }, b: { client: Client; phone: string }) => a.client.name.localeCompare(b.client.name, 'pt-BR', { sensitivity: 'base' }));
   }, [clients, search]);
 
   const agendaClients = useMemo(() => {
     const term = normalizeSearchValue(agendaSearch);
+    type AgendaClientEntry = {
+      client: Client;
+      phone: string;
+      responsibleName: string | null;
+      primaryName: string;
+      relatedName: string;
+      normalizedName: string;
+      normalizedResponsible: string;
+      normalizedPrimary: string;
+      normalizedRegistration: string;
+    };
     return clients
-      .map((client) => {
+      .map((client: Client) => {
         const phone = resolveClientPhone(client);
         const responsibleName = resolveResponsibleName(client);
         const primaryName = resolveConversationPrimaryName(client);
@@ -2042,14 +2053,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           normalizedRegistration
         };
       })
-      .filter((entry) => Boolean(entry.phone))
-      .filter((entry) => {
+      .filter((entry: AgendaClientEntry) => Boolean(entry.phone))
+      .filter((entry: AgendaClientEntry) => {
         if (!term) return true;
         const digitsTerm = term.replace(/\D/g, '');
         const tokenMatches =
-          entry.normalizedName.split(' ').some((token) => token.startsWith(term))
-          || entry.normalizedResponsible.split(' ').some((token) => token.startsWith(term))
-          || entry.normalizedPrimary.split(' ').some((token) => token.startsWith(term));
+          entry.normalizedName.split(' ').some((token: string) => token.startsWith(term))
+          || entry.normalizedResponsible.split(' ').some((token: string) => token.startsWith(term))
+          || entry.normalizedPrimary.split(' ').some((token: string) => token.startsWith(term));
         return tokenMatches
           || entry.normalizedName.includes(term)
           || entry.normalizedResponsible.includes(term)

@@ -2014,20 +2014,55 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       .reduce((sum, t) => sum + readTxAmount(t), 0);
   }, [filteredTransactions]);
 
-  const monthlyTicketAverage = useMemo(() => {
-    const now = new Date();
-    const monthlySales = sourceTransactions.filter((tx) => {
-      if (tx.type !== 'VENDA_BALCAO') return false;
-      const txDate = parseTransactionDate(tx);
-      if (!txDate) return false;
-      return txDate.getFullYear() === now.getFullYear() && txDate.getMonth() === now.getMonth();
-    });
+  const filteredClientIdsForSummary = useMemo(() => {
+    return new Set(
+      filteredTransactions
+        .map((tx) => String(tx.clientId || tx.raw?.clientId || '').trim())
+        .filter(Boolean)
+    );
+  }, [filteredTransactions]);
 
-    if (monthlySales.length === 0) return 0;
+  const totalCurrentBalanceFiltered = useMemo(() => {
+    if (filteredClientIdsForSummary.size === 0) return 0;
 
-    const totalSales = monthlySales.reduce((sum, tx) => sum + readTxAmount(tx), 0);
-    return totalSales / monthlySales.length;
-  }, [sourceTransactions]);
+    return (Array.isArray(clients) ? clients : [])
+      .filter((client: any) => filteredClientIdsForSummary.has(String(client?.id || '').trim()))
+      .reduce((sum, client: any) => {
+      const cantinaBalance = Math.max(0, Number(client?.balance || 0));
+      const planBalances = client?.planCreditBalances && typeof client.planCreditBalances === 'object'
+        ? Object.values(client.planCreditBalances)
+        : [];
+      const totalPlanBalance = (Array.isArray(planBalances) ? planBalances : []).reduce((planSum, entry: any) => {
+        return planSum + Math.max(0, Number(entry?.balance || 0));
+      }, 0);
+      return sum + cantinaBalance + totalPlanBalance;
+    }, 0);
+  }, [clients, filteredClientIdsForSummary]);
+
+  const totalConsumptionToPayFiltered = useMemo(() => {
+    if (filteredClientIdsForSummary.size === 0) return 0;
+
+    return (Array.isArray(clients) ? clients : [])
+      .filter((client: any) => filteredClientIdsForSummary.has(String(client?.id || '').trim()))
+      .reduce((sum, client: any) => {
+        const normalizedType = String(client?.type || '').trim().toUpperCase();
+        if (normalizedType === 'COLABORADOR') {
+          const dueRaw = Number(client?.amountDue);
+          const monthlyRaw = Number(client?.monthlyConsumption);
+          const dueValue = Number.isFinite(dueRaw)
+            ? dueRaw
+            : (Number.isFinite(monthlyRaw) ? monthlyRaw : 0);
+          return sum + Math.max(0, dueValue);
+        }
+
+        if (normalizedType === 'ALUNO') {
+          const balance = Number(client?.balance || 0);
+          return sum + Math.max(0, -balance);
+        }
+
+        return sum;
+      }, 0);
+  }, [clients, filteredClientIdsForSummary]);
 
   const ticketAverageRevenueFiltered = useMemo(() => {
     const revenueTransactions = filteredTransactions.filter((t) => t.type === 'CREDITO' || t.type === 'VENDA_BALCAO');
@@ -3170,10 +3205,11 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
           </div>
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 sm:gap-3 animate-in fade-in duration-700">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 animate-in fade-in duration-700">
            <QuickSummaryCard label="Total Receitas R$" value={`R$ ${totalRevenueFiltered.toFixed(2)}`} sub="Entradas conforme filtros selecionados" icon={<Store />} color="bg-emerald-600" />
            <QuickSummaryCard label="Total Descontos de Consumos R$" value={`R$ ${totalConsumptionDiscountFiltered.toFixed(2)}`} sub="Saídas de consumo conforme filtros" icon={<Sparkles />} color="bg-indigo-600" />
-           <QuickSummaryCard label="Ticket Médio Mês" value={`R$ ${monthlyTicketAverage.toFixed(2)}`} sub="Vendas do mês (balcão)" icon={<DollarSign />} color="bg-slate-900" />
+           <QuickSummaryCard label="Total Saldo" value={`R$ ${totalCurrentBalanceFiltered.toFixed(2)}`} sub="Saldo cantina + saldo de planos conforme filtros" icon={<DollarSign />} color="bg-slate-900" />
+            <QuickSummaryCard label="Total Consumo a Pagar" value={`R$ ${totalConsumptionToPayFiltered.toFixed(2)}`} sub="Saldos negativos de alunos + consumo de colaboradores" icon={<Wallet />} color="bg-rose-600" />
         </div>
 
         {/* MOTOR DE FILTRAGEM AVANÇADA UNIFICADO */}
