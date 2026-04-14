@@ -962,6 +962,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const [clients, setClients] = useState<Client[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [search, setSearch] = useState('');
+  const [aiConfigError, setAiConfigError] = useState<string | null>(null);
   const [selectedPhones, setSelectedPhones] = useState<string[]>([]);
   const [message, setMessage] = useState('Olá! Este é um comunicado da cantina.');
   const [loading, setLoading] = useState(true);
@@ -8344,6 +8345,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                               type="checkbox"
                               checked={Boolean(aiConfig.onlyOutsideBusinessHours)}
                               onChange={(e) => setAiConfig((prev) => ({ ...prev, onlyOutsideBusinessHours: e.target.checked }))}
+                                                            onError={(e) => {
+                                                              console.error('Erro ao mudar toggle onlyOutsideBusinessHours:', e);
+                                                              setAiConfigError('Erro ao processar toggle. Tente atualizar a configuração novamente.');
+                                                            }}
                               className="sr-only peer"
                             />
                             <span className="h-6 w-11 rounded-full bg-slate-300 transition-colors peer-checked:bg-emerald-500 relative after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-5" />
