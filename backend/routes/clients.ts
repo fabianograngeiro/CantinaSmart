@@ -4,6 +4,8 @@ import { processOverduePlanConsumptions } from '../services/planConsumptionAutoP
 import { validateClient, validateClientUpdate } from '../utils/validation.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { canAccessAllEnterprises, requesterCanAccessEnterprise } from '../utils/enterpriseAccess.js';
+import { shouldCheckDuplicateStudentOnUpdate } from '../utils/clientDuplicateRules.js';
+import { detectStudentDuplicateReason } from '../utils/studentDuplicateMatcher.js';
 
 const router = Router();
 
@@ -90,7 +92,7 @@ const findDuplicateStudent = (params: { enterpriseId: string; payload: any; igno
 
   const ignoreClientId = String(params.ignoreClientId || '').trim();
   const candidateName = normalizeComparableToken(payload?.name);
-  const candidatePhone = normalizeDigits(payload?.phone || payload?.parentWhatsapp);
+  const candidatePhone = normalizeDigits(payload?.phone);
   const candidateCpf = normalizeDigits(payload?.cpf || payload?.parentCpf);
   const candidateRegistrationId = normalizeComparableToken(payload?.registrationId);
   const candidateId = String(payload?.id || '').trim();
@@ -101,28 +103,21 @@ const findDuplicateStudent = (params: { enterpriseId: string; payload: any; igno
 
   const students = db.getClients(enterpriseId).filter((item: any) => String(item?.type || '').trim().toUpperCase() === 'ALUNO');
   for (const student of students) {
-    const studentId = String(student?.id || '').trim();
-    if (ignoreClientId && studentId === ignoreClientId) continue;
+    const reason = detectStudentDuplicateReason({
+      candidate: payload,
+      existing: student,
+      ignoreClientId,
+    });
 
-    const existingName = normalizeComparableToken(student?.name);
-    const existingPhone = normalizeDigits(student?.phone || student?.parentWhatsapp);
-    const existingCpf = normalizeDigits(student?.cpf || student?.parentCpf);
-    const existingRegistrationId = normalizeComparableToken(student?.registrationId);
-
-    if (candidateId && studentId && candidateId === studentId) {
-      return { reason: 'ID interno', field: 'id', existing: student };
-    }
-    if (candidateRegistrationId && existingRegistrationId && candidateRegistrationId === existingRegistrationId) {
-      return { reason: 'Matrícula/ID', field: 'registrationId', existing: student };
-    }
-    if (candidateCpf && existingCpf && candidateCpf === existingCpf) {
-      return { reason: 'CPF', field: 'cpf', existing: student };
-    }
-    if (candidatePhone && existingPhone && candidatePhone === existingPhone) {
-      return { reason: 'Telefone', field: 'phone', existing: student };
-    }
-    if (candidateName && existingName && candidateName === existingName) {
-      return { reason: 'Nome completo', field: 'name', existing: student };
+    if (reason) {
+      const fieldByReason: Record<string, string> = {
+        'ID interno': 'id',
+        'Matrícula/ID': 'registrationId',
+        CPF: 'cpf',
+        Telefone: 'phone',
+        'Nome completo': 'name',
+      };
+      return { reason, field: fieldByReason[reason] || 'unknown', existing: student };
     }
   }
 
@@ -427,19 +422,22 @@ router.put('/:id', (req: AuthRequest, res: Response) => {
     const updatePayload = { ...payload };
     delete (updatePayload as any).balanceAdjustment;
     delete (updatePayload as any).expectedUpdatedAt;
-    const duplicate = findDuplicateStudent({
-      enterpriseId: nextEnterpriseId || String((current as any)?.enterpriseId || '').trim(),
-      payload: { ...current, ...updatePayload },
-      ignoreClientId: String(current?.id || '').trim(),
-    });
-    if (duplicate) {
-      return res.status(409).json({
-        error: `Aluno duplicado detectado por ${duplicate.reason}.`,
-        details: [
-          `Já existe um aluno com ${duplicate.reason.toLowerCase()} igual nesta unidade.`,
-          `Aluno existente: ${String(duplicate.existing?.name || 'Não informado').trim()} (${String(duplicate.existing?.registrationId || '-').trim()})`,
-        ],
+    const shouldCheckDuplicate = shouldCheckDuplicateStudentOnUpdate(current, updatePayload);
+    if (shouldCheckDuplicate) {
+      const duplicate = findDuplicateStudent({
+        enterpriseId: nextEnterpriseId || String((current as any)?.enterpriseId || '').trim(),
+        payload: { ...current, ...updatePayload },
+        ignoreClientId: String(current?.id || '').trim(),
       });
+      if (duplicate) {
+        return res.status(409).json({
+          error: `Aluno duplicado detectado por ${duplicate.reason}.`,
+          details: [
+            `Já existe um aluno com ${duplicate.reason.toLowerCase()} igual nesta unidade.`,
+            `Aluno existente: ${String(duplicate.existing?.name || 'Não informado').trim()} (${String(duplicate.existing?.registrationId || '-').trim()})`,
+          ],
+        });
+      }
     }
 
     const updated = db.updateClient(req.params.id, updatePayload);
