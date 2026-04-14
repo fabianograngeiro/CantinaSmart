@@ -1651,7 +1651,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   const handlePayCollaboratorConsumption = () => {
     if (!selectedClient) return;
     if (selectedClient.type !== 'COLABORADOR') {
-      alert('Essa função é exclusiva para colaborador.');
+      handlePayNegativeBalance();
       return;
     }
 
@@ -1972,7 +1972,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     }
 
     const serviceId = `SERVICE_${serviceActionType}_${Date.now()}`;
-    const serviceName = `Pagamento consumo mês: ${selectedClient.name}`;
+    const serviceName = `Pagamento consumo: ${selectedClient.name}`;
 
     addServiceItemToCart(serviceId, serviceName, freeAmount, {
       serviceAction: 'PAY_COLLAB'
@@ -1998,6 +1998,22 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   const cartTotal = useMemo(() => cart.reduce((sum, item) => sum + (item.price * item.quantity), 0), [cart]);
   const totalPaid = useMemo(() => payments.reduce((sum, p) => sum + p.amount, 0), [payments]);
   const remainingToPay = Math.max(0, cartTotal - totalPaid);
+
+  const isOnlyNegativeBalancePayment = useMemo(() => {
+    if (!selectedClient || selectedClient.type === 'COLABORADOR') return false;
+    if (cart.length === 0) return false;
+    return cart.every((item) => item.serviceAction === 'CREDIT_STUDENT_FREE'
+      && String(item.productId || '').startsWith('SERVICE_NEGATIVE_BALANCE_'));
+  }, [cart, selectedClient]);
+
+  const isOnlyCollaboratorPay = useMemo(() => {
+    if (!selectedClient || selectedClient.type !== 'COLABORADOR') return false;
+    if (cart.length === 0) return false;
+    return cart.every((item) => item.serviceAction === 'PAY_COLLAB'
+      || String(item.productId || '').startsWith('SERVICE_PAY_COLLAB_'));
+  }, [cart, selectedClient]);
+
+  const allowsPartialConsumptionPayment = isOnlyNegativeBalancePayment || isOnlyCollaboratorPay;
 
   const cashReceivedNumeric = useMemo(() => {
     const normalized = String(cashReceived || '').replace(',', '.');
@@ -2269,6 +2285,10 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           && !item.productId.startsWith('SERVICE_CREDIT_STUDENT_PLAN_')
         )
       );
+      const negativeBalanceCreditItems = freeCreditItems
+        .filter((item) => item.productId.startsWith('SERVICE_NEGATIVE_BALANCE_'));
+      const negativeBalanceCreditTotal = negativeBalanceCreditItems
+        .reduce((sum, item) => sum + (item.price * item.quantity), 0);
       const freeCantinaCreditTotal = freeCreditItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
       const planCreditItems = cart.filter(item =>
         item.serviceAction === 'CREDIT_STUDENT_PLAN'
@@ -2309,9 +2329,21 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       const collaboratorPayTotal = cart
         .filter(item => item.serviceAction === 'PAY_COLLAB' || item.productId.startsWith('SERVICE_PAY_COLLAB_'))
         .reduce((sum, item) => sum + (item.price * item.quantity), 0);
+      const isOnlyNegativeBalancePayment = negativeBalanceCreditTotal > 0
+        && cart.every((item) => item.serviceAction === 'CREDIT_STUDENT_FREE'
+          && item.productId.startsWith('SERVICE_NEGATIVE_BALANCE_'));
+      const isOnlyCollaboratorPay = collaboratorPayTotal > 0
+        && cart.every((item) => item.serviceAction === 'PAY_COLLAB'
+          || item.productId.startsWith('SERVICE_PAY_COLLAB_'));
+      const effectiveFreeCantinaCreditTotal = isOnlyNegativeBalancePayment
+        ? Math.min(freeCantinaCreditTotal, totalPaid)
+        : freeCantinaCreditTotal;
+      const effectiveCollaboratorPayTotal = isOnlyCollaboratorPay
+        ? Math.min(collaboratorPayTotal, totalPaid)
+        : collaboratorPayTotal;
       const planConsumptionItems = cart.filter(item => item.serviceAction === 'PLAN_CONSUMPTION');
 
-      if (selectedClient && (freeCantinaCreditTotal > 0 || totalPlanCredit > 0 || hasPlanCreditSelection) && selectedClient.type !== 'COLABORADOR') {
+      if (selectedClient && (effectiveFreeCantinaCreditTotal > 0 || totalPlanCredit > 0 || hasPlanCreditSelection) && selectedClient.type !== 'COLABORADOR') {
         const clientData = (updatedSelectedClient || selectedClient) as any;
         const existingSelectedPlans = Array.isArray(clientData.selectedPlansConfig) ? [...clientData.selectedPlansConfig] : [];
         const existingServicePlans = Array.isArray(clientData.servicePlans) ? [...clientData.servicePlans] : [];
@@ -2477,7 +2509,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
         planCreditsWithPrevious.forEach(upsertPlanConfig);
 
         const creditedClient = await ApiService.updateClient(selectedClient.id, {
-          balance: Number(((updatedSelectedClient?.balance || 0) + freeCantinaCreditTotal).toFixed(2)),
+          balance: Number(((updatedSelectedClient?.balance || 0) + effectiveFreeCantinaCreditTotal).toFixed(2)),
           balanceAdjustment: {
             source: 'OPERACAO_PDV_CREDITO',
             reason: 'Crédito operacional via PDV',
@@ -2498,13 +2530,13 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
         const creditMethod = payments.map(p => p.method).join(' + ');
 
-        if (freeCantinaCreditTotal > 0) {
+        if (effectiveFreeCantinaCreditTotal > 0) {
           const createdTx = await ApiService.createTransaction({
             clientId: selectedClient.id,
             clientName: selectedClient.name,
             enterpriseId: activeEnterpriseId,
             type: 'CREDIT',
-            amount: Number(freeCantinaCreditTotal.toFixed(2)),
+            amount: Number(effectiveFreeCantinaCreditTotal.toFixed(2)),
             description: 'Crédito livre cantina via PDV',
             item: 'Crédito livre cantina',
             plan: 'PREPAGO',
@@ -2593,10 +2625,10 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
         }
       }
 
-      if (selectedClient && collaboratorPayTotal > 0 && selectedClient.type === 'COLABORADOR') {
+      if (selectedClient && effectiveCollaboratorPayTotal > 0 && selectedClient.type === 'COLABORADOR') {
         const paidClient = await ApiService.updateClient(selectedClient.id, {
-          amountDue: Math.max(0, (updatedSelectedClient?.amountDue || 0) - collaboratorPayTotal),
-          monthlyConsumption: Math.max(0, (updatedSelectedClient?.monthlyConsumption || 0) - collaboratorPayTotal)
+          amountDue: Math.max(0, (updatedSelectedClient?.amountDue || 0) - effectiveCollaboratorPayTotal),
+          monthlyConsumption: Math.max(0, (updatedSelectedClient?.monthlyConsumption || 0) - effectiveCollaboratorPayTotal)
         }, {
           expectedUpdatedAt: String(((updatedSelectedClient || selectedClient) as any)?.updatedAt || '').trim() || undefined
         });
@@ -2610,7 +2642,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           clientName: selectedClient.name,
           enterpriseId: activeEnterpriseId,
           type: 'CREDIT',
-          amount: collaboratorPayTotal,
+          amount: effectiveCollaboratorPayTotal,
           description: 'Pagamento de consumo do colaborador via venda PDV',
           paymentMethod: payments.map(p => p.method).join(' + '),
           method: payments.map(p => p.method).join(' + '),
@@ -2872,7 +2904,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
   const handleCheckout = async () => {
     if (isFinalizingSale) return;
-    if (Math.abs(cartTotal - totalPaid) > 0.01) return alert('Pagamento incompleto!');
+    if (!allowsPartialConsumptionPayment && Math.abs(cartTotal - totalPaid) > 0.01) {
+      return alert('Pagamento incompleto!');
+    }
+    if (allowsPartialConsumptionPayment && totalPaid <= 0.01) {
+      return alert('Informe um pagamento para finalizar.');
+    }
     if (!selectedClient && !isFinalConsumer) return alert('Identifique o cliente!');
     await finalizeSale();
   };
@@ -3087,11 +3124,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
   const isFinalizeDisabled = useMemo(() => {
     const isCartEmpty = cart.length === 0;
-    const isPaymentIncomplete = remainingToPay > 0.01;
+    const isPaymentIncomplete = remainingToPay > 0.01 && !allowsPartialConsumptionPayment;
+    const missingPartialPayment = allowsPartialConsumptionPayment && totalPaid <= 0.01;
     const noClientIdentified = !selectedClient && !isFinalConsumer;
     const clientIsBlocked = selectedClient?.isBlocked || false;
-    return isCartEmpty || isPaymentIncomplete || noClientIdentified || clientIsBlocked || isFinalizingSale;
-  }, [cart, remainingToPay, selectedClient, isFinalConsumer, isFinalizingSale]);
+    return isCartEmpty || isPaymentIncomplete || missingPartialPayment || noClientIdentified || clientIsBlocked || isFinalizingSale;
+  }, [cart, remainingToPay, allowsPartialConsumptionPayment, totalPaid, selectedClient, isFinalConsumer, isFinalizingSale]);
 
   const serviceActionAmountNumeric = useMemo(() => {
     const parsed = Number(String(serviceActionAmount || '').replace(',', '.'));
@@ -3510,10 +3548,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                    </button>
                    <button
                      onClick={handlePayCollaboratorConsumption}
-                     disabled={selectedClient.type !== 'COLABORADOR'}
+                     disabled={selectedClient.type === 'COLABORADOR'
+                       ? Number(selectedClient.amountDue || 0) <= 0
+                       : Number(selectedClient.balance || 0) >= 0}
                      className="w-full px-2 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest bg-amber-600 text-white disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
                    >
-                     Pagar Consumo Mês
+                     Pagar Consumo
                    </button>
                     <button
                       onClick={() => {
@@ -3613,7 +3653,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                                 {item.serviceAction === 'CREDIT_STUDENT_FREE' && 'Crédito Livre Cantina'}
                                 {item.serviceAction === 'CREDIT_STUDENT_PLAN' && `Crédito Plano${item.planName ? ` �?� ${item.planName}` : ''}`}
                                 {item.serviceAction === 'PLAN_CONSUMPTION' && `Consumo Plano${item.planName ? ` �?� ${item.planName}` : ''}`}
-                                {item.serviceAction === 'PAY_COLLAB' && 'Pagamento Consumo Colaborador'}
+                                {item.serviceAction === 'PAY_COLLAB' && 'Pagamento Consumo'}
                               </p>
                             )}
                             {item.serviceAction === 'CREDIT_STUDENT_PLAN' && (
@@ -4471,7 +4511,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                    </div>
                    <div>
                      <h2 className="text-xl font-black">
-                       {serviceActionType === 'CREDIT_STUDENT' ? 'Creditar Aluno' : 'Pagar Consumo Mês'}
+                      {serviceActionType === 'CREDIT_STUDENT' ? 'Creditar Aluno' : 'Pagar Consumo'}
                      </h2>
                      <p className="text-[10px] font-black uppercase tracking-widest text-indigo-200">{selectedClient.name}</p>
                    </div>
