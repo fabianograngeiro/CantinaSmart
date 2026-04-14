@@ -1422,8 +1422,8 @@ export class ApiService {
     return response.json();
   }
 
-  static async getWhatsAppProviderConfig(enterpriseIdArg?: string) {
-    const enterpriseId = String(enterpriseIdArg || '').trim() || this.requireActiveEnterpriseId();
+  static async getWhatsAppProviderConfig() {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(this.buildApiUrl('/whatsapp/provider-config', { enterpriseId }), {
       headers: this.getHeaders(),
     });
@@ -1989,8 +1989,8 @@ export class ApiService {
     return response.json();
   }
 
-  static async getWhatsAppAiHandoffRequests(enterpriseIdArg?: string) {
-    const enterpriseId = String(enterpriseIdArg || '').trim() || this.requireActiveEnterpriseId();
+  static async getWhatsAppAiHandoffRequests() {
+    const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(this.buildApiUrl('/whatsapp/ai/handoff-requests', { enterpriseId }), {
       headers: this.getHeaders(),
     });
