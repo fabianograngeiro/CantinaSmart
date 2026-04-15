@@ -377,6 +377,8 @@ export type SaleItem = {
   selectedDates?: string[];
   planUnitPrice?: number;
   planSelectedCount?: number;
+  payerResponsibleId?: string;
+  payerResponsibleName?: string;
 };
 
 export type SuspendedSale = {
@@ -395,9 +397,11 @@ export type TransactionRecord = {
   client: string;
   plan: string;
   item: string;
-  type: 'CONSUMO' | 'VENDA_BALCAO' | 'CREDITO';
+  type: 'CONSUMO' | 'VENDA_BALCAO' | 'CREDITO' | 'AUDITORIA_EXCLUSAO';
   method: string;
   value?: number;
   total?: number;
+  payerResponsibleId?: string;
+  payerResponsibleName?: string;
   status: string;
 };

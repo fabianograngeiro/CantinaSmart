@@ -22,7 +22,7 @@ import { resolveUserAvatar } from '../utils/avatar';
 const MOCK_TODAY_HISTORY = [
   { id: 1, type: 'CONSUMPTION', item: 'Suco de Laranja', value: 8.50, time: '10:15', category: 'PREPAGO' },
   { id: 2, type: 'PLAN_USE', item: 'Kit Lanche Fixo', value: 1, time: '10:15', category: 'LANCHE_FIXO' },
-  { id: 3, type: 'RECHARGE', item: 'Recarga Saldo', value: 50.00, time: '08:30', category: 'PREPAGO' },
+  { id: 3, type: 'RECHARGE', item: 'Recarga Saldo', value: 50.00, time: '08:30', category: 'PREPAGO', payerResponsibleName: 'Responsável Principal' },
   { id: 4, type: 'PLAN_USE', item: 'Almoço PF', value: 1, time: '12:30', category: 'PF_FIXO' },
 ];
 
@@ -706,6 +706,9 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
                         <div>
                            <span className="text-[11px] font-black text-gray-800 uppercase tracking-tight">{item.item}</span>
                            <p className="text-[9px] text-gray-400 font-bold uppercase mt-0.5">{new Date().toLocaleDateString('pt-BR')} • {item.time}</p>
+                          {(item as any).payerResponsibleName && (
+                            <p className="text-[9px] text-emerald-600 font-black uppercase mt-0.5">Pagante: {(item as any).payerResponsibleName}</p>
+                          )}
                         </div>
                      </div>
                      <span className={`text-lg font-black tracking-tight ${item.type === 'RECHARGE' ? 'text-emerald-600' : 'text-gray-900'}`}>

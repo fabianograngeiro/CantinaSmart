@@ -45,6 +45,8 @@ type FinancialTx = {
   isManual: boolean;
   rawType?: string;
   userName?: string;
+  payerResponsibleId?: string;
+  payerResponsibleName?: string;
   isAudit?: boolean;
   auditedItemType?: 'ITEM' | 'PLANO';
   auditedQuantity?: number;
@@ -228,6 +230,8 @@ const mapRawTransactionToFinancial = (tx: any): FinancialTx | null => {
       isManual: false,
       rawType,
       userName,
+      payerResponsibleId: String(tx?.payerResponsibleId || '').trim() || undefined,
+      payerResponsibleName: String(tx?.payerResponsibleName || '').trim() || undefined,
       isAudit: true,
       auditedItemType: inferAuditItemType(tx),
       auditedQuantity: normalizedQuantity,
@@ -253,6 +257,8 @@ const mapRawTransactionToFinancial = (tx: any): FinancialTx | null => {
       isManual: isManualFinance,
       rawType,
       userName,
+      payerResponsibleId: String(tx?.payerResponsibleId || '').trim() || undefined,
+      payerResponsibleName: String(tx?.payerResponsibleName || '').trim() || undefined,
       isAudit: false,
     };
   }
@@ -279,6 +285,8 @@ const mapRawTransactionToFinancial = (tx: any): FinancialTx | null => {
       isManual: false,
       rawType,
       userName,
+      payerResponsibleId: String(tx?.payerResponsibleId || '').trim() || undefined,
+      payerResponsibleName: String(tx?.payerResponsibleName || '').trim() || undefined,
       isAudit: false,
     };
   }
@@ -580,7 +588,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
       if (tx.isAudit) return false;
       const matchesType = launchTypeFilter === 'ALL' || tx.type === launchTypeFilter;
       const matchesSearch = !term
-        || normalizeUpper(`${tx.description} ${tx.category} ${tx.client}`).includes(term);
+        || normalizeUpper(`${tx.description} ${tx.category} ${tx.client} ${tx.payerResponsibleName || ''}`).includes(term);
       return matchesType && matchesSearch;
     });
   }, [transactions, launchTimeFilter, launchSpecificDate, launchTypeFilter, launchSearch]);
@@ -780,7 +788,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
   };
 
   const exportToCSV = () => {
-    const headers = ['ID', 'Data', 'Hora', 'Tipo', 'Categoria', 'Descrição', 'Quantidade', 'Valor Unitário', 'Valor Total', 'Vencimento', 'Lembrete', 'Referência'];
+    const headers = ['ID', 'Data', 'Hora', 'Tipo', 'Categoria', 'Descrição', 'Responsável Pagante', 'Quantidade', 'Valor Unitário', 'Valor Total', 'Vencimento', 'Lembrete', 'Referência'];
     const rows = filteredLaunchTransactions.map((tx) => [
       tx.id,
       tx.date,
@@ -788,6 +796,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
       tx.type,
       tx.category,
       tx.description,
+      tx.payerResponsibleName || '',
       tx.quantity.toString(),
       tx.unitPrice.toFixed(2),
       tx.amount.toFixed(2),
@@ -819,12 +828,13 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
     doc.text(`Receita: R$ ${totalRevenue.toFixed(2)} | Despesa: R$ ${totalExpense.toFixed(2)} | Lucro: R$ ${netProfit.toFixed(2)}`, leftStartX, 28);
 
     autoTable(doc, {
-      head: [['Data', 'Tipo', 'Categoria', 'Descrição', 'Qtd', 'Unitário', 'Total', 'Vencimento', 'Lembrete']],
+      head: [['Data', 'Tipo', 'Categoria', 'Descrição', 'Responsável Pagante', 'Qtd', 'Unitário', 'Total', 'Vencimento', 'Lembrete']],
       body: filteredLaunchTransactions.map((tx) => [
         `${formatDateBr(tx.date)} ${tx.time}`,
         tx.type,
         tx.category,
         tx.description,
+        tx.payerResponsibleName || '-',
         String(tx.quantity),
         `R$ ${tx.unitPrice.toFixed(2)}`,
         `R$ ${tx.amount.toFixed(2)}`,
@@ -1259,6 +1269,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
                 <th className="px-3 py-2.5 text-left">Tipo</th>
                 <th className="px-3 py-2.5 text-left">Categoria</th>
                 <th className="px-3 py-2.5 text-left">Descrição</th>
+                <th className="px-3 py-2.5 text-left">Responsável Pagante</th>
                 <th className="px-3 py-2.5 text-right">Qtd</th>
                 <th className="px-3 py-2.5 text-right">Unitário</th>
                 <th className="px-3 py-2.5 text-right">Valor</th>
@@ -1268,7 +1279,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
             <tbody className="divide-y">
               {filteredLaunchTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-gray-400 font-bold uppercase text-xs">Sem lançamentos no período</td>
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-400 font-bold uppercase text-xs">Sem lançamentos no período</td>
                 </tr>
               ) : filteredLaunchTransactions.map((tx) => {
                 const isDeletionAdjustment = isDeletionAdjustmentTx(tx);
@@ -1291,6 +1302,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
                     </div>
                   </td>
                   <td className="px-3 py-2.5 text-gray-800 font-bold">{tx.description}</td>
+                  <td className="px-3 py-2.5 text-gray-700 font-bold">{tx.payerResponsibleName || '-'}</td>
                   <td className="px-3 py-2.5 text-right font-bold">{tx.quantity}</td>
                   <td className="px-3 py-2.5 text-right font-bold">R$ {tx.unitPrice.toFixed(2)}</td>
                   <td className={`px-3 py-2.5 text-right font-black ${tx.type === 'RECEITA' ? 'text-emerald-700' : 'text-red-700'}`}>

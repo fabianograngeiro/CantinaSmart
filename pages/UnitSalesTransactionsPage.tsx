@@ -44,6 +44,8 @@ type EditCartItem = {
 type ExtendedTransactionRecord = TransactionRecord & {
   raw?: any;
   clientId?: string | null;
+  payerResponsibleId?: string;
+  payerResponsibleName?: string;
   planId?: string;
   referenceDate?: string;
   quantity?: number;
@@ -434,6 +436,8 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
               referenceDate,
               raw: tx,
               clientId: tx?.clientId || null,
+              payerResponsibleId: String(tx?.payerResponsibleId || '').trim() || undefined,
+              payerResponsibleName: String(tx?.payerResponsibleName || '').trim() || undefined,
               planId: tx?.planId,
               quantity: Number(tx?.quantity || 1),
               unitPrice: Number(tx?.unitPrice || (Number.isFinite(total) && total > 0 ? total / Math.max(1, Number(tx?.quantity || 1)) : 0)),
@@ -1943,6 +1947,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
         !normalizedSearch
         || normalizeSearchText(row.client).includes(normalizedSearch)
         || normalizeSearchText(row.item).includes(normalizedSearch)
+        || normalizeSearchText(row.payerResponsibleName || row.raw?.payerResponsibleName).includes(normalizedSearch)
         || normalizeSearchText(row.id).includes(normalizedSearch);
       
       const matchesType = typeFilter === 'ALL' || row.type === typeFilter;
@@ -2221,6 +2226,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       "Hora",
       "Referência",
       "Cliente",
+      "Responsável Pagante",
       "Plano",
       "Itens Detalhados",
       "Tipo",
@@ -2247,6 +2253,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
         t.time,
         formatDateBr(t.referenceDate) || '-',
         sanitizeReportText(t.client, '-'),
+        sanitizeReportText(String(t.payerResponsibleName || t.raw?.payerResponsibleName || ''), '-'),
         sanitizeReportText(t.plan, '-'),
         sanitizeReportText(formatTransactionItemsForExport(t), '-'),
         sanitizeReportText(t.type, '-'),
@@ -2407,6 +2414,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
         <tr>
           <td>${escapeHtml(`${formatDateBr(tx.date)} ${tx.time}`)}</td>
           <td>${escapeHtml(formatTransactionItemsForExport(tx))}</td>
+          <td>${escapeHtml(String(tx.payerResponsibleName || tx.raw?.payerResponsibleName || '-'))}</td>
           <td>${escapeHtml(tx.type.replace('_', ' '))}</td>
           <td class="right">R$ ${escapeHtml(readTxAmount(tx).toFixed(2))}</td>
           <td>${escapeHtml(tx.status)}</td>
@@ -2461,13 +2469,14 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
               <tr>
                 <th>Data/Hora</th>
                 <th>Descrição</th>
+                <th>Responsável Pagante</th>
                 <th>Tipo</th>
                 <th class="right">Valor</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
-              ${rowsHtml || '<tr><td colspan="5">Sem transações no período.</td></tr>'}
+              ${rowsHtml || '<tr><td colspan="6">Sem transações no período.</td></tr>'}
             </tbody>
           </table>
           <div class="totals">
@@ -2883,7 +2892,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
 
     const summaryTopY = infoBoxY + infoBoxHeight + 9;
 
-    const tableColumn = ['Data/Hora', 'Descrição', 'Tipo', 'Valor', 'Forma Pgto', 'Status'];
+    const tableColumn = ['Data/Hora', 'Descrição', 'Responsável Pagante', 'Tipo', 'Valor', 'Forma Pgto', 'Status'];
     const orderedPlans = Array.from(planGroups.keys()).sort((a, b) => a.localeCompare(b, 'pt-BR'));
     const tableRows: any[] = [];
     const planSummaryCards: Array<{ planName: string; consumedText: string; balanceText: string; isPrepaid: boolean }> = [];
@@ -3021,6 +3030,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
         tableRows.push([
           `${formatDateBr(t.date)} ${t.time}`,
           decoratedDescription,
+          sanitizeReportText(String(t.payerResponsibleName || t.raw?.payerResponsibleName || ''), '-'),
           typeLabel,
           valueLabel,
           paymentMethodLabel,
@@ -3068,36 +3078,37 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
       styles: { fontSize: 8, cellPadding: 2.8, overflow: 'linebreak' },
       headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
       columnStyles: {
-        0: { cellWidth: 28 },
-        1: { cellWidth: 134 },
-        2: { cellWidth: 22, halign: 'center' },
-        3: { cellWidth: 28, halign: 'right' },
-        4: { cellWidth: 21, halign: 'center' },
-        5: { cellWidth: 30, halign: 'center' },
+        0: { cellWidth: 27 },
+        1: { cellWidth: 104 },
+        2: { cellWidth: 45, halign: 'left' },
+        3: { cellWidth: 19, halign: 'center' },
+        4: { cellWidth: 23, halign: 'right' },
+        5: { cellWidth: 21, halign: 'center' },
+        6: { cellWidth: 28, halign: 'center' },
       },
       alternateRowStyles: { fillColor: [248, 250, 252] },
       didParseCell: (hook) => {
         if (hook.section !== 'body') return;
         const row = hook.row.raw as any[];
         if (Array.isArray(row) && row.length === 1 && row[0]?.colSpan) return;
-        const rawType = String((row?.[2] || '')).toUpperCase();
+        const rawType = String((row?.[3] || '')).toUpperCase();
         const normalizedType = normalizeSearchText(rawType).toUpperCase();
         if (normalizedType.includes('ESTORNO') && !normalizedType.includes('CREDITO')) {
-          if (hook.column.index === 2 || hook.column.index === 3) {
+          if (hook.column.index === 3 || hook.column.index === 4) {
             hook.cell.styles.textColor = [180, 83, 9];
           }
         } else if (normalizedType.includes('CONSUMO') || normalizedType.includes('DEBIT')) {
-          if (hook.column.index === 2 || hook.column.index === 3) {
+          if (hook.column.index === 3 || hook.column.index === 4) {
             hook.cell.styles.textColor = [185, 28, 28];
           }
         } else if (normalizedType.includes('CREDITO')) {
-          if (hook.column.index === 2 || hook.column.index === 3) {
+          if (hook.column.index === 3 || hook.column.index === 4) {
             hook.cell.styles.textColor = [21, 128, 61];
           }
         }
 
-        if (hook.column.index === 4) {
-          const paymentText = normalizeSearchText(String(row?.[4] || '')).toUpperCase();
+        if (hook.column.index === 5) {
+          const paymentText = normalizeSearchText(String(row?.[5] || '')).toUpperCase();
           hook.cell.styles.fontStyle = 'bold';
           hook.cell.styles.halign = 'center';
 
@@ -3464,7 +3475,14 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isAuditDeleteRow ? 'bg-amber-100 text-amber-700' : (row.client === 'Consumidor Final' ? 'bg-gray-100 text-gray-400' : 'bg-indigo-50 text-indigo-600')}`}>
                                <User size={14}/>
                             </div>
-                            <p className="font-black text-indigo-900 uppercase tracking-tight break-words leading-tight text-[11px]">{row.client}</p>
+                              <div>
+                                <p className="font-black text-indigo-900 uppercase tracking-tight break-words leading-tight text-[11px]">{row.client}</p>
+                                {(row.payerResponsibleName || row.raw?.payerResponsibleName) && !isAuditDeleteRow && (
+                                  <p className="text-[8px] font-black text-emerald-700 uppercase tracking-[0.12em] mt-0.5">
+                                    Pagante: {String(row.payerResponsibleName || row.raw?.payerResponsibleName)}
+                                  </p>
+                                )}
+                              </div>
                          </div>
                       </td>
                       <td className="px-3 py-3.5 align-top text-center">
@@ -3776,6 +3794,17 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                        <p className="text-sm font-bold text-gray-600 uppercase">{formatDateBr(selectedTransaction.date)} • {selectedTransaction.time}</p>
                     </div>
                  </div>
+
+                 {(selectedTransaction.payerResponsibleName || selectedTransaction.raw?.payerResponsibleName)
+                   && String(selectedTransaction.type || '').toUpperCase() !== 'AUDITORIA_EXCLUSAO'
+                   && (
+                   <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+                     <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Responsável Pagante</p>
+                     <p className="text-sm font-black text-emerald-900 uppercase">
+                       {String(selectedTransaction.payerResponsibleName || selectedTransaction.raw?.payerResponsibleName)}
+                     </p>
+                   </div>
+                 )}
 
                  {String(selectedTransaction.type || '').toUpperCase() === 'AUDITORIA_EXCLUSAO' && (
                    <div className="bg-amber-50 p-5 rounded-[24px] border border-amber-100 space-y-3 dark:bg-amber-500/10 dark:border-amber-500/30">

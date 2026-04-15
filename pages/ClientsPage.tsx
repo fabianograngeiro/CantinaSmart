@@ -1,4 +1,4 @@
-﻿
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import jsPDF from 'jspdf';
@@ -496,8 +496,12 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     photo: ''
   });
   const [responsibleSourceMode, setResponsibleSourceMode] = useState<'NEW' | 'RESPONSAVEL' | 'COLABORADOR'>('NEW');
+  const [newResponsibleSubTab, setNewResponsibleSubTab] = useState<'LIST' | 'FORM'>('LIST');
   const [responsibleClientSearch, setResponsibleClientSearch] = useState('');
   const [responsibleClientId, setResponsibleClientId] = useState<string | null>(null);
+  const [selectedResponsibleListItemId, setSelectedResponsibleListItemId] = useState<string | null>(null);
+  const [responsibleEditTargetId, setResponsibleEditTargetId] = useState<string | null>(null);
+  const [pendingRemovedResponsibleItemIds, setPendingRemovedResponsibleItemIds] = useState<string[]>([]);
   const [responsibleCollaboratorSearch, setResponsibleCollaboratorSearch] = useState('');
   const [responsibleCollaboratorId, setResponsibleCollaboratorId] = useState<string | null>(null);
   const [newCollaboratorRole, setNewCollaboratorRole] = useState('');
@@ -516,7 +520,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     parentCpf: '',
     parentEmail: '',
   });
-  const [rechargePayerResponsibleId, setRechargePayerResponsibleId] = useState<string>('primary');
+  const [rechargePayerResponsibleId, setRechargePayerResponsibleId] = useState<string>('');
 
   const [dependentStudentForm, setDependentStudentForm] = useState({
     name: '',
@@ -544,9 +548,111 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       .filter((client) => !isUnitAdmin || client.enterpriseId === activeEnterpriseId)
       .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' }));
   }, [clients, isUnitAdmin, activeEnterpriseId]);
+  const sourceStudentForResponsibleSelection = useMemo(() => {
+    const linkingFromStudent = isStudentOnlyMode
+      && Boolean(linkingStudentContextName)
+      && String(viewingClient?.type || '').toUpperCase() === 'ALUNO';
+    if (linkingFromStudent) return viewingClient;
+
+    const editingStudent = editingClient
+      && String((editingClient as any)?.type || '').toUpperCase() === 'ALUNO';
+    if (editingStudent) return editingClient;
+
+    return null;
+  }, [isStudentOnlyMode, linkingStudentContextName, viewingClient, editingClient]);
+  const responsibleListItemsForSelection = useMemo(() => {
+    const fromResponsibleClient = (candidate: any, fallbackId: string) => ({
+      id: fallbackId,
+      displayName: String(candidate?.name || '').trim(),
+      relationship: String((candidate as any)?.parentRelationship || 'PAIS'),
+      whatsappCountryCode: String((candidate as any)?.parentWhatsappCountryCode || '55'),
+      whatsapp: String((candidate as any)?.phone || (candidate as any)?.parentWhatsapp || '').trim(),
+      cpf: String((candidate as any)?.cpf || (candidate as any)?.parentCpf || '').trim(),
+      email: String((candidate as any)?.email || (candidate as any)?.parentEmail || '').trim(),
+      responsibleClientId: String(candidate?.id || '').trim() || undefined,
+      isPrimary: false,
+      additionalEntryId: undefined as string | undefined,
+    });
+
+    if (!sourceStudentForResponsibleSelection) {
+      return responsibleCandidates.map((candidate) => fromResponsibleClient(candidate, `client:${String(candidate?.id || '')}`));
+    }
+
+    const items: Array<{
+      id: string;
+      displayName: string;
+      relationship: string;
+      whatsappCountryCode: string;
+      whatsapp: string;
+      cpf: string;
+      email: string;
+      responsibleClientId?: string;
+      isPrimary: boolean;
+      additionalEntryId?: string;
+    }> = [];
+
+    const source = sourceStudentForResponsibleSelection as any;
+    const primaryResponsibleClientId = String(source?.responsibleClientId || '').trim();
+    const primaryLinkedClient = primaryResponsibleClientId
+      ? clients.find((candidate) => String(candidate?.id || '').trim() === primaryResponsibleClientId)
+      : null;
+    const primaryName = String(primaryLinkedClient?.name || source?.parentName || '').trim();
+    if (primaryName || source?.parentWhatsapp || source?.parentCpf || source?.parentEmail) {
+      items.push({
+        id: primaryResponsibleClientId ? `client:${primaryResponsibleClientId}` : 'student:primary',
+        displayName: primaryName || 'Responsável principal',
+        relationship: String((primaryLinkedClient as any)?.parentRelationship || source?.parentRelationship || 'PAIS'),
+        whatsappCountryCode: String((primaryLinkedClient as any)?.parentWhatsappCountryCode || source?.parentWhatsappCountryCode || '55'),
+        whatsapp: String((primaryLinkedClient as any)?.phone || (primaryLinkedClient as any)?.parentWhatsapp || source?.parentWhatsapp || '').trim(),
+        cpf: String((primaryLinkedClient as any)?.cpf || (primaryLinkedClient as any)?.parentCpf || source?.parentCpf || '').trim(),
+        email: String((primaryLinkedClient as any)?.email || (primaryLinkedClient as any)?.parentEmail || source?.parentEmail || '').trim(),
+        responsibleClientId: primaryResponsibleClientId || undefined,
+        isPrimary: true,
+      });
+    }
+
+    const additional = Array.isArray(source?.additionalResponsibles) ? source.additionalResponsibles : [];
+    additional.forEach((entry: any, index: number) => {
+      const linkedId = String(entry?.responsibleClientId || '').trim();
+      const linkedClient = linkedId
+        ? clients.find((candidate) => String(candidate?.id || '').trim() === linkedId)
+        : null;
+      const name = String(linkedClient?.name || entry?.parentName || '').trim();
+      if (!name && !entry?.parentWhatsapp && !entry?.parentCpf && !entry?.parentEmail) return;
+      items.push({
+        id: linkedId ? `client:${linkedId}` : `student:add:${String(entry?.id || index)}`,
+        displayName: name || 'Responsável adicional',
+        relationship: String((linkedClient as any)?.parentRelationship || entry?.parentRelationship || 'PAIS'),
+        whatsappCountryCode: String((linkedClient as any)?.parentWhatsappCountryCode || entry?.parentWhatsappCountryCode || '55'),
+        whatsapp: String((linkedClient as any)?.phone || (linkedClient as any)?.parentWhatsapp || entry?.parentWhatsapp || '').trim(),
+        cpf: String((linkedClient as any)?.cpf || (linkedClient as any)?.parentCpf || entry?.parentCpf || '').trim(),
+        email: String((linkedClient as any)?.email || (linkedClient as any)?.parentEmail || entry?.parentEmail || '').trim(),
+        responsibleClientId: linkedId || undefined,
+        isPrimary: false,
+        additionalEntryId: String(entry?.id || '').trim() || undefined,
+      });
+    });
+
+    const dedup = new Map<string, (typeof items)[number]>();
+    items.forEach((item) => {
+      const key = item.responsibleClientId
+        || `${normalizeSearchText(item.displayName)}|${String(item.cpf || '').replace(/\D/g, '')}|${String(item.whatsapp || '').replace(/\D/g, '')}`;
+      if (!dedup.has(key)) dedup.set(key, item);
+    });
+
+    return Array.from(dedup.values()).filter((item) => !pendingRemovedResponsibleItemIds.includes(item.id));
+  }, [responsibleCandidates, sourceStudentForResponsibleSelection, clients, pendingRemovedResponsibleItemIds]);
   const selectedResponsibleClient = useMemo(
     () => responsibleCandidates.find((client) => client.id === responsibleClientId) || null,
     [responsibleCandidates, responsibleClientId]
+  );
+  const selectedResponsibleListItem = useMemo(
+    () => responsibleListItemsForSelection.find((item) => item.id === selectedResponsibleListItemId) || null,
+    [responsibleListItemsForSelection, selectedResponsibleListItemId]
+  );
+  const responsibleEditTarget = useMemo(
+    () => responsibleListItemsForSelection.find((item) => item.id === responsibleEditTargetId) || null,
+    [responsibleListItemsForSelection, responsibleEditTargetId]
   );
   const filteredResponsibleClients = useMemo(() => {
     const query = normalizeSearchText(responsibleClientSearch);
@@ -1081,6 +1187,9 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     setResponsibleSourceMode('NEW');
     setResponsibleClientSearch('');
     setResponsibleClientId(null);
+    setSelectedResponsibleListItemId(null);
+    setResponsibleEditTargetId(null);
+    setPendingRemovedResponsibleItemIds([]);
     setResponsibleCollaboratorSearch('');
     setResponsibleCollaboratorId(null);
     setNewCollaboratorRole('');
@@ -1095,32 +1204,236 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
   const getAllResponsiblesForStudent = (client: Client | null) => {
     if (!client) return [];
-    const result: Array<{ id: string; parentName: string; parentRelationship?: string; parentWhatsapp?: string; parentEmail?: string; parentCpf?: string; isPrimary: boolean }> = [];
-    if (client.parentName) {
-      result.push({
-        id: 'primary',
-        parentName: client.parentName,
-        parentRelationship: (client as any).parentRelationship || '',
-        parentWhatsapp: client.parentWhatsapp || '',
-        parentEmail: client.parentEmail || '',
-        parentCpf: client.parentCpf || '',
+    const normalizeName = (value?: string) =>
+      String(value || '')
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+    const digitsOnly = (value?: string) => String(value || '').replace(/\D/g, '');
+
+    const byKey = new Map<string, {
+      id: string;
+      parentName: string;
+      parentRelationship?: string;
+      parentWhatsapp?: string;
+      parentEmail?: string;
+      parentCpf?: string;
+      isPrimary: boolean;
+    }>();
+
+    const pushResponsible = (payload: {
+      idHint?: string;
+      parentName?: string;
+      parentRelationship?: string;
+      parentWhatsapp?: string;
+      parentEmail?: string;
+      parentCpf?: string;
+      responsibleClientId?: string;
+      responsibleCollaboratorId?: string;
+      isPrimary?: boolean;
+    }) => {
+      const parentName = String(payload.parentName || '').trim();
+      if (!parentName) return;
+
+      const responsibleClientId = String(payload.responsibleClientId || '').trim();
+      const responsibleCollaboratorId = String(payload.responsibleCollaboratorId || '').trim();
+      const dedupKey = responsibleClientId
+        ? `client:${responsibleClientId}`
+        : (responsibleCollaboratorId
+          ? `collab:${responsibleCollaboratorId}`
+          : `manual:${normalizeName(parentName)}|${digitsOnly(payload.parentWhatsapp)}|${digitsOnly(payload.parentCpf)}`);
+
+      if (byKey.has(dedupKey)) return;
+
+      const stableId = responsibleClientId
+        ? `responsible-client:${responsibleClientId}`
+        : (responsibleCollaboratorId
+          ? `responsible-collaborator:${responsibleCollaboratorId}`
+          : `manual:${String(payload.idHint || dedupKey)}`);
+
+      byKey.set(dedupKey, {
+        id: stableId,
+        parentName,
+        parentRelationship: String(payload.parentRelationship || '').trim(),
+        parentWhatsapp: String(payload.parentWhatsapp || '').trim(),
+        parentEmail: String(payload.parentEmail || '').trim(),
+        parentCpf: String(payload.parentCpf || '').trim(),
+        isPrimary: Boolean(payload.isPrimary),
+      });
+    };
+
+    const appendStudentResponsibles = (student: Client, contextKey: string) => {
+      const studentAsAny = student as any;
+      const primaryResponsibleClientId = String(studentAsAny?.responsibleClientId || '').trim();
+      const primaryResponsibleCollaboratorId = String(studentAsAny?.responsibleCollaboratorId || '').trim();
+      const primaryResponsibleClient = primaryResponsibleClientId
+        ? clients.find((candidate) => String(candidate?.id || '').trim() === primaryResponsibleClientId)
+        : null;
+      const primaryResponsibleCollaborator = primaryResponsibleCollaboratorId
+        ? clients.find((candidate) => String(candidate?.id || '').trim() === primaryResponsibleCollaboratorId)
+        : null;
+
+      pushResponsible({
+        idHint: `${contextKey}:primary`,
+        parentName: String(
+          primaryResponsibleClient?.name
+          || primaryResponsibleCollaborator?.name
+          || studentAsAny?.parentName
+          || ''
+        ),
+        parentRelationship: String(
+          studentAsAny?.parentRelationship
+          || (primaryResponsibleClient as any)?.parentRelationship
+          || (primaryResponsibleCollaborator as any)?.parentRelationship
+          || ''
+        ),
+        parentWhatsapp: String(
+          primaryResponsibleClient?.phone
+          || (primaryResponsibleClient as any)?.parentWhatsapp
+          || primaryResponsibleCollaborator?.phone
+          || (primaryResponsibleCollaborator as any)?.parentWhatsapp
+          || studentAsAny?.parentWhatsapp
+          || ''
+        ),
+        parentEmail: String(
+          primaryResponsibleClient?.email
+          || (primaryResponsibleClient as any)?.parentEmail
+          || primaryResponsibleCollaborator?.email
+          || (primaryResponsibleCollaborator as any)?.parentEmail
+          || studentAsAny?.parentEmail
+          || ''
+        ),
+        parentCpf: String(
+          (primaryResponsibleClient as any)?.cpf
+          || (primaryResponsibleClient as any)?.parentCpf
+          || (primaryResponsibleCollaborator as any)?.cpf
+          || (primaryResponsibleCollaborator as any)?.parentCpf
+          || studentAsAny?.parentCpf
+          || ''
+        ),
+        responsibleClientId: primaryResponsibleClientId || undefined,
+        responsibleCollaboratorId: primaryResponsibleCollaboratorId || undefined,
         isPrimary: true,
       });
-    }
-    const additional = Array.isArray((client as any).additionalResponsibles) ? (client as any).additionalResponsibles : [];
-    additional.forEach((entry: any) => {
-      if (!entry?.id) return;
-      result.push({
-        id: entry.id,
-        parentName: entry.parentName || '',
-        parentRelationship: entry.parentRelationship || '',
-        parentWhatsapp: entry.parentWhatsapp || '',
-        parentEmail: entry.parentEmail || '',
-        parentCpf: entry.parentCpf || '',
-        isPrimary: false,
+
+      const additional = Array.isArray(studentAsAny?.additionalResponsibles) ? studentAsAny.additionalResponsibles : [];
+      additional.forEach((entry: any, index: number) => {
+        const entryResponsibleClientId = String(entry?.responsibleClientId || '').trim();
+        const entryResponsibleCollaboratorId = String(entry?.responsibleCollaboratorId || '').trim();
+        const linkedResponsible = entryResponsibleClientId
+          ? clients.find((candidate) => String(candidate?.id || '').trim() === entryResponsibleClientId)
+          : null;
+        const linkedCollaborator = entryResponsibleCollaboratorId
+          ? clients.find((candidate) => String(candidate?.id || '').trim() === entryResponsibleCollaboratorId)
+          : null;
+        const entryId = String(entry?.id || '').trim() || `${contextKey}:additional:${index}`;
+
+        pushResponsible({
+          idHint: `${contextKey}:${entryId}`,
+          parentName: String(linkedResponsible?.name || linkedCollaborator?.name || entry?.parentName || ''),
+          parentRelationship: String(entry?.parentRelationship || (linkedResponsible as any)?.parentRelationship || (linkedCollaborator as any)?.parentRelationship || ''),
+          parentWhatsapp: String(
+            linkedResponsible?.phone
+            || (linkedResponsible as any)?.parentWhatsapp
+            || linkedCollaborator?.phone
+            || (linkedCollaborator as any)?.parentWhatsapp
+            || entry?.parentWhatsapp
+            || ''
+          ),
+          parentEmail: String(
+            linkedResponsible?.email
+            || (linkedResponsible as any)?.parentEmail
+            || linkedCollaborator?.email
+            || (linkedCollaborator as any)?.parentEmail
+            || entry?.parentEmail
+            || ''
+          ),
+          parentCpf: String(
+            (linkedResponsible as any)?.cpf
+            || (linkedResponsible as any)?.parentCpf
+            || (linkedCollaborator as any)?.cpf
+            || (linkedCollaborator as any)?.parentCpf
+            || entry?.parentCpf
+            || ''
+          ),
+          responsibleClientId: entryResponsibleClientId || undefined,
+          responsibleCollaboratorId: entryResponsibleCollaboratorId || undefined,
+          isPrimary: false,
+        });
       });
+    };
+
+    appendStudentResponsibles(client, String(client.id || 'student'));
+
+    const currentStudentId = String((client as any)?.id || '').trim();
+    if (currentStudentId) {
+      const linkedResponsibleRecords = (Array.isArray(clients) ? clients : []).filter((candidate) => {
+        const candidateType = String(candidate?.type || '').toUpperCase();
+        if (candidateType !== 'RESPONSAVEL' && candidateType !== 'COLABORADOR') return false;
+        const relatedIds = Array.isArray((candidate as any)?.relatedStudentIds)
+          ? (candidate as any).relatedStudentIds
+          : [];
+        return relatedIds.map((id: any) => String(id || '').trim()).includes(currentStudentId);
+      });
+
+      linkedResponsibleRecords.forEach((record) => {
+        const recordType = String(record?.type || '').toUpperCase();
+        pushResponsible({
+          idHint: `linked-record:${String(record?.id || '')}`,
+          parentName: String(record?.name || '').trim(),
+          parentRelationship: String((record as any)?.parentRelationship || ''),
+          parentWhatsapp: String((record as any)?.phone || (record as any)?.parentWhatsapp || '').trim(),
+          parentEmail: String((record as any)?.email || (record as any)?.parentEmail || '').trim(),
+          parentCpf: String((record as any)?.cpf || (record as any)?.parentCpf || '').trim(),
+          responsibleClientId: recordType === 'RESPONSAVEL' ? String(record?.id || '').trim() || undefined : undefined,
+          responsibleCollaboratorId: recordType === 'COLABORADOR' ? String(record?.id || '').trim() || undefined : undefined,
+          isPrimary: false,
+        });
+      });
+    }
+
+    const baseResponsibleClientId = String((client as any)?.responsibleClientId || '').trim();
+    const baseResponsibleCollaboratorId = String((client as any)?.responsibleCollaboratorId || '').trim();
+    const baseParentName = normalizeName(String((client as any)?.parentName || ''));
+    const baseParentPhone = digitsOnly(String((client as any)?.parentWhatsapp || (client as any)?.phone || ''));
+    const baseParentCpf = digitsOnly(String((client as any)?.parentCpf || ''));
+    const baseParentEmail = String((client as any)?.parentEmail || '').trim().toLowerCase();
+    const siblingStudents = (Array.isArray(clients) ? clients : []).filter((candidate) => {
+      if (String(candidate?.type || '').toUpperCase() !== 'ALUNO') return false;
+      if (String(candidate?.id || '').trim() === String(client?.id || '').trim()) return false;
+
+      const candidateResponsibleClientId = String((candidate as any)?.responsibleClientId || '').trim();
+      const candidateResponsibleCollaboratorId = String((candidate as any)?.responsibleCollaboratorId || '').trim();
+      if (baseResponsibleClientId && candidateResponsibleClientId === baseResponsibleClientId) return true;
+      if (baseResponsibleCollaboratorId && candidateResponsibleCollaboratorId === baseResponsibleCollaboratorId) return true;
+
+      const candidateAdditional = Array.isArray((candidate as any)?.additionalResponsibles)
+        ? (candidate as any).additionalResponsibles
+        : [];
+      if (baseResponsibleClientId && candidateAdditional.some((entry: any) => String(entry?.responsibleClientId || '').trim() === baseResponsibleClientId)) return true;
+      if (baseResponsibleCollaboratorId && candidateAdditional.some((entry: any) => String(entry?.responsibleCollaboratorId || '').trim() === baseResponsibleCollaboratorId)) return true;
+
+      if (!baseResponsibleClientId && !baseResponsibleCollaboratorId) {
+        const candidateParentName = normalizeName(String((candidate as any)?.parentName || ''));
+        const candidateParentPhone = digitsOnly(String((candidate as any)?.parentWhatsapp || (candidate as any)?.phone || ''));
+        const candidateParentCpf = digitsOnly(String((candidate as any)?.parentCpf || ''));
+        const candidateParentEmail = String((candidate as any)?.parentEmail || '').trim().toLowerCase();
+
+        if (baseParentName && candidateParentName && baseParentName === candidateParentName) return true;
+        if (baseParentPhone && candidateParentPhone && baseParentPhone === candidateParentPhone) return true;
+        if (baseParentCpf && candidateParentCpf && baseParentCpf === candidateParentCpf) return true;
+        if (baseParentEmail && candidateParentEmail && baseParentEmail === candidateParentEmail) return true;
+      }
+
+      return false;
     });
-    return result;
+
+    siblingStudents.forEach((sibling) => {
+      appendStudentResponsibles(sibling, `linked:${String(sibling.id || '')}`);
+    });
+
+    return Array.from(byKey.values());
   };
 
   const handleAddAdditionalResponsible = async () => {
@@ -1219,6 +1532,9 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     setEditingClient(null);
     setIsStudentOnlyMode(true);
     setLinkingStudentContextName(linkingFromStudent ? viewingClientName : '');
+    setSelectedResponsibleListItemId(null);
+    setResponsibleEditTargetId(null);
+    setPendingRemovedResponsibleItemIds([]);
     setSelectedPlanDays({});
     setSelectedPlanDates({});
     setSelectedPlanShifts({});
@@ -1336,6 +1652,9 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     setEditingClient(client);
     setIsStudentOnlyMode(false);
     setLinkingStudentContextName('');
+    setSelectedResponsibleListItemId(null);
+    setResponsibleEditTargetId(null);
+    setPendingRemovedResponsibleItemIds([]);
     setOpenPlanCalendarId(null);
     setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
     setFormData({
@@ -1450,6 +1769,16 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     }
     setPendingResolveIntent(null);
   }, [pendingResolveIntent, clients]);
+
+  useEffect(() => {
+    if (!isRechargeModalOpen || !rechargingClient) return;
+    const allResps = getAllResponsiblesForStudent(rechargingClient);
+    if (allResps.length <= 1) {
+      setRechargePayerResponsibleId(allResps[0]?.id || '');
+      return;
+    }
+    setRechargePayerResponsibleId('');
+  }, [isRechargeModalOpen, rechargingClient]);
 
   const handleOpenDetail = (client: Client) => {
     setViewingClient(client);
@@ -2095,7 +2424,13 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     const responsibleClientEmail = String(selectedResponsibleClient?.email || selectedResponsibleClient?.parentEmail || '').trim();
     const responsibleClientCpf = String((selectedResponsibleClient?.cpf || selectedResponsibleClient?.parentCpf || '')).trim();
     const isStudentUsingCollaborator = formData.type === 'ALUNO' && responsibleSourceMode === 'COLABORADOR';
-    const isStudentUsingResponsible = formData.type === 'ALUNO' && responsibleSourceMode === 'RESPONSAVEL' && Boolean(selectedResponsibleClient);
+    const isNewModeUsingExisting = responsibleSourceMode === 'NEW' && newResponsibleSubTab === 'LIST';
+    const hasSelectedResponsibleListItem = Boolean(selectedResponsibleListItem);
+    const isEditingExistingStudent = Boolean(editingClient && String((editingClient as any)?.type || '').toUpperCase() === 'ALUNO' && formData.type === 'ALUNO');
+    const isManagingResponsiblesViaNewForm = isEditingExistingStudent && responsibleSourceMode === 'NEW' && newResponsibleSubTab === 'FORM';
+    const isEditingResponsibleFromList = isManagingResponsiblesViaNewForm && Boolean(responsibleEditTarget);
+    const isAddingResponsibleFromForm = isManagingResponsiblesViaNewForm && !responsibleEditTarget;
+    const isStudentUsingResponsible = formData.type === 'ALUNO' && (responsibleSourceMode === 'RESPONSAVEL' || isNewModeUsingExisting) && Boolean(selectedResponsibleClient);
     if (formData.type === 'ALUNO' && responsibleSourceMode === 'COLABORADOR' && String(formData.parentName || '').trim().length < 2) {
       alert('Nome do colaborador é obrigatório.');
       return;
@@ -2109,7 +2444,11 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       return;
     }
     if (formData.type === 'ALUNO' && responsibleSourceMode === 'RESPONSAVEL' && !selectedResponsibleClient) {
-      alert('Selecione um responsável já cadastrado para vincular ao aluno.');
+      alert('Selecione um responsável já cadastrado para vincular ao aluno. Se deseja cadastrar um novo, use a aba "ADD NOVO RESPONSÁVEL".');
+      return;
+    }
+    if (formData.type === 'ALUNO' && isNewModeUsingExisting && !selectedResponsibleClient && !hasSelectedResponsibleListItem) {
+      alert('Selecione um responsável já cadastrado ou use a aba "ADD NOVO RESPONSÁVEL" para criar um responsável.');
       return;
     }
     const fallbackParentName = normalizedStudentName
@@ -2142,6 +2481,83 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       : isStudentUsingResponsible
         ? (responsibleClientCpf || formData.parentCpf)
         : formData.parentCpf;
+
+    const existingStudentParentName = String((editingClient as any)?.parentName || '').trim();
+    const existingStudentParentRelationship = String((editingClient as any)?.parentRelationship || 'PAIS').trim().toUpperCase();
+    const existingStudentParentWhatsappCode = String((editingClient as any)?.parentWhatsappCountryCode || '55').trim() || '55';
+    const existingStudentParentPhoneParts = splitPhoneByCountryCode(String((editingClient as any)?.parentWhatsapp || ''), existingStudentParentWhatsappCode);
+    const existingStudentParentWhatsapp = existingStudentParentPhoneParts.localPhone || normalizePhoneDigits(String((editingClient as any)?.parentWhatsapp || ''));
+    const existingStudentParentEmail = String((editingClient as any)?.parentEmail || '').trim();
+    const existingStudentParentCpf = String((editingClient as any)?.parentCpf || '').trim();
+
+    const parentNameToPersistFinal = isAddingResponsibleFromForm || (isEditingResponsibleFromList && !responsibleEditTarget?.isPrimary)
+      ? existingStudentParentName
+      : parentNameToPersist;
+    const parentRelationshipToPersistFinal = isAddingResponsibleFromForm || (isEditingResponsibleFromList && !responsibleEditTarget?.isPrimary)
+      ? existingStudentParentRelationship
+      : (isStudentUsingCollaborator ? normalizedCollaboratorRole : normalizedParentRelationship);
+    const parentWhatsappCountryCodeToPersistFinal = isAddingResponsibleFromForm || (isEditingResponsibleFromList && !responsibleEditTarget?.isPrimary)
+      ? existingStudentParentWhatsappCode
+      : parentWhatsappCountryCodeToPersist;
+    const parentWhatsappToPersistFinal = isAddingResponsibleFromForm || (isEditingResponsibleFromList && !responsibleEditTarget?.isPrimary)
+      ? existingStudentParentWhatsapp
+      : parentWhatsappToPersist;
+    const parentEmailToPersistFinal = isAddingResponsibleFromForm || (isEditingResponsibleFromList && !responsibleEditTarget?.isPrimary)
+      ? existingStudentParentEmail
+      : parentEmailToPersist;
+    const parentCpfToPersistFinal = isAddingResponsibleFromForm || (isEditingResponsibleFromList && !responsibleEditTarget?.isPrimary)
+      ? existingStudentParentCpf
+      : parentCpfToPersist;
+
+    const existingAdditionalResponsibles = (Array.isArray((editingClient as any)?.additionalResponsibles)
+      ? (editingClient as any).additionalResponsibles
+      : []) as Array<any>;
+    let additionalResponsiblesToPersist = existingAdditionalResponsibles;
+
+    if (isEditingExistingStudent) {
+      if (pendingRemovedResponsibleItemIds.length > 0) {
+        const removedEntryIds = pendingRemovedResponsibleItemIds
+          .filter((itemId) => itemId.startsWith('student:add:'))
+          .map((itemId) => itemId.replace('student:add:', '').trim())
+          .filter(Boolean);
+        if (removedEntryIds.length > 0) {
+          additionalResponsiblesToPersist = additionalResponsiblesToPersist.filter((entry: any) => !removedEntryIds.includes(String(entry?.id || '').trim()));
+        }
+      }
+
+      if (isAddingResponsibleFromForm) {
+        const newEntryId = `resp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const newEntry = {
+          id: newEntryId,
+          parentName: normalizedParentName,
+          parentRelationship: normalizedParentRelationship || 'PAIS',
+          parentWhatsappCountryCode: formData.parentWhatsappCountryCode || '55',
+          parentWhatsapp: formData.parentWhatsapp || '',
+          parentCpf: formData.parentCpf || '',
+          parentEmail: formData.parentEmail || '',
+          responsibleOriginType: 'MANUAL',
+        };
+        additionalResponsiblesToPersist = [...additionalResponsiblesToPersist, newEntry];
+      }
+
+      if (isEditingResponsibleFromList && responsibleEditTarget && !responsibleEditTarget.isPrimary) {
+        const targetEntryId = String(responsibleEditTarget.additionalEntryId || '').trim();
+        if (targetEntryId) {
+          additionalResponsiblesToPersist = additionalResponsiblesToPersist.map((entry: any) => {
+            if (String(entry?.id || '').trim() !== targetEntryId) return entry;
+            return {
+              ...entry,
+              parentName: normalizedParentName,
+              parentRelationship: normalizedParentRelationship || 'PAIS',
+              parentWhatsappCountryCode: formData.parentWhatsappCountryCode || '55',
+              parentWhatsapp: formData.parentWhatsapp || '',
+              parentCpf: formData.parentCpf || '',
+              parentEmail: formData.parentEmail || '',
+            };
+          });
+        }
+      }
+    }
     
     isSubmittingClientFormRef.current = true;
     setIsSubmittingClientForm(true);
@@ -2182,19 +2598,30 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       dietaryNotes: formData.dietaryNotes,
       photo: finalPhoto,
       enterpriseId: editingClient?.enterpriseId || activeEnterpriseId,
-      parentName: parentNameToPersist,
+      parentName: parentNameToPersistFinal,
       parentRelationship: formData.type === 'ALUNO'
-        ? (isStudentUsingCollaborator ? normalizedCollaboratorRole : normalizedParentRelationship)
+        ? parentRelationshipToPersistFinal
         : '',
-      phone: joinPhoneWithCountryCode(parentWhatsappCountryCodeToPersist, parentWhatsappToPersist),
-      email: parentEmailToPersist,
-      cpf: formData.type === 'ALUNO' ? '' : parentCpfToPersist,
-      parentWhatsappCountryCode: parentWhatsappCountryCodeToPersist,
-      parentWhatsapp: joinPhoneWithCountryCode(parentWhatsappCountryCodeToPersist, parentWhatsappToPersist),
-      parentCpf: parentCpfToPersist,
-      parentEmail: parentEmailToPersist,
-      responsibleCollaboratorId: isStudentUsingCollaborator ? String(selectedResponsibleCollaborator?.id || '') : '',
-      responsibleClientId: isStudentUsingResponsible ? String(selectedResponsibleClient?.id || '') : '',
+      phone: joinPhoneWithCountryCode(parentWhatsappCountryCodeToPersistFinal, parentWhatsappToPersistFinal),
+      email: parentEmailToPersistFinal,
+      cpf: formData.type === 'ALUNO' ? '' : parentCpfToPersistFinal,
+      parentWhatsappCountryCode: parentWhatsappCountryCodeToPersistFinal,
+      parentWhatsapp: joinPhoneWithCountryCode(parentWhatsappCountryCodeToPersistFinal, parentWhatsappToPersistFinal),
+      parentCpf: parentCpfToPersistFinal,
+      parentEmail: parentEmailToPersistFinal,
+      responsibleCollaboratorId: formData.type === 'ALUNO'
+        ? (isStudentUsingCollaborator
+          ? String(selectedResponsibleCollaborator?.id || '')
+          : (isManagingResponsiblesViaNewForm ? String((editingClient as any)?.responsibleCollaboratorId || '') : ''))
+        : '',
+      responsibleClientId: formData.type === 'ALUNO'
+        ? (isStudentUsingResponsible
+          ? String(selectedResponsibleClient?.id || '')
+          : (isManagingResponsiblesViaNewForm ? String((editingClient as any)?.responsibleClientId || '') : ''))
+        : '',
+      additionalResponsibles: formData.type === 'ALUNO' && isEditingExistingStudent
+        ? additionalResponsiblesToPersist
+        : ((editingClient as any)?.additionalResponsibles || []),
       relatedStudent: formData.type === 'COLABORADOR' && addDependentStudent && String(dependentStudentForm.name || '').trim()
         ? {
             name: String(dependentStudentForm.name || '').trim(),
@@ -2231,6 +2658,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       setEditingClient(null);
       setIsStudentOnlyMode(false);
       setLinkingStudentContextName('');
+      setResponsibleEditTargetId(null);
+      setPendingRemovedResponsibleItemIds([]);
       setClientPhotoFile(null);
       setClientPhotoPreview('');
       setIsClientModalOpen(false);
@@ -2265,6 +2694,14 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     if (!rechargingClient) return;
     if (!Number.isFinite(amount) || amount <= 0) {
       alert('Informe um valor válido para recarga.');
+      return;
+    }
+
+    const allResps = getAllResponsiblesForStudent(rechargingClient);
+    const hasMultipleResponsibles = allResps.length > 1;
+    const selectedPayer = allResps.find((r) => r.id === rechargePayerResponsibleId);
+    if (hasMultipleResponsibles && !selectedPayer) {
+      alert('Selecione qual responsável está realizando o pagamento antes de finalizar.');
       return;
     }
     
@@ -2397,16 +2834,15 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         timestamp: new Date().toISOString(),
         status: 'CONCLUIDA',
         ...((() => {
-          const allResps = getAllResponsiblesForStudent(rechargingClient);
-          if (allResps.length <= 1) return {};
-          const selected = allResps.find(r => r.id === rechargePayerResponsibleId) || allResps[0];
-          return selected ? { payerResponsibleId: selected.id, payerResponsibleName: selected.parentName } : {};
+          if (!hasMultipleResponsibles) return {};
+          return selectedPayer ? { payerResponsibleId: selectedPayer.id, payerResponsibleName: selectedPayer.parentName } : {};
         })()),
       });
       setTransactions(prev => [createdTransaction, ...prev]);
       setClients(prev => prev.map(c => c.id === rechargingClient.id ? updated : c));
       setIsRechargeModalOpen(false);
       setRechargingClient(null);
+      setRechargePayerResponsibleId('');
       resetRechargePlanSelection();
       alert(`Recarga de R$ ${amount.toFixed(2)} ${planName ? `para o plano ${planName} ` : ''}realizada com sucesso para ${rechargingClient.name}!`);
     } catch (err) {
@@ -2562,8 +2998,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     const rawType = String(tx?.type || '').toUpperCase();
     const rawDescription = String(tx?.description || tx?.item || tx?.plan || '').toUpperCase();
 
-    if (rawType === 'CREDIT') return 'RECARGA';
-    if (rawType === 'DEBIT') return 'CONSUMO';
+    if (rawType === 'CREDIT' || rawType === 'CREDITO') return 'RECARGA';
+    if (rawType === 'DEBIT' || rawType === 'DEBITO') return 'CONSUMO';
     if (rawType === 'VENDA_BALCAO') return 'VENDA';
     if (rawType === 'CONSUMO') return 'CONSUMO';
     if (rawDescription.includes('RECARGA') || rawDescription.includes('CRÉDITO') || rawDescription.includes('CREDITO')) return 'RECARGA';
@@ -2907,6 +3343,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
     return transactions
       .filter((tx: any) => {
+        const rawType = String(tx?.type || '').toUpperCase();
+        if (rawType === 'AUDITORIA_EXCLUSAO') return false;
         return isTransactionFromClient(tx, client);
       })
       .map((tx: any) => {
@@ -3209,10 +3647,14 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     const planBalances = clientPlanBalances.get(client.id) || [];
     const planByName = new Map<string, {
       planName: string;
+      creditedQuantity: number;
+      creditedValue: number;
       consumedQuantity: number;
       consumedValue: number;
-      balanceQuantity: number;
-      balanceValue: number;
+      periodBalanceQuantity: number;
+      periodBalanceValue: number;
+      currentBalanceQuantity: number;
+      currentBalanceValue: number;
     }>();
 
     planBalances.forEach((plan) => {
@@ -3220,10 +3662,14 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       if (!key) return;
       planByName.set(key, {
         planName: String(plan.planName || '').trim() || 'PLANO',
+        creditedQuantity: 0,
+        creditedValue: 0,
         consumedQuantity: 0,
         consumedValue: 0,
-        balanceQuantity: Number(plan.remaining || 0),
-        balanceValue: Number(plan.remainingValue || 0),
+        periodBalanceQuantity: 0,
+        periodBalanceValue: 0,
+        currentBalanceQuantity: Number(plan.remaining || 0),
+        currentBalanceValue: Number(plan.remainingValue || 0),
       });
     });
 
@@ -3291,7 +3737,26 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       const planMovement = isPlanTx(tx, move);
 
       if (category === 'RECARGA') {
-        if (!planMovement) cantinaCreditValue += safeAmount;
+        if (!planMovement) {
+          cantinaCreditValue += safeAmount;
+          return;
+        }
+        const planName = resolvePlanName(tx, move);
+        const key = normalizeSearchText(planName);
+        const current = planByName.get(key) || {
+          planName: planName || 'PLANO',
+          creditedQuantity: 0,
+          creditedValue: 0,
+          consumedQuantity: 0,
+          consumedValue: 0,
+          periodBalanceQuantity: 0,
+          periodBalanceValue: 0,
+          currentBalanceQuantity: 0,
+          currentBalanceValue: 0,
+        };
+        current.creditedQuantity += resolveUnits(tx, move, safeAmount);
+        current.creditedValue += safeAmount;
+        planByName.set(key, current);
         return;
       }
 
@@ -3305,23 +3770,47 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       const key = normalizeSearchText(planName);
       const current = planByName.get(key) || {
         planName: planName || 'PLANO',
+        creditedQuantity: 0,
+        creditedValue: 0,
         consumedQuantity: 0,
         consumedValue: 0,
-        balanceQuantity: 0,
-        balanceValue: 0,
+        periodBalanceQuantity: 0,
+        periodBalanceValue: 0,
+        currentBalanceQuantity: 0,
+        currentBalanceValue: 0,
       };
       current.consumedQuantity += resolveUnits(tx, move, safeAmount);
       current.consumedValue += safeAmount;
       planByName.set(key, current);
     });
 
-    return {
-      plans: Array.from(planByName.values()).sort((a, b) =>
+    const plans = Array.from(planByName.values())
+      .map((plan) => ({
+        ...plan,
+        periodBalanceQuantity: Number(plan.creditedQuantity || 0) - Number(plan.consumedQuantity || 0),
+        periodBalanceValue: Number(plan.creditedValue || 0) - Number(plan.consumedValue || 0),
+      }))
+      .sort((a, b) =>
         String(a.planName || '').localeCompare(String(b.planName || ''), 'pt-BR', { sensitivity: 'base' })
-      ),
+      );
+
+    const periodCreditsTotal = plans.reduce((sum, plan) => sum + Number(plan.creditedValue || 0), 0) + cantinaCreditValue;
+    const periodConsumptionTotal = plans.reduce((sum, plan) => sum + Number(plan.consumedValue || 0), 0) + cantinaConsumedValue;
+    const periodBalanceTotal = periodCreditsTotal - periodConsumptionTotal;
+    const currentPlanBalanceTotal = plans.reduce((sum, plan) => sum + Number(plan.currentBalanceValue || 0), 0);
+    const currentCantinaBalance = Number(client.balance || 0);
+    const currentBalanceTotal = currentPlanBalanceTotal + currentCantinaBalance;
+
+    return {
+      plans,
       cantinaCreditValue,
       cantinaConsumedValue,
-      cantinaBalanceCurrentValue: Number(client.balance || 0),
+      cantinaBalanceCurrentValue: currentCantinaBalance,
+      periodCreditsTotal,
+      periodConsumptionTotal,
+      periodBalanceTotal,
+      currentPlanBalanceTotal,
+      currentBalanceTotal,
     };
   };
 
@@ -3373,12 +3862,15 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     doc.text(wrappedPlans, colLeftX, baseY + 46);
 
     const summaryLines = [
+      'RESUMO POR PLANO (NO PERÍODO):',
       ...summary.plans.map((plan) =>
-        `${toPdfSafeText(plan.planName)}: consumo qtd ${Number(plan.consumedQuantity || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} | valor consumo R$ ${formatCurrencyBRL(plan.consumedValue || 0)} | saldo consumo ${Number(plan.balanceQuantity || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} | saldo valor R$ ${formatCurrencyBRL(plan.balanceValue || 0)}`
+        `${toPdfSafeText(plan.planName)}: créditos R$ ${formatCurrencyBRL(plan.creditedValue || 0)} (${Number(plan.creditedQuantity || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} un) | consumos R$ ${formatCurrencyBRL(plan.consumedValue || 0)} (${Number(plan.consumedQuantity || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} un) | saldo do período R$ ${formatCurrencyBRL(plan.periodBalanceValue || 0)}`
       ),
-      `Crédito valor cantina (venda itens): R$ ${formatCurrencyBRL(summary.cantinaCreditValue || 0)}`,
-      `Consumo valor cantina (venda itens): R$ ${formatCurrencyBRL(summary.cantinaConsumedValue || 0)}`,
-      `Saldo cantina atual valor: R$ ${formatCurrencyBRL(summary.cantinaBalanceCurrentValue || 0)}`,
+      `Cantina (no período): créditos R$ ${formatCurrencyBRL(summary.cantinaCreditValue || 0)} | consumos R$ ${formatCurrencyBRL(summary.cantinaConsumedValue || 0)} | saldo do período R$ ${formatCurrencyBRL((summary.cantinaCreditValue || 0) - (summary.cantinaConsumedValue || 0))}`,
+      `TOTAL DO PERÍODO: créditos R$ ${formatCurrencyBRL(summary.periodCreditsTotal || 0)} | consumos R$ ${formatCurrencyBRL(summary.periodConsumptionTotal || 0)} | saldo R$ ${formatCurrencyBRL(summary.periodBalanceTotal || 0)}`,
+      `SALDO ATUAL PLANOS: R$ ${formatCurrencyBRL(summary.currentPlanBalanceTotal || 0)}`,
+      `SALDO ATUAL CANTINA: R$ ${formatCurrencyBRL(summary.cantinaBalanceCurrentValue || 0)}`,
+      `SALDO ATUAL TOTAL (PLANOS + CANTINA): R$ ${formatCurrencyBRL(summary.currentBalanceTotal || 0)}`,
     ];
 
     const summaryTop = baseY + 46 + (wrappedPlans.length * 10) + 8;
@@ -3433,10 +3925,13 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         <div class="plans-box">
           <p><strong>Resumo do período:</strong></p>
           <ul>
-            ${summary.plans.map((plan) => `<li><strong>${plan.planName}:</strong> consumo qtd ${Number(plan.consumedQuantity || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} | valor consumo R$ ${formatCurrencyBRL(plan.consumedValue || 0)} | saldo consumo ${Number(plan.balanceQuantity || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} | saldo valor R$ ${formatCurrencyBRL(plan.balanceValue || 0)}</li>`).join('')}
-            <li><strong>Crédito valor cantina (venda itens):</strong> R$ ${formatCurrencyBRL(summary.cantinaCreditValue || 0)}</li>
-            <li><strong>Consumo valor cantina (venda itens):</strong> R$ ${formatCurrencyBRL(summary.cantinaConsumedValue || 0)}</li>
-            <li><strong>Saldo cantina atual valor:</strong> R$ ${formatCurrencyBRL(summary.cantinaBalanceCurrentValue || 0)}</li>
+            <li><strong>Resumo por plano (no período):</strong></li>
+            ${summary.plans.map((plan) => `<li><strong>${plan.planName}:</strong> créditos R$ ${formatCurrencyBRL(plan.creditedValue || 0)} (${Number(plan.creditedQuantity || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} un) | consumos R$ ${formatCurrencyBRL(plan.consumedValue || 0)} (${Number(plan.consumedQuantity || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} un) | saldo do período R$ ${formatCurrencyBRL(plan.periodBalanceValue || 0)}</li>`).join('')}
+            <li><strong>Cantina (no período):</strong> créditos R$ ${formatCurrencyBRL(summary.cantinaCreditValue || 0)} | consumos R$ ${formatCurrencyBRL(summary.cantinaConsumedValue || 0)} | saldo do período R$ ${formatCurrencyBRL((summary.cantinaCreditValue || 0) - (summary.cantinaConsumedValue || 0))}</li>
+            <li><strong>Total do período:</strong> créditos R$ ${formatCurrencyBRL(summary.periodCreditsTotal || 0)} | consumos R$ ${formatCurrencyBRL(summary.periodConsumptionTotal || 0)} | saldo R$ ${formatCurrencyBRL(summary.periodBalanceTotal || 0)}</li>
+            <li><strong>Saldo atual planos:</strong> R$ ${formatCurrencyBRL(summary.currentPlanBalanceTotal || 0)}</li>
+            <li><strong>Saldo atual cantina:</strong> R$ ${formatCurrencyBRL(summary.cantinaBalanceCurrentValue || 0)}</li>
+            <li><strong>Saldo atual total (planos + cantina):</strong> R$ ${formatCurrencyBRL(summary.currentBalanceTotal || 0)}</li>
           </ul>
         </div>
       </section>
@@ -5084,48 +5579,37 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                        {formData.type === 'ALUNO' && !isResponsibleDataLocked && (
+                        {formData.type === 'ALUNO' && (
                           <div className="md:col-span-2 space-y-2">
                             <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Origem do responsável</label>
-                            <div className={`grid grid-cols-1 ${isUnitAdmin ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-2`}>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               <button
                                 type="button"
                                 onClick={() => {
                                   setResponsibleSourceMode('NEW');
+                                  setNewResponsibleSubTab('LIST');
                                   setResponsibleClientId(null);
+                                  setSelectedResponsibleListItemId(null);
+                                  setResponsibleClientSearch('');
                                   setResponsibleCollaboratorId(null);
+                                  setResponsibleCollaboratorSearch('');
                                   setNewCollaboratorRole('');
                                 }}
                                 className={`px-4 py-3 rounded-2xl border text-[11px] font-black uppercase tracking-widest transition-all ${
-                                  responsibleSourceMode === 'NEW'
+                                  responsibleSourceMode === 'NEW' && newResponsibleSubTab === 'LIST'
                                     ? 'bg-emerald-600 border-emerald-600 text-white'
                                     : 'bg-white border-slate-200 text-slate-600 hover:border-emerald-300'
                                 }`}
                               >
-                                Cadastrar Novo Responsável
+                                RESPONSAVEIS CADASTRADOS
                               </button>
-                              {!isUnitAdmin && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setResponsibleSourceMode('RESPONSAVEL');
-                                    setResponsibleCollaboratorId(null);
-                                    setNewCollaboratorRole('');
-                                  }}
-                                  className={`px-4 py-3 rounded-2xl border text-[11px] font-black uppercase tracking-widest transition-all ${
-                                    responsibleSourceMode === 'RESPONSAVEL'
-                                      ? 'bg-cyan-600 border-cyan-600 text-white'
-                                      : 'bg-white border-slate-200 text-slate-600 hover:border-cyan-300'
-                                  }`}
-                                >
-                                  Usar Responsável
-                                </button>
-                              )}
                               <button
                                 type="button"
                                 onClick={() => {
                                   setResponsibleSourceMode('COLABORADOR');
                                   setResponsibleClientId(null);
+                                  setSelectedResponsibleListItemId(null);
+                                  setResponsibleClientSearch('');
                                   setNewCollaboratorRole(String(formData.parentRelationship || ''));
                                 }}
                                 className={`px-4 py-3 rounded-2xl border text-[11px] font-black uppercase tracking-widest transition-all ${
@@ -5134,13 +5618,47 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                     : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300'
                                 }`}
                               >
-                                Cadastrar Novo Colaborador
+                                COLABORADORES CADASTRADOS
                               </button>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setResponsibleSourceMode('NEW');
+                                setNewResponsibleSubTab('FORM');
+                                setResponsibleClientId(null);
+                                setSelectedResponsibleListItemId(null);
+                                setResponsibleEditTargetId(null);
+                                setResponsibleClientSearch('');
+                                setResponsibleCollaboratorId(null);
+                                setResponsibleCollaboratorSearch('');
+                                setNewCollaboratorRole('');
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  parentName: '',
+                                  parentRelationship: 'PAIS',
+                                  parentWhatsappCountryCode: '55',
+                                  parentWhatsapp: '',
+                                  parentCpf: '',
+                                  parentEmail: '',
+                                }));
+                              }}
+                              className={`w-full px-4 py-3 rounded-2xl border text-[11px] font-black uppercase tracking-widest transition-all ${
+                                responsibleSourceMode === 'NEW' && newResponsibleSubTab === 'FORM'
+                                  ? 'bg-emerald-600 border-emerald-600 text-white'
+                                  : 'bg-white border-slate-200 text-slate-600 hover:border-emerald-300'
+                              }`}
+                            >
+                              ADD NOVO RESPONSÁVEL
+                            </button>
                           </div>
                         )}
 
-                        {formData.type === 'ALUNO' && isResponsibleDataLocked ? (
+                        {formData.type === 'ALUNO' && isResponsibleDataLocked && !(
+                          (responsibleSourceMode === 'NEW' && (newResponsibleSubTab === 'FORM' || newResponsibleSubTab === 'LIST'))
+                          || responsibleSourceMode === 'COLABORADOR'
+                          || responsibleSourceMode === 'RESPONSAVEL'
+                        ) ? (
                           <>
                             <div className="md:col-span-2 rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3">
                               <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Responsável vinculado</p>
@@ -5354,76 +5872,215 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                           </>
                         ) : (
                           <>
-                            {formData.type === 'ALUNO' && (
-                              <div className="space-y-1.5 md:col-span-2">
-                                <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Nome do Pai/Responsável</label>
-                                <input
-                                  value={formData.parentName}
-                                  onChange={e => setFormData({ ...formData, parentName: e.target.value })}
-                                  className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
-                                  placeholder="Nome completo do responsável"
-                                />
-                              </div>
+                            {/* LIST sub-tab: pick an existing responsible */}
+                            {formData.type === 'ALUNO' && newResponsibleSubTab === 'LIST' && (
+                              <>
+                                <div className="md:col-span-2 max-h-44 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50">
+                                  {responsibleListItemsForSelection.length === 0 ? (
+                                    <p className="px-4 py-3 text-xs font-semibold text-slate-500">
+                                      {Boolean(sourceStudentForResponsibleSelection)
+                                        ? 'Nenhum responsável cadastrado encontrado para este aluno.'
+                                        : 'Nenhum responsável encontrado.'}
+                                    </p>
+                                  ) : (
+                                    responsibleListItemsForSelection.map((responsible) => {
+                                      const relationshipValue = String(responsible.relationship || 'PAIS');
+                                      const relationshipLabel = formatParentRelationship(relationshipValue) || relationshipValue || 'Não informado';
+                                      const phoneParts = splitPhoneByCountryCode(responsible.whatsapp || '', responsible.whatsappCountryCode || '55');
+                                      const isSelected = selectedResponsibleListItemId === responsible.id;
+                                      return (
+                                        <div
+                                          key={responsible.id}
+                                          className={`w-full px-4 py-3 border-b border-slate-200 last:border-b-0 ${
+                                            isSelected ? 'bg-emerald-100/70' : 'bg-white'
+                                          }`}
+                                        >
+                                          <div className="flex items-center justify-between gap-3">
+                                            <div className="min-w-0">
+                                              <p className="text-sm font-black text-slate-800 truncate">{responsible.displayName || 'Sem nome'}</p>
+                                              <p className="text-[11px] font-semibold text-slate-500">Tipo: {relationshipLabel}</p>
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setSelectedResponsibleListItemId(responsible.id);
+                                                  setResponsibleEditTargetId(null);
+                                                  setResponsibleClientId(responsible.responsibleClientId || null);
+                                                  setResponsibleClientSearch(String(responsible.displayName || ''));
+                                                  setFormData((prev) => ({
+                                                    ...prev,
+                                                    parentName: String(responsible.displayName || ''),
+                                                    parentWhatsappCountryCode: phoneParts.countryCode || String(responsible.whatsappCountryCode || '55'),
+                                                    parentWhatsapp: phoneParts.localPhone || normalizePhoneDigits(responsible.whatsapp || ''),
+                                                    parentEmail: String(responsible.email || ''),
+                                                    parentCpf: String(responsible.cpf || ''),
+                                                    parentRelationship: relationshipValue || prev.parentRelationship || 'PAIS',
+                                                  }));
+                                                }}
+                                                className="shrink-0 px-2.5 py-1.5 rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase tracking-wider hover:bg-emerald-100 transition-colors"
+                                              >
+                                                Ver Dados
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setSelectedResponsibleListItemId(responsible.id);
+                                                  setResponsibleEditTargetId(responsible.id);
+                                                  setResponsibleSourceMode('NEW');
+                                                  setNewResponsibleSubTab('FORM');
+                                                  setResponsibleClientId(responsible.responsibleClientId || null);
+                                                  setResponsibleClientSearch(String(responsible.displayName || ''));
+                                                  setFormData((prev) => ({
+                                                    ...prev,
+                                                    parentName: String(responsible.displayName || ''),
+                                                    parentWhatsappCountryCode: phoneParts.countryCode || String(responsible.whatsappCountryCode || '55'),
+                                                    parentWhatsapp: phoneParts.localPhone || normalizePhoneDigits(responsible.whatsapp || ''),
+                                                    parentEmail: String(responsible.email || ''),
+                                                    parentCpf: String(responsible.cpf || ''),
+                                                    parentRelationship: relationshipValue || prev.parentRelationship || 'PAIS',
+                                                  }));
+                                                }}
+                                                className="shrink-0 px-2.5 py-1.5 rounded-xl border border-blue-300 bg-blue-50 text-blue-700 text-[10px] font-black uppercase tracking-wider hover:bg-blue-100 transition-colors"
+                                              >
+                                                Editar
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  if (!sourceStudentForResponsibleSelection) {
+                                                    alert('A função de apagar está disponível apenas para responsáveis vinculados ao aluno.');
+                                                    return;
+                                                  }
+                                                  if (responsible.isPrimary) {
+                                                    alert('O responsável principal não pode ser apagado por esta lista. Use EDITAR para ajustar os dados.');
+                                                    return;
+                                                  }
+                                                  if (!window.confirm('Deseja apagar este responsável da lista do aluno?')) return;
+                                                  setPendingRemovedResponsibleItemIds((prev) => (prev.includes(responsible.id) ? prev : [...prev, responsible.id]));
+                                                  if (selectedResponsibleListItemId === responsible.id) {
+                                                    setSelectedResponsibleListItemId(null);
+                                                  }
+                                                  if (responsibleEditTargetId === responsible.id) {
+                                                    setResponsibleEditTargetId(null);
+                                                  }
+                                                }}
+                                                className="shrink-0 px-2.5 py-1.5 rounded-xl border border-rose-300 bg-rose-50 text-rose-700 text-[10px] font-black uppercase tracking-wider hover:bg-rose-100 transition-colors"
+                                              >
+                                                Apagar
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })
+                                  )}
+                                </div>
+                                {selectedResponsibleListItem && (
+                                  <div className="md:col-span-2 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 space-y-2">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Responsável selecionado</p>
+                                    <p className="text-sm font-black text-slate-800 mt-1">{selectedResponsibleListItem.displayName}</p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-semibold text-slate-600">
+                                      <p>Tipo: {formatParentRelationship(selectedResponsibleListItem.relationship) || selectedResponsibleListItem.relationship || 'Não informado'}</p>
+                                      <p>WhatsApp: {formatPhoneNumber(joinPhoneWithCountryCode(selectedResponsibleListItem.whatsappCountryCode, selectedResponsibleListItem.whatsapp)) || 'Não informado'}</p>
+                                      <p>CPF: {selectedResponsibleListItem.cpf || 'Não informado'}</p>
+                                      <p>E-mail: {selectedResponsibleListItem.email || 'Não informado'}</p>
+                                    </div>
+                                    <div className="pt-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (selectedResponsibleListItem) {
+                                            setResponsibleEditTargetId(selectedResponsibleListItem.id);
+                                          }
+                                          setResponsibleSourceMode('NEW');
+                                          setNewResponsibleSubTab('FORM');
+                                        }}
+                                        className="px-3.5 py-2 rounded-xl border border-emerald-300 bg-white text-emerald-700 text-[10px] font-black uppercase tracking-wider hover:bg-emerald-100 transition-colors"
+                                      >
+                                        Editar Dados
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </>
                             )}
 
-                            {formData.type === 'ALUNO' && (
-                              <div className="space-y-1.5">
-                                <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Tipo de Responsável</label>
-                                <select
-                                  value={formData.parentRelationship}
-                                  onChange={e => setFormData({ ...formData, parentRelationship: e.target.value })}
-                                  className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
-                                >
-                                  {RESPONSIBLE_RELATION_OPTIONS.map((option) => (
-                                    <option key={option.value} value={option.value}>{option.label}</option>
-                                  ))}
-                                </select>
-                              </div>
+                            {/* FORM sub-tab (or non-ALUNO) */}
+                            {(formData.type !== 'ALUNO' || newResponsibleSubTab === 'FORM') && (
+                              <>
+                                {formData.type === 'ALUNO' && (
+                                  <div className="space-y-1.5 md:col-span-2">
+                                    <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Nome do Pai/Responsável</label>
+                                    <input
+                                      value={formData.parentName}
+                                      onChange={e => setFormData({ ...formData, parentName: e.target.value })}
+                                      className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                      placeholder="Nome completo do responsável"
+                                    />
+                                  </div>
+                                )}
+
+                                {formData.type === 'ALUNO' && (
+                                  <div className="space-y-1.5">
+                                    <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Tipo de Responsável</label>
+                                    <select
+                                      value={formData.parentRelationship}
+                                      onChange={e => setFormData({ ...formData, parentRelationship: e.target.value })}
+                                      className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                    >
+                                      {RESPONSIBLE_RELATION_OPTIONS.map((option) => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                )}
+
+                                <div className="space-y-1.5">
+                                  <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">WhatsApp</label>
+                                  <div className="grid grid-cols-[150px_minmax(0,1fr)] gap-2.5">
+                                    <select
+                                      value={formData.parentWhatsappCountryCode}
+                                      onChange={e => setFormData({ ...formData, parentWhatsappCountryCode: e.target.value })}
+                                      className="w-full px-3.5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                    >
+                                      {COUNTRY_OPTIONS.map((country) => (
+                                        <option key={country.code} value={country.code}>
+                                          {country.label} ({country.dial})
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <input
+                                      value={formData.parentWhatsapp}
+                                      onChange={e => setFormData({ ...formData, parentWhatsapp: e.target.value })}
+                                      className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                      placeholder="DDD + número"
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="space-y-1.5">
+                                  <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">CPF</label>
+                                  <input
+                                    value={formData.parentCpf}
+                                    onChange={e => setFormData({ ...formData, parentCpf: e.target.value })}
+                                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                    placeholder="000.000.000-00"
+                                  />
+                                </div>
+
+                                <div className="space-y-1.5 md:col-span-2">
+                                  <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">E-mail</label>
+                                  <input
+                                    type="email"
+                                    value={formData.parentEmail}
+                                    onChange={e => setFormData({ ...formData, parentEmail: e.target.value })}
+                                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
+                                    placeholder="email@exemplo.com"
+                                  />
+                                </div>
+                              </>
                             )}
-
-                            <div className="space-y-1.5">
-                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">WhatsApp</label>
-                              <div className="grid grid-cols-[150px_minmax(0,1fr)] gap-2.5">
-                                <select
-                                  value={formData.parentWhatsappCountryCode}
-                                  onChange={e => setFormData({ ...formData, parentWhatsappCountryCode: e.target.value })}
-                                  className="w-full px-3.5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
-                                >
-                                  {COUNTRY_OPTIONS.map((country) => (
-                                    <option key={country.code} value={country.code}>
-                                      {country.label} ({country.dial})
-                                    </option>
-                                  ))}
-                                </select>
-                                <input
-                                  value={formData.parentWhatsapp}
-                                  onChange={e => setFormData({ ...formData, parentWhatsapp: e.target.value })}
-                                  className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
-                                  placeholder="DDD + número"
-                                />
-                              </div>
-                            </div>
-
-                            <div className="space-y-1.5">
-                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">CPF</label>
-                              <input
-                                value={formData.parentCpf}
-                                onChange={e => setFormData({ ...formData, parentCpf: e.target.value })}
-                                className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
-                                placeholder="000.000.000-00"
-                              />
-                            </div>
-
-                            <div className="space-y-1.5 md:col-span-2">
-                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">E-mail</label>
-                              <input
-                                type="email"
-                                value={formData.parentEmail}
-                                onChange={e => setFormData({ ...formData, parentEmail: e.target.value })}
-                                className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-2xl outline-none font-semibold text-sm transition-all"
-                                placeholder="email@exemplo.com"
-                              />
-                            </div>
                           </>
                         )}
                       </div>
@@ -5700,6 +6357,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
              onClick={() => {
                setIsRechargeModalOpen(false);
                setRechargingClient(null);
+               setRechargePayerResponsibleId('');
                resetRechargePlanSelection();
              }}
            ></div>
@@ -5792,9 +6450,14 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                        <input 
                           type="number" 
                           placeholder="Outro valor para saldo livre..." 
-                          className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-transparent focus:border-emerald-500 rounded-2xl outline-none font-black text-lg"
+                          disabled={getAllResponsiblesForStudent(rechargingClient).length > 1 && !rechargePayerResponsibleId}
+                          className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-transparent focus:border-emerald-500 rounded-2xl outline-none font-black text-lg disabled:opacity-50 disabled:cursor-not-allowed"
                           onKeyDown={(e) => {
                              if (e.key === 'Enter') {
+                              if (getAllResponsiblesForStudent(rechargingClient).length > 1 && !rechargePayerResponsibleId) {
+                                alert('Selecione o responsável pagante antes de finalizar a recarga.');
+                                return;
+                              }
                                 handleQuickRecharge(parseFloat((e.target as HTMLInputElement).value));
                              }
                           }}
@@ -6053,7 +6716,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                      subtotal,
                                    }
                                  )}
-                                 disabled={selectedCount <= 0}
+                                 disabled={selectedCount <= 0 || (getAllResponsiblesForStudent(rechargingClient).length > 1 && !rechargePayerResponsibleId)}
                                  className="w-full mt-4 py-3 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                                >
                                  Confirmar Recarga do Plano
@@ -6071,6 +6734,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                    onClick={() => {
                      setIsRechargeModalOpen(false);
                      setRechargingClient(null);
+                     setRechargePayerResponsibleId('');
                      resetRechargePlanSelection();
                    }}
                    className="text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-gray-600 transition-colors"

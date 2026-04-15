@@ -468,6 +468,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   const [historySearchTerm, setHistorySearchTerm] = useState('');
   const [serviceActionType, setServiceActionType] = useState<'CREDIT_STUDENT' | 'PAY_COLLAB' | null>(null);
   const [serviceActionAmount, setServiceActionAmount] = useState<string>('');
+  const [serviceActionPayerResponsibleId, setServiceActionPayerResponsibleId] = useState<string>('');
   const [activeSplitMethod, setActiveSplitMethod] = useState<PaymentMethod | null>(null);
   
   const [cashReceived, setCashReceived] = useState<string>('');
@@ -578,6 +579,200 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   const [quickResponsibleSourceMode, setQuickResponsibleSourceMode] = useState<'NEW' | 'COLABORADOR'>('NEW');
   const [quickResponsibleCollaboratorSearch, setQuickResponsibleCollaboratorSearch] = useState('');
   const [quickResponsibleCollaboratorId, setQuickResponsibleCollaboratorId] = useState<string | null>(null);
+
+  const getStudentResponsiblesForPdv = (client: Client | null) => {
+    if (!client || String(client.type || '').toUpperCase() !== 'ALUNO') return [] as Array<{ id: string; parentName: string }>;
+
+    const normalizeName = (value?: string) =>
+      String(value || '')
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+    const digitsOnly = (value?: string) => String(value || '').replace(/\D/g, '');
+
+    const byKey = new Map<string, { id: string; parentName: string }>();
+    const pushResponsible = (payload: {
+      parentName?: string;
+      parentWhatsapp?: string;
+      parentCpf?: string;
+      responsibleClientId?: string;
+      responsibleCollaboratorId?: string;
+      idHint?: string;
+    }) => {
+      const parentName = String(payload.parentName || '').trim();
+      if (!parentName) return;
+
+      const responsibleClientId = String(payload.responsibleClientId || '').trim();
+      const responsibleCollaboratorId = String(payload.responsibleCollaboratorId || '').trim();
+      const dedupKey = responsibleClientId
+        ? `client:${responsibleClientId}`
+        : (responsibleCollaboratorId
+          ? `collab:${responsibleCollaboratorId}`
+          : `manual:${normalizeName(parentName)}|${digitsOnly(payload.parentWhatsapp)}|${digitsOnly(payload.parentCpf)}`);
+
+      if (byKey.has(dedupKey)) return;
+
+      const stableId = responsibleClientId
+        ? `responsible-client:${responsibleClientId}`
+        : (responsibleCollaboratorId
+          ? `responsible-collaborator:${responsibleCollaboratorId}`
+          : `manual:${String(payload.idHint || dedupKey)}`);
+
+      byKey.set(dedupKey, { id: stableId, parentName });
+    };
+
+    const appendStudentResponsibles = (student: Client, contextKey: string) => {
+      const primaryResponsibleClientId = String((student as any)?.responsibleClientId || '').trim();
+      const primaryResponsibleCollaboratorId = String((student as any)?.responsibleCollaboratorId || '').trim();
+
+      const primaryResponsibleClient = primaryResponsibleClientId
+        ? clients.find((candidate) => String(candidate?.id || '').trim() === primaryResponsibleClientId)
+        : null;
+      const primaryResponsibleCollaborator = primaryResponsibleCollaboratorId
+        ? clients.find((candidate) => String(candidate?.id || '').trim() === primaryResponsibleCollaboratorId)
+        : null;
+
+      pushResponsible({
+        parentName: String(
+          primaryResponsibleClient?.name
+          || primaryResponsibleCollaborator?.name
+          || (student as any)?.parentName
+          || ''
+        ),
+        parentWhatsapp: String(
+          primaryResponsibleClient?.phone
+          || (primaryResponsibleClient as any)?.parentWhatsapp
+          || primaryResponsibleCollaborator?.phone
+          || (primaryResponsibleCollaborator as any)?.parentWhatsapp
+          || (student as any)?.parentWhatsapp
+          || ''
+        ),
+        parentCpf: String(
+          (primaryResponsibleClient as any)?.cpf
+          || (primaryResponsibleClient as any)?.parentCpf
+          || (primaryResponsibleCollaborator as any)?.cpf
+          || (primaryResponsibleCollaborator as any)?.parentCpf
+          || (student as any)?.parentCpf
+          || ''
+        ),
+        responsibleClientId: primaryResponsibleClientId || undefined,
+        responsibleCollaboratorId: primaryResponsibleCollaboratorId || undefined,
+        idHint: `${contextKey}:primary`,
+      });
+
+      const additional = Array.isArray((student as any)?.additionalResponsibles)
+        ? (student as any).additionalResponsibles
+        : [];
+      additional.forEach((entry: any, index: number) => {
+        const entryResponsibleClientId = String(entry?.responsibleClientId || '').trim();
+        const entryResponsibleCollaboratorId = String(entry?.responsibleCollaboratorId || '').trim();
+        const linkedResponsible = entryResponsibleClientId
+          ? clients.find((candidate) => String(candidate?.id || '').trim() === entryResponsibleClientId)
+          : null;
+        const linkedCollaborator = entryResponsibleCollaboratorId
+          ? clients.find((candidate) => String(candidate?.id || '').trim() === entryResponsibleCollaboratorId)
+          : null;
+        const entryId = String(entry?.id || '').trim() || `${contextKey}:additional:${index}`;
+        pushResponsible({
+          parentName: String(linkedResponsible?.name || linkedCollaborator?.name || entry?.parentName || ''),
+          parentWhatsapp: String(
+            linkedResponsible?.phone
+            || (linkedResponsible as any)?.parentWhatsapp
+            || linkedCollaborator?.phone
+            || (linkedCollaborator as any)?.parentWhatsapp
+            || entry?.parentWhatsapp
+            || ''
+          ),
+          parentCpf: String(
+            (linkedResponsible as any)?.cpf
+            || (linkedResponsible as any)?.parentCpf
+            || (linkedCollaborator as any)?.cpf
+            || (linkedCollaborator as any)?.parentCpf
+            || entry?.parentCpf
+            || ''
+          ),
+          responsibleClientId: entryResponsibleClientId || undefined,
+          responsibleCollaboratorId: entryResponsibleCollaboratorId || undefined,
+          idHint: `${contextKey}:${entryId}`,
+        });
+      });
+    };
+
+    appendStudentResponsibles(client, String(client.id || 'student'));
+
+    const currentStudentId = String((client as any)?.id || '').trim();
+    if (currentStudentId) {
+      const linkedResponsibleRecords = (Array.isArray(clients) ? clients : []).filter((candidate) => {
+        const candidateType = String(candidate?.type || '').toUpperCase();
+        if (candidateType !== 'RESPONSAVEL' && candidateType !== 'COLABORADOR') return false;
+        const relatedIds = Array.isArray((candidate as any)?.relatedStudentIds)
+          ? (candidate as any).relatedStudentIds
+          : [];
+        return relatedIds.map((id: any) => String(id || '').trim()).includes(currentStudentId);
+      });
+
+      linkedResponsibleRecords.forEach((record) => {
+        const recordType = String(record?.type || '').toUpperCase();
+        pushResponsible({
+          parentName: String(record?.name || '').trim(),
+          parentWhatsapp: String((record as any)?.phone || (record as any)?.parentWhatsapp || '').trim(),
+          parentCpf: String((record as any)?.cpf || (record as any)?.parentCpf || '').trim(),
+          responsibleClientId: recordType === 'RESPONSAVEL' ? String(record?.id || '').trim() || undefined : undefined,
+          responsibleCollaboratorId: recordType === 'COLABORADOR' ? String(record?.id || '').trim() || undefined : undefined,
+          idHint: `linked-record:${String(record?.id || '')}`,
+        });
+      });
+    }
+
+    const baseResponsibleClientId = String((client as any)?.responsibleClientId || '').trim();
+    const baseResponsibleCollaboratorId = String((client as any)?.responsibleCollaboratorId || '').trim();
+    const baseParentName = normalizeName(String((client as any)?.parentName || ''));
+    const baseParentPhone = digitsOnly(String((client as any)?.parentWhatsapp || (client as any)?.phone || ''));
+    const baseParentCpf = digitsOnly(String((client as any)?.parentCpf || ''));
+    const baseParentEmail = String((client as any)?.parentEmail || '').trim().toLowerCase();
+
+    const siblingStudents = (Array.isArray(clients) ? clients : []).filter((candidate) => {
+      if (String(candidate?.type || '').toUpperCase() !== 'ALUNO') return false;
+      if (String(candidate?.id || '').trim() === String(client?.id || '').trim()) return false;
+
+      const candidateResponsibleClientId = String((candidate as any)?.responsibleClientId || '').trim();
+      const candidateResponsibleCollaboratorId = String((candidate as any)?.responsibleCollaboratorId || '').trim();
+
+      if (baseResponsibleClientId && candidateResponsibleClientId === baseResponsibleClientId) return true;
+      if (baseResponsibleCollaboratorId && candidateResponsibleCollaboratorId === baseResponsibleCollaboratorId) return true;
+
+      const candidateAdditional = Array.isArray((candidate as any)?.additionalResponsibles)
+        ? (candidate as any).additionalResponsibles
+        : [];
+      if (baseResponsibleClientId && candidateAdditional.some((entry: any) => String(entry?.responsibleClientId || '').trim() === baseResponsibleClientId)) {
+        return true;
+      }
+      if (baseResponsibleCollaboratorId && candidateAdditional.some((entry: any) => String(entry?.responsibleCollaboratorId || '').trim() === baseResponsibleCollaboratorId)) {
+        return true;
+      }
+
+      if (!baseResponsibleClientId && !baseResponsibleCollaboratorId) {
+        const candidateParentName = normalizeName(String((candidate as any)?.parentName || ''));
+        const candidateParentPhone = digitsOnly(String((candidate as any)?.parentWhatsapp || (candidate as any)?.phone || ''));
+        const candidateParentCpf = digitsOnly(String((candidate as any)?.parentCpf || ''));
+        const candidateParentEmail = String((candidate as any)?.parentEmail || '').trim().toLowerCase();
+
+        if (baseParentName && candidateParentName && baseParentName === candidateParentName) return true;
+        if (baseParentPhone && candidateParentPhone && baseParentPhone === candidateParentPhone) return true;
+        if (baseParentCpf && candidateParentCpf && baseParentCpf === candidateParentCpf) return true;
+        if (baseParentEmail && candidateParentEmail && baseParentEmail === candidateParentEmail) return true;
+      }
+
+      return false;
+    });
+
+    siblingStudents.forEach((sibling) => {
+      appendStudentResponsibles(sibling, `linked:${String(sibling.id || '')}`);
+    });
+
+    return Array.from(byKey.values());
+  };
   
   const clientInputRef = useRef<HTMLInputElement>(null);
   const kgInputRef = useRef<HTMLInputElement>(null);
@@ -1619,6 +1814,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     }
     setServiceActionType('CREDIT_STUDENT');
     setServiceActionAmount('');
+    setServiceActionPayerResponsibleId('');
     setStudentCreditPlanIds([]);
     setStudentCreditPlanDays({});
     setStudentCreditPlanDates({});
@@ -1769,6 +1965,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     setIsServiceActionModalOpen(false);
     setServiceActionType(null);
     setServiceActionAmount('');
+    setServiceActionPayerResponsibleId('');
     setStudentCreditPlanIds([]);
     setStudentCreditPlanDays({});
     setStudentCreditPlanDates({});
@@ -1852,11 +2049,28 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     activeEnterpriseId,
   ]);
 
+  useEffect(() => {
+    if (!isServiceActionModalOpen || serviceActionType !== 'CREDIT_STUDENT' || !selectedClient) return;
+    const responsibles = getStudentResponsiblesForPdv(selectedClient);
+    if (responsibles.length <= 1) {
+      setServiceActionPayerResponsibleId(responsibles[0]?.id || '');
+      return;
+    }
+    setServiceActionPayerResponsibleId('');
+  }, [isServiceActionModalOpen, serviceActionType, selectedClient]);
+
   const confirmServiceActionToCart = async () => {
     if (!selectedClient || !serviceActionType) return;
     const freeAmount = Number(serviceActionAmount.replace(',', '.'));
 
     if (serviceActionType === 'CREDIT_STUDENT') {
+      const studentResponsibles = getStudentResponsiblesForPdv(selectedClient);
+      const hasMultipleResponsibles = studentResponsibles.length > 1;
+      const selectedPayerResponsible = studentResponsibles.find((r) => r.id === serviceActionPayerResponsibleId);
+      if (hasMultipleResponsibles && !selectedPayerResponsible) {
+        alert('Selecione o responsável pagante antes de confirmar os créditos.');
+        return;
+      }
       const validFreeAmount = Number.isFinite(freeAmount) && freeAmount > 0 ? freeAmount : 0;
       const previewByPlanId = { ...studentCreditPlanPreviewByPlanId } as Record<string, any>;
 
@@ -1942,7 +2156,11 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           `SERVICE_CREDIT_STUDENT_${Date.now()}`,
           `Crédito livre cantina: ${selectedClient.name}`,
           validFreeAmount,
-          { serviceAction: 'CREDIT_STUDENT_FREE' }
+          {
+            serviceAction: 'CREDIT_STUDENT_FREE',
+            payerResponsibleId: selectedPayerResponsible?.id,
+            payerResponsibleName: selectedPayerResponsible?.parentName,
+          }
         );
       }
 
@@ -1959,6 +2177,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
             selectedDates: [...selectedDates],
             planUnitPrice: selectedPlan.price,
             planSelectedCount: selectedCount,
+            payerResponsibleId: selectedPayerResponsible?.id,
+            payerResponsibleName: selectedPayerResponsible?.parentName,
           }
         );
       });
@@ -2285,6 +2505,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
           && !item.productId.startsWith('SERVICE_CREDIT_STUDENT_PLAN_')
         )
       );
+      const payerFromCreditItems = [...freeCreditItems, ...cart.filter(item => item.serviceAction === 'CREDIT_STUDENT_PLAN' || item.productId.startsWith('SERVICE_CREDIT_STUDENT_PLAN_'))]
+        .find((item: any) => String(item?.payerResponsibleId || '').trim());
       const negativeBalanceCreditItems = freeCreditItems
         .filter((item) => item.productId.startsWith('SERVICE_NEGATIVE_BALANCE_'));
       const negativeBalanceCreditTotal = negativeBalanceCreditItems
@@ -2545,7 +2767,13 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
             timestamp: now.toISOString(),
             date: toDateKey(now),
             time: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-            status: 'CONCLUIDA'
+            status: 'CONCLUIDA',
+            ...(payerFromCreditItems
+              ? {
+                  payerResponsibleId: String((payerFromCreditItems as any).payerResponsibleId || ''),
+                  payerResponsibleName: String((payerFromCreditItems as any).payerResponsibleName || ''),
+                }
+              : {}),
           });
           createdTransactions.push(createdTx);
         }
@@ -2573,7 +2801,13 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
             // Compra total do plano (datas futuras + retroativas já consumidas).
             planUnits: Number(planCredit.totalSelectedDatesCount || planCredit.selectedDates?.length || 0),
             planUnitValue: planCredit.planPrice ?? 0,
-            purchaseRefCode: String(planCredit.purchaseRefCode || '').trim()
+            purchaseRefCode: String(planCredit.purchaseRefCode || '').trim(),
+            ...(payerFromCreditItems
+              ? {
+                  payerResponsibleId: String((payerFromCreditItems as any).payerResponsibleId || ''),
+                  payerResponsibleName: String((payerFromCreditItems as any).payerResponsibleName || ''),
+                }
+              : {}),
           })));
           createdTransactions.push(...createdPlanTx);
 
@@ -3162,10 +3396,13 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
   const canConfirmServiceAction = useMemo(() => {
     if (serviceActionType === 'CREDIT_STUDENT') {
-      return serviceActionAmountNumeric > 0 || selectedPlanCreditCount > 0;
+      const hasCreditInput = serviceActionAmountNumeric > 0 || selectedPlanCreditCount > 0;
+      if (!selectedClient || String(selectedClient.type || '').toUpperCase() !== 'ALUNO') return hasCreditInput;
+      const requiresPayerSelection = getStudentResponsiblesForPdv(selectedClient).length > 1;
+      return hasCreditInput && (!requiresPayerSelection || Boolean(serviceActionPayerResponsibleId));
     }
     return serviceActionAmountNumeric > 0;
-  }, [serviceActionType, serviceActionAmountNumeric, selectedPlanCreditCount]);
+  }, [serviceActionType, serviceActionAmountNumeric, selectedPlanCreditCount, selectedClient, serviceActionPayerResponsibleId]);
 
   const pendingCantinaDiscount = useMemo(() => {
     if (!selectedClient || selectedClient.type === 'COLABORADOR') return 0;
@@ -4522,6 +4759,41 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
              <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto">
                 {serviceActionType === 'CREDIT_STUDENT' ? (
                   <>
+                    {(() => {
+                      const responsibles = getStudentResponsiblesForPdv(selectedClient);
+                      if (responsibles.length <= 1) return null;
+                      return (
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                          <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">
+                            Obrigatório selecionar o responsável pagante antes de confirmar os créditos.
+                          </p>
+                        </div>
+                      );
+                    })()}
+
+                    {(() => {
+                      const responsibles = getStudentResponsiblesForPdv(selectedClient);
+                      if (responsibles.length <= 1) return null;
+                      return (
+                        <div className="space-y-2">
+                          <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Responsável Pagante</h3>
+                          <select
+                            value={serviceActionPayerResponsibleId}
+                            onChange={(e) => setServiceActionPayerResponsibleId(e.target.value)}
+                            className="w-full px-4 py-3 bg-indigo-50 border-2 border-indigo-100 rounded-xl outline-none focus:border-indigo-400 text-sm font-black text-indigo-700"
+                          >
+                            <option value="">Clique aqui para escolher o responsável pagante...</option>
+                            {responsibles.map((resp) => (
+                              <option key={resp.id} value={resp.id}>{resp.parentName}</option>
+                            ))}
+                          </select>
+                          {!serviceActionPayerResponsibleId && (
+                            <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Seleção obrigatória para finalizar créditos.</p>
+                          )}
+                        </div>
+                      );
+                    })()}
+
                     <div className="space-y-4">
                       <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Crédito Livre Cantina</h3>
                       <div className="space-y-2">

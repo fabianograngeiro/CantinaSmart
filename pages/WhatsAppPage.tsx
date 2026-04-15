@@ -228,6 +228,7 @@ type PlanConsumptionPdfTransactionRow = {
   timestamp: number;
   description: string;
   planName: string;
+  payerResponsibleName?: string;
   movementType: 'CONSUMO' | 'CREDITO' | 'OUTRO';
   amount: number;
   paymentMethod?: string;
@@ -2530,6 +2531,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           timestamp: txDate?.getTime() || 0,
           description: resolveExtractDescription(tx),
           planName,
+          payerResponsibleName: String(tx?.payerResponsibleName || '').trim() || undefined,
           movementType,
           amount: Math.abs(Number(tx?.amount ?? tx?.total ?? tx?.value ?? 0) || 0),
           paymentMethod: paymentMethodForExtract(tx, movementType, planName),
@@ -3656,7 +3658,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       const consumptionDates = Array.from(new Set(profile.transactionRows.map((row) => row.dateLabel).filter(Boolean)));
       const summaryRows = profile.transactionRows
         .slice(0, 8)
-        .map((row) => `${row.dateLabel} ${row.timeLabel} • ${row.studentName} • ${row.planName} • ${formatCurrencyBr(row.amount)}`);
+        .map((row) => `${row.dateLabel} ${row.timeLabel} • ${row.studentName} • ${row.planName}${row.payerResponsibleName ? ` • Pagante: ${row.payerResponsibleName}` : ''} • ${formatCurrencyBr(row.amount)}`);
       const responsibleName = String(profile.responsibleName || fallbackResponsibleName || '').trim() || 'Responsável';
       const formattedUnits = Number(fixedPlanBalanceUnits || 0).toLocaleString('pt-BR', {
         minimumFractionDigits: 0,
@@ -4144,7 +4146,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       groupedByPlan.get(planName)!.push(row);
     });
 
-    const tableColumn = ['Data/Hora', 'Descrição', 'Tipo', 'Valor', 'Forma Pgto', 'Status'];
+    const tableColumn = ['Data/Hora', 'Descrição', 'Responsável Pagante', 'Tipo', 'Valor', 'Forma Pgto', 'Status'];
     const tableRows: any[] = [];
     const orderedPlans = Array.from(groupedByPlan.keys()).sort((a, b) => a.localeCompare(b, 'pt-BR'));
     const planSummaryCards: Array<{ planName: string; consumedText: string; balanceText: string; isPrepaid: boolean }> = [];
@@ -4282,6 +4284,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           tableRows.push([
             `${row.dateLabel} ${row.timeLabel}`,
             description,
+            sanitizeReportText(row.payerResponsibleName, '-'),
             sanitizeReportText(typeLabel, '-'),
             amountLabel,
             paymentMethodLabel,
@@ -4325,42 +4328,43 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     // === Table ===
     autoTable(doc, {
       head: [tableColumn],
-      body: tableRows.length > 0 ? tableRows : [['-', 'Sem movimentações no período', '-', 'R$ 0,00', '-', '-']],
+      body: tableRows.length > 0 ? tableRows : [['-', 'Sem movimentações no período', '-', '-', 'R$ 0,00', '-', '-']],
       startY: tableStartY,
       theme: 'grid',
       styles: { fontSize: 8, cellPadding: 2.8, overflow: 'linebreak' },
       headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
       columnStyles: {
-        0: { cellWidth: 28 },
-        1: { cellWidth: 134 },
-        2: { cellWidth: 22, halign: 'center' },
-        3: { cellWidth: 28, halign: 'right' },
-        4: { cellWidth: 21, halign: 'center' },
-        5: { cellWidth: 30, halign: 'center' },
+        0: { cellWidth: 27 },
+        1: { cellWidth: 104 },
+        2: { cellWidth: 45, halign: 'left' },
+        3: { cellWidth: 19, halign: 'center' },
+        4: { cellWidth: 23, halign: 'right' },
+        5: { cellWidth: 21, halign: 'center' },
+        6: { cellWidth: 28, halign: 'center' },
       },
       alternateRowStyles: { fillColor: [248, 250, 252] },
       didParseCell: (hook) => {
         if (hook.section !== 'body') return;
         const row = hook.row.raw as any[];
         if (Array.isArray(row) && row.length === 1 && row[0]?.colSpan) return;
-        const rawType = String((row?.[2] || '')).toUpperCase();
+        const rawType = String((row?.[3] || '')).toUpperCase();
         const normalizedType = normalizeSearchValue(rawType).toUpperCase();
         if (normalizedType.includes('ESTORNO') && !normalizedType.includes('CREDITO')) {
-          if (hook.column.index === 2 || hook.column.index === 3) {
+          if (hook.column.index === 3 || hook.column.index === 4) {
             hook.cell.styles.textColor = [180, 83, 9];
           }
         } else if (normalizedType.includes('CONSUMO') || normalizedType.includes('DEBIT')) {
-          if (hook.column.index === 2 || hook.column.index === 3) {
+          if (hook.column.index === 3 || hook.column.index === 4) {
             hook.cell.styles.textColor = [185, 28, 28];
           }
         } else if (normalizedType.includes('CREDITO')) {
-          if (hook.column.index === 2 || hook.column.index === 3) {
+          if (hook.column.index === 3 || hook.column.index === 4) {
             hook.cell.styles.textColor = [21, 128, 61];
           }
         }
 
-        if (hook.column.index === 4) {
-          const paymentText = normalizeSearchValue(String(row?.[4] || '')).toUpperCase();
+        if (hook.column.index === 5) {
+          const paymentText = normalizeSearchValue(String(row?.[5] || '')).toUpperCase();
           hook.cell.styles.fontStyle = 'bold';
           hook.cell.styles.halign = 'center';
           if (paymentText.includes('SALDO PLANO')) {

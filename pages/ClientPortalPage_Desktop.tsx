@@ -23,7 +23,7 @@ import { getResponsibleCpf, isStudentClient } from '../utils/clientDocument';
 const MOCK_TODAY_HISTORY = [
   { id: 1, type: 'CONSUMPTION', item: 'Suco de Laranja', value: 8.50, time: '10:15', category: 'PREPAGO' },
   { id: 2, type: 'PLAN_USE', item: 'Kit Lanche Fixo', value: 1, time: '10:15', category: 'LANCHE_FIXO' },
-  { id: 3, type: 'RECHARGE', item: 'Recarga Saldo', value: 50.00, time: '08:30', category: 'PREPAGO' },
+  { id: 3, type: 'RECHARGE', item: 'Recarga Saldo', value: 50.00, time: '08:30', category: 'PREPAGO', payerResponsibleName: 'Responsável Principal' },
   { id: 4, type: 'PLAN_USE', item: 'Almoço PF', value: 1, time: '12:30', category: 'PF_FIXO' },
 ];
 
@@ -750,6 +750,11 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
                             <p className="text-sm text-gray-500">
                               {new Date().toLocaleDateString('pt-BR')} às {item.time}
                             </p>
+                            {(item as any).payerResponsibleName && (
+                              <p className="text-xs text-emerald-600 font-black uppercase mt-1">
+                                Pagante: {(item as any).payerResponsibleName}
+                              </p>
+                            )}
                           </div>
                         </div>
                         <p className="text-lg font-black text-orange-600">-R$ {(item.value || 0).toFixed(2)}</p>
