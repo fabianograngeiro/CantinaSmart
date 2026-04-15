@@ -480,6 +480,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   const [isNegativeBalanceWarningOpen, setIsNegativeBalanceWarningOpen] = useState(false);
   const [pendingNegativeBalanceAction, setPendingNegativeBalanceAction] = useState<(() => void) | null>(null);
   const [negativeBalanceWarningClientName, setNegativeBalanceWarningClientName] = useState<string>('');
+  const [negativeBalanceAcknowledgedClientId, setNegativeBalanceAcknowledgedClientId] = useState<string | null>(null);
   const [studentCreditPlanIds, setStudentCreditPlanIds] = useState<string[]>([]);
   const [studentCreditPlanDays, setStudentCreditPlanDays] = useState<Record<string, string[]>>({});
   const [studentCreditPlanDates, setStudentCreditPlanDates] = useState<Record<string, string[]>>({});
@@ -976,6 +977,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   const selectClient = (client: Client) => {
     setSelectedClient(client);
     setSalePayerResponsibleId('');
+    setNegativeBalanceAcknowledgedClientId(null);
     setIsFinalConsumer(false);
     setClientSearch('');
     setShowClientSuggestions(false);
@@ -1201,6 +1203,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       setSelectedClient(null);
       setPayments(prev => prev.filter(p => p.method !== 'SALDO'));
       setSalePayerResponsibleId('');
+      setNegativeBalanceAcknowledgedClientId(null);
     }
   };
 
@@ -1704,6 +1707,11 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       return;
     }
     if (!clientNegativeSalesAllowed || Number(selectedClient.balance || 0) >= 0 || !clientHasPlanAndCantinaCredit(selectedClient)) {
+      onConfirm();
+      return;
+    }
+    // Já confirmou para este cliente nesta venda — não exibe novamente
+    if (negativeBalanceAcknowledgedClientId === String(selectedClient.id)) {
       onConfirm();
       return;
     }
@@ -3071,6 +3079,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       setCashReceived('');
       setPartialAmount('');
       setSalePayerResponsibleId('');
+      setNegativeBalanceAcknowledgedClientId(null);
       setIsServiceActionModalOpen(false);
       setServiceActionType(null);
       setServiceActionAmount('');
@@ -3169,7 +3178,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       timestamp: new Date(),
       status: 'EM ESPERA'
     }, ...prev]);
-    setCart([]); setSelectedClient(null); setPayments([]); setIsFinalConsumer(false); setSalePayerResponsibleId('');
+    setCart([]); setSelectedClient(null); setPayments([]); setIsFinalConsumer(false); setSalePayerResponsibleId(''); setNegativeBalanceAcknowledgedClientId(null);
     setSaleReference(createPOSSaleReference());
   };
 
@@ -3373,11 +3382,10 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     const missingPartialPayment = allowsPartialConsumptionPayment && totalPaid <= 0.01;
     const noClientIdentified = !selectedClient && !isFinalConsumer;
     const clientIsBlocked = selectedClient?.isBlocked || false;
-    const hasExternalPayment = payments.some((p) => ['PIX', 'DINHEIRO', 'CREDITO', 'DEBITO'].includes(p.method));
-    const cartHasExpenseItems = cart.some((item) => !item.serviceAction && !item.productId.startsWith('SERVICE_'));
-    const saleResponsibles = (selectedClient?.type === 'ALUNO' && cartHasExpenseItems)
+    const hasNonSaldoPayment = payments.some((p) => p.method !== 'SALDO');
+    const saleResponsibles = (selectedClient?.type === 'ALUNO' && cart.length > 0)
       ? getStudentResponsiblesForPdv(selectedClient) : [];
-    const missingSalePayer = saleResponsibles.length > 1 && hasExternalPayment && !salePayerResponsibleId;
+    const missingSalePayer = saleResponsibles.length > 1 && hasNonSaldoPayment && !salePayerResponsibleId;
     return isCartEmpty || isPaymentIncomplete || missingPartialPayment || noClientIdentified || clientIsBlocked || isFinalizingSale || missingSalePayer;
   }, [cart, remainingToPay, allowsPartialConsumptionPayment, totalPaid, selectedClient, isFinalConsumer, isFinalizingSale, payments, salePayerResponsibleId, clients]);
 
@@ -3989,14 +3997,16 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
           {/* Payment Selection with Split Capability */}
 	          <div className="p-2.5 border-t bg-gray-50 space-y-2">
-             {/* Seleção de responsável pagante para venda externa (PIX/Dinheiro/Crédito/Débito) */}
+             {/* Seleção de responsável pagante — oculto apenas quando SALDO CANTINA está ativo */}
              {(() => {
                if (!selectedClient || selectedClient.type !== 'ALUNO') return null;
-               const cartHasExpenseItems = cart.some((item) => !item.serviceAction && !item.productId.startsWith('SERVICE_'));
-               if (!cartHasExpenseItems) return null;
+               if (cart.length === 0) return null;
                const saleResponsibles = getStudentResponsiblesForPdv(selectedClient);
                if (saleResponsibles.length <= 1) return null;
-               const hasExternalPayment = payments.some((p) => ['PIX', 'DINHEIRO', 'CREDITO', 'DEBITO'].includes(p.method));
+               // Oculta quando todas as formas confirmadas são SALDO ou quando SALDO está sendo selecionado agora
+               const allPaymentsSaldo = payments.length > 0 && payments.every((p) => p.method === 'SALDO');
+               if (allPaymentsSaldo || activeSplitMethod === 'SALDO') return null;
+               const hasNonSaldoPayment = payments.some((p) => p.method !== 'SALDO');
                return (
                  <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-3 space-y-2">
                    <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">
@@ -4019,7 +4029,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                        </button>
                      ))}
                    </div>
-                   {hasExternalPayment && !salePayerResponsibleId && (
+                   {hasNonSaldoPayment && !salePayerResponsibleId && (
                      <p className="text-[10px] font-black text-rose-600 uppercase tracking-wider">
                        Selecione o responsável para finalizar.
                      </p>
@@ -5251,6 +5261,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                   setIsNegativeBalanceWarningOpen(false);
                   setPendingNegativeBalanceAction(null);
                   setNegativeBalanceWarningClientName('');
+                  if (selectedClient) setNegativeBalanceAcknowledgedClientId(String(selectedClient.id));
                   action?.();
                 }}
                 className="flex-1 py-3 rounded-2xl bg-amber-600 text-white font-black uppercase tracking-widest text-xs hover:bg-amber-700 transition-colors"
