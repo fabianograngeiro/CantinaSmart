@@ -2,6 +2,7 @@ import { randomBytes, createHash } from 'crypto';
 import { Router, Request, Response } from 'express';
 import { db } from '../database.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
+import { getResponsibleCpf } from '../utils/clientDocument.js';
 import { 
   hashPassword, 
   comparePassword, 
@@ -486,7 +487,7 @@ router.post('/portal-links/backfill', (req: AuthRequest, res: Response) => {
     const found = candidates.find((candidate: any) => {
       const candidatePhone = normalizeDigits(candidate?.phone || candidate?.parentWhatsapp || '');
       const candidateEmail = normalizeEmail(candidate?.email || candidate?.parentEmail || '');
-      const candidateCpf = normalizeDigits(candidate?.cpf || candidate?.parentCpf || '');
+      const candidateCpf = getResponsibleCpf(candidate);
       const candidateNameToken = normalizeToken(candidate?.name);
 
       if (parentPhone && candidatePhone && parentPhone === candidatePhone) return true;

@@ -18,6 +18,7 @@ import {
 import { ApiService } from '../services/api';
 import { ClientPlanType, MenuItem, Plan, Enterprise, Client } from '../types';
 import { resolveUserAvatar } from '../utils/avatar';
+import { getResponsibleCpf, isStudentClient } from '../utils/clientDocument';
 
 const MOCK_TODAY_HISTORY = [
   { id: 1, type: 'CONSUMPTION', item: 'Suco de Laranja', value: 8.50, time: '10:15', category: 'PREPAGO' },
@@ -797,10 +798,10 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
                         />
                       </div>
                       <div>
-                        <label className="text-xs font-bold text-gray-600 uppercase">CPF</label>
+                        <label className="text-xs font-bold text-gray-600 uppercase">{isStudentClient(currentUser) ? 'CPF do Responsável' : 'CPF'}</label>
                         <input
                           type="text"
-                          value={currentUser?.cpf || ''}
+                          value={getResponsibleCpf(currentUser)}
                           disabled
                           className="mt-2 w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-600 font-medium"
                         />

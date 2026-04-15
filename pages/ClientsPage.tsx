@@ -2031,7 +2031,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         : '',
       phone: joinPhoneWithCountryCode(parentWhatsappCountryCodeToPersist, parentWhatsappToPersist),
       email: parentEmailToPersist,
-      cpf: parentCpfToPersist,
+      cpf: formData.type === 'ALUNO' ? '' : parentCpfToPersist,
       parentWhatsappCountryCode: parentWhatsappCountryCodeToPersist,
       parentWhatsapp: joinPhoneWithCountryCode(parentWhatsappCountryCodeToPersist, parentWhatsappToPersist),
       parentCpf: parentCpfToPersist,
@@ -4366,7 +4366,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                        ))}
                      </div>
                    </div>
-                 </section>                 <section className="space-y-4">
+                 </section>
+                 <section className="space-y-4">
                     <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-[4px] flex items-center gap-2 border-b pb-2">
                        <ShieldCheck size={16} className="text-indigo-600" /> Responsável Relacionado
                     </h3>
@@ -4618,7 +4619,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                     }}
                     className="flex-1 py-4 bg-emerald-600 text-white rounded-[20px] font-black uppercase tracking-[2px] text-xs shadow-xl shadow-emerald-100 hover:bg-emerald-700 active:scale-95 transition-all flex items-center justify-center gap-2 text-center"
                  >
-                    <UserPlus size={18} /> Novo Aluno
+                      <UserPlus size={18} /> Adicionar Aluno
                  </button>
                  <button
                     onClick={() => {
@@ -4658,9 +4659,9 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center"><UserPlus size={28} /></div>
                     <div>
-                       <h2 className="text-xl font-black uppercase tracking-tight">{editingClient ? 'Editar Cliente' : (isResponsibleView ? 'Novo Responsável/Colaborador' : 'Novo Cadastro de Cliente')}</h2>
+                       <h2 className="text-xl font-black uppercase tracking-tight">{editingClient ? 'Editar Cliente' : (isStudentOnlyMode ? 'Adicionar Aluno' : (isResponsibleView ? 'Novo Responsável/Colaborador' : 'Novo Cadastro de Cliente'))}</h2>
                        <p className="text-[10px] font-bold text-indigo-200 uppercase tracking-widest mt-0.5">
-                         {editingClient ? 'Atualização de dados cadastrais' : (isResponsibleView ? 'Gestão de responsável e colaborador' : 'Gestão de perfil cadastral')}
+                         {editingClient ? 'Atualização de dados cadastrais' : (isStudentOnlyMode ? 'Cadastro de novo aluno vinculado ao responsável atual' : (isResponsibleView ? 'Gestão de responsável e colaborador' : 'Gestão de perfil cadastral'))}
                        </p>
                     </div>
                  </div>

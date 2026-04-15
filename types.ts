@@ -283,6 +283,7 @@ export type Client = {
   name: string;
   type: 'ALUNO' | 'RESPONSAVEL' | 'COLABORADOR' | 'AVULSO' | 'EMPRESA';
   cpf?: string; 
+  // Own CPF only. For ALUNO, use parentCpf instead.
   phone?: string; 
   email?: string; 
   servicePlans: ClientPlanType[];

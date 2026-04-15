@@ -3,6 +3,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { randomBytes, createHash } from 'crypto';
 import { NUTRITIONAL_BASE_SEED } from './data/nutritionalBaseSeed.js';
+import { getResponsibleCpf, normalizeClientCpfFields } from './utils/clientDocument.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -223,7 +224,7 @@ export class Database {
     if (!clientId) return null;
 
     const normalizedClientEmail = this.sanitizeEmail(client?.email || client?.parentEmail || '');
-    const normalizedClientCpf = String(client?.cpf || client?.parentCpf || '').replace(/\D/g, '');
+    const normalizedClientCpf = getResponsibleCpf(client);
 
     let user = this.getPortalUserByLinkedClientId(clientId);
 
@@ -533,7 +534,7 @@ export class Database {
       if (String(collaborator?.cpf || '').trim()) {
         const normalizedCpf = String(collaborator.cpf).replace(/\D/g, '');
         client.parentCpf = normalizedCpf;
-        client.cpf = normalizedCpf;
+        client.cpf = '';
       }
 
       const existing = this.toStringArray(collaborator.relatedStudentIds);
@@ -609,7 +610,7 @@ export class Database {
       if (String(responsible?.cpf || '').trim()) {
         const normalizedCpf = String(responsible.cpf).replace(/\D/g, '');
         client.parentCpf = normalizedCpf;
-        client.cpf = normalizedCpf;
+        client.cpf = '';
       }
 
       const existing = this.toStringArray(responsible.relatedStudentIds);
@@ -647,8 +648,7 @@ export class Database {
     if ('relatedStudent' in next) {
       next.relatedStudent = this.normalizeRelatedStudentPayload(next.relatedStudent);
     }
-    next.parentCpf = String(next?.parentCpf || '').replace(/\D/g, '');
-    next.cpf = String(next?.cpf || '').replace(/\D/g, '');
+    Object.assign(next, normalizeClientCpfFields(next));
     next.parentEmail = String(next?.parentEmail || '').trim();
     next.email = String(next?.email || '').trim();
     next.responsibleClientId = String(next?.responsibleClientId || '').trim();
@@ -2921,8 +2921,8 @@ export class Database {
           phone: collaboratorPhone,
           parentEmail: String(newClient?.email || newClient?.parentEmail || '').trim(),
           email: String(newClient?.email || '').trim(),
-          parentCpf: String(newClient?.cpf || newClient?.parentCpf || '').replace(/\D/g, ''),
-          cpf: String(newClient?.cpf || '').replace(/\D/g, ''),
+          parentCpf: getResponsibleCpf(newClient),
+          cpf: '',
           responsibleCollaboratorId: String(newClient?.id || ''),
           responsibleOriginType: 'COLABORADOR',
         })
@@ -2992,8 +2992,8 @@ export class Database {
               phone: collaboratorPhone,
               parentEmail: String(updatedClient?.email || updatedClient?.parentEmail || '').trim(),
               email: String(updatedClient?.email || '').trim(),
-              parentCpf: String(updatedClient?.cpf || updatedClient?.parentCpf || '').replace(/\D/g, ''),
-              cpf: String(updatedClient?.cpf || '').replace(/\D/g, ''),
+              parentCpf: getResponsibleCpf(updatedClient),
+              cpf: '',
               responsibleCollaboratorId: String(updatedClient?.id || ''),
               responsibleOriginType: 'COLABORADOR',
             })
@@ -3155,7 +3155,7 @@ export class Database {
           phone: responsiblePhone,
           parentEmail: String(record?.email || record?.parentEmail || '').trim(),
           email: '',
-          parentCpf: String(record?.cpf || record?.parentCpf || '').replace(/\D/g, ''),
+          parentCpf: getResponsibleCpf(record),
           cpf: '',
           responsibleCollaboratorId: responsibleId,
           responsibleOriginType: type === 'COLABORADOR' ? 'COLABORADOR' : 'MANUAL',

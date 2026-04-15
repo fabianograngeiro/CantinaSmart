@@ -5,6 +5,7 @@ export function validateClient(client: any): { valid: boolean; errors: string[] 
   const normalizedName = String(client?.name || '').trim();
   const normalizedClass = String(client?.class || '').trim();
   const normalizedPhone = String(client?.phone || '').replace(/\D/g, '');
+  const normalizedCpf = String(client?.cpf || '').replace(/\D/g, '');
 
   // Name validation
   if (!client.name || typeof client.name !== 'string' || normalizedName.length === 0) {
@@ -47,8 +48,8 @@ export function validateClient(client: any): { valid: boolean; errors: string[] 
   }
 
   // CPF validation (if provided)
-  if (client.cpf) {
-    if (typeof client.cpf !== 'string' || client.cpf.length < 11) {
+  if (normalizedType !== 'ALUNO' && client.cpf) {
+    if (typeof client.cpf !== 'string' || normalizedCpf.length !== 11) {
       errors.push('CPF inválido');
     }
   }

@@ -972,7 +972,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
         parentEmail: (isStudentUsingCollaborator ? selectedResponsibleEmail : normalizedEmail) || undefined,
         parentCpf: (isStudentUsingCollaborator ? selectedResponsibleCpf : normalizedCpf) || undefined,
         email: isStudentUsingCollaborator ? selectedResponsibleEmail : normalizedEmail,
-        cpf: isStudentUsingCollaborator ? selectedResponsibleCpf : normalizedCpf,
+        cpf: undefined,
       } : quickClientForm.type === 'COLABORADOR' ? {
         phone: normalizedPhone,
         email: normalizedEmail || undefined,

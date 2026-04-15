@@ -6,6 +6,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { canAccessAllEnterprises, requesterCanAccessEnterprise } from '../utils/enterpriseAccess.js';
 import { shouldCheckDuplicateStudentOnUpdate } from '../utils/clientDuplicateRules.js';
 import { detectStudentDuplicateReason } from '../utils/studentDuplicateMatcher.js';
+import { getResponsibleCpf } from '../utils/clientDocument.js';
 
 const router = Router();
 
@@ -72,7 +73,7 @@ const buildClientCreateIdempotencyKey = (req: AuthRequest, payload: any) => {
     normalizedPayloadType,
     normalizeComparableToken(payload?.name),
     normalizeDigits(payload?.phone || payload?.parentWhatsapp),
-    normalizeDigits(payload?.cpf || payload?.parentCpf),
+    getResponsibleCpf(payload),
     normalizeComparableToken(payload?.email || payload?.parentEmail),
     normalizeComparableToken(payload?.parentName),
     normalizeComparableToken(payload?.class),
@@ -93,7 +94,7 @@ const findDuplicateStudent = (params: { enterpriseId: string; payload: any; igno
   const ignoreClientId = String(params.ignoreClientId || '').trim();
   const candidateName = normalizeComparableToken(payload?.name);
   const candidatePhone = normalizeDigits(payload?.phone);
-  const candidateCpf = normalizeDigits(payload?.cpf || payload?.parentCpf);
+  const candidateCpf = getResponsibleCpf(payload);
   const candidateRegistrationId = normalizeComparableToken(payload?.registrationId);
   const candidateId = String(payload?.id || '').trim();
 
