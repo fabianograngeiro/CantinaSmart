@@ -625,6 +625,25 @@ export class Database {
       }
       responsible.relatedStudentIds = existing;
     });
+
+    // Sync additionalResponsibles linkage to RESPONSAVEL relatedStudentIds
+    this.clients.forEach((client: any) => {
+      if (String(client?.type || '').trim().toUpperCase() !== 'ALUNO') return;
+      const additionalResponsibles = Array.isArray(client?.additionalResponsibles) ? client.additionalResponsibles : [];
+      additionalResponsibles.forEach((entry: any) => {
+        const respId = String(entry?.responsibleClientId || '').trim();
+        const collabId = String(entry?.responsibleCollaboratorId || '').trim();
+        const targetId = respId || collabId;
+        if (!targetId) return;
+        const target = this.clients.find((c: any) => String(c?.id || '').trim() === targetId);
+        if (!target) return;
+        const existingIds = this.toStringArray(target.relatedStudentIds);
+        if (!existingIds.includes(String(client.id))) {
+          existingIds.push(String(client.id));
+          target.relatedStudentIds = existingIds;
+        }
+      });
+    });
   }
 
   private normalizeContactFields(record: any) {
@@ -681,6 +700,23 @@ export class Database {
     }
     if (!(isCollaborator || String(next?.type || '').trim().toUpperCase() === 'RESPONSAVEL') && 'relatedStudentIds' in next) {
       next.relatedStudentIds = this.toStringArray(next.relatedStudentIds);
+    }
+
+    if (isStudent && Array.isArray(next.additionalResponsibles)) {
+      next.additionalResponsibles = next.additionalResponsibles
+        .filter((entry: any) => entry && typeof entry === 'object' && String(entry.id || '').trim())
+        .map((entry: any) => ({
+          id: String(entry.id || '').trim(),
+          responsibleClientId: String(entry.responsibleClientId || '').trim(),
+          responsibleCollaboratorId: String(entry.responsibleCollaboratorId || '').trim(),
+          parentName: String(entry.parentName || '').trim(),
+          parentRelationship: this.normalizeParentRelationship(entry.parentRelationship),
+          parentWhatsapp: this.normalizeBrazilPhone(entry.parentWhatsapp || ''),
+          parentWhatsappCountryCode: String(entry.parentWhatsappCountryCode || '55').replace(/\D/g, '') || '55',
+          parentCpf: String(entry.parentCpf || '').replace(/\D/g, ''),
+          parentEmail: String(entry.parentEmail || '').trim(),
+          responsibleOriginType: String(entry.responsibleOriginType || 'MANUAL').trim().toUpperCase(),
+        }));
     }
 
     return next;

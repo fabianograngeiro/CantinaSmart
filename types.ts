@@ -114,6 +114,8 @@ export type Transaction = {
   description: string;
   timestamp: string;
   paymentMethod: string;
+  payerResponsibleId?: string;
+  payerResponsibleName?: string;
   items?: string[]; // Itens comprados no caso de débito
 };
 
@@ -313,6 +315,18 @@ export type Client = {
   parentWhatsapp?: string;
   parentCpf?: string;
   parentEmail?: string;
+  additionalResponsibles?: Array<{
+    id: string;
+    responsibleClientId?: string;
+    responsibleCollaboratorId?: string;
+    parentName?: string;
+    parentRelationship?: string;
+    parentWhatsapp?: string;
+    parentWhatsappCountryCode?: string;
+    parentCpf?: string;
+    parentEmail?: string;
+    responsibleOriginType?: 'MANUAL' | 'COLABORADOR' | 'RESPONSAVEL' | string;
+  }>;
   relatedStudentIds?: string[];
   relatedStudent?: {
     studentId?: string;

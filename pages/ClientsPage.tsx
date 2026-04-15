@@ -502,6 +502,22 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const [responsibleCollaboratorId, setResponsibleCollaboratorId] = useState<string | null>(null);
   const [newCollaboratorRole, setNewCollaboratorRole] = useState('');
   const [addDependentStudent, setAddDependentStudent] = useState(false);
+
+  // Multi-responsible states
+  const [isAddResponsibleModalOpen, setIsAddResponsibleModalOpen] = useState(false);
+  const [addResponsibleMode, setAddResponsibleMode] = useState<'NEW' | 'RESPONSAVEL' | 'COLABORADOR'>('NEW');
+  const [addResponsibleSearch, setAddResponsibleSearch] = useState('');
+  const [addResponsibleSelectedId, setAddResponsibleSelectedId] = useState<string | null>(null);
+  const [addResponsibleForm, setAddResponsibleForm] = useState({
+    parentName: '',
+    parentRelationship: 'PAIS',
+    parentWhatsappCountryCode: '55',
+    parentWhatsapp: '',
+    parentCpf: '',
+    parentEmail: '',
+  });
+  const [rechargePayerResponsibleId, setRechargePayerResponsibleId] = useState<string>('primary');
+
   const [dependentStudentForm, setDependentStudentForm] = useState({
     name: '',
     classType: '' as '' | 'INFANTIL' | 'FUNDAMENTAL' | 'MEDIO' | 'INTEGRAL',
@@ -1073,6 +1089,118 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     setClientPhotoFile(null);
     setClientPhotoPreview('');
     setIsClientModalOpen(true);
+  };
+
+  // ---------- MULTI-RESPONSIBLE HELPERS ----------
+
+  const getAllResponsiblesForStudent = (client: Client | null) => {
+    if (!client) return [];
+    const result: Array<{ id: string; parentName: string; parentRelationship?: string; parentWhatsapp?: string; parentEmail?: string; parentCpf?: string; isPrimary: boolean }> = [];
+    if (client.parentName) {
+      result.push({
+        id: 'primary',
+        parentName: client.parentName,
+        parentRelationship: (client as any).parentRelationship || '',
+        parentWhatsapp: client.parentWhatsapp || '',
+        parentEmail: client.parentEmail || '',
+        parentCpf: client.parentCpf || '',
+        isPrimary: true,
+      });
+    }
+    const additional = Array.isArray((client as any).additionalResponsibles) ? (client as any).additionalResponsibles : [];
+    additional.forEach((entry: any) => {
+      if (!entry?.id) return;
+      result.push({
+        id: entry.id,
+        parentName: entry.parentName || '',
+        parentRelationship: entry.parentRelationship || '',
+        parentWhatsapp: entry.parentWhatsapp || '',
+        parentEmail: entry.parentEmail || '',
+        parentCpf: entry.parentCpf || '',
+        isPrimary: false,
+      });
+    });
+    return result;
+  };
+
+  const handleAddAdditionalResponsible = async () => {
+    if (!viewingClient) return;
+    const { parentName, parentRelationship, parentWhatsappCountryCode, parentWhatsapp, parentCpf, parentEmail } = addResponsibleForm;
+    if (!parentName.trim()) { alert('Informe o nome do responsável.'); return; }
+
+    const entryId = `resp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    let newEntry: any = {
+      id: entryId,
+      parentName: parentName.trim(),
+      parentRelationship: parentRelationship || 'PAIS',
+      parentWhatsappCountryCode: parentWhatsappCountryCode || '55',
+      parentWhatsapp: parentWhatsapp || '',
+      parentCpf: parentCpf || '',
+      parentEmail: parentEmail || '',
+      responsibleOriginType: 'MANUAL',
+    };
+
+    if (addResponsibleMode === 'RESPONSAVEL' && addResponsibleSelectedId) {
+      const linked = clients.find(c => c.id === addResponsibleSelectedId);
+      if (linked) {
+        newEntry = {
+          ...newEntry,
+          responsibleClientId: linked.id,
+          parentName: linked.name || parentName.trim(),
+          parentWhatsapp: linked.phone || linked.parentWhatsapp || parentWhatsapp || '',
+          parentEmail: linked.email || linked.parentEmail || parentEmail || '',
+          parentCpf: linked.parentCpf || parentCpf || '',
+          responsibleOriginType: 'RESPONSAVEL',
+        };
+      }
+    } else if (addResponsibleMode === 'COLABORADOR' && addResponsibleSelectedId) {
+      const linked = clients.find(c => c.id === addResponsibleSelectedId);
+      if (linked) {
+        newEntry = {
+          ...newEntry,
+          responsibleCollaboratorId: linked.id,
+          parentName: linked.name || parentName.trim(),
+          parentWhatsapp: linked.phone || parentWhatsapp || '',
+          parentEmail: linked.email || parentEmail || '',
+          responsibleOriginType: 'COLABORADOR',
+        };
+      }
+    }
+
+    const existing = Array.isArray((viewingClient as any).additionalResponsibles) ? (viewingClient as any).additionalResponsibles : [];
+    const updated = [...existing, newEntry];
+    try {
+      const result = await ApiService.updateClient(viewingClient.id, { additionalResponsibles: updated } as any, {
+        expectedUpdatedAt: String((viewingClient as any)?.updatedAt || '').trim() || undefined,
+      });
+      setClients(prev => prev.map(c => c.id === viewingClient.id ? result : c));
+      setViewingClient(result);
+      setIsAddResponsibleModalOpen(false);
+      setAddResponsibleForm({ parentName: '', parentRelationship: 'PAIS', parentWhatsappCountryCode: '55', parentWhatsapp: '', parentCpf: '', parentEmail: '' });
+      setAddResponsibleMode('NEW');
+      setAddResponsibleSelectedId(null);
+      setAddResponsibleSearch('');
+    } catch (err) {
+      console.error('Erro ao adicionar responsável:', err);
+      alert('Erro ao adicionar responsável. Tente novamente.');
+    }
+  };
+
+  const handleRemoveAdditionalResponsible = async (entryId: string) => {
+    if (!viewingClient) return;
+    if (!window.confirm('Remover este responsável adicional?')) return;
+    const existing = Array.isArray((viewingClient as any).additionalResponsibles) ? (viewingClient as any).additionalResponsibles : [];
+    const updated = existing.filter((e: any) => e?.id !== entryId);
+    try {
+      const result = await ApiService.updateClient(viewingClient.id, { additionalResponsibles: updated } as any, {
+        expectedUpdatedAt: String((viewingClient as any)?.updatedAt || '').trim() || undefined,
+      });
+      setClients(prev => prev.map(c => c.id === viewingClient.id ? result : c));
+      setViewingClient(result);
+    } catch (err) {
+      console.error('Erro ao remover responsável:', err);
+      alert('Erro ao remover responsável. Tente novamente.');
+    }
   };
 
   const handleOpenCreateStudentFromDetail = () => {
@@ -2267,7 +2395,13 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         paymentMethod: paymentMethod,
         method: paymentMethod,
         timestamp: new Date().toISOString(),
-        status: 'CONCLUIDA'
+        status: 'CONCLUIDA',
+        ...((() => {
+          const allResps = getAllResponsiblesForStudent(rechargingClient);
+          if (allResps.length <= 1) return {};
+          const selected = allResps.find(r => r.id === rechargePayerResponsibleId) || allResps[0];
+          return selected ? { payerResponsibleId: selected.id, payerResponsibleName: selected.parentName } : {};
+        })()),
       });
       setTransactions(prev => [createdTransaction, ...prev]);
       setClients(prev => prev.map(c => c.id === rechargingClient.id ? updated : c));
@@ -4399,20 +4533,58 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                  </section>
                  <section className="space-y-4">
                     <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-[4px] flex items-center gap-2 border-b pb-2">
-                       <ShieldCheck size={16} className="text-indigo-600" /> Responsável Relacionado
+                       <ShieldCheck size={16} className="text-indigo-600" /> Responsáveis
                     </h3>
-                    <div className="bg-emerald-50/70 p-5 rounded-[24px] border border-emerald-100 space-y-2">
-                      <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Dados do responsável</p>
-                      {viewingClient.parentName && <InfoItem label="Nome" value={viewingClient.parentName} />}
-                      {Boolean((viewingClient as any).parentRelationship) && (
-                        <InfoItem label="Tipo" value={formatParentRelationship((viewingClient as any).parentRelationship) || 'Indefinido'} />
-                      )}
-                      {viewingClient.parentWhatsapp && <InfoItem label="WhatsApp" value={viewingClient.parentWhatsapp} />}
-                      {viewingClient.parentEmail && <InfoItem label="E-mail" value={viewingClient.parentEmail} />}
-                      {!viewingClient.parentName && !viewingClient.parentWhatsapp && !viewingClient.parentEmail && (
-                        <p className="text-[10px] font-black text-gray-400 uppercase">Sem responsável relacionado cadastrado</p>
-                      )}
-                    </div>
+                    {(() => {
+                      const allResps = getAllResponsiblesForStudent(viewingClient);
+                      if (allResps.length === 0) {
+                        return (
+                          <div className="bg-emerald-50/70 p-5 rounded-[24px] border border-emerald-100">
+                            <p className="text-[10px] font-black text-gray-400 uppercase">Sem responsável cadastrado</p>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="space-y-3">
+                          {allResps.map((resp, idx) => (
+                            <div key={resp.id} className="bg-emerald-50/70 p-5 rounded-[24px] border border-emerald-100 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">
+                                  {resp.isPrimary ? 'Responsável principal' : `Responsável adicional ${idx}`}
+                                </p>
+                                {!resp.isPrimary && (
+                                  <button
+                                    onClick={() => handleRemoveAdditionalResponsible(resp.id)}
+                                    className="text-rose-400 hover:text-rose-600 transition-colors"
+                                    title="Remover responsável"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
+                              </div>
+                              {resp.parentName && <InfoItem label="Nome" value={resp.parentName} />}
+                              {resp.parentRelationship && <InfoItem label="Tipo" value={formatParentRelationship(resp.parentRelationship) || resp.parentRelationship} />}
+                              {resp.parentWhatsapp && <InfoItem label="WhatsApp" value={resp.parentWhatsapp} />}
+                              {resp.parentEmail && <InfoItem label="E-mail" value={resp.parentEmail} />}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                    {String(viewingClient.type || '').toUpperCase() === 'ALUNO' && (
+                      <button
+                        onClick={() => {
+                          setAddResponsibleForm({ parentName: '', parentRelationship: 'PAIS', parentWhatsappCountryCode: '55', parentWhatsapp: '', parentCpf: '', parentEmail: '' });
+                          setAddResponsibleMode('NEW');
+                          setAddResponsibleSelectedId(null);
+                          setAddResponsibleSearch('');
+                          setIsAddResponsibleModalOpen(true);
+                        }}
+                        className="w-full py-3 border-2 border-dashed border-emerald-300 rounded-2xl text-[10px] font-black text-emerald-600 uppercase tracking-widest hover:bg-emerald-50 transition-all flex items-center justify-center gap-2"
+                      >
+                        <Plus size={14} /> Adicionar Responsável
+                      </button>
+                    )}
                  </section>
 
                  <section className="space-y-4">
@@ -5370,6 +5542,156 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         </div>
       )}
 
+      {/* MODAL ADICIONAR RESPONSÁVEL */}
+      {isAddResponsibleModalOpen && viewingClient && (
+        <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-sm" onClick={() => setIsAddResponsibleModalOpen(false)}></div>
+          <div className="relative w-full max-w-lg bg-white rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[85vh]">
+            <div className="bg-emerald-600 p-6 text-white text-center shrink-0">
+              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center mx-auto mb-3"><UserPlus size={24} /></div>
+              <h2 className="text-lg font-black uppercase tracking-tight">Adicionar Responsável</h2>
+              <p className="text-[10px] font-bold text-emerald-100 uppercase tracking-widest mt-1">{viewingClient.name}</p>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 space-y-5 scrollbar-hide">
+              {/* Mode selector */}
+              <div className="flex gap-2">
+                {(['NEW', 'RESPONSAVEL', 'COLABORADOR'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => { setAddResponsibleMode(mode); setAddResponsibleSelectedId(null); setAddResponsibleSearch(''); }}
+                    className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border-2 transition-all ${addResponsibleMode === mode ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-gray-200 text-gray-500 hover:border-indigo-200'}`}
+                  >
+                    {mode === 'NEW' ? 'Manual' : mode === 'RESPONSAVEL' ? 'Vincular Resp.' : 'Vincular Colab.'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Search for existing client when linking */}
+              {addResponsibleMode !== 'NEW' && (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Buscar {addResponsibleMode === 'RESPONSAVEL' ? 'responsável' : 'colaborador'}</label>
+                  <input
+                    type="text"
+                    value={addResponsibleSearch}
+                    onChange={(e) => setAddResponsibleSearch(e.target.value)}
+                    placeholder="Digite o nome..."
+                    className="w-full px-4 py-3 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold"
+                  />
+                  <div className="max-h-40 overflow-y-auto space-y-1">
+                    {clients
+                      .filter(c => {
+                        const typeMatch = addResponsibleMode === 'RESPONSAVEL'
+                          ? String(c.type || '').toUpperCase() === 'RESPONSAVEL'
+                          : String(c.type || '').toUpperCase() === 'COLABORADOR';
+                        if (!typeMatch) return false;
+                        if (!addResponsibleSearch.trim()) return false;
+                        return (c.name || '').toLowerCase().includes(addResponsibleSearch.toLowerCase());
+                      })
+                      .slice(0, 8)
+                      .map(c => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => {
+                            setAddResponsibleSelectedId(c.id);
+                            setAddResponsibleForm(prev => ({
+                              ...prev,
+                              parentName: c.name || '',
+                              parentWhatsapp: c.phone || c.parentWhatsapp || '',
+                              parentEmail: c.email || c.parentEmail || '',
+                              parentCpf: c.parentCpf || '',
+                            }));
+                          }}
+                          className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all ${addResponsibleSelectedId === c.id ? 'bg-indigo-100 text-indigo-700' : 'bg-white hover:bg-gray-50 text-gray-700'}`}
+                        >
+                          {c.name} {c.phone ? `• ${c.phone}` : ''}
+                        </button>
+                      ))
+                    }
+                  </div>
+                </div>
+              )}
+
+              {/* Form fields */}
+              <div className="space-y-3">
+                <div>
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nome *</label>
+                  <input
+                    type="text"
+                    value={addResponsibleForm.parentName}
+                    onChange={(e) => setAddResponsibleForm(prev => ({ ...prev, parentName: e.target.value }))}
+                    placeholder="Nome completo"
+                    className="w-full px-4 py-3 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold mt-1"
+                    readOnly={addResponsibleMode !== 'NEW' && !!addResponsibleSelectedId}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tipo de Responsável</label>
+                  <select
+                    value={addResponsibleForm.parentRelationship}
+                    onChange={(e) => setAddResponsibleForm(prev => ({ ...prev, parentRelationship: e.target.value }))}
+                    className="w-full px-4 py-3 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold mt-1"
+                  >
+                    <option value="PAIS">Pais</option>
+                    <option value="AVOS">Avós</option>
+                    <option value="TIOS">Tios</option>
+                    <option value="TUTOR_LEGAL">Tutor legal</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">WhatsApp</label>
+                  <input
+                    type="text"
+                    value={addResponsibleForm.parentWhatsapp}
+                    onChange={(e) => setAddResponsibleForm(prev => ({ ...prev, parentWhatsapp: e.target.value }))}
+                    placeholder="(00) 00000-0000"
+                    className="w-full px-4 py-3 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold mt-1"
+                    readOnly={addResponsibleMode !== 'NEW' && !!addResponsibleSelectedId}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">E-mail</label>
+                  <input
+                    type="email"
+                    value={addResponsibleForm.parentEmail}
+                    onChange={(e) => setAddResponsibleForm(prev => ({ ...prev, parentEmail: e.target.value }))}
+                    placeholder="email@exemplo.com"
+                    className="w-full px-4 py-3 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold mt-1"
+                    readOnly={addResponsibleMode !== 'NEW' && !!addResponsibleSelectedId}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">CPF</label>
+                  <input
+                    type="text"
+                    value={addResponsibleForm.parentCpf}
+                    onChange={(e) => setAddResponsibleForm(prev => ({ ...prev, parentCpf: e.target.value }))}
+                    placeholder="000.000.000-00"
+                    className="w-full px-4 py-3 bg-gray-50 border-2 border-transparent focus:border-indigo-400 rounded-xl outline-none text-sm font-bold mt-1"
+                    readOnly={addResponsibleMode !== 'NEW' && !!addResponsibleSelectedId}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="p-5 bg-gray-50 border-t flex gap-3 shrink-0">
+              <button
+                onClick={() => setIsAddResponsibleModalOpen(false)}
+                className="flex-1 py-3 rounded-xl text-[10px] font-black text-gray-400 uppercase tracking-widest border-2 border-gray-200 hover:border-gray-300 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleAddAdditionalResponsible}
+                className="flex-1 py-3 rounded-xl text-[10px] font-black text-white uppercase tracking-widest bg-emerald-600 hover:bg-emerald-700 transition-all"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL DE RECARGA RÁPIDA */}
       {isRechargeModalOpen && rechargingClient && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 animate-in fade-in">
@@ -5389,6 +5711,49 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
               </div>
               
               <div className="flex-1 overflow-y-auto p-8 space-y-8 scrollbar-hide">
+                 {/* SELETOR DE RESPONSÁVEL PAGANTE */}
+                 {(() => {
+                   const allResps = getAllResponsiblesForStudent(rechargingClient);
+                   if (allResps.length <= 1) return null;
+                   return (
+                     <div className="space-y-3">
+                       <div className="flex items-center gap-2 border-b pb-2">
+                         <UserIcon size={16} className="text-indigo-600" />
+                         <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Quem está pagando?</h3>
+                       </div>
+                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                         {allResps.map((resp) => (
+                           <button
+                             key={resp.id}
+                             type="button"
+                             onClick={() => setRechargePayerResponsibleId(resp.id)}
+                             className={`flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+                               rechargePayerResponsibleId === resp.id
+                                 ? 'bg-emerald-50 border-emerald-400 shadow-md'
+                                 : 'bg-white border-gray-100 hover:border-emerald-200'
+                             }`}
+                           >
+                             <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-black text-sm ${
+                               rechargePayerResponsibleId === resp.id ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-500'
+                             }`}>
+                               {String(resp.parentName || '?').charAt(0).toUpperCase()}
+                             </div>
+                             <div className="flex-1 min-w-0">
+                               <p className="text-xs font-black text-gray-800 uppercase truncate">{resp.parentName}</p>
+                               <p className="text-[9px] font-bold text-gray-400 uppercase">
+                                 {resp.isPrimary ? 'Principal' : (formatParentRelationship(resp.parentRelationship) || 'Adicional')}
+                               </p>
+                             </div>
+                             {rechargePayerResponsibleId === resp.id && (
+                               <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
+                             )}
+                           </button>
+                         ))}
+                       </div>
+                     </div>
+                   );
+                 })()}
+
                  {/* SEÇÃO PRÉ-PAGO CANTINA */}
                  <div className="space-y-4">
                     <div className="flex items-center gap-2 border-b pb-2">
