@@ -4,6 +4,12 @@ import { fileURLToPath } from 'url';
 import { randomBytes, createHash } from 'crypto';
 import { NUTRITIONAL_BASE_SEED } from './data/nutritionalBaseSeed.js';
 import { getResponsibleCpf, normalizeClientCpfFields } from './utils/clientDocument.js';
+import {
+  buildResponsiblePatchFromStudent,
+  buildStudentParentPatchFromResponsible,
+  hasStudentResponsibleFieldsChanged,
+  isSameResponsibleReference,
+} from './utils/studentResponsibleSync.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2947,13 +2953,69 @@ export class Database {
   updateClient(id: string, data: any) {
     const index = this.clients.findIndex(c => c.id === id);
     if (index > -1) {
+      const previousClient = this.clients[index];
       const nowIso = new Date().toISOString();
       this.clients[index] = this.normalizeClientPlanBalances(
         this.normalizeContactFields({ ...this.clients[index], ...data, updatedAt: nowIso })
       );
       const updatedClient = this.clients[index];
+      const isStudent = String(updatedClient?.type || '').trim().toUpperCase() === 'ALUNO';
       const isCollaborator = String(updatedClient?.type || '').trim().toUpperCase() === 'COLABORADOR';
       const relatedStudent = this.normalizeRelatedStudentPayload(data?.relatedStudent);
+      const shouldSyncResponsibleFields = isStudent && hasStudentResponsibleFieldsChanged(previousClient, updatedClient);
+
+      if (shouldSyncResponsibleFields) {
+        const linkedCollaboratorId = String(updatedClient?.responsibleCollaboratorId || '').trim();
+        const linkedResponsibleId = String(updatedClient?.responsibleClientId || '').trim();
+
+        if (linkedCollaboratorId) {
+          const collaboratorIndex = this.clients.findIndex((client: any) => String(client?.id || '').trim() === linkedCollaboratorId);
+          if (collaboratorIndex > -1) {
+            const collaborator = this.clients[collaboratorIndex];
+            this.clients[collaboratorIndex] = this.normalizeClientPlanBalances(
+              this.normalizeContactFields({
+                ...collaborator,
+                ...buildResponsiblePatchFromStudent(updatedClient, collaborator?.type),
+                updatedAt: nowIso,
+              })
+            );
+          }
+        } else if (linkedResponsibleId) {
+          const responsibleIndex = this.clients.findIndex((client: any) => String(client?.id || '').trim() === linkedResponsibleId);
+          if (responsibleIndex > -1) {
+            const responsible = this.clients[responsibleIndex];
+            this.clients[responsibleIndex] = this.normalizeClientPlanBalances(
+              this.normalizeContactFields({
+                ...responsible,
+                ...buildResponsiblePatchFromStudent(updatedClient, responsible?.type),
+                updatedAt: nowIso,
+              })
+            );
+          }
+        } else {
+          const siblingPatch = buildStudentParentPatchFromResponsible(updatedClient);
+          this.clients = this.clients.map((client: any) => {
+            if (String(client?.type || '').trim().toUpperCase() !== 'ALUNO') return client;
+            if (String(client?.id || '').trim() === String(updatedClient?.id || '').trim()) return client;
+            if (!isSameResponsibleReference(client, previousClient)) return client;
+            return this.normalizeClientPlanBalances(
+              this.normalizeContactFields({
+                ...client,
+                ...siblingPatch,
+                updatedAt: nowIso,
+              })
+            );
+          });
+          this.clients[index] = this.normalizeClientPlanBalances(
+            this.normalizeContactFields({
+              ...updatedClient,
+              ...buildStudentParentPatchFromResponsible(updatedClient),
+              updatedAt: nowIso,
+            })
+          );
+        }
+      }
+
       if (isCollaborator && relatedStudent?.name) {
         const existingLinkedStudent = this.clients.find((client: any) => {
           if (String(client?.type || '').trim().toUpperCase() !== 'ALUNO') return false;
