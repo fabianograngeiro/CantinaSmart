@@ -255,6 +255,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isStudentOnlyMode, setIsStudentOnlyMode] = useState(false);
+  const [linkingStudentContextName, setLinkingStudentContextName] = useState('');
   
   const [paymentMethod, setPaymentMethod] = useState<'PIX' | 'BOLETO' | 'CAIXA'>('PIX');
 
@@ -301,6 +302,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     || currentUser?.role === Role.FUNCIONARIO_BASICO;
   const isSystemWideAdmin = currentUser?.role === Role.SUPERADMIN || currentUser?.role === Role.ADMIN_SISTEMA;
   const isResponsibleView = viewMode === 'CLIENTES_RESPONSAVEIS';
+  const isResponsibleDataLocked = isStudentOnlyMode && Boolean(linkingStudentContextName);
 
   // Carregar clientes, empresas, planos e transações da API
   const showPlanNotice = (message: string, type: 'warning' | 'success' | 'error' = 'warning') => {
@@ -1048,6 +1050,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const handleOpenCreateModal = () => {
     setEditingClient(null);
     setIsStudentOnlyMode(false);
+    setLinkingStudentContextName('');
     setSelectedPlanDays({});
     setSelectedPlanDates({});
     setSelectedPlanShifts({});
@@ -1075,8 +1078,19 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   const handleOpenCreateStudentFromDetail = () => {
     const phoneParts = splitPhoneByCountryCode(viewingClient?.phone || viewingClient?.parentWhatsapp || '');
     const viewingType = String(viewingClient?.type || '').toUpperCase();
+    const linkingFromStudent = viewingType === 'ALUNO';
+    const viewingClientName = String(viewingClient?.name || '').trim();
+    const linkedResponsibleClientId = String((viewingClient as any)?.responsibleClientId || '').trim();
+    const linkedResponsibleCollaboratorId = String((viewingClient as any)?.responsibleCollaboratorId || '').trim();
+    const linkedResponsibleClient = linkedResponsibleClientId
+      ? clients.find((candidate) => String(candidate?.id || '').trim() === linkedResponsibleClientId)
+      : null;
+    const linkedResponsibleCollaborator = linkedResponsibleCollaboratorId
+      ? clients.find((candidate) => String(candidate?.id || '').trim() === linkedResponsibleCollaboratorId)
+      : null;
     setEditingClient(null);
     setIsStudentOnlyMode(true);
+    setLinkingStudentContextName(linkingFromStudent ? viewingClientName : '');
     setSelectedPlanDays({});
     setSelectedPlanDates({});
     setSelectedPlanShifts({});
@@ -1104,7 +1118,21 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       parentEmail: viewingType === 'RESPONSAVEL' || viewingType === 'COLABORADOR' ? String(viewingClient?.email || '') : String(viewingClient?.parentEmail || ''),
       photo: ''
     });
-    if (String(viewingClient?.type || '').toUpperCase() === 'COLABORADOR' && viewingClient?.id) {
+    if (linkingFromStudent && linkedResponsibleCollaborator?.id) {
+      setResponsibleSourceMode('COLABORADOR');
+      setResponsibleCollaboratorId(linkedResponsibleCollaborator.id);
+      setResponsibleCollaboratorSearch(String(linkedResponsibleCollaborator.name || ''));
+      setNewCollaboratorRole(String(linkedResponsibleCollaborator.class || (viewingClient as any)?.parentRelationship || ''));
+      setResponsibleClientSearch('');
+      setResponsibleClientId(null);
+    } else if (linkingFromStudent && linkedResponsibleClient?.id) {
+      setResponsibleSourceMode('RESPONSAVEL');
+      setResponsibleClientId(linkedResponsibleClient.id);
+      setResponsibleClientSearch(String(linkedResponsibleClient.name || ''));
+      setResponsibleCollaboratorSearch('');
+      setResponsibleCollaboratorId(null);
+      setNewCollaboratorRole('');
+    } else if (String(viewingClient?.type || '').toUpperCase() === 'COLABORADOR' && viewingClient?.id) {
       setResponsibleSourceMode('COLABORADOR');
       setResponsibleCollaboratorId(viewingClient.id);
       setResponsibleCollaboratorSearch(String(viewingClient.name || ''));
@@ -1179,6 +1207,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
 
     setEditingClient(client);
     setIsStudentOnlyMode(false);
+    setLinkingStudentContextName('');
     setOpenPlanCalendarId(null);
     setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
     setFormData({
@@ -2073,6 +2102,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       }
       setEditingClient(null);
       setIsStudentOnlyMode(false);
+      setLinkingStudentContextName('');
       setClientPhotoFile(null);
       setClientPhotoPreview('');
       setIsClientModalOpen(false);
@@ -4619,7 +4649,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                     }}
                     className="flex-1 py-4 bg-emerald-600 text-white rounded-[20px] font-black uppercase tracking-[2px] text-xs shadow-xl shadow-emerald-100 hover:bg-emerald-700 active:scale-95 transition-all flex items-center justify-center gap-2 text-center"
                  >
-                      <UserPlus size={18} /> Adicionar Aluno
+                      <UserPlus size={18} /> {String(viewingClient?.type || '').toUpperCase() === 'ALUNO' ? `Vincular ao Aluno ${String(viewingClient?.name || '').trim()}` : 'Adicionar Aluno'}
                  </button>
                  <button
                     onClick={() => {
@@ -4651,6 +4681,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
             onClick={() => {
               setIsClientModalOpen(false);
               setResolveNowHelper(null);
+              setLinkingStudentContextName('');
             }}
           ></div>
           <div className="relative w-full max-w-4xl bg-white rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[92vh]">
@@ -4659,9 +4690,9 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center"><UserPlus size={28} /></div>
                     <div>
-                       <h2 className="text-xl font-black uppercase tracking-tight">{editingClient ? 'Editar Cliente' : (isStudentOnlyMode ? 'Adicionar Aluno' : (isResponsibleView ? 'Novo Responsável/Colaborador' : 'Novo Cadastro de Cliente'))}</h2>
+                       <h2 className="text-xl font-black uppercase tracking-tight">{editingClient ? 'Editar Cliente' : (isStudentOnlyMode ? (linkingStudentContextName ? `Vincular ao Aluno ${linkingStudentContextName}` : 'Adicionar Aluno') : (isResponsibleView ? 'Novo Responsável/Colaborador' : 'Novo Cadastro de Cliente'))}</h2>
                        <p className="text-[10px] font-bold text-indigo-200 uppercase tracking-widest mt-0.5">
-                         {editingClient ? 'Atualização de dados cadastrais' : (isStudentOnlyMode ? 'Cadastro de novo aluno vinculado ao responsável atual' : (isResponsibleView ? 'Gestão de responsável e colaborador' : 'Gestão de perfil cadastral'))}
+                         {editingClient ? 'Atualização de dados cadastrais' : (isStudentOnlyMode ? (linkingStudentContextName ? `Responsável herdado de ${linkingStudentContextName} (dados bloqueados)` : 'Cadastro de novo aluno vinculado ao responsável atual') : (isResponsibleView ? 'Gestão de responsável e colaborador' : 'Gestão de perfil cadastral'))}
                        </p>
                     </div>
                  </div>
@@ -4670,6 +4701,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                    onClick={() => {
                      setIsClientModalOpen(false);
                      setResolveNowHelper(null);
+                     setLinkingStudentContextName('');
                    }}
                    className="p-3 hover:bg-white/10 rounded-full transition-all"
                  ><X size={28} /></button>
@@ -4880,7 +4912,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                        {formData.type === 'ALUNO' && (
+                        {formData.type === 'ALUNO' && !isResponsibleDataLocked && (
                           <div className="md:col-span-2 space-y-2">
                             <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Origem do responsável</label>
                             <div className={`grid grid-cols-1 ${isUnitAdmin ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-2`}>
@@ -4936,7 +4968,72 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                           </div>
                         )}
 
-                        {formData.type === 'ALUNO' && responsibleSourceMode === 'COLABORADOR' ? (
+                        {formData.type === 'ALUNO' && isResponsibleDataLocked ? (
+                          <>
+                            <div className="md:col-span-2 rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Responsável vinculado</p>
+                              <p className="text-sm font-black text-slate-800 mt-1">Dados do responsável bloqueados para manter vínculo único entre alunos.</p>
+                            </div>
+                            <div className="space-y-1.5 md:col-span-2">
+                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Nome do Pai/Responsável</label>
+                              <input
+                                value={formData.parentName}
+                                disabled
+                                className="w-full px-5 py-3.5 bg-slate-100 border border-slate-200 rounded-2xl outline-none font-semibold text-sm text-slate-600"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Tipo de Responsável</label>
+                              <select
+                                value={formData.parentRelationship}
+                                disabled
+                                className="w-full px-5 py-3.5 bg-slate-100 border border-slate-200 rounded-2xl outline-none font-semibold text-sm text-slate-600"
+                              >
+                                {RESPONSIBLE_RELATION_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">WhatsApp</label>
+                              <div className="grid grid-cols-[150px_minmax(0,1fr)] gap-2.5">
+                                <select
+                                  value={formData.parentWhatsappCountryCode}
+                                  disabled
+                                  className="w-full px-3.5 py-3.5 bg-slate-100 border border-slate-200 rounded-2xl outline-none font-semibold text-sm text-slate-600"
+                                >
+                                  {COUNTRY_OPTIONS.map((country) => (
+                                    <option key={country.code} value={country.code}>
+                                      {country.label} ({country.dial})
+                                    </option>
+                                  ))}
+                                </select>
+                                <input
+                                  value={formData.parentWhatsapp}
+                                  disabled
+                                  className="w-full px-5 py-3.5 bg-slate-100 border border-slate-200 rounded-2xl outline-none font-semibold text-sm text-slate-600"
+                                />
+                              </div>
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">CPF</label>
+                              <input
+                                value={formData.parentCpf}
+                                disabled
+                                className="w-full px-5 py-3.5 bg-slate-100 border border-slate-200 rounded-2xl outline-none font-semibold text-sm text-slate-600"
+                              />
+                            </div>
+                            <div className="space-y-1.5 md:col-span-2">
+                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">E-mail</label>
+                              <input
+                                type="email"
+                                value={formData.parentEmail}
+                                disabled
+                                className="w-full px-5 py-3.5 bg-slate-100 border border-slate-200 rounded-2xl outline-none font-semibold text-sm text-slate-600"
+                              />
+                            </div>
+                          </>
+                        ) : formData.type === 'ALUNO' && responsibleSourceMode === 'COLABORADOR' ? (
                           <>
                             <div className="md:col-span-2 space-y-1.5">
                               <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider ml-1">Buscar colaborador</label>
@@ -5253,7 +5350,10 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
               <div className="p-5 sm:p-6 bg-white border-t border-slate-200 flex flex-col sm:flex-row gap-3 shrink-0">
                  <button
                    type="button"
-                   onClick={() => setIsClientModalOpen(false)}
+                   onClick={() => {
+                     setIsClientModalOpen(false);
+                     setLinkingStudentContextName('');
+                   }}
                    className="sm:flex-1 py-3.5 px-5 rounded-2xl border border-slate-300 text-slate-600 text-xs font-black uppercase tracking-widest hover:bg-slate-100 transition-all"
                  >
                    Cancelar
