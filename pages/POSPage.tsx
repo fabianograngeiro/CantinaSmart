@@ -469,6 +469,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   const [serviceActionType, setServiceActionType] = useState<'CREDIT_STUDENT' | 'PAY_COLLAB' | null>(null);
   const [serviceActionAmount, setServiceActionAmount] = useState<string>('');
   const [serviceActionPayerResponsibleId, setServiceActionPayerResponsibleId] = useState<string>('');
+  const [salePayerResponsibleId, setSalePayerResponsibleId] = useState<string>('');
   const [activeSplitMethod, setActiveSplitMethod] = useState<PaymentMethod | null>(null);
   
   const [cashReceived, setCashReceived] = useState<string>('');
@@ -974,6 +975,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
   const selectClient = (client: Client) => {
     setSelectedClient(client);
+    setSalePayerResponsibleId('');
     setIsFinalConsumer(false);
     setClientSearch('');
     setShowClientSuggestions(false);
@@ -1198,6 +1200,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     if (newState) {
       setSelectedClient(null);
       setPayments(prev => prev.filter(p => p.method !== 'SALDO'));
+      setSalePayerResponsibleId('');
     }
   };
 
@@ -2971,6 +2974,12 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
       // Registrar despesa apenas para produtos reais (não crédito, não consumo de plano).
       if (expenseTotal > 0) {
+        const salePayerInfo = (() => {
+          if (!salePayerResponsibleId) return {};
+          const responsibles = getStudentResponsiblesForPdv(selectedClient);
+          const payer = responsibles.find((r) => r.id === salePayerResponsibleId);
+          return payer ? { payerResponsibleId: payer.id, payerResponsibleName: payer.parentName } : {};
+        })();
         const createdDebitTx = await ApiService.createTransaction({
           clientId: selectedClient?.id || null,
           clientName: selectedClient?.name || 'Consumidor Final',
@@ -2991,7 +3000,8 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
             quantity: i.quantity,
             price: i.price,
             mode: i.mode
-          }))
+          })),
+          ...salePayerInfo,
         });
         createdTransactions.push(createdDebitTx);
       }
@@ -3060,6 +3070,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       setActiveSplitMethod(null);
       setCashReceived('');
       setPartialAmount('');
+      setSalePayerResponsibleId('');
       setIsServiceActionModalOpen(false);
       setServiceActionType(null);
       setServiceActionAmount('');
@@ -3158,7 +3169,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       timestamp: new Date(),
       status: 'EM ESPERA'
     }, ...prev]);
-    setCart([]); setSelectedClient(null); setPayments([]); setIsFinalConsumer(false);
+    setCart([]); setSelectedClient(null); setPayments([]); setIsFinalConsumer(false); setSalePayerResponsibleId('');
     setSaleReference(createPOSSaleReference());
   };
 
@@ -3362,8 +3373,13 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     const missingPartialPayment = allowsPartialConsumptionPayment && totalPaid <= 0.01;
     const noClientIdentified = !selectedClient && !isFinalConsumer;
     const clientIsBlocked = selectedClient?.isBlocked || false;
-    return isCartEmpty || isPaymentIncomplete || missingPartialPayment || noClientIdentified || clientIsBlocked || isFinalizingSale;
-  }, [cart, remainingToPay, allowsPartialConsumptionPayment, totalPaid, selectedClient, isFinalConsumer, isFinalizingSale]);
+    const hasExternalPayment = payments.some((p) => ['PIX', 'DINHEIRO', 'CREDITO', 'DEBITO'].includes(p.method));
+    const cartHasExpenseItems = cart.some((item) => !item.serviceAction && !item.productId.startsWith('SERVICE_'));
+    const saleResponsibles = (selectedClient?.type === 'ALUNO' && cartHasExpenseItems)
+      ? getStudentResponsiblesForPdv(selectedClient) : [];
+    const missingSalePayer = saleResponsibles.length > 1 && hasExternalPayment && !salePayerResponsibleId;
+    return isCartEmpty || isPaymentIncomplete || missingPartialPayment || noClientIdentified || clientIsBlocked || isFinalizingSale || missingSalePayer;
+  }, [cart, remainingToPay, allowsPartialConsumptionPayment, totalPaid, selectedClient, isFinalConsumer, isFinalizingSale, payments, salePayerResponsibleId, clients]);
 
   const serviceActionAmountNumeric = useMemo(() => {
     const parsed = Number(String(serviceActionAmount || '').replace(',', '.'));
@@ -3973,6 +3989,44 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
           {/* Payment Selection with Split Capability */}
 	          <div className="p-2.5 border-t bg-gray-50 space-y-2">
+             {/* Seleção de responsável pagante para venda externa (PIX/Dinheiro/Crédito/Débito) */}
+             {(() => {
+               if (!selectedClient || selectedClient.type !== 'ALUNO') return null;
+               const cartHasExpenseItems = cart.some((item) => !item.serviceAction && !item.productId.startsWith('SERVICE_'));
+               if (!cartHasExpenseItems) return null;
+               const saleResponsibles = getStudentResponsiblesForPdv(selectedClient);
+               if (saleResponsibles.length <= 1) return null;
+               const hasExternalPayment = payments.some((p) => ['PIX', 'DINHEIRO', 'CREDITO', 'DEBITO'].includes(p.method));
+               return (
+                 <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-3 space-y-2">
+                   <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">
+                     Responsável que está pagando
+                   </p>
+                   <div className="flex flex-col gap-1.5">
+                     {saleResponsibles.map((resp) => (
+                       <button
+                         key={resp.id}
+                         type="button"
+                         onClick={() => setSalePayerResponsibleId((prev) => prev === resp.id ? '' : resp.id)}
+                         className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left text-[11px] font-bold transition-all ${
+                           salePayerResponsibleId === resp.id
+                             ? 'border-indigo-500 bg-indigo-600 text-white'
+                             : 'border-indigo-200 bg-white text-slate-700 hover:bg-indigo-50'
+                         }`}
+                       >
+                         <span className={`w-3 h-3 rounded-full border-2 shrink-0 ${salePayerResponsibleId === resp.id ? 'border-white bg-white' : 'border-indigo-400 bg-transparent'}`} />
+                         {resp.parentName}
+                       </button>
+                     ))}
+                   </div>
+                   {hasExternalPayment && !salePayerResponsibleId && (
+                     <p className="text-[10px] font-black text-rose-600 uppercase tracking-wider">
+                       Selecione o responsável para finalizar.
+                     </p>
+                   )}
+                 </div>
+               );
+             })()}
              {remainingToPay > 0.01 && cart.length > 0 && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">

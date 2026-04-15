@@ -1503,7 +1503,22 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     if (!viewingClient) return;
     if (!window.confirm('Remover este responsável adicional?')) return;
     const existing = Array.isArray((viewingClient as any).additionalResponsibles) ? (viewingClient as any).additionalResponsibles : [];
-    const updated = existing.filter((e: any) => e?.id !== entryId);
+    let updated: any[];
+    if (entryId.startsWith('responsible-client:')) {
+      const clientId = entryId.slice('responsible-client:'.length);
+      updated = existing.filter((e: any) => String(e?.responsibleClientId || '').trim() !== clientId);
+    } else if (entryId.startsWith('responsible-collaborator:')) {
+      const collabId = entryId.slice('responsible-collaborator:'.length);
+      updated = existing.filter((e: any) => String(e?.responsibleCollaboratorId || '').trim() !== collabId);
+    } else {
+      const prefix = `manual:${String(viewingClient.id || 'student')}:`;
+      const realEntryId = entryId.startsWith(prefix) ? entryId.slice(prefix.length) : entryId;
+      updated = existing.filter((e: any) => String(e?.id || '').trim() !== realEntryId);
+    }
+    if (updated.length === existing.length) {
+      alert('Não foi possível identificar o responsável para remover. Tente recarregar a página.');
+      return;
+    }
     try {
       const result = await ApiService.updateClient(viewingClient.id, { additionalResponsibles: updated } as any, {
         expectedUpdatedAt: String((viewingClient as any)?.updatedAt || '').trim() || undefined,
@@ -3862,15 +3877,18 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     doc.text(wrappedPlans, colLeftX, baseY + 46);
 
     const summaryLines = [
-      'RESUMO POR PLANO (NO PERÍODO):',
       ...summary.plans.map((plan) =>
-        `${toPdfSafeText(plan.planName)}: créditos R$ ${formatCurrencyBRL(plan.creditedValue || 0)} (${Number(plan.creditedQuantity || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} un) | consumos R$ ${formatCurrencyBRL(plan.consumedValue || 0)} (${Number(plan.consumedQuantity || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} un) | saldo do período R$ ${formatCurrencyBRL(plan.periodBalanceValue || 0)}`
+        `${toPdfSafeText(plan.planName)}: crédito qtd ${Number(plan.creditedQuantity || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} | crédito R$ ${formatCurrencyBRL(plan.creditedValue || 0)} | consumo qtd ${Number(plan.consumedQuantity || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} | consumo R$ ${formatCurrencyBRL(plan.consumedValue || 0)} | saldo período R$ ${formatCurrencyBRL(plan.periodBalanceValue || 0)} | saldo atual R$ ${formatCurrencyBRL(plan.currentBalanceValue || 0)}`
       ),
-      `Cantina (no período): créditos R$ ${formatCurrencyBRL(summary.cantinaCreditValue || 0)} | consumos R$ ${formatCurrencyBRL(summary.cantinaConsumedValue || 0)} | saldo do período R$ ${formatCurrencyBRL((summary.cantinaCreditValue || 0) - (summary.cantinaConsumedValue || 0))}`,
-      `TOTAL DO PERÍODO: créditos R$ ${formatCurrencyBRL(summary.periodCreditsTotal || 0)} | consumos R$ ${formatCurrencyBRL(summary.periodConsumptionTotal || 0)} | saldo R$ ${formatCurrencyBRL(summary.periodBalanceTotal || 0)}`,
-      `SALDO ATUAL PLANOS: R$ ${formatCurrencyBRL(summary.currentPlanBalanceTotal || 0)}`,
-      `SALDO ATUAL CANTINA: R$ ${formatCurrencyBRL(summary.cantinaBalanceCurrentValue || 0)}`,
-      `SALDO ATUAL TOTAL (PLANOS + CANTINA): R$ ${formatCurrencyBRL(summary.currentBalanceTotal || 0)}`,
+      `Crédito período cantina: R$ ${formatCurrencyBRL(summary.cantinaCreditValue || 0)}`,
+      `Consumo período cantina (venda itens): R$ ${formatCurrencyBRL(summary.cantinaConsumedValue || 0)}`,
+      `Saldo período cantina: R$ ${formatCurrencyBRL((summary.cantinaCreditValue || 0) - (summary.cantinaConsumedValue || 0))}`,
+      `Total créditos do período: R$ ${formatCurrencyBRL(summary.periodCreditsTotal || 0)}`,
+      `Total consumo do período: R$ ${formatCurrencyBRL(summary.periodConsumptionTotal || 0)}`,
+      `Saldo do período (crédito - consumo): R$ ${formatCurrencyBRL(summary.periodBalanceTotal || 0)}`,
+      `Saldo atual planos: R$ ${formatCurrencyBRL(summary.currentPlanBalanceTotal || 0)}`,
+      `Saldo cantina atual: R$ ${formatCurrencyBRL(summary.cantinaBalanceCurrentValue || 0)}`,
+      `Saldo atual total (planos + cantina): R$ ${formatCurrencyBRL(summary.currentBalanceTotal || 0)}`,
     ];
 
     const summaryTop = baseY + 46 + (wrappedPlans.length * 10) + 8;
@@ -3925,12 +3943,15 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
         <div class="plans-box">
           <p><strong>Resumo do período:</strong></p>
           <ul>
-            <li><strong>Resumo por plano (no período):</strong></li>
-            ${summary.plans.map((plan) => `<li><strong>${plan.planName}:</strong> créditos R$ ${formatCurrencyBRL(plan.creditedValue || 0)} (${Number(plan.creditedQuantity || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} un) | consumos R$ ${formatCurrencyBRL(plan.consumedValue || 0)} (${Number(plan.consumedQuantity || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} un) | saldo do período R$ ${formatCurrencyBRL(plan.periodBalanceValue || 0)}</li>`).join('')}
-            <li><strong>Cantina (no período):</strong> créditos R$ ${formatCurrencyBRL(summary.cantinaCreditValue || 0)} | consumos R$ ${formatCurrencyBRL(summary.cantinaConsumedValue || 0)} | saldo do período R$ ${formatCurrencyBRL((summary.cantinaCreditValue || 0) - (summary.cantinaConsumedValue || 0))}</li>
-            <li><strong>Total do período:</strong> créditos R$ ${formatCurrencyBRL(summary.periodCreditsTotal || 0)} | consumos R$ ${formatCurrencyBRL(summary.periodConsumptionTotal || 0)} | saldo R$ ${formatCurrencyBRL(summary.periodBalanceTotal || 0)}</li>
+            ${summary.plans.map((plan) => `<li><strong>${plan.planName}:</strong> crédito qtd ${Number(plan.creditedQuantity || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} | crédito R$ ${formatCurrencyBRL(plan.creditedValue || 0)} | consumo qtd ${Number(plan.consumedQuantity || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} | consumo R$ ${formatCurrencyBRL(plan.consumedValue || 0)} | saldo período R$ ${formatCurrencyBRL(plan.periodBalanceValue || 0)} | saldo atual R$ ${formatCurrencyBRL(plan.currentBalanceValue || 0)}</li>`).join('')}
+            <li><strong>Crédito período cantina:</strong> R$ ${formatCurrencyBRL(summary.cantinaCreditValue || 0)}</li>
+            <li><strong>Consumo período cantina (venda itens):</strong> R$ ${formatCurrencyBRL(summary.cantinaConsumedValue || 0)}</li>
+            <li><strong>Saldo período cantina:</strong> R$ ${formatCurrencyBRL((summary.cantinaCreditValue || 0) - (summary.cantinaConsumedValue || 0))}</li>
+            <li><strong>Total créditos do período:</strong> R$ ${formatCurrencyBRL(summary.periodCreditsTotal || 0)}</li>
+            <li><strong>Total consumo do período:</strong> R$ ${formatCurrencyBRL(summary.periodConsumptionTotal || 0)}</li>
+            <li><strong>Saldo do período (crédito - consumo):</strong> R$ ${formatCurrencyBRL(summary.periodBalanceTotal || 0)}</li>
             <li><strong>Saldo atual planos:</strong> R$ ${formatCurrencyBRL(summary.currentPlanBalanceTotal || 0)}</li>
-            <li><strong>Saldo atual cantina:</strong> R$ ${formatCurrencyBRL(summary.cantinaBalanceCurrentValue || 0)}</li>
+            <li><strong>Saldo cantina atual:</strong> R$ ${formatCurrencyBRL(summary.cantinaBalanceCurrentValue || 0)}</li>
             <li><strong>Saldo atual total (planos + cantina):</strong> R$ ${formatCurrencyBRL(summary.currentBalanceTotal || 0)}</li>
           </ul>
         </div>
@@ -5049,6 +5070,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
                                 </p>
                                 {!resp.isPrimary && (
                                   <button
+                                    type="button"
                                     onClick={() => handleRemoveAdditionalResponsible(resp.id)}
                                     className="text-rose-400 hover:text-rose-600 transition-colors"
                                     title="Remover responsável"
