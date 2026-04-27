@@ -13,6 +13,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import ApiService from '../services/api';
+import { resolveApiBaseUrl } from '../utils/apiBaseUrl';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -192,6 +193,7 @@ const ImagemModal: React.FC<BaseProps> = ({ chatId, onClose, onSent }) => {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const apiBaseUrl = resolveApiBaseUrl();
 
   const handleSend = async () => {
     if (!file) { setError('Selecione uma imagem.'); return; }
@@ -199,7 +201,7 @@ const ImagemModal: React.FC<BaseProps> = ({ chatId, onClose, onSent }) => {
     setError('');
     try {
       const base64Data = await fileToBase64(file);
-      const response = await fetch(`${(import.meta.env.VITE_API_URL || 'http://localhost:3001/api')}/whatsapp/send-media-to-chat`, {
+      const response = await fetch(`${apiBaseUrl}/whatsapp/send-media-to-chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -10,6 +10,7 @@ export type DispatchAudienceFilter =
 
 export type DispatchProfileType = 'RESPONSAVEL_PARENTESCO' | 'COLABORADOR';
 export type DispatchPeriodMode = 'SEMANAL' | 'QUINZENAL' | 'MENSAL' | 'DESTA_SEMANA';
+export type DispatchMonthlyWindowMode = 'ROLLING_30_DAYS' | 'CURRENT_MONTH';
 
 type AudienceReportRow = {
   alunoNome: string;
@@ -309,7 +310,22 @@ const getCurrentWeekBounds = () => {
   return { start, end };
 };
 
-const buildPeriodWindow = (mode: DispatchPeriodMode, businessDays: Set<number> | null) => {
+const parseYmdDate = (value: unknown): Date | null => {
+  const raw = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const parsed = new Date(`${raw}T00:00:00`);
+  if (!Number.isFinite(parsed.getTime())) return null;
+  return parsed;
+};
+
+const buildPeriodWindow = (
+  mode: DispatchPeriodMode,
+  businessDays: Set<number> | null,
+  options?: {
+    monthlyWindowMode?: DispatchMonthlyWindowMode;
+    monthlyReferenceDate?: string;
+  }
+) => {
   const now = new Date();
   const start = new Date(now);
   start.setHours(0, 0, 0, 0);
@@ -355,6 +371,37 @@ const buildPeriodWindow = (mode: DispatchPeriodMode, businessDays: Set<number> |
     start.setDate(start.getDate() - 6);
   } else if (mode === 'QUINZENAL') {
     start.setDate(start.getDate() - 14);
+  } else if (mode === 'MENSAL') {
+    const monthlyMode = options?.monthlyWindowMode === 'CURRENT_MONTH' ? 'CURRENT_MONTH' : 'ROLLING_30_DAYS';
+    if (monthlyMode === 'CURRENT_MONTH') {
+      start.setDate(1);
+      const rollingLimit = new Date(now);
+      rollingLimit.setHours(0, 0, 0, 0);
+      rollingLimit.setDate(rollingLimit.getDate() - 29);
+      if (start.getTime() < rollingLimit.getTime()) {
+        start.setTime(rollingLimit.getTime());
+      }
+    } else {
+      const today = new Date(now);
+      today.setHours(0, 0, 0, 0);
+      const minRef = new Date(today);
+      minRef.setDate(minRef.getDate() - 30);
+      const parsedRef = parseYmdDate(options?.monthlyReferenceDate || '');
+      const refDate = parsedRef && parsedRef.getTime() >= minRef.getTime() && parsedRef.getTime() <= today.getTime()
+        ? parsedRef
+        : today;
+      start.setTime(refDate.getTime());
+      start.setDate(start.getDate() - 29);
+      const end = new Date(refDate);
+      end.setHours(23, 59, 59, 999);
+      return {
+        start,
+        end,
+        periodLabel: `${toDateLabel(start)} a ${toDateLabel(end)}`,
+        periodInfo: `Período: ${toDateLabel(start)} a ${toDateLabel(end)}`,
+        dayFilter: null as Set<number> | null,
+      };
+    }
   } else {
     start.setDate(start.getDate() - 29);
   }
@@ -393,6 +440,8 @@ export const buildDispatchAudience = (params: {
   profileType?: DispatchProfileType;
   periodMode?: DispatchPeriodMode;
   businessDaysOnly?: boolean;
+  monthlyWindowMode?: DispatchMonthlyWindowMode;
+  monthlyReferenceDate?: string;
 }) => {
   const filter = String(params.filter || 'TODOS').toUpperCase() as DispatchAudienceFilter;
   const profileType = String(params.profileType || 'RESPONSAVEL_PARENTESCO').toUpperCase() as DispatchProfileType;
@@ -409,17 +458,24 @@ export const buildDispatchAudience = (params: {
   ];
   const allowedProfiles: DispatchProfileType[] = ['RESPONSAVEL_PARENTESCO', 'COLABORADOR'];
   const allowedPeriods: DispatchPeriodMode[] = ['SEMANAL', 'QUINZENAL', 'MENSAL', 'DESTA_SEMANA'];
+  const allowedMonthlyModes: DispatchMonthlyWindowMode[] = ['ROLLING_30_DAYS', 'CURRENT_MONTH'];
 
   const safeFilter = allowedFilters.includes(filter) ? filter : 'TODOS';
   const safeProfileType = allowedProfiles.includes(profileType) ? profileType : 'RESPONSAVEL_PARENTESCO';
   const safePeriodMode = allowedPeriods.includes(periodMode) ? periodMode : 'SEMANAL';
+  const monthlyModeRaw = String(params.monthlyWindowMode || '').toUpperCase() as DispatchMonthlyWindowMode;
+  const safeMonthlyMode = allowedMonthlyModes.includes(monthlyModeRaw) ? monthlyModeRaw : 'ROLLING_30_DAYS';
+  const safeMonthlyReferenceDate = String(params.monthlyReferenceDate || '').trim();
   const periodModeLabel = toPeriodModeLabel(safePeriodMode);
 
   const clients = db.getClients(params.enterpriseId);
   const transactions = db.getTransactions({ enterpriseId: params.enterpriseId });
   const enterprise = db.getEnterprise(params.enterpriseId);
   const businessDays = getEnterpriseBusinessDays(enterprise);
-  const periodWindow = buildPeriodWindow(safePeriodMode, businessDays);
+  const periodWindow = buildPeriodWindow(safePeriodMode, businessDays, {
+    monthlyWindowMode: safeMonthlyMode,
+    monthlyReferenceDate: safeMonthlyReferenceDate,
+  });
   const todayKey = toDateKey(new Date());
 
   const isDateInsidePeriod = (value: Date | null) => {

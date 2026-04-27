@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCheck, Loader2, Paperclip, Search, Send } from 'lucide-react';
+import { resolveApiBaseUrl } from '../../utils/apiBaseUrl';
 
 type ClienteOption = {
   id: string;
@@ -107,7 +108,7 @@ const DisparoUnicoForm: React.FC = () => {
   });
   const [feedback, setFeedback] = useState('');
 
-  const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+  const apiBaseUrl = resolveApiBaseUrl();
 
   useEffect(() => {
     const timer = window.setInterval(() => setHoraAtual(formatarHoraAtual()), 15000);

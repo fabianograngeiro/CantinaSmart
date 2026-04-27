@@ -27,7 +27,32 @@ export type DispatchAudienceFilter =
 export type DispatchProfileType = 'RESPONSAVEL_PARENTESCO' | 'COLABORADOR';
 export type DispatchPeriodMode = 'SEMANAL' | 'QUINZENAL' | 'MENSAL' | 'DESTA_SEMANA';
 export type DispatchWeekday = 'DOMINGO' | 'SEGUNDA' | 'TERCA' | 'QUARTA' | 'QUINTA' | 'SEXTA' | 'SABADO';
-export type DispatchSendMode = 'TEXT_ONLY' | 'TEXT_AND_REPORT_PDF' | 'TEXT_AND_UPLOAD_PDF';
+export type DispatchMonthlyWindowMode = 'ROLLING_30_DAYS' | 'CURRENT_MONTH';
+export type DispatchSendMode =
+  | 'TEXT'
+  | 'TEXT_AND_STATEMENT_PDF'
+  | 'TEXT_AND_UPLOAD_FILE'
+  | 'EXTERNAL_BUTTONS'
+  | 'EXTERNAL_LIST'
+  | 'EXTERNAL_POLL'
+  | 'EXTERNAL_CAROUSEL'
+  | 'EXTERNAL_PIX';
+
+export type DispatchExternalCarouselButtonType = 'REPLY' | 'URL' | 'COPY' | 'CALL';
+
+export type DispatchExternalCarouselButton = {
+  id: string;
+  text: string;
+  type: DispatchExternalCarouselButtonType;
+};
+
+export type DispatchExternalCarouselCard = {
+  text: string;
+  image: string;
+  buttons: DispatchExternalCarouselButton[];
+};
+
+export type DispatchExternalPixType = 'CPF' | 'CNPJ' | 'PHONE' | 'EMAIL' | 'EVP';
 export type DispatchPdfAttachment = {
   base64Data: string;
   fileName: string;
@@ -44,15 +69,32 @@ export type DispatchAutomationConfig = {
     hora: string;
     dias_expediente_apenas: boolean;
     dia_semana?: DispatchWeekday;
+    dias_semana?: DispatchWeekday[];
     hora_semanal?: string;
   };
   layout_estilo: 'escolar_premium' | 'corporativo_sobrio';
   filter: DispatchAudienceFilter;
   profileType: DispatchProfileType;
   periodMode: DispatchPeriodMode;
+  monthlyWindowMode?: DispatchMonthlyWindowMode;
+  monthlyReferenceDate?: string;
   template: string;
   sendMode?: DispatchSendMode;
   uploadPdfAttachment?: DispatchPdfAttachment | null;
+  externalMenuText?: string;
+  externalMenuFooter?: string;
+  externalChoices?: string[];
+  externalListButton?: string;
+  externalSelectableCount?: number;
+  externalCarouselHeaderText?: string;
+  externalCarouselCards?: DispatchExternalCarouselCard[];
+  externalPixTitle?: string;
+  externalPixText?: string;
+  externalPixFooter?: string;
+  externalPixKey?: string;
+  externalPixType?: DispatchExternalPixType;
+  externalPixName?: string;
+  externalPixAmount?: number;
   delayMin: number;
   delayMax: number;
   batchLimit: number;

@@ -2,10 +2,16 @@ import { db } from '../database.js';
 import {
   buildDispatchAudience,
   DispatchAudienceFilter,
+  DispatchMonthlyWindowMode,
   DispatchPeriodMode,
   DispatchProfileType,
 } from './dispatchAudienceService.js';
 import { whatsappSession } from '../utils/whatsappSession.js';
+import {
+  sendCarouselByConfiguredProvider,
+  sendMenuByConfiguredProvider,
+  sendPaymentRequestByConfiguredProvider,
+} from './whatsappProviderBridge.js';
 import {
   reserveDispatchIdempotency,
   markDispatchIdempotencySent,
@@ -13,7 +19,15 @@ import {
 } from './whatsappIdempotencyService.js';
 
 type RuntimeStatus = 'EM_DISPARO' | null;
-type DispatchSendMode = 'TEXT_ONLY' | 'TEXT_AND_REPORT_PDF' | 'TEXT_AND_UPLOAD_PDF';
+type DispatchSendMode =
+  | 'TEXT_ONLY'
+  | 'TEXT_AND_REPORT_PDF'
+  | 'TEXT_AND_UPLOAD_PDF'
+  | 'EXTERNAL_BUTTONS'
+  | 'EXTERNAL_LIST'
+  | 'EXTERNAL_POLL'
+  | 'EXTERNAL_CAROUSEL'
+  | 'EXTERNAL_PIX';
 
 type StoredPdfAttachment = {
   base64Data?: string;
@@ -29,8 +43,32 @@ type SchedulerProfile = {
   filter?: DispatchAudienceFilter;
   profileType?: DispatchProfileType;
   periodMode?: DispatchPeriodMode;
+  monthlyWindowMode?: DispatchMonthlyWindowMode;
+  monthlyReferenceDate?: string;
   sendMode?: DispatchSendMode;
   uploadPdfAttachment?: StoredPdfAttachment;
+  externalMenuText?: string;
+  externalMenuFooter?: string;
+  externalChoices?: string[];
+  externalListButton?: string;
+  externalSelectableCount?: number;
+  externalCarouselHeaderText?: string;
+  externalCarouselCards?: Array<{
+    text?: string;
+    image?: string;
+    buttons?: Array<{
+      id?: string;
+      text?: string;
+      type?: 'REPLY' | 'URL' | 'COPY' | 'CALL';
+    }>;
+  }>;
+  externalPixTitle?: string;
+  externalPixText?: string;
+  externalPixFooter?: string;
+  externalPixKey?: string;
+  externalPixType?: 'CPF' | 'CNPJ' | 'PHONE' | 'EMAIL' | 'EVP';
+  externalPixName?: string;
+  externalPixAmount?: number | string;
   template?: string;
   batchLimit?: number;
   delayMin?: number;
@@ -39,6 +77,7 @@ type SchedulerProfile = {
     hora?: string;
     hora_semanal?: string;
     dia_semana?: string;
+    dias_semana?: string[];
   };
   dispatchRuntimeStatus?: RuntimeStatus;
   lastAutoDispatchSlot?: string;
@@ -313,8 +352,17 @@ const resolveDispatchWindow = (profile: SchedulerProfile, now: Date) => {
   const minute = Number(minuteRaw);
   if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
 
-  const dayIndex = weekdayToIndex(profile?.agendamento?.dia_semana);
-  if (dayIndex !== null && now.getDay() !== dayIndex) return null;
+  const dayIndexes = Array.isArray(profile?.agendamento?.dias_semana)
+    ? profile.agendamento.dias_semana
+      .map((item) => weekdayToIndex(item))
+      .filter((item): item is number => item !== null)
+    : [];
+  if (dayIndexes.length > 0) {
+    if (!dayIndexes.includes(now.getDay())) return null;
+  } else {
+    const dayIndex = weekdayToIndex(profile?.agendamento?.dia_semana);
+    if (dayIndex !== null && now.getDay() !== dayIndex) return null;
+  }
 
   const scheduledAt = new Date(now);
   scheduledAt.setHours(hour, minute, 0, 0);
@@ -414,9 +462,19 @@ const executeProfileDispatch = async (enterpriseId: string, profile: SchedulerPr
     const safeFilter = String(profile?.filter || 'TODOS').toUpperCase() as DispatchAudienceFilter;
     const safeProfileType = String(profile?.profileType || 'RESPONSAVEL_PARENTESCO').toUpperCase() as DispatchProfileType;
     const safePeriodMode = String(profile?.periodMode || 'SEMANAL').toUpperCase() as DispatchPeriodMode;
+    const safeMonthlyWindowMode = String(profile?.monthlyWindowMode || '').toUpperCase() === 'CURRENT_MONTH'
+      ? 'CURRENT_MONTH'
+      : 'ROLLING_30_DAYS';
+    const safeMonthlyReferenceDate = String(profile?.monthlyReferenceDate || '').trim();
     const safeSendModeRaw = String(profile?.sendMode || 'TEXT_ONLY').toUpperCase();
     const safeSendMode: DispatchSendMode =
-      safeSendModeRaw === 'TEXT_AND_REPORT_PDF' || safeSendModeRaw === 'TEXT_AND_UPLOAD_PDF'
+      safeSendModeRaw === 'TEXT_AND_REPORT_PDF'
+      || safeSendModeRaw === 'TEXT_AND_UPLOAD_PDF'
+      || safeSendModeRaw === 'EXTERNAL_BUTTONS'
+      || safeSendModeRaw === 'EXTERNAL_LIST'
+      || safeSendModeRaw === 'EXTERNAL_POLL'
+      || safeSendModeRaw === 'EXTERNAL_CAROUSEL'
+      || safeSendModeRaw === 'EXTERNAL_PIX'
         ? (safeSendModeRaw as DispatchSendMode)
         : 'TEXT_ONLY';
     const profileName = String(profile?.nome_perfil || 'Automacao').trim() || 'Automacao';
@@ -427,6 +485,8 @@ const executeProfileDispatch = async (enterpriseId: string, profile: SchedulerPr
       profileType: safeProfileType,
       periodMode: safePeriodMode,
       businessDaysOnly: safePeriodMode === 'DESTA_SEMANA',
+      monthlyWindowMode: safeMonthlyWindowMode,
+      monthlyReferenceDate: safeMonthlyReferenceDate,
     });
 
     const template = String(profile?.template || '').trim() || defaultTemplate(safeProfileType, safePeriodMode);
@@ -534,6 +594,97 @@ const executeProfileDispatch = async (enterpriseId: string, profile: SchedulerPr
               mimeType: reportPdf.mimeType,
               fileName: reportPdf.fileName,
             }, message);
+          } else if (
+            safeSendMode === 'EXTERNAL_BUTTONS'
+            || safeSendMode === 'EXTERNAL_LIST'
+            || safeSendMode === 'EXTERNAL_POLL'
+          ) {
+            const menuChoices = Array.isArray(profile?.externalChoices)
+              ? profile.externalChoices.map((choice) => cleanupMessage(choice)).filter(Boolean)
+              : [];
+            const menuType = safeSendMode === 'EXTERNAL_LIST'
+              ? 'list'
+              : safeSendMode === 'EXTERNAL_POLL'
+                ? 'poll'
+                : 'button';
+            if (menuChoices.length === 0) {
+              throw new Error('Perfil de menu externo sem opções configuradas.');
+            }
+            const externalMenuResult = await sendMenuByConfiguredProvider({
+              enterpriseId,
+              target: telefone,
+              menu: {
+                type: menuType,
+                text: message,
+                choices: menuChoices,
+                footerText: cleanupMessage(profile?.externalMenuFooter || '') || undefined,
+                listButton: safeSendMode === 'EXTERNAL_LIST'
+                  ? cleanupMessage(profile?.externalListButton || '') || undefined
+                  : undefined,
+                selectableCount: safeSendMode === 'EXTERNAL_POLL'
+                  ? Math.max(1, Math.min(10, Number(profile?.externalSelectableCount || 1)))
+                  : undefined,
+              },
+            });
+            if (!externalMenuResult?.handledByExternal) {
+              throw new Error('Provedor externo não está configurado para menus interativos.');
+            }
+            sentResult = externalMenuResult.result;
+          } else if (safeSendMode === 'EXTERNAL_CAROUSEL') {
+            const carouselCards = Array.isArray(profile?.externalCarouselCards)
+              ? profile.externalCarouselCards
+                .map((card: any) => ({
+                  text: cleanupMessage(card?.text || ''),
+                  image: cleanupMessage(card?.image || ''),
+                  buttons: Array.isArray(card?.buttons)
+                    ? card.buttons.map((button: any) => ({
+                      id: cleanupMessage(button?.id || ''),
+                      text: cleanupMessage(button?.text || ''),
+                      type: (() => {
+                        const raw = String(button?.type || '').trim().toUpperCase();
+                        if (raw === 'URL' || raw === 'COPY' || raw === 'CALL') return raw;
+                        return 'REPLY';
+                      })(),
+                    })).filter((button: any) => button.id && button.text)
+                    : [],
+                }))
+                .filter((card: any) => card.text && card.image && Array.isArray(card.buttons) && card.buttons.length > 0)
+              : [];
+            if (carouselCards.length === 0) {
+              throw new Error('Perfil de carrossel sem cards configurados.');
+            }
+            const externalCarouselResult = await sendCarouselByConfiguredProvider({
+              enterpriseId,
+              target: telefone,
+              text: message,
+              carousel: carouselCards,
+            });
+            if (!externalCarouselResult?.handledByExternal) {
+              throw new Error('Provedor externo não está configurado para carrossel.');
+            }
+            sentResult = externalCarouselResult.result;
+          } else if (safeSendMode === 'EXTERNAL_PIX') {
+            const amount = Number(profile?.externalPixAmount);
+            if (!Number.isFinite(amount) || amount <= 0) {
+              throw new Error('Perfil PIX sem valor configurado.');
+            }
+            const externalPixResult = await sendPaymentRequestByConfiguredProvider({
+              enterpriseId,
+              request: {
+                number: telefone,
+                title: cleanupMessage(profile?.externalPixTitle || '') || undefined,
+                text: message || undefined,
+                footer: cleanupMessage(profile?.externalPixFooter || '') || undefined,
+                amount,
+                pixKey: cleanupMessage(profile?.externalPixKey || '') || undefined,
+                pixType: profile?.externalPixType || 'EVP',
+                pixName: cleanupMessage(profile?.externalPixName || '') || undefined,
+              },
+            });
+            if (!externalPixResult?.handledByExternal) {
+              throw new Error('Provedor externo não está configurado para PIX.');
+            }
+            sentResult = externalPixResult.result;
           } else {
             sentResult = await whatsappSession.sendMessage(telefone, message);
           }

@@ -38,7 +38,8 @@ const SetupPage: React.FC<SetupPageProps> = ({ onSetupComplete }) => {
       window.location.reload();
     } catch (err) {
       console.error('Erro ao restaurar backup no setup:', err);
-      alert('❌ Falha ao restaurar backup. Verifique se o arquivo está correto.');
+      const message = err instanceof Error ? err.message : 'Falha ao restaurar backup. Verifique se o arquivo está correto.';
+      alert(`❌ ${message}`);
     } finally {
       setIsRestoring(false);
     }

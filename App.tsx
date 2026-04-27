@@ -714,6 +714,7 @@ const AppContent: React.FC<any> = (props) => {
                     {canAccessReports && <SidebarItem icon={<ReceiptText size={20} />} label="Transacoes" to="/unit-sales" isOpen={isSidebarOpen} />}
                     {canAccessReports && <SidebarItem icon={<DollarSign size={20} />} label="Financeiro" to="/financial" isOpen={isSidebarOpen} />}
                     {canAccessReports && <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp" to="/whatsapp" isOpen={isSidebarOpen} />}
+                    {canAccessReports && <SidebarItem icon={<Settings size={20} />} label="Whats Config" to="/whatsapp-config" isOpen={isSidebarOpen} />}
                     {canAccessInventory && <SidebarItem icon={<ArrowRightLeft size={20} />} label="Estoque Unidade" to="/inventory" isOpen={isSidebarOpen} />}
                       {canAccessReports && <SidebarItem icon={<Users size={20} />} label="Contato WPP" to="/whatsapp-contacts" isOpen={isSidebarOpen} />}
                     {canManageStaff && <SidebarItem icon={<Settings size={20} />} label="Ajustes" to="/settings" isOpen={isSidebarOpen} />}
@@ -865,7 +866,8 @@ const AppContent: React.FC<any> = (props) => {
                   <Route path="/system-staff" element={isSuperAdmin ? <SystemStaffPage currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/unit-sales" element={canAccessReports ? <UnitSalesTransactionsPage activeEnterprise={activeEnterprise} transactions={transactions} currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/financial" element={canAccessReports ? <FinancialPage activeEnterprise={activeEnterprise} currentUser={currentUser} /> : <Navigate to="/" />} />
-                  <Route path="/whatsapp" element={canAccessReports ? <WhatsAppPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/whatsapp" element={canAccessReports ? <WhatsAppPage currentUser={currentUser} activeEnterprise={activeEnterprise} mode="CHAT" /> : <Navigate to="/" />} />
+                  <Route path="/whatsapp-config" element={canAccessReports ? <WhatsAppPage currentUser={currentUser} activeEnterprise={activeEnterprise} mode="CONFIG" /> : <Navigate to="/" />} />
                   <Route path="/users" element={canAccessUsersRoute ? <UserManagementPage currentUser={currentUser} /> : <Navigate to="/" />} />
                     <Route path="/whatsapp-contacts" element={canAccessReports ? <AdminContactsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/system-settings" element={canAccessSystemSettingsRoute ? <SystemSettingsPage currentUser={currentUser} /> : <Navigate to="/" />} />

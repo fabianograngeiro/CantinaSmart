@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Edit3, Pause, Play, RefreshCw, Trash2 } from 'lucide-react';
 import { Enterprise } from '../../types';
 import ApiService from '../../services/api';
@@ -26,48 +26,66 @@ const formatWeekday = (value?: string) => {
   const day = String(value || '').toUpperCase();
   if (day === 'DOMINGO') return 'Domingo';
   if (day === 'SEGUNDA') return 'Segunda';
-  if (day === 'TERCA') return 'Terça';
+  if (day === 'TERCA') return 'TerÃ§a';
   if (day === 'QUARTA') return 'Quarta';
   if (day === 'QUINTA') return 'Quinta';
   if (day === 'SEXTA') return 'Sexta';
-  if (day === 'SABADO') return 'Sábado';
+  if (day === 'SABADO') return 'SÃ¡bado';
   return '';
 };
 
 const formatProfileType = (value: DispatchAutomationConfig['profileType']) => (
-  value === 'COLABORADOR' ? 'Colaborador' : 'Responsável/Parentesco'
+  value === 'COLABORADOR' ? 'Colaborador' : 'ResponsÃ¡vel/Parentesco'
 );
 
+const normalizeSendMode = (value: unknown) => {
+  const raw = String(value || '').trim().toUpperCase();
+  if (raw === 'TEXT_ONLY') return 'TEXT';
+  if (raw === 'TEXT_AND_REPORT_PDF') return 'TEXT_AND_STATEMENT_PDF';
+  if (raw === 'TEXT_AND_UPLOAD_PDF') return 'TEXT_AND_UPLOAD_FILE';
+  return raw;
+};
 const formatSendMode = (profile: DispatchAutomationConfig) => {
-  const mode = String(profile.sendMode || 'TEXT_ONLY').toUpperCase();
-  if (mode === 'TEXT_AND_REPORT_PDF') return 'Texto + PDF automático';
-  if (mode === 'TEXT_AND_UPLOAD_PDF') {
+  const mode = normalizeSendMode(profile.sendMode);
+  if (mode === 'TEXT_AND_STATEMENT_PDF') return 'Texto + Extrato PDF';
+  if (mode === 'TEXT_AND_UPLOAD_FILE') {
     return profile.uploadPdfAttachment?.base64Data
-      ? 'Texto + PDF upload'
-      : 'Texto + PDF upload (sem arquivo)';
+      ? 'Texto + Upload Arquivo'
+      : 'Texto + Upload Arquivo (sem arquivo)';
   }
-  return 'Apenas texto';
+  if (mode === 'EXTERNAL_BUTTONS') return 'API Externa + Botões';
+  if (mode === 'EXTERNAL_LIST') return 'API Externa + Lista';
+  if (mode === 'EXTERNAL_POLL') return 'API Externa + Enquete';
+  if (mode === 'EXTERNAL_CAROUSEL') return 'API Externa + Carrossel';
+  if (mode === 'EXTERNAL_PIX') return 'API Externa + PIX';
+  return 'Texto';
 };
 
 const resolveSendModeBadge = (profile: DispatchAutomationConfig) => {
-  const mode = String(profile.sendMode || 'TEXT_ONLY').toUpperCase();
-  if (mode === 'TEXT_AND_REPORT_PDF') {
+  const mode = normalizeSendMode(profile.sendMode);
+  if (mode === 'TEXT_AND_STATEMENT_PDF') {
     return {
-      label: 'Texto + PDF automático',
+      label: 'Texto + Extrato PDF',
       className: 'bg-indigo-50 text-indigo-700',
     };
   }
 
-  if (mode === 'TEXT_AND_UPLOAD_PDF') {
+  if (mode === 'TEXT_AND_UPLOAD_FILE') {
     const hasPdf = Boolean(profile.uploadPdfAttachment?.base64Data);
     return {
-      label: hasPdf ? 'Texto + PDF upload' : 'Texto + PDF upload (sem arquivo)',
+      label: hasPdf ? 'Texto + Upload Arquivo' : 'Texto + Upload Arquivo (sem arquivo)',
       className: hasPdf ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700',
     };
   }
 
+  if (mode === 'EXTERNAL_BUTTONS') return { label: 'API + Botões', className: 'bg-cyan-50 text-cyan-700' };
+  if (mode === 'EXTERNAL_LIST') return { label: 'API + Lista', className: 'bg-cyan-50 text-cyan-700' };
+  if (mode === 'EXTERNAL_POLL') return { label: 'API + Enquete', className: 'bg-cyan-50 text-cyan-700' };
+  if (mode === 'EXTERNAL_CAROUSEL') return { label: 'API + Carrossel', className: 'bg-cyan-50 text-cyan-700' };
+  if (mode === 'EXTERNAL_PIX') return { label: 'API + PIX', className: 'bg-cyan-50 text-cyan-700' };
+
   return {
-    label: 'Apenas texto',
+    label: 'Texto',
     className: 'bg-orange-50 text-orange-700',
   };
 };
@@ -204,13 +222,13 @@ const PerfilDisparoTab: React.FC<PerfilDisparoTabProps> = ({ activeEnterprise, o
                 <tr className="border-b border-slate-100 dark:border-zinc-800 text-left">
                   <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Nome</th>
                   <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Perfil</th>
-                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Frequência</th>
+                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">FrequÃªncia</th>
                   <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Hora</th>
                   <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Modo de envio</th>
                   <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Status</th>
                   <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Status Disparo</th>
                   <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Atualizado</th>
-                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Ações</th>
+                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">AÃ§Ãµes</th>
                 </tr>
               </thead>
               <tbody>
@@ -226,7 +244,7 @@ const PerfilDisparoTab: React.FC<PerfilDisparoTabProps> = ({ activeEnterprise, o
                     </td>
                     <td className="py-2 pr-4 font-semibold text-slate-700 dark:text-zinc-200">
                       {profile.periodMode === 'DESTA_SEMANA'
-                        ? `${formatWeekday(profile.agendamento?.dia_semana) || '-'} • ${profile.agendamento?.hora_semanal || profile.agendamento?.hora || '-'}`
+                        ? `${formatWeekday(profile.agendamento?.dia_semana) || '-'} â€¢ ${profile.agendamento?.hora_semanal || profile.agendamento?.hora || '-'}`
                         : (profile.agendamento?.hora || '-')}
                     </td>
                     <td className="py-2 pr-4">
@@ -295,3 +313,4 @@ const PerfilDisparoTab: React.FC<PerfilDisparoTabProps> = ({ activeEnterprise, o
 };
 
 export default PerfilDisparoTab;
+

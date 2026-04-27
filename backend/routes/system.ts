@@ -4,7 +4,7 @@ import { promises as fs } from 'fs';
 import { fileURLToPath } from 'url';
 import { exec as execCallback } from 'child_process';
 import { promisify } from 'util';
-import { db } from '../database.js';
+import { db, getDatabaseFilePath } from '../database.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { hashPassword, generateToken } from '../utils/security.js';
 import { getRequesterEnterpriseIds, requesterCanAccessEnterprise } from '../utils/enterpriseAccess.js';
@@ -481,7 +481,7 @@ router.get('/backup', authMiddleware, async (req: AuthRequest, res: Response) =>
   }
 
   try {
-    const databasePath = path.resolve(__dirname, '../data/database.json');
+    const databasePath = getDatabaseFilePath();
     const databaseRaw = await fs.readFile(databasePath, 'utf-8');
     const parsedBackup = JSON.parse(databaseRaw);
     const scopedBackupBase = buildScopedBackupPayload(parsedBackup, {
@@ -524,7 +524,7 @@ router.post('/restore-setup', async (req: Request, res: Response) => {
     }
 
     const normalizedBackup = normalizeBackupPayload(req.body);
-    const databasePath = path.resolve(__dirname, '../data/database.json');
+    const databasePath = getDatabaseFilePath();
     await fs.writeFile(databasePath, JSON.stringify(normalizedBackup, null, 2), 'utf-8');
     db.reload();
 
@@ -593,7 +593,7 @@ router.post('/restore', authMiddleware, async (req: AuthRequest, res: Response) 
     status: 'APPROVED',
   });
   try {
-    const databasePath = path.resolve(__dirname, '../data/database.json');
+    const databasePath = getDatabaseFilePath();
     await fs.writeFile(databasePath, JSON.stringify(normalizedBackup, null, 2), 'utf-8');
     db.reload();
     await appendDestructiveActionAudit({

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Enterprise } from '../../types';
 import DisparoUnicoForm from './DisparoUnicoForm';
-import DisparoEmMassa from './DisparoEmMassa';
+import DisparoEmMassaDefault, { DisparoEmMassa as DisparoEmMassaNamed } from './DisparoEmMassa';
 import PerfilDisparoTab from './PerfilDisparoTab';
 import { DispatchAutomationConfig } from './types';
 
@@ -14,6 +14,7 @@ type DisparosTab = 'DISPARO_UNICO' | 'DISPARO_MASSA' | 'PERFIL_DISPARO';
 const CentralDisparos: React.FC<CentralDisparosProps> = ({ activeEnterprise }) => {
   const [activeSubTab, setActiveSubTab] = useState<DisparosTab>('DISPARO_UNICO');
   const [profileToEdit, setProfileToEdit] = useState<DispatchAutomationConfig | null>(null);
+  const DisparoEmMassa = DisparoEmMassaDefault || DisparoEmMassaNamed;
 
   return (
     <div className="space-y-4">
@@ -46,7 +47,7 @@ const CentralDisparos: React.FC<CentralDisparosProps> = ({ activeEnterprise }) =
                 : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
             }`}
           >
-            Disparo em Massa
+            Disparo Recorrente
           </button>
           <button
             type="button"

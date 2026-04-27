@@ -1,15 +1,19 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCheck, Loader2, Play, Save, Users } from 'lucide-react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { CheckCheck, Loader2, Play, Plus, Save, Trash2, Users } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import ApiService from '../../services/api';
 import { Enterprise } from '../../types';
 import {
   DispatchAudienceFilter,
+  DispatchExternalCarouselCard,
+  DispatchExternalCarouselButton,
   DispatchAutomationConfig,
+  DispatchMonthlyWindowMode,
   DispatchPeriodMode,
   DispatchProfileType,
   DispatchSendMode,
+  DispatchExternalPixType,
   DispatchWeekday,
 } from './types';
 
@@ -60,8 +64,8 @@ type PersistedLogEntry = {
   id: string;
   nome: string;
   telefone: string;
-  perfil: 'Responsável' | 'Colaborador';
-  status: 'Sucesso' | 'Erro' | 'Simulado' | 'Inválido';
+  perfil: 'ResponsÃ¡vel' | 'Colaborador';
+  status: 'Sucesso' | 'Erro' | 'Simulado' | 'InvÃ¡lido';
   detalhe?: string;
   timestamp: string;
 };
@@ -70,8 +74,8 @@ type MassLog = {
   id: string;
   nome: string;
   telefone: string;
-  perfil: 'Responsável' | 'Colaborador';
-  status: 'Sucesso' | 'Erro' | 'Simulado' | 'Inválido';
+  perfil: 'ResponsÃ¡vel' | 'Colaborador';
+  status: 'Sucesso' | 'Erro' | 'Simulado' | 'InvÃ¡lido';
   horario: Date;
   detalhe?: string;
 };
@@ -82,6 +86,24 @@ type ProgressState = {
   enviados: number;
   erros: number;
 };
+
+type ExternalInteractiveMode = 'EXTERNAL_BUTTONS' | 'EXTERNAL_LIST' | 'EXTERNAL_POLL';
+
+type ExternalCarouselButtonType = DispatchExternalCarouselButton['type'];
+
+const defaultExternalChoices = (mode: ExternalInteractiveMode) => (
+  mode === 'EXTERNAL_POLL'
+    ? ['Sim', 'Não']
+    : mode === 'EXTERNAL_LIST'
+      ? ['Atendimento', 'Saldo', 'Plano']
+      : ['Falar com atendimento', 'Ver meu saldo', 'Outro assunto']
+);
+
+const defaultCarouselCard = (): DispatchExternalCarouselCard => ({
+  text: '',
+  image: '',
+  buttons: [{ id: `btn-${Date.now()}`, text: '', type: 'REPLY' }],
+});
 
 const periodModeHumanLabel = (periodMode: DispatchPeriodMode) => {
   if (periodMode === 'QUINZENAL') return 'quinzenal';
@@ -94,24 +116,24 @@ const buildDefaultTemplate = (profileType: ReportProfileType, periodMode: Dispat
   const periodLabel = periodModeHumanLabel(periodMode);
   if (profileType === 'COLABORADOR') {
     return [
-      'Mensagem automática da cantina.',
-      `Prezado {{nome_colaborador}}, segue seu relatório ${periodLabel}.`,
-      'Período: {{periodo_referencia}}',
-      'Consumo total no período: {{consumo_total_periodo}}',
+      'Mensagem automÃ¡tica da cantina.',
+      `Prezado {{nome_colaborador}}, segue seu relatÃ³rio ${periodLabel}.`,
+      'PerÃ­odo: {{periodo_referencia}}',
+      'Consumo total no perÃ­odo: {{consumo_total_periodo}}',
       'Saldo atual: {{saldo}}',
       'Plano atual: {{plano}}',
     ].join('\n');
   }
 
   return [
-    'Mensagem automática da cantina.',
-    `Olá {{nome_pai}}, segue o relatório ${periodLabel} dos seus filhos.`,
-    'Período: {{periodo_referencia}}',
+    'Mensagem automÃ¡tica da cantina.',
+    `OlÃ¡ {{nome_pai}}, segue o relatÃ³rio ${periodLabel} dos seus filhos.`,
+    'PerÃ­odo: {{periodo_referencia}}',
     'Filhos/Alunos: {{alunos}}',
     'Saldos atuais por aluno:',
     '{{saldo_por_aluno}}',
-    'Total consumido no período: {{consumo_total_periodo}}',
-    'Consumo por aluno no período:',
+    'Total consumido no perÃ­odo: {{consumo_total_periodo}}',
+    'Consumo por aluno no perÃ­odo:',
     '{{consumo_total_por_aluno}}',
   ].join('\n');
 };
@@ -126,6 +148,16 @@ const ALLOWED_FILTERS: AudienceFilter[] = [
 ];
 const ALLOWED_PERIOD_MODES: DispatchPeriodMode[] = ['SEMANAL', 'QUINZENAL', 'MENSAL', 'DESTA_SEMANA'];
 const ALLOWED_PROFILE_TYPES: ReportProfileType[] = ['RESPONSAVEL_PARENTESCO', 'COLABORADOR'];
+const ALLOWED_SEND_MODES: DispatchSendMode[] = [
+  'TEXT',
+  'TEXT_AND_STATEMENT_PDF',
+  'TEXT_AND_UPLOAD_FILE',
+  'EXTERNAL_BUTTONS',
+  'EXTERNAL_LIST',
+  'EXTERNAL_POLL',
+  'EXTERNAL_CAROUSEL',
+  'EXTERNAL_PIX',
+];
 const DISPATCH_WEEKDAYS: DispatchWeekday[] = ['DOMINGO', 'SEGUNDA', 'TERCA', 'QUARTA', 'QUINTA', 'SEXTA', 'SABADO'];
 const DEFAULT_WEEKLY_DAY: DispatchWeekday = 'SEGUNDA';
 const DEFAULT_WEEKLY_TIME = '17:00';
@@ -137,12 +169,22 @@ const WEEKDAY_META: Array<{
 }> = [
   { key: 'DOMINGO', label: 'Domingo', aliases: ['DOMINGO', 'domingo', 'SUNDAY', 'sunday'] },
   { key: 'SEGUNDA', label: 'Segunda-feira', aliases: ['SEGUNDA', 'segunda', 'MONDAY', 'monday'] },
-  { key: 'TERCA', label: 'Terça-feira', aliases: ['TERCA', 'terca', 'terça', 'TUESDAY', 'tuesday'] },
+  { key: 'TERCA', label: 'TerÃ§a-feira', aliases: ['TERCA', 'terca', 'terÃ§a', 'TUESDAY', 'tuesday'] },
   { key: 'QUARTA', label: 'Quarta-feira', aliases: ['QUARTA', 'quarta', 'WEDNESDAY', 'wednesday'] },
   { key: 'QUINTA', label: 'Quinta-feira', aliases: ['QUINTA', 'quinta', 'THURSDAY', 'thursday'] },
   { key: 'SEXTA', label: 'Sexta-feira', aliases: ['SEXTA', 'sexta', 'FRIDAY', 'friday'] },
-  { key: 'SABADO', label: 'Sábado', aliases: ['SABADO', 'sabado', 'sábado', 'SATURDAY', 'saturday'] },
+  { key: 'SABADO', label: 'SÃ¡bado', aliases: ['SABADO', 'sabado', 'sÃ¡bado', 'SATURDAY', 'saturday'] },
 ];
+
+const WEEKDAY_SHORT_LABEL: Record<DispatchWeekday, string> = {
+  DOMINGO: 'DOM',
+  SEGUNDA: 'SEG',
+  TERCA: 'TER',
+  QUARTA: 'QUA',
+  QUINTA: 'QUI',
+  SEXTA: 'SEX',
+  SABADO: 'SAB',
+};
 
 const normalizeDayToken = (value: unknown) =>
   String(value || '')
@@ -158,6 +200,40 @@ const toDispatchWeekday = (value: unknown): DispatchWeekday | null => {
 };
 
 const isValidTimeValue = (value: unknown) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(String(value || '').trim());
+
+const toYmdDate = (value: Date) => {
+  const y = value.getFullYear();
+  const m = String(value.getMonth() + 1).padStart(2, '0');
+  const d = String(value.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const isWithinMonthlyReferenceRange = (value: string, minYmd: string, maxYmd: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
+  return value >= minYmd && value <= maxYmd;
+};
+
+const normalizeDispatchSendMode = (value: unknown): DispatchSendMode => {
+  const raw = String(value || '').trim().toUpperCase();
+  if (raw === 'TEXT_ONLY') return 'TEXT';
+  if (raw === 'TEXT_AND_REPORT_PDF') return 'TEXT_AND_STATEMENT_PDF';
+  if (raw === 'TEXT_AND_UPLOAD_PDF') return 'TEXT_AND_UPLOAD_FILE';
+  if (ALLOWED_SEND_MODES.includes(raw as DispatchSendMode)) return raw as DispatchSendMode;
+  return 'TEXT';
+};
+
+const isExternalSendMode = (mode: DispatchSendMode) => String(mode || '').startsWith('EXTERNAL_');
+const isExternalInteractiveMode = (mode: DispatchSendMode): mode is ExternalInteractiveMode =>
+  mode === 'EXTERNAL_BUTTONS' || mode === 'EXTERNAL_LIST' || mode === 'EXTERNAL_POLL';
+
+const normalizeWeeklyDispatchDays = (value: unknown, fallback: DispatchWeekday = DEFAULT_WEEKLY_DAY): DispatchWeekday[] => {
+  const list = Array.isArray(value) ? value : [];
+  const normalized = list
+    .map((item) => toDispatchWeekday(item))
+    .filter((item): item is DispatchWeekday => item !== null)
+    .filter((item, index, self) => self.indexOf(item) === index);
+  return normalized.length > 0 ? normalized : [fallback];
+};
 
 const getActiveDispatchDaysFromOpeningHours = (openingHours?: Enterprise['openingHours']) => {
   const fallback = WEEKDAY_META.filter(({ key }) => ['SEGUNDA', 'TERCA', 'QUARTA', 'QUINTA', 'SEXTA'].includes(key));
@@ -225,7 +301,7 @@ const renderizarMensagem = (template: string, usuario: AudienceRecipient) => {
 
   const vars: Record<string, string> = {
     nome: String(usuario?.nome || usuario?.variables?.nome || 'Cliente'),
-    nome_pai: String(usuario?.variables?.nome_pai || usuario?.nome || 'Responsável'),
+    nome_pai: String(usuario?.variables?.nome_pai || usuario?.nome || 'ResponsÃ¡vel'),
     nome_colaborador: String(usuario?.variables?.nome_colaborador || usuario?.nome || 'Colaborador'),
     parentesco: String(usuario?.variables?.parentesco || 'Indefinido'),
     saldo: typeof financeiroSaldo === 'string' && financeiroSaldo.includes('R$')
@@ -320,7 +396,7 @@ const buildRecipientReportPdfAttachment = (input: {
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(15);
-  doc.text('Relatório de Movimentações - WhatsApp', marginX, 36);
+  doc.text('RelatÃ³rio de MovimentaÃ§Ãµes - WhatsApp', marginX, 36);
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
@@ -328,9 +404,9 @@ const buildRecipientReportPdfAttachment = (input: {
   doc.text(`Escola: ${String(schoolName || '-').trim() || '-'}`, marginX, 72);
   doc.text(`Contato: ${String(recipient.nome || '-').trim() || '-'}`, marginX, 88);
   doc.text(`Tipo: ${contactType}`, marginX, 104);
-  doc.text(`Período: ${period}`, marginX, 120);
+  doc.text(`PerÃ­odo: ${period}`, marginX, 120);
 
-  const perfilLabel = recipient.tipo === 'RESPONSAVEL' ? 'Responsável' : 'Colaborador';
+  const perfilLabel = recipient.tipo === 'RESPONSAVEL' ? 'ResponsÃ¡vel' : 'Colaborador';
 
   doc.text(`Telefone: ${String(recipient.telefone || '-').trim() || '-'}`, 320, 88);
   doc.text(`Perfil: ${perfilLabel}`, 320, 104);
@@ -346,8 +422,8 @@ const buildRecipientReportPdfAttachment = (input: {
 
   autoTable(doc, {
     startY: 146,
-    head: [['Data/Hora', 'Aluno/Colaborador', 'Tipo', 'Descrição', 'Valor']],
-    body: bodyRows.length > 0 ? bodyRows : [['-', '-', '-', 'Sem movimentações no período selecionado', 'R$ 0,00']],
+    head: [['Data/Hora', 'Aluno/Colaborador', 'Tipo', 'DescriÃ§Ã£o', 'Valor']],
+    body: bodyRows.length > 0 ? bodyRows : [['-', '-', '-', 'Sem movimentaÃ§Ãµes no perÃ­odo selecionado', 'R$ 0,00']],
     styles: { fontSize: 8.5, cellPadding: 5 },
     headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
     columnStyles: {
@@ -363,15 +439,15 @@ const buildRecipientReportPdfAttachment = (input: {
   const finalY = (doc as any).lastAutoTable?.finalY || 170;
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
-  doc.text('Rodapé de Totais e Saldos', marginX, finalY + 24);
+  doc.text('RodapÃ© de Totais e Saldos', marginX, finalY + 24);
   doc.setFont('helvetica', 'normal');
 
   const footerLines = [
-    `Total de movimentações: ${rows.length}`,
-    `Total créditos: R$ ${totalCredits.toFixed(2)}`,
+    `Total de movimentaÃ§Ãµes: ${rows.length}`,
+    `Total crÃ©ditos: R$ ${totalCredits.toFixed(2)}`,
     `Total estornos: R$ ${totalEstornos.toFixed(2)}`,
     `Total consumo: R$ ${totalConsumption.toFixed(2)}`,
-    `Saldo líquido do período: R$ ${netPeriod.toFixed(2)}`,
+    `Saldo lÃ­quido do perÃ­odo: R$ ${netPeriod.toFixed(2)}`,
   ];
 
   const currentBalance = String(recipient.variables?.saldo || '').trim();
@@ -410,10 +486,10 @@ const parseMassLogFromApi = (entry: any): MassLog | null => {
   const telefone = String(entry.telefone || '').trim();
   if (!id || !nome) return null;
 
-  const perfil = String(entry.perfil || '').trim() === 'Colaborador' ? 'Colaborador' : 'Responsável';
+  const perfil = String(entry.perfil || '').trim() === 'Colaborador' ? 'Colaborador' : 'ResponsÃ¡vel';
   const statusRaw = String(entry.status || '').trim();
   const status: MassLog['status'] =
-    statusRaw === 'Sucesso' || statusRaw === 'Erro' || statusRaw === 'Simulado' || statusRaw === 'Inválido'
+    statusRaw === 'Sucesso' || statusRaw === 'Erro' || statusRaw === 'Simulado' || statusRaw === 'InvÃ¡lido'
       ? (statusRaw as MassLog['status'])
       : 'Erro';
 
@@ -445,8 +521,47 @@ const toPersistedLog = (entry: MassLog): PersistedLogEntry => ({
 const WhatsAppMassPreview: React.FC<{
   nome: string;
   mensagem: string;
-}> = ({ nome, mensagem }) => {
+  sendMode: DispatchSendMode;
+  uploadedAttachment?: DispatchAutomationConfig['uploadPdfAttachment'] | null;
+  externalChoices?: string[];
+  externalListButton?: string;
+  externalSelectableCount?: number;
+  externalCarouselCards?: DispatchExternalCarouselCard[];
+  externalPixTitle?: string;
+  externalPixFooter?: string;
+  externalPixKey?: string;
+  externalPixType?: DispatchExternalPixType;
+  externalPixName?: string;
+  externalPixAmount?: string;
+}> = ({
+  nome,
+  mensagem,
+  sendMode,
+  uploadedAttachment,
+  externalChoices = [],
+  externalListButton = '',
+  externalSelectableCount = 1,
+  externalCarouselCards = [],
+  externalPixTitle = '',
+  externalPixFooter = '',
+  externalPixKey = '',
+  externalPixType = 'EVP',
+  externalPixName = '',
+  externalPixAmount = '',
+}) => {
   const horario = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const hasText = String(mensagem || '').trim().length > 0;
+  const safeChoices = externalChoices.map((item) => String(item || '').trim()).filter(Boolean);
+  const attachmentName = String(uploadedAttachment?.fileName || 'arquivo');
+  const attachmentMime = String(uploadedAttachment?.mimeType || 'application/octet-stream').toLowerCase();
+  const attachmentHasData = Boolean(uploadedAttachment?.base64Data);
+  const isImageAttachment = attachmentHasData && attachmentMime.startsWith('image/');
+  const imageAttachmentSrc = isImageAttachment
+    ? `data:${attachmentMime || 'image/*'};base64,${uploadedAttachment?.base64Data}`
+    : '';
+  const parsedPixAmount = Number(String(externalPixAmount || '').replace(',', '.'));
+  const safePixAmount = Number.isFinite(parsedPixAmount) && parsedPixAmount > 0 ? parsedPixAmount : 0;
+
   return (
     <div className="rounded-2xl border border-slate-200 dark:border-zinc-700 shadow-lg overflow-hidden bg-white dark:bg-zinc-900">
       <div className="px-4 py-3 bg-emerald-700 text-white">
@@ -456,8 +571,106 @@ const WhatsAppMassPreview: React.FC<{
       <div className="p-4 min-h-[320px] bg-[#e5ddd5] dark:bg-zinc-800">
         <div className="ml-auto max-w-[92%] rounded-2xl bg-[#dcf8c6] dark:bg-emerald-900/40 px-4 py-3 shadow-md border border-emerald-200 dark:border-emerald-700/40">
           <p className="text-sm font-medium text-slate-800 dark:text-zinc-100 whitespace-pre-wrap">
-            {mensagem || 'Sem mensagem para pré-visualização.'}
+            {hasText ? mensagem : 'Sem mensagem para pré-visualização.'}
           </p>
+
+          {sendMode === 'TEXT_AND_STATEMENT_PDF' && (
+            <div className="mt-3 rounded-xl border border-slate-300/70 bg-white/80 px-3 py-2">
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-600">Anexo</p>
+              <p className="text-xs font-semibold text-slate-700">Relatório PDF automático por contato</p>
+            </div>
+          )}
+
+          {sendMode === 'TEXT_AND_UPLOAD_FILE' && (
+            <div className="mt-3 rounded-xl border border-slate-300/70 bg-white/80 p-2.5">
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-600">Arquivo anexado</p>
+              {isImageAttachment ? (
+                <img
+                  src={imageAttachmentSrc}
+                  alt={attachmentName}
+                  className="mt-2 w-full max-h-48 object-contain rounded-lg border border-slate-200 bg-white"
+                />
+              ) : (
+                <div className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <p className="text-xs font-black text-slate-800 break-all">{attachmentName}</p>
+                  <p className="text-[11px] font-semibold text-slate-500">{attachmentMime || 'application/octet-stream'}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {(sendMode === 'EXTERNAL_BUTTONS' || sendMode === 'EXTERNAL_LIST' || sendMode === 'EXTERNAL_POLL') && (
+            <div className="mt-3 rounded-xl border border-slate-300/70 bg-white/80 px-3 py-2 space-y-2">
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-600">
+                {sendMode === 'EXTERNAL_BUTTONS' ? 'Botões' : sendMode === 'EXTERNAL_LIST' ? 'Lista' : 'Enquete'}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {safeChoices.length > 0 ? safeChoices.map((choice, index) => (
+                  <span key={`${choice}_${index}`} className="inline-flex px-2 py-1 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700">
+                    {choice}
+                  </span>
+                )) : (
+                  <span className="text-xs font-semibold text-slate-500">Sem opções configuradas.</span>
+                )}
+              </div>
+              {sendMode === 'EXTERNAL_LIST' && (
+                <p className="text-xs font-semibold text-slate-600">Botão da lista: {externalListButton || 'Ver opções'}</p>
+              )}
+              {sendMode === 'EXTERNAL_POLL' && (
+                <p className="text-xs font-semibold text-slate-600">
+                  Seleções permitidas: {Math.max(1, Math.min(10, Number(externalSelectableCount || 1)))}
+                </p>
+              )}
+            </div>
+          )}
+
+          {sendMode === 'EXTERNAL_CAROUSEL' && (
+            <div className="mt-3 rounded-xl border border-slate-300/70 bg-white/80 px-3 py-2 space-y-2">
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-600">Carrossel</p>
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {(externalCarouselCards || []).slice(0, 5).map((card, cardIndex) => (
+                  <div key={`preview_card_${cardIndex}`} className="rounded-lg border border-slate-200 bg-white p-2 space-y-1.5">
+                    <div className="text-[11px] font-black uppercase tracking-widest text-slate-500">Card {cardIndex + 1}</div>
+                    {String(card?.image || '').trim() ? (
+                      <img
+                        src={String(card.image)}
+                        alt={`Card ${cardIndex + 1}`}
+                        className="w-full h-24 object-cover rounded-md border border-slate-200"
+                        onError={(event) => {
+                          (event.currentTarget as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <div className="h-16 rounded-md border border-dashed border-slate-300 grid place-items-center text-xs font-semibold text-slate-500">
+                        Sem imagem
+                      </div>
+                    )}
+                    <p className="text-xs font-semibold text-slate-700 whitespace-pre-wrap">{String(card?.text || '').trim() || 'Sem texto'}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(card?.buttons || []).map((button, buttonIndex) => (
+                        <span key={`card_${cardIndex}_btn_${buttonIndex}`} className="inline-flex px-2 py-1 rounded-md border border-slate-300 bg-slate-50 text-[11px] font-bold text-slate-700">
+                          {String(button?.text || '').trim() || 'Botão'}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {sendMode === 'EXTERNAL_PIX' && (
+            <div className="mt-3 rounded-xl border border-slate-300/70 bg-white/80 px-3 py-2 space-y-1.5">
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-600">Pagamento PIX</p>
+              {externalPixTitle && <p className="text-xs font-black text-slate-800">{externalPixTitle}</p>}
+              <p className="text-xs font-semibold text-slate-700">Valor: {safePixAmount > 0 ? toCurrency(safePixAmount) : 'Não definido'}</p>
+              <p className="text-xs font-semibold text-slate-700">Tipo: {externalPixType}</p>
+              {externalPixKey && <p className="text-xs font-semibold text-slate-700 break-all">Chave: {externalPixKey}</p>}
+              {externalPixName && <p className="text-xs font-semibold text-slate-700">Recebedor: {externalPixName}</p>}
+              {externalPixFooter && <p className="text-[11px] font-semibold text-slate-500">{externalPixFooter}</p>}
+            </div>
+          )}
+
           <div className="mt-1.5 flex items-center justify-end gap-1">
             <span className="text-[11px] text-slate-500 dark:text-zinc-400">{horario}</span>
             <CheckCheck size={14} className="text-sky-500" />
@@ -485,13 +698,33 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
   const [reportProfileType, setReportProfileType] = useState<ReportProfileType>('RESPONSAVEL_PARENTESCO');
   const [periodMode, setPeriodMode] = useState<DispatchPeriodMode>('SEMANAL');
   const [weeklyDispatchDay, setWeeklyDispatchDay] = useState<DispatchWeekday>(DEFAULT_WEEKLY_DAY);
+  const [weeklyDispatchDays, setWeeklyDispatchDays] = useState<DispatchWeekday[]>([DEFAULT_WEEKLY_DAY]);
   const [weeklyDispatchTime, setWeeklyDispatchTime] = useState(DEFAULT_WEEKLY_TIME);
+  const [monthlyWindowMode, setMonthlyWindowMode] = useState<DispatchMonthlyWindowMode>('ROLLING_30_DAYS');
+  const [monthlyReferenceDate, setMonthlyReferenceDate] = useState(() => toYmdDate(new Date()));
   const [template, setTemplate] = useState(buildDefaultTemplate('RESPONSAVEL_PARENTESCO', 'SEMANAL'));
   const [delayMin, setDelayMin] = useState(2);
   const [delayMax, setDelayMax] = useState(6);
   const [attachment, setAttachment] = useState<File | null>(null);
   const [uploadedPdfAttachment, setUploadedPdfAttachment] = useState<DispatchAutomationConfig['uploadPdfAttachment']>(null);
-  const [sendMode, setSendMode] = useState<DispatchSendMode>('TEXT_ONLY');
+  const [sendMode, setSendMode] = useState<DispatchSendMode>('TEXT');
+  const [externalMenuText, setExternalMenuText] = useState('Escolha uma opção abaixo:');
+  const [externalMenuFooter, setExternalMenuFooter] = useState('Cantina Smart');
+  const [externalListButton, setExternalListButton] = useState('Ver opções');
+  const [externalSelectableCount, setExternalSelectableCount] = useState(1);
+  const [externalChoices, setExternalChoices] = useState<string[]>(defaultExternalChoices('EXTERNAL_BUTTONS'));
+  const [externalCarouselHeaderText, setExternalCarouselHeaderText] = useState('Veja nossas novidades!');
+  const [externalCarouselCards, setExternalCarouselCards] = useState<DispatchExternalCarouselCard[]>([
+    defaultCarouselCard(),
+    defaultCarouselCard(),
+  ]);
+  const [externalPixTitle, setExternalPixTitle] = useState('Cobrança Cantina Smart');
+  const [externalPixText, setExternalPixText] = useState('Segue a cobrança da mensalidade.');
+  const [externalPixFooter, setExternalPixFooter] = useState('Obrigado!');
+  const [externalPixKey, setExternalPixKey] = useState('contato@cantinasmart.local');
+  const [externalPixType, setExternalPixType] = useState<DispatchExternalPixType>('EVP');
+  const [externalPixName, setExternalPixName] = useState(String(activeEnterprise?.name || 'Cantina Smart'));
+  const [externalPixAmount, setExternalPixAmount] = useState('1');
   const [isSimulation, setIsSimulation] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [feedback, setFeedback] = useState('');
@@ -500,12 +733,12 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
   const [logs, setLogs] = useState<MassLog[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [progress, setProgress] = useState<ProgressState>({ total: 0, processados: 0, enviados: 0, erros: 0 });
-  const [mensagemStatus, setMensagemStatus] = useState('Aguardando início do disparo.');
+  const [mensagemStatus, setMensagemStatus] = useState('Aguardando inÃ­cio do disparo.');
   const [showResumoModal, setShowResumoModal] = useState(false);
   const [batchLimit, setBatchLimit] = useState(50);
   const [usuarioSelecionadoId, setUsuarioSelecionadoId] = useState('');
   const [previewContactSearch, setPreviewContactSearch] = useState('');
-  const [previewText, setPreviewText] = useState('Sem audiência para pré-visualização.');
+  const [previewText, setPreviewText] = useState('Sem audiÃªncia para prÃ©-visualizaÃ§Ã£o.');
   const [periodLabel, setPeriodLabel] = useState('');
   const [periodInfo, setPeriodInfo] = useState('');
   const [isLoadingConfig, setIsLoadingConfig] = useState(false);
@@ -517,22 +750,142 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
   const prevProfileTypeRef = useRef<ReportProfileType>(reportProfileType);
   const prevPeriodModeRef = useRef<DispatchPeriodMode>(periodMode);
 
+  const updateExternalChoice = (index: number, value: string) => {
+    setExternalChoices((prev) => prev.map((item, idx) => (idx === index ? value : item)));
+  };
+
+  const addExternalChoice = () => {
+    setExternalChoices((prev) => [...prev, '']);
+  };
+
+  const removeExternalChoice = (index: number) => {
+    setExternalChoices((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const updateCarouselCard = (index: number, patch: Partial<DispatchExternalCarouselCard>) => {
+    setExternalCarouselCards((prev) => prev.map((item, idx) => (idx === index ? { ...item, ...patch } : item)));
+  };
+
+  const addCarouselCard = () => {
+    setExternalCarouselCards((prev) => [...prev, defaultCarouselCard()]);
+  };
+
+  const removeCarouselCard = (index: number) => {
+    setExternalCarouselCards((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const updateCarouselButton = (
+    cardIndex: number,
+    buttonIndex: number,
+    patch: Partial<DispatchExternalCarouselButton>
+  ) => {
+    setExternalCarouselCards((prev) => prev.map((card, idx) => {
+      if (idx !== cardIndex) return card;
+      return {
+        ...card,
+        buttons: card.buttons.map((button, btnIdx) => (btnIdx === buttonIndex ? { ...button, ...patch } : button)),
+      };
+    }));
+  };
+
+  const addCarouselButton = (cardIndex: number) => {
+    setExternalCarouselCards((prev) => prev.map((card, idx) => (
+      idx === cardIndex && card.buttons.length < 3
+        ? { ...card, buttons: [...card.buttons, { id: `btn-${Date.now()}`, text: '', type: 'REPLY' }] }
+        : card
+    )));
+  };
+
+  const removeCarouselButton = (cardIndex: number, buttonIndex: number) => {
+    setExternalCarouselCards((prev) => prev.map((card, idx) => (
+      idx === cardIndex
+        ? { ...card, buttons: card.buttons.filter((_, btnIdx) => btnIdx !== buttonIndex) }
+        : card
+    )));
+  };
+
+  const toggleWeeklyDispatchDay = (day: DispatchWeekday) => {
+    setWeeklyDispatchDays((prev) => {
+      if (prev.includes(day)) {
+        const next = prev.filter((item) => item !== day);
+        return next.length > 0 ? next : prev;
+      }
+      return [...prev, day];
+    });
+  };
+
+  const hydrateExternalConfigState = (config: Partial<DispatchAutomationConfig>, mode: DispatchSendMode) => {
+    const loadedMenuText = cleanupMessage(config.externalMenuText || config.template || '');
+    const loadedMenuFooter = cleanupMessage(config.externalMenuFooter || '');
+    const loadedChoices = Array.isArray(config.externalChoices)
+      ? config.externalChoices.map((choice) => cleanupMessage(choice)).filter(Boolean)
+      : [];
+    const loadedCarouselCards = Array.isArray(config.externalCarouselCards)
+      ? config.externalCarouselCards.map((card) => ({
+        text: cleanupMessage((card as any)?.text || ''),
+        image: cleanupMessage((card as any)?.image || ''),
+        buttons: Array.isArray((card as any)?.buttons)
+          ? (card as any).buttons.map((button: any) => ({
+            id: cleanupMessage(String(button?.id || '')),
+            text: cleanupMessage(String(button?.text || '')),
+            type: (
+              ['REPLY', 'URL', 'COPY', 'CALL'].includes(String(button?.type || '').toUpperCase())
+                ? String(button.type).toUpperCase()
+                : 'REPLY'
+            ) as ExternalCarouselButtonType,
+          })).filter((button: DispatchExternalCarouselButton) => button.id && button.text)
+          : [{ id: `btn-${Date.now()}`, text: '', type: 'REPLY' as ExternalCarouselButtonType }],
+      })).filter((card) => card.text || card.image || card.buttons.length > 0)
+      : [];
+
+    setExternalMenuText(loadedMenuText || 'Escolha uma opção abaixo:');
+    setExternalMenuFooter(loadedMenuFooter || 'Cantina Smart');
+    setExternalListButton(cleanupMessage(config.externalListButton || '') || 'Ver opções');
+    setExternalSelectableCount(Math.max(1, Math.min(10, Number(config.externalSelectableCount || 1))));
+    setExternalChoices(
+      loadedChoices.length > 0
+        ? loadedChoices
+        : defaultExternalChoices(mode as ExternalInteractiveMode)
+    );
+    setExternalCarouselHeaderText(cleanupMessage(config.externalCarouselHeaderText || '') || 'Veja nossas novidades!');
+    setExternalCarouselCards(
+      loadedCarouselCards.length > 0
+        ? loadedCarouselCards
+        : [defaultCarouselCard(), defaultCarouselCard()]
+    );
+    setExternalPixTitle(cleanupMessage(config.externalPixTitle || '') || 'Cobrança Cantina Smart');
+    setExternalPixText(cleanupMessage(config.externalPixText || '') || 'Segue a cobrança da mensalidade.');
+    setExternalPixFooter(cleanupMessage(config.externalPixFooter || '') || 'Obrigado!');
+    setExternalPixKey(cleanupMessage(config.externalPixKey || '') || 'contato@cantinasmart.local');
+    setExternalPixType(
+      config.externalPixType === 'CPF'
+        || config.externalPixType === 'CNPJ'
+        || config.externalPixType === 'PHONE'
+        || config.externalPixType === 'EMAIL'
+        || config.externalPixType === 'EVP'
+        ? config.externalPixType
+        : 'EVP'
+    );
+    setExternalPixName(cleanupMessage(config.externalPixName || '') || String(activeEnterprise?.name || 'Cantina Smart'));
+    setExternalPixAmount(String(config.externalPixAmount || 1));
+  };
+
   const templatesRapidos = useMemo(
     () => reportProfileType === 'COLABORADOR'
       ? [
         {
           id: 'colab-extrato',
-          label: '📄 Extrato de Consumo',
+          label: 'ðŸ“„ Extrato de Consumo',
           text: buildDefaultTemplate('COLABORADOR', periodMode),
         },
         {
           id: 'colab-saldo',
-          label: '💳 Saldo Atual',
+          label: 'ðŸ’³ Saldo Atual',
           text: [
-            'Mensagem automática da cantina.',
+            'Mensagem automÃ¡tica da cantina.',
             'Prezado {{nome_colaborador}}, segue seu resumo {{periodo_nome}}.',
-            'Período: {{periodo_referencia}}',
-            'Consumo total no período: {{consumo_total_periodo}}',
+            'PerÃ­odo: {{periodo_referencia}}',
+            'Consumo total no perÃ­odo: {{consumo_total_periodo}}',
             'Saldo atual: {{saldo}}',
             'Plano: {{plano}}',
           ].join('\n'),
@@ -541,15 +894,15 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
       : [
         {
           id: 'resp-relatorio',
-          label: '👨‍👩‍👧 Relatório Dependentes',
+          label: 'ðŸ‘¨â€ðŸ‘©â€ðŸ‘§ RelatÃ³rio Dependentes',
           text: buildDefaultTemplate('RESPONSAVEL_PARENTESCO', periodMode),
         },
         {
           id: 'resp-saldo-baixo',
-          label: '🔔 Saldo Baixo',
+          label: 'ðŸ”” Saldo Baixo',
           text: [
-            'Mensagem automática da cantina.',
-            'Olá {{nome_pai}}, identificamos saldo baixo no período {{periodo_referencia}}.',
+            'Mensagem automÃ¡tica da cantina.',
+            'OlÃ¡ {{nome_pai}}, identificamos saldo baixo no perÃ­odo {{periodo_referencia}}.',
             'Dependentes: {{alunos}}',
             'Saldos por aluno:',
             '{{saldo_por_aluno}}',
@@ -557,8 +910,8 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
         },
         {
           id: 'resp-entrega',
-          label: '🍱 Entrega de Hoje',
-          text: 'Olá {{nome_pai}}, status de entrega de hoje: {{status_entrega}}.',
+          label: 'ðŸ± Entrega de Hoje',
+          text: 'OlÃ¡ {{nome_pai}}, status de entrega de hoje: {{status_entrega}}.',
         },
       ],
     [periodMode, reportProfileType]
@@ -575,6 +928,14 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
     ? Math.round((progress.processados / progress.total) * 100)
     : 0;
   const isDestaSemanaMode = periodMode === 'DESTA_SEMANA';
+  const isSemanalMode = periodMode === 'SEMANAL';
+  const isMensalMode = periodMode === 'MENSAL';
+  const monthlyReferenceMaxDate = useMemo(() => toYmdDate(new Date()), []);
+  const monthlyReferenceMinDate = useMemo(() => {
+    const date = new Date();
+    date.setDate(date.getDate() - 30);
+    return toYmdDate(date);
+  }, []);
   const activeDispatchDays = useMemo(
     () => getActiveDispatchDaysFromOpeningHours(activeEnterprise?.openingHours),
     [activeEnterprise?.openingHours]
@@ -586,6 +947,10 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
   const activeDispatchDaysLabel = useMemo(
     () => activeDispatchDays.map((item) => item.label).join(', '),
     [activeDispatchDays]
+  );
+  const weeklyDispatchDaysLabel = useMemo(
+    () => weeklyDispatchDays.map((day) => WEEKDAY_SHORT_LABEL[day]).join(', '),
+    [weeklyDispatchDays]
   );
 
   const audienceCounters = useMemo(() => {
@@ -636,28 +1001,22 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
       return;
     }
 
-    if (String(file.type || '') !== 'application/pdf') {
-      setUploadedPdfAttachment(null);
-      setFeedback('No modo texto + PDF (upload), o arquivo deve ser PDF.');
-      return;
-    }
-
     try {
       const base64Data = await fileToBase64(file);
       setUploadedPdfAttachment({
         base64Data,
-        fileName: file.name || 'relatorio.pdf',
-        mimeType: 'application/pdf',
+        fileName: file.name || 'arquivo',
+        mimeType: String(file.type || '').trim() || 'application/octet-stream',
       });
     } catch (error) {
       setUploadedPdfAttachment(null);
-      setFeedback(error instanceof Error ? error.message : 'Falha ao preparar PDF para envio.');
+      setFeedback(error instanceof Error ? error.message : 'Falha ao preparar arquivo para envio.');
     }
   };
 
   const visualizarModeloPdf = () => {
     if (!usuarioSelecionado?.report) {
-      setFeedback('Selecione um contato com dados de relatório para visualizar o PDF.');
+      setFeedback('Selecione um contato com dados de relatÃ³rio para visualizar o PDF.');
       return;
     }
 
@@ -668,7 +1027,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
     const contentWidth = pageWidth - marginX * 2;
     const periodText = usuarioSelecionado.report.periodLabel || periodLabel || '-';
     const isResponsible = usuarioSelecionado.tipo === 'RESPONSAVEL';
-    const profileLabel = isResponsible ? 'Responsável / Parentesco' : 'Colaborador';
+    const profileLabel = isResponsible ? 'ResponsÃ¡vel / Parentesco' : 'Colaborador';
     const logoDataUrl = typeof activeEnterprise?.logo === 'string' ? activeEnterprise.logo.trim() : '';
     const safeLogoDataUrl = logoDataUrl.startsWith('data:image/') ? logoDataUrl : '';
 
@@ -813,18 +1172,18 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
 
     allKnownPlansRaw.forEach((planName) => ensurePlanName(planName));
 
-    // Passo 1: detectar planos explícitos e preço unitário inferido por consumo simples
+    // Passo 1: detectar planos explÃ­citos e preÃ§o unitÃ¡rio inferido por consumo simples
     rows.forEach((row) => {
       const rowText = `${String(row.item || '')} ${String(row.alunoNome || '')}`;
       const tipo = normalizeText(row.tipo || '');
       const amount = Math.abs(toAmount(row.valor));
       const tokens = parseTokens(rowText);
 
-      const creditPlanMatch = rowText.match(/cr[eé]dito\s+plano\s+(.+)$/i);
+      const creditPlanMatch = rowText.match(/cr[eÃ©]dito\s+plano\s+(.+)$/i);
       if (creditPlanMatch?.[1]) {
         ensurePlanName(String(creditPlanMatch[1] || '').trim());
       }
-      const explicitPlanFromDesc = rowText.match(/plano\s+([A-Za-zÀ-ÿ0-9\s\-_]+)/i);
+      const explicitPlanFromDesc = rowText.match(/plano\s+([A-Za-z0-9\s_-]+)/i);
       if (explicitPlanFromDesc?.[1]) {
         ensurePlanName(String(explicitPlanFromDesc[1] || '').trim());
       }
@@ -846,7 +1205,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
       }
     });
 
-    // Passo 2: consolidar crédito/consumo/estorno por plano e cantina
+    // Passo 2: consolidar crÃ©dito/consumo/estorno por plano e cantina
     rows.forEach((row) => {
       const rowText = String(row.item || '').trim();
       const tipo = normalizeText(row.tipo || '');
@@ -855,7 +1214,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
       const rowHasCantinaKeyword = isCantinaText(rowText);
 
       if (tipo === 'CREDITO') {
-        const creditPlanMatch = rowText.match(/cr[eé]dito\s+plano\s+(.+)$/i);
+        const creditPlanMatch = rowText.match(/cr[eÃ©]dito\s+plano\s+(.+)$/i);
         if (creditPlanMatch?.[1]) {
           const planName = String(creditPlanMatch[1] || '').trim();
           const key = ensurePlanName(planName);
@@ -913,7 +1272,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
             });
           }
         } else {
-          const explicitPlanMatch = rowText.match(/plano\s+([A-Za-zÀ-ÿ0-9\s\-_]+)/i);
+          const explicitPlanMatch = rowText.match(/plano\s+([A-Za-z0-9\s_-]+)/i);
           if (explicitPlanMatch?.[1]) {
             const key = ensurePlanName(String(explicitPlanMatch[1] || '').trim());
             if (key) {
@@ -976,7 +1335,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
       const tipo = normalizeText(row.tipo || '');
       if (tipo !== 'CREDITO') return;
 
-      const creditPlanMatch = rowText.match(/cr[eé]dito\s+plano\s+(.+)$/i);
+      const creditPlanMatch = rowText.match(/cr[eÃ©]dito\s+plano\s+(.+)$/i);
       if (!creditPlanMatch?.[1]) return;
       const planName = String(creditPlanMatch[1] || '').trim();
       const planKey = normalizeKey(planName);
@@ -1022,11 +1381,11 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(16);
-    doc.text(isResponsible ? 'Relatório de Consumo Escolar - Dependentes' : 'Extrato de Consumo - Funcionário', marginX + 56, 34);
+    doc.text(isResponsible ? 'RelatÃ³rio de Consumo Escolar - Dependentes' : 'Extrato de Consumo - FuncionÃ¡rio', marginX + 56, 34);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.text(`Unidade: ${activeEnterprise?.name || '-'}`, marginX + 56, 51);
-    doc.text(`Período: ${periodText}`, marginX + 56, 66);
+    doc.text(`PerÃ­odo: ${periodText}`, marginX + 56, 66);
 
     const idStartY = 92;
     doc.setDrawColor(203, 213, 225);
@@ -1037,10 +1396,10 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
     doc.setFontSize(11);
     doc.text(`Cliente: ${usuarioSelecionado.nome}`, marginX + 12, idStartY + 22);
     doc.text(`Perfil: ${profileLabel}`, marginX + 12, idStartY + 40);
-    doc.text(`Código: ${usuarioSelecionado.id || '-'}`, marginX + 12, idStartY + 58);
+    doc.text(`CÃ³digo: ${usuarioSelecionado.id || '-'}`, marginX + 12, idStartY + 58);
     doc.setFont('helvetica', 'normal');
     doc.text(`Telefone: ${usuarioSelecionado.telefone || '-'}`, marginX + 280, idStartY + 22);
-    doc.text(`Contato de prévia: ${previewName || '-'}`, marginX + 280, idStartY + 40);
+    doc.text(`Contato de prÃ©via: ${previewName || '-'}`, marginX + 280, idStartY + 40);
     doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, marginX + 280, idStartY + 58);
 
     // Tabela principal
@@ -1074,7 +1433,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
             }
           });
         } else {
-          const explicitPlanMatch = rowText.match(/plano\s+([A-Za-zÀ-ÿ0-9\s\-_]+)/i);
+          const explicitPlanMatch = rowText.match(/plano\s+([A-Za-z0-9\s_-]+)/i);
           if (explicitPlanMatch?.[1] && studentKey) {
             const planName = String(explicitPlanMatch[1] || '').trim();
             const planKey = normalizeKey(planName);
@@ -1093,7 +1452,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
         }
 
         if (ratioParts.length > 0) {
-          description = `${description} • ${ratioParts.join(' | ')}`;
+          description = `${description} â€¢ ${ratioParts.join(' | ')}`;
         }
       }
 
@@ -1109,8 +1468,8 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
 
     autoTable(doc, {
       startY: idStartY + 88,
-      head: [['Data', 'Aluno/Colaborador', 'Tipo', 'Descrição do Item / Insumo', 'Unidades', 'Valor (R$)']],
-      body: bodyRows.length > 0 ? bodyRows : [['-', '-', '-', 'Sem movimentações no período', '-', '-']],
+      head: [['Data', 'Aluno/Colaborador', 'Tipo', 'DescriÃ§Ã£o do Item / Insumo', 'Unidades', 'Valor (R$)']],
+      body: bodyRows.length > 0 ? bodyRows : [['-', '-', '-', 'Sem movimentaÃ§Ãµes no perÃ­odo', '-', '-']],
       styles: { fontSize: 9, cellPadding: 6, textColor: [31, 41, 55] },
       headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: 'bold', halign: 'left' },
       alternateRowStyles: { fillColor: [248, 250, 252] },
@@ -1181,7 +1540,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
       ...orderedPlanEntries.map(([key, label]) => {
         const value = creditPlanValues.get(key) || 0;
         const qty = creditPlanQty.get(key) || 0;
-        const qtyLabel = qty > 0 ? ` • ${Number(qty).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un` : '';
+        const qtyLabel = qty > 0 ? ` â€¢ ${Number(qty).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un` : '';
         return `${label}: ${formatCurrency(value)}${qtyLabel}`;
       }),
       `Cantina: ${formatCurrency(creditCantina)}`,
@@ -1195,7 +1554,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
         const estornoQty = estornoPlanQty.get(key) || 0;
         const totalPlanOut = consumedValue + estornoValue;
         const totalQty = consumedQty + estornoQty;
-        return `${label}: ${formatCurrency(totalPlanOut)} • ${Number(totalQty).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un`;
+        return `${label}: ${formatCurrency(totalPlanOut)} â€¢ ${Number(totalQty).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un`;
       }),
       `Cantina: ${formatCurrency(consumptionCantina + estornoCantina)}`,
     ];
@@ -1207,14 +1566,14 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
         const estornoQty = estornoPlanQty.get(key) || 0;
         const saldoQty = creditQty - consumedQty - estornoQty;
         const saldoValue = (creditPlanValues.get(key) || 0) - (consumptionPlanValues.get(key) || 0) - (estornoPlanValues.get(key) || 0);
-        return `${label}: ${formatCurrency(saldoValue)} • saldo ${formatQty(saldoQty)} un`;
+        return `${label}: ${formatCurrency(saldoValue)} â€¢ saldo ${formatQty(saldoQty)} un`;
       }),
       `Cantina: ${formatCurrency(saldoCantina)}`,
     ];
 
     drawCard(
       marginX,
-      'TOTAL CRÉDITOS',
+      'TOTAL CRÃ‰DITOS',
       formatCurrency(totalCredits),
       creditDetailLines,
       [220, 252, 231],
@@ -1240,14 +1599,14 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
       [255, 255, 255]
     );
 
-    // Rodapé legal
+    // RodapÃ© legal
     doc.setDrawColor(226, 232, 240);
     doc.line(marginX, pageHeight - 40, pageWidth - marginX, pageHeight - 40);
     doc.setTextColor(100, 116, 139);
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(8);
     doc.text(
-      'Este relatório foi gerado automaticamente pelo Cantina Smart. Valores sujeitos a conferência pelo financeiro.',
+      'Este relatÃ³rio foi gerado automaticamente pelo Cantina Smart. Valores sujeitos a conferÃªncia pelo financeiro.',
       marginX,
       pageHeight - 26
     );
@@ -1268,13 +1627,41 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
       ? weeklyDispatchTime
       : DEFAULT_WEEKLY_TIME;
     const scheduleHour = safeWeeklyTime;
+    const safeWeeklyDays = weeklyDispatchDays
+      .filter((day): day is DispatchWeekday => DISPATCH_WEEKDAYS.includes(day))
+      .filter((day, index, self) => self.indexOf(day) === index);
+    const cleanMenuText = cleanupMessage(externalMenuText);
+    const cleanMenuFooter = cleanupMessage(externalMenuFooter);
+    const cleanListButton = cleanupMessage(externalListButton);
+    const cleanMenuChoices = externalChoices.map((choice) => cleanupMessage(choice)).filter(Boolean);
+    const cleanCarouselCards = externalCarouselCards
+      .map((card) => ({
+        text: cleanupMessage(card.text),
+        image: cleanupMessage(card.image),
+        buttons: (card.buttons || [])
+          .map((button) => ({
+            id: cleanupMessage(button.id),
+            text: cleanupMessage(button.text),
+            type: button.type,
+          }))
+          .filter((button) => button.id && button.text),
+      }))
+      .filter((card) => card.text && card.image && card.buttons.length > 0);
+    const parsedPixAmount = Number(String(externalPixAmount).replace(',', '.'));
+    const safePixAmount = Number.isFinite(parsedPixAmount) && parsedPixAmount > 0 ? parsedPixAmount : 0;
+    const externalTemplateText = sendMode === 'EXTERNAL_CAROUSEL'
+      ? cleanupMessage(externalCarouselHeaderText)
+      : sendMode === 'EXTERNAL_PIX'
+        ? cleanupMessage(externalPixText)
+        : cleanMenuText;
 
     if (isDestaSemanaMode && activeDispatchDays.length === 0) return null;
+    if (periodMode === 'SEMANAL' && safeWeeklyDays.length === 0) return null;
 
     const nextId = automationId || `auto_${Date.now()}`;
     return {
       id: nextId,
-      nome_perfil: String(automationName || '').trim() || 'Automação sem nome',
+      nome_perfil: String(automationName || '').trim() || 'AutomaÃ§Ã£o sem nome',
       tipo_destinatario: reportProfileType === 'COLABORADOR' ? 'colaborador' : 'responsavel',
       campos: ['consumo', 'saldos', 'descricao_itens'],
       frequencia: (periodMode === 'QUINZENAL'
@@ -1285,18 +1672,53 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
       agendamento: {
         hora: scheduleHour,
         dias_expediente_apenas: isDestaSemanaMode,
-        dia_semana: isDestaSemanaMode ? safeWeeklyDay : undefined,
-        hora_semanal: isDestaSemanaMode ? safeWeeklyTime : undefined,
+        dia_semana: isDestaSemanaMode
+          ? safeWeeklyDay
+          : (periodMode === 'SEMANAL' ? (safeWeeklyDays[0] || DEFAULT_WEEKLY_DAY) : undefined),
+        dias_semana: periodMode === 'SEMANAL' ? safeWeeklyDays : undefined,
+        hora_semanal: isDestaSemanaMode || periodMode === 'SEMANAL' ? safeWeeklyTime : undefined,
       },
       layout_estilo: reportProfileType === 'COLABORADOR' ? 'corporativo_sobrio' : 'escolar_premium',
       filter: audienceFilter,
       profileType: reportProfileType,
       periodMode,
-      template,
+      monthlyWindowMode: isMensalMode ? monthlyWindowMode : undefined,
+      monthlyReferenceDate: isMensalMode && monthlyWindowMode === 'ROLLING_30_DAYS'
+        ? monthlyReferenceDate
+        : undefined,
+      template: isExternalSendMode(sendMode) ? (externalTemplateText || template) : template,
       sendMode,
-      uploadPdfAttachment: sendMode === 'TEXT_AND_UPLOAD_PDF'
+      uploadPdfAttachment: sendMode === 'TEXT_AND_UPLOAD_FILE'
         ? (uploadedPdfAttachment || null)
         : null,
+      externalMenuText: isExternalInteractiveMode(sendMode) || sendMode === 'EXTERNAL_CAROUSEL' || sendMode === 'EXTERNAL_PIX'
+        ? cleanMenuText
+        : undefined,
+      externalMenuFooter: isExternalInteractiveMode(sendMode) || sendMode === 'EXTERNAL_CAROUSEL'
+        ? cleanMenuFooter || undefined
+        : undefined,
+      externalChoices: isExternalInteractiveMode(sendMode)
+        ? cleanMenuChoices
+        : undefined,
+      externalListButton: sendMode === 'EXTERNAL_LIST'
+        ? cleanListButton || undefined
+        : undefined,
+      externalSelectableCount: sendMode === 'EXTERNAL_POLL'
+        ? Math.max(1, Math.min(10, Number(externalSelectableCount || 1)))
+        : undefined,
+      externalCarouselHeaderText: sendMode === 'EXTERNAL_CAROUSEL'
+        ? cleanupMessage(externalCarouselHeaderText)
+        : undefined,
+      externalCarouselCards: sendMode === 'EXTERNAL_CAROUSEL'
+        ? cleanCarouselCards
+        : undefined,
+      externalPixTitle: sendMode === 'EXTERNAL_PIX' ? cleanupMessage(externalPixTitle) || undefined : undefined,
+      externalPixText: sendMode === 'EXTERNAL_PIX' ? cleanupMessage(externalPixText) || undefined : undefined,
+      externalPixFooter: sendMode === 'EXTERNAL_PIX' ? cleanupMessage(externalPixFooter) || undefined : undefined,
+      externalPixKey: sendMode === 'EXTERNAL_PIX' ? cleanupMessage(externalPixKey) || undefined : undefined,
+      externalPixType: sendMode === 'EXTERNAL_PIX' ? externalPixType : undefined,
+      externalPixName: sendMode === 'EXTERNAL_PIX' ? cleanupMessage(externalPixName) || undefined : undefined,
+      externalPixAmount: sendMode === 'EXTERNAL_PIX' ? safePixAmount : undefined,
       delayMin: Math.max(0, Number(delayMin || 0)),
       delayMax: Math.max(0, Number(delayMax || 0)),
       batchLimit: Math.max(1, Math.min(50, Number(batchLimit || 50))),
@@ -1325,7 +1747,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
 
   const saveAutomationConfig = async (action: 'SAVE_ONLY' | 'SAVE_AND_SCHEDULE' = 'SAVE_ONLY') => {
     if (!activeEnterprise?.id) {
-      setFeedback('Selecione uma unidade para salvar a configuração.');
+      setFeedback('Selecione uma unidade para salvar a configuraÃ§Ã£o.');
       return;
     }
 
@@ -1339,7 +1761,11 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
     });
 
     if (!config) {
-      setFeedback('Nenhum dia ativo encontrado em Ajustes > Atendimento.');
+      setFeedback(
+        periodMode === 'SEMANAL'
+          ? 'Selecione ao menos um dia para o disparo semanal.'
+          : 'Nenhum dia ativo encontrado em Ajustes > Atendimento.'
+      );
       setIsSavingConfig(false);
       setSavingConfigAction(null);
       return;
@@ -1350,10 +1776,10 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
       setAutomationId(config.id || '');
       setIsProfilePaused(Boolean(config.paused));
       setFeedback(shouldSchedule
-        ? 'Configuração salva e agendamento ativado com sucesso.'
+        ? 'ConfiguraÃ§Ã£o salva e agendamento ativado com sucesso.'
         : 'Perfil salvo sem agendamento ativo.');
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : 'Falha ao salvar configuração.');
+      setFeedback(error instanceof Error ? error.message : 'Falha ao salvar configuraÃ§Ã£o.');
     } finally {
       setIsSavingConfig(false);
       setSavingConfigAction(null);
@@ -1400,17 +1826,25 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
           setIsProfilePaused(Boolean(config.paused));
           const loadedWeeklyDay = toDispatchWeekday(config.agendamento?.dia_semana) || DEFAULT_WEEKLY_DAY;
           setWeeklyDispatchDay(loadedWeeklyDay);
+          setWeeklyDispatchDays(normalizeWeeklyDispatchDays(config.agendamento?.dias_semana, loadedWeeklyDay));
           const loadedWeeklyTimeRaw = String(config.agendamento?.hora_semanal || config.agendamento?.hora || DEFAULT_WEEKLY_TIME);
           setWeeklyDispatchTime(isValidTimeValue(loadedWeeklyTimeRaw) ? loadedWeeklyTimeRaw : DEFAULT_WEEKLY_TIME);
+          const loadedMonthlyWindowMode = String(config.monthlyWindowMode || '').toUpperCase() === 'CURRENT_MONTH'
+            ? 'CURRENT_MONTH'
+            : 'ROLLING_30_DAYS';
+          setMonthlyWindowMode(loadedMonthlyWindowMode);
+          const loadedMonthlyReferenceDate = String(config.monthlyReferenceDate || '').trim();
+          setMonthlyReferenceDate(
+            isWithinMonthlyReferenceRange(loadedMonthlyReferenceDate, monthlyReferenceMinDate, monthlyReferenceMaxDate)
+              ? loadedMonthlyReferenceDate
+              : monthlyReferenceMaxDate
+          );
           setDelayMin(Math.max(0, Number(config.delayMin || 2)));
           setDelayMax(Math.max(0, Number(config.delayMax || 6)));
           setBatchLimit(Math.max(1, Math.min(50, Number(config.batchLimit || 50))));
-          const loadedSendMode = String(config.sendMode || 'TEXT_ONLY').toUpperCase();
-          setSendMode(
-            loadedSendMode === 'TEXT_AND_REPORT_PDF' || loadedSendMode === 'TEXT_AND_UPLOAD_PDF'
-              ? (loadedSendMode as DispatchSendMode)
-              : 'TEXT_ONLY'
-          );
+          const loadedSendMode = normalizeDispatchSendMode(config.sendMode);
+          setSendMode(loadedSendMode);
+          hydrateExternalConfigState(config, loadedSendMode);
           const persistedUploadPdf = config.uploadPdfAttachment && typeof config.uploadPdfAttachment === 'object'
             ? {
               base64Data: String((config.uploadPdfAttachment as any).base64Data || ''),
@@ -1441,7 +1875,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
         setLogs(remoteLogs);
       } catch (error) {
         if (!cancelled) {
-          setFeedback(error instanceof Error ? error.message : 'Falha ao carregar configuração e logs.');
+          setFeedback(error instanceof Error ? error.message : 'Falha ao carregar configuraÃ§Ã£o e logs.');
         }
       } finally {
         if (!cancelled) {
@@ -1471,7 +1905,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
             : 'SEMANAL'));
 
     setAutomationId(String(profileToEdit.id || '').trim());
-    setAutomationName(String(profileToEdit.nome_perfil || '').trim() || 'Automação sem nome');
+    setAutomationName(String(profileToEdit.nome_perfil || '').trim() || 'AutomaÃ§Ã£o sem nome');
     setAudienceFilter(ALLOWED_FILTERS.includes(profileToEdit.filter as AudienceFilter) ? (profileToEdit.filter as AudienceFilter) : 'TODOS');
     setReportProfileType(
       ALLOWED_PROFILE_TYPES.includes(profileToEdit.profileType as ReportProfileType)
@@ -1482,17 +1916,25 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
     setIsProfilePaused(Boolean(profileToEdit.paused));
     const loadedWeeklyDay = toDispatchWeekday(profileToEdit.agendamento?.dia_semana) || DEFAULT_WEEKLY_DAY;
     setWeeklyDispatchDay(loadedWeeklyDay);
+    setWeeklyDispatchDays(normalizeWeeklyDispatchDays(profileToEdit.agendamento?.dias_semana, loadedWeeklyDay));
     const loadedWeeklyTimeRaw = String(profileToEdit.agendamento?.hora_semanal || profileToEdit.agendamento?.hora || DEFAULT_WEEKLY_TIME);
     setWeeklyDispatchTime(isValidTimeValue(loadedWeeklyTimeRaw) ? loadedWeeklyTimeRaw : DEFAULT_WEEKLY_TIME);
+    const loadedMonthlyWindowMode = String(profileToEdit.monthlyWindowMode || '').toUpperCase() === 'CURRENT_MONTH'
+      ? 'CURRENT_MONTH'
+      : 'ROLLING_30_DAYS';
+    setMonthlyWindowMode(loadedMonthlyWindowMode);
+    const loadedMonthlyReferenceDate = String(profileToEdit.monthlyReferenceDate || '').trim();
+    setMonthlyReferenceDate(
+      isWithinMonthlyReferenceRange(loadedMonthlyReferenceDate, monthlyReferenceMinDate, monthlyReferenceMaxDate)
+        ? loadedMonthlyReferenceDate
+        : monthlyReferenceMaxDate
+    );
     setDelayMin(Math.max(0, Number(profileToEdit.delayMin || 2)));
     setDelayMax(Math.max(0, Number(profileToEdit.delayMax || 6)));
     setBatchLimit(Math.max(1, Math.min(50, Number(profileToEdit.batchLimit || 50))));
-    const loadedSendMode = String(profileToEdit.sendMode || 'TEXT_ONLY').toUpperCase();
-    setSendMode(
-      loadedSendMode === 'TEXT_AND_REPORT_PDF' || loadedSendMode === 'TEXT_AND_UPLOAD_PDF'
-        ? (loadedSendMode as DispatchSendMode)
-        : 'TEXT_ONLY'
-    );
+    const loadedSendMode = normalizeDispatchSendMode(profileToEdit.sendMode);
+    setSendMode(loadedSendMode);
+    hydrateExternalConfigState(profileToEdit, loadedSendMode);
     const persistedUploadPdf = profileToEdit.uploadPdfAttachment && typeof profileToEdit.uploadPdfAttachment === 'object'
       ? {
         base64Data: String((profileToEdit.uploadPdfAttachment as any).base64Data || ''),
@@ -1516,7 +1958,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
       setTemplate(getDefaultTemplateByProfileAndPeriod(loadedProfile, loadedPeriodMode));
     }
 
-    setFeedback(`Perfil "${String(profileToEdit.nome_perfil || '').trim() || 'Sem nome'}" carregado para edição.`);
+    setFeedback(`Perfil "${String(profileToEdit.nome_perfil || '').trim() || 'Sem nome'}" carregado para ediÃ§Ã£o.`);
     onProfileLoaded?.();
   }, [onProfileLoaded, profileToEdit]);
 
@@ -1542,6 +1984,23 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
   }, [activeDispatchDays, weeklyDispatchDay]);
 
   useEffect(() => {
+    if (weeklyDispatchDays.length > 0) return;
+    setWeeklyDispatchDays([DEFAULT_WEEKLY_DAY]);
+  }, [weeklyDispatchDays]);
+
+  useEffect(() => {
+    if (periodMode !== 'SEMANAL') return;
+    if (weeklyDispatchDays.length > 0) return;
+    setWeeklyDispatchDays([DEFAULT_WEEKLY_DAY]);
+  }, [periodMode, weeklyDispatchDays]);
+
+  useEffect(() => {
+    if (monthlyWindowMode !== 'ROLLING_30_DAYS') return;
+    if (isWithinMonthlyReferenceRange(monthlyReferenceDate, monthlyReferenceMinDate, monthlyReferenceMaxDate)) return;
+    setMonthlyReferenceDate(monthlyReferenceMaxDate);
+  }, [monthlyReferenceDate, monthlyReferenceMaxDate, monthlyReferenceMinDate, monthlyWindowMode]);
+
+  useEffect(() => {
     if (reportProfileType === 'COLABORADOR' && audienceFilter === 'RESPONSAVEIS') {
       setAudienceFilter('TODOS');
       return;
@@ -1564,6 +2023,10 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
           profileType: reportProfileType,
           periodMode,
           businessDaysOnly: periodMode === 'DESTA_SEMANA',
+          monthlyWindowMode: periodMode === 'MENSAL' ? monthlyWindowMode : undefined,
+          monthlyReferenceDate: periodMode === 'MENSAL' && monthlyWindowMode === 'ROLLING_30_DAYS'
+            ? monthlyReferenceDate
+            : undefined,
         });
         if (!cancelled) {
           const list = Array.isArray(data?.recipients) ? data.recipients : [];
@@ -1581,7 +2044,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
           setPeriodLabel('');
           setPeriodInfo('');
           setUsuarioSelecionadoId('');
-          setFeedback(error instanceof Error ? error.message : 'Falha ao buscar audiência.');
+          setFeedback(error instanceof Error ? error.message : 'Falha ao buscar audiÃªncia.');
         }
       } finally {
         if (!cancelled) setIsLoadingRecipients(false);
@@ -1592,7 +2055,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [activeEnterprise?.id, audienceFilter, reportProfileType, periodMode]);
+  }, [activeEnterprise?.id, audienceFilter, monthlyReferenceDate, monthlyWindowMode, periodMode, reportProfileType]);
 
   useEffect(() => {
     if (!activeEnterprise?.id) {
@@ -1628,11 +2091,42 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
 
   useEffect(() => {
     if (!usuarioSelecionado) {
-      setPreviewText('Sem audiência para pré-visualização.');
+      if (sendMode === 'EXTERNAL_CAROUSEL') {
+        setPreviewText(cleanupMessage(externalCarouselHeaderText || '') || 'Sem texto principal do carrossel.');
+        return;
+      }
+      if (sendMode === 'EXTERNAL_PIX') {
+        setPreviewText(cleanupMessage(externalPixText || '') || 'Sem texto da cobrança PIX.');
+        return;
+      }
+      if (isExternalInteractiveMode(sendMode)) {
+        setPreviewText(cleanupMessage(externalMenuText || '') || 'Sem texto da função externa.');
+        return;
+      }
+      setPreviewText('Sem audiÃªncia para prÃ©-visualizaÃ§Ã£o.');
+      return;
+    }
+    if (sendMode === 'EXTERNAL_CAROUSEL') {
+      setPreviewText(cleanupMessage(externalCarouselHeaderText || '') || 'Sem texto principal do carrossel.');
+      return;
+    }
+    if (sendMode === 'EXTERNAL_PIX') {
+      setPreviewText(cleanupMessage(externalPixText || '') || 'Sem texto da cobrança PIX.');
+      return;
+    }
+    if (isExternalInteractiveMode(sendMode)) {
+      setPreviewText(cleanupMessage(externalMenuText || '') || 'Sem texto da função externa.');
       return;
     }
     setPreviewText(renderizarMensagem(template, usuarioSelecionado));
-  }, [template, usuarioSelecionado]);
+  }, [
+    externalCarouselHeaderText,
+    externalMenuText,
+    externalPixText,
+    sendMode,
+    template,
+    usuarioSelecionado,
+  ]);
 
   useEffect(() => {
     if (previewRecipients.length === 0) {
@@ -1657,7 +2151,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
   }, [isSending]);
 
   const processarEnvio = async (usuario: AudienceRecipient): Promise<MassLog> => {
-    const perfil: MassLog['perfil'] = usuario.tipo === 'RESPONSAVEL' ? 'Responsável' : 'Colaborador';
+    const perfil: MassLog['perfil'] = usuario.tipo === 'RESPONSAVEL' ? 'ResponsÃ¡vel' : 'Colaborador';
     const logBase: Omit<MassLog, 'status'> = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       nome: usuario.nome,
@@ -1667,11 +2161,11 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
     };
 
     if (!isValidPhone(usuario.telefone)) {
-      return { ...logBase, status: 'Inválido', detalhe: 'Telefone vazio ou inválido.' };
+      return { ...logBase, status: 'InvÃ¡lido', detalhe: 'Telefone vazio ou invÃ¡lido.' };
     }
 
     const waitMs = Math.floor(Math.random() * (delayMax - delayMin + 1) + delayMin) * 1000;
-    setMensagemStatus(`Aguardando intervalo aleatório (${Math.round(waitMs / 1000)}s) para ${usuario.nome}...`);
+    setMensagemStatus(`Aguardando intervalo aleatÃ³rio (${Math.round(waitMs / 1000)}s) para ${usuario.nome}...`);
     await sleep(waitMs);
 
     if (stopSignal.current) {
@@ -1679,21 +2173,51 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
     }
 
     setMensagemStatus(`Enviando para ${usuario.nome} (${usuario.telefone})...`);
-    const message = renderizarMensagem(template, usuario);
+    const message = isExternalSendMode(sendMode)
+      ? cleanupMessage(
+        sendMode === 'EXTERNAL_CAROUSEL'
+          ? externalCarouselHeaderText
+          : sendMode === 'EXTERNAL_PIX'
+            ? externalPixText
+            : externalMenuText
+      )
+      : renderizarMensagem(template, usuario);
+    const cleanExternalChoices = externalChoices.map((choice) => cleanupMessage(choice)).filter(Boolean);
+    const cleanExternalCarouselCards = externalCarouselCards
+      .map((card) => ({
+        text: cleanupMessage(card.text),
+        image: cleanupMessage(card.image),
+        buttons: (card.buttons || [])
+          .map((button) => ({
+            id: cleanupMessage(button.id),
+            text: cleanupMessage(button.text),
+            type: button.type,
+          }))
+          .filter((button) => button.id && button.text),
+      }))
+      .filter((card) => card.text && card.image && card.buttons.length > 0);
+    const parsedPixAmount = Number(String(externalPixAmount).replace(',', '.'));
 
     if (isSimulation) {
-      return { ...logBase, status: 'Simulado', detalhe: message.slice(0, 180) };
+      const simulationDetail = sendMode === 'EXTERNAL_CAROUSEL'
+        ? `${message.slice(0, 120)} | cards=${cleanExternalCarouselCards.length}`
+        : sendMode === 'EXTERNAL_PIX'
+          ? `${message.slice(0, 120)} | valor=${Number.isFinite(parsedPixAmount) ? parsedPixAmount.toFixed(2) : '0.00'}`
+          : isExternalInteractiveMode(sendMode)
+            ? `${message.slice(0, 120)} | opções=${cleanExternalChoices.join(' / ')}`
+            : message.slice(0, 180);
+      return { ...logBase, status: 'Simulado', detalhe: simulationDetail };
     }
 
     try {
-      if (sendMode === 'TEXT_AND_UPLOAD_PDF' && uploadedPdfAttachment?.base64Data) {
+      if (sendMode === 'TEXT_AND_UPLOAD_FILE' && uploadedPdfAttachment?.base64Data) {
         await ApiService.sendWhatsAppMediaToChat(toWhatsAppChatId(usuario.telefone), message, {
           mediaType: 'document',
           base64Data: uploadedPdfAttachment.base64Data,
-          mimeType: uploadedPdfAttachment.mimeType || 'application/pdf',
-          fileName: uploadedPdfAttachment.fileName || 'relatorio.pdf',
+          mimeType: uploadedPdfAttachment.mimeType || 'application/octet-stream',
+          fileName: uploadedPdfAttachment.fileName || 'arquivo',
         });
-      } else if (sendMode === 'TEXT_AND_REPORT_PDF') {
+      } else if (sendMode === 'TEXT_AND_STATEMENT_PDF') {
         const reportPdf = buildRecipientReportPdfAttachment({
           recipient: usuario,
           enterpriseName: activeEnterprise?.name,
@@ -1705,6 +2229,63 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
           base64Data: reportPdf.base64Data,
           mimeType: reportPdf.mimeType,
           fileName: reportPdf.fileName,
+        });
+      } else if (sendMode === 'EXTERNAL_BUTTONS' || sendMode === 'EXTERNAL_LIST' || sendMode === 'EXTERNAL_POLL') {
+        const interactiveType = sendMode === 'EXTERNAL_BUTTONS'
+          ? 'button'
+          : sendMode === 'EXTERNAL_LIST'
+            ? 'list'
+            : 'poll';
+        if (!message) {
+          throw new Error('Digite o texto da mensagem para a função externa.');
+        }
+        if (cleanExternalChoices.length === 0) {
+          throw new Error('Adicione ao menos uma opção para a função externa.');
+        }
+        if (interactiveType === 'button' && cleanExternalChoices.length > 3) {
+          throw new Error('O modo botões aceita no máximo 3 opções.');
+        }
+        if (interactiveType === 'list' && cleanExternalChoices.length > 10) {
+          throw new Error('O modo lista aceita no máximo 10 itens.');
+        }
+        if (interactiveType === 'poll' && cleanExternalChoices.length < 2) {
+          throw new Error('A enquete precisa de pelo menos 2 opções.');
+        }
+        await ApiService.sendWhatsAppInteractiveMenu({
+          number: usuario.telefone,
+          type: interactiveType,
+          text: message,
+          choices: cleanExternalChoices,
+          footerText: cleanupMessage(externalMenuFooter) || undefined,
+          listButton: sendMode === 'EXTERNAL_LIST' ? cleanupMessage(externalListButton) || undefined : undefined,
+          selectableCount: sendMode === 'EXTERNAL_POLL' ? Math.max(1, Math.min(10, Number(externalSelectableCount || 1))) : undefined,
+        });
+      } else if (sendMode === 'EXTERNAL_CAROUSEL') {
+        if (!message) {
+          throw new Error('Digite o texto principal do carrossel.');
+        }
+        if (cleanExternalCarouselCards.length === 0) {
+          throw new Error('Adicione pelo menos 1 card válido no carrossel.');
+        }
+        await ApiService.sendWhatsAppCarousel({
+          number: usuario.telefone,
+          text: message,
+          carousel: cleanExternalCarouselCards,
+        });
+      } else if (sendMode === 'EXTERNAL_PIX') {
+        const safeAmount = Number.isFinite(parsedPixAmount) && parsedPixAmount > 0 ? parsedPixAmount : 0;
+        if (!safeAmount) {
+          throw new Error('Informe um valor válido para PIX.');
+        }
+        await ApiService.sendWhatsAppRequestPayment({
+          number: usuario.telefone,
+          text: message || undefined,
+          title: cleanupMessage(externalPixTitle) || undefined,
+          footer: cleanupMessage(externalPixFooter) || undefined,
+          amount: safeAmount,
+          pixType: externalPixType,
+          pixKey: cleanupMessage(externalPixKey) || undefined,
+          pixName: cleanupMessage(externalPixName) || undefined,
         });
       } else {
         await ApiService.sendWhatsAppMessage(usuario.telefone, message);
@@ -1727,19 +2308,53 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
       return;
     }
     if (!recipients.length) {
-      setFeedback('Nenhum destinatário encontrado para o filtro atual.');
+      setFeedback('Nenhum destinatÃ¡rio encontrado para o filtro atual.');
       return;
     }
     if (delayMax < delayMin) {
-      setFeedback('Delay máximo precisa ser maior ou igual ao mínimo.');
+      setFeedback('Delay mÃ¡ximo precisa ser maior ou igual ao mÃ­nimo.');
       return;
     }
-    if (!template.trim()) {
+    if (periodMode === 'SEMANAL' && weeklyDispatchDays.length === 0) {
+      setFeedback('Selecione ao menos um dia para o disparo semanal.');
+      return;
+    }
+    if (periodMode === 'MENSAL' && monthlyWindowMode === 'ROLLING_30_DAYS'
+      && !isWithinMonthlyReferenceRange(monthlyReferenceDate, monthlyReferenceMinDate, monthlyReferenceMaxDate)) {
+      setFeedback('Selecione uma data de referência válida para o modo mensal.');
+      return;
+    }
+    const externalChoiceCount = externalChoices.map((item) => cleanupMessage(item)).filter(Boolean).length;
+    if (!isExternalSendMode(sendMode) && !template.trim()) {
       setFeedback('Digite a mensagem do disparo em massa.');
       return;
     }
-    if (sendMode === 'TEXT_AND_UPLOAD_PDF' && !uploadedPdfAttachment?.base64Data) {
-      setFeedback('Selecione um PDF para enviar junto com a mensagem.');
+    if (sendMode === 'EXTERNAL_BUTTONS' && externalChoiceCount > 3) {
+      setFeedback('O modo botões aceita no máximo 3 opções.');
+      return;
+    }
+    if (sendMode === 'EXTERNAL_LIST' && externalChoiceCount > 10) {
+      setFeedback('O modo lista aceita no máximo 10 itens.');
+      return;
+    }
+    if ((sendMode === 'EXTERNAL_BUTTONS' || sendMode === 'EXTERNAL_LIST' || sendMode === 'EXTERNAL_POLL') && externalChoiceCount === 0) {
+      setFeedback('Adicione ao menos uma opção para a função externa.');
+      return;
+    }
+    if (sendMode === 'EXTERNAL_POLL' && externalChoiceCount < 2) {
+      setFeedback('A enquete precisa de pelo menos 2 opções.');
+      return;
+    }
+    if (sendMode === 'EXTERNAL_CAROUSEL' && externalCarouselCards.length === 0) {
+      setFeedback('Adicione pelo menos 1 card válido no carrossel.');
+      return;
+    }
+    if (sendMode === 'EXTERNAL_PIX' && (!Number.isFinite(Number(String(externalPixAmount).replace(',', '.'))) || Number(String(externalPixAmount).replace(',', '.')) <= 0)) {
+      setFeedback('Informe um valor válido para PIX.');
+      return;
+    }
+    if (sendMode === 'TEXT_AND_UPLOAD_FILE' && !uploadedPdfAttachment?.base64Data) {
+      setFeedback('Selecione um arquivo para enviar junto com a mensagem.');
       return;
     }
 
@@ -1752,7 +2367,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
       ))
       .slice(0, cappedLimit);
     if (!targetRecipients.length) {
-      setFeedback('Nenhum destinatário válido para o lote atual.');
+      setFeedback('Nenhum destinatÃ¡rio vÃ¡lido para o lote atual.');
       return;
     }
 
@@ -1769,7 +2384,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
         await persistProfileStatus(runtimeStartConfig);
         setAutomationId(runtimeStartConfig.id || '');
       } catch {
-        // Falha de status operacional não deve bloquear o disparo imediato.
+        // Falha de status operacional nÃ£o deve bloquear o disparo imediato.
       }
     }
 
@@ -1790,7 +2405,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
 
       processados += 1;
       if (logEntry.status === 'Sucesso' || logEntry.status === 'Simulado') enviados += 1;
-      if (logEntry.status === 'Erro' || logEntry.status === 'Inválido') erros += 1;
+      if (logEntry.status === 'Erro' || logEntry.status === 'InvÃ¡lido') erros += 1;
       setProgress((prev) => ({ ...prev, processados, enviados, erros }));
     }
 
@@ -1810,14 +2425,14 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
     }
 
     setIsSending(false);
-    setMensagemStatus(stopSignal.current ? 'Disparo cancelado pelo usuário.' : 'Concluído!');
+    setMensagemStatus(stopSignal.current ? 'Disparo cancelado pelo usuÃ¡rio.' : 'ConcluÃ­do!');
     if (!hadPersistError) {
       setFeedback(
         stopSignal.current
-          ? `Disparo interrompido em ${processados} de ${targetRecipients.length} destinatário(s).`
+          ? `Disparo interrompido em ${processados} de ${targetRecipients.length} destinatÃ¡rio(s).`
           : (isSimulation
-            ? `Simulação concluída para ${targetRecipients.length} destinatário(s).`
-            : `Disparo concluído para ${targetRecipients.length} destinatário(s).`)
+            ? `SimulaÃ§Ã£o concluÃ­da para ${targetRecipients.length} destinatÃ¡rio(s).`
+            : `Disparo concluÃ­do para ${targetRecipients.length} destinatÃ¡rio(s).`)
       );
     }
 
@@ -1829,7 +2444,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
       try {
         await persistProfileStatus(runtimeEndConfig);
       } catch {
-        // Ignora para não afetar UX de conclusão.
+        // Ignora para nÃ£o afetar UX de conclusÃ£o.
       }
     }
 
@@ -1849,7 +2464,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
           <div>
             <h4 className="text-lg font-black text-slate-900 dark:text-zinc-100">Disparo em Massa</h4>
             <p className="text-sm font-semibold text-slate-600 dark:text-zinc-400">
-              Automação por perfil dinâmico (Responsável/Parentesco ou Colaborador) com logs persistidos.
+              AutomaÃ§Ã£o por perfil dinÃ¢mico (ResponsÃ¡vel/Parentesco ou Colaborador) com logs persistidos.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1894,10 +2509,10 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="space-y-4">
-            <div className="rounded-2xl border border-slate-200 bg-white/90 p-3.5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900/70">
+            <div className="rounded-2xl border border-slate-200 bg-white/90 p-3.5 flex flex-col gap-3 dark:border-zinc-700 dark:bg-zinc-900/70">
               <p className="text-[11px] font-black uppercase tracking-[0.16em] text-orange-700 dark:text-orange-300">CORE CONFIGURATION</p>
-              <label className="space-y-1 block">
-                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Nome da automação</span>
+              <label className="space-y-1 block order-3">
+                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Nome da automaÃ§Ã£o</span>
                 <input
                   value={automationName}
                   onChange={(e) => setAutomationName(e.target.value)}
@@ -1908,35 +2523,36 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <label className="space-y-1 block">
-                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Tipo de perfil do relatório</span>
+                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Tipo de perfil do relatÃ³rio</span>
                   <select
                     value={reportProfileType}
                     onChange={(e) => setReportProfileType(e.target.value as ReportProfileType)}
                     className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                   >
-                    <option value="RESPONSAVEL_PARENTESCO">Responsável / Parentesco</option>
+                    <option value="RESPONSAVEL_PARENTESCO">ResponsÃ¡vel / Parentesco</option>
                     <option value="COLABORADOR">Colaborador</option>
                   </select>
                 </label>
 
                 <label className="space-y-1 block">
-                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Filtro de audiência</span>
+                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Filtro de audiÃªncia</span>
                   <select
                     value={audienceFilter}
                     onChange={(e) => setAudienceFilter(e.target.value as AudienceFilter)}
                     className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                   >
                     <option value="TODOS">Todos</option>
-                    <option value="RESPONSAVEIS">Apenas Responsáveis</option>
+                    <option value="RESPONSAVEIS">Apenas ResponsÃ¡veis</option>
                     <option value="COLABORADORES">Apenas Colaboradores</option>
                     <option value="SALDO_BAIXO">Saldo baixo (&lt; R$ 10,00)</option>
                     <option value="PLANO_A_VENCER">Plano a vencer (5 dias)</option>
-                    <option value="RELATORIO_ENTREGA">Relatório de entrega</option>
+                    <option value="RELATORIO_ENTREGA">RelatÃ³rio de entrega</option>
                   </select>
                 </label>
               </div>
 
-              <label className="space-y-1 block">
+              {!isExternalSendMode(sendMode) && (
+              <label className="space-y-1 block order-3">
                 <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Mensagem</span>
                 <div className="mb-2 flex flex-wrap gap-2">
                   <button
@@ -1944,7 +2560,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
                     onClick={() => setTemplate(buildDefaultTemplate(reportProfileType, periodMode))}
                     className="px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-[11px] font-black text-emerald-700"
                   >
-                    🧩 Modelo do período
+                    ðŸ§© Modelo do perÃ­odo
                   </button>
                   {templatesRapidos.map((preset) => (
                     <button
@@ -1964,32 +2580,315 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
                   className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-medium bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                 />
                 <p className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
-                  Variáveis: <span className="font-black">{'{{nome}}'}</span>, <span className="font-black">{'{{nome_pai}}'}</span>, <span className="font-black">{'{{nome_colaborador}}'}</span>, <span className="font-black">{'{{parentesco}}'}</span>, <span className="font-black">{'{{alunos}}'}</span>, <span className="font-black">{'{{saldo}}'}</span>, <span className="font-black">{'{{plano}}'}</span>, <span className="font-black">{'{{consumo_hoje}}'}</span>, <span className="font-black">{'{{status_entrega}}'}</span>, <span className="font-black">{'{{periodo_referencia}}'}</span>, <span className="font-black">{'{{periodo_nome}}'}</span>, <span className="font-black">{'{{saldo_por_aluno}}'}</span>, <span className="font-black">{'{{consumo_total_periodo}}'}</span>, <span className="font-black">{'{{consumo_total_por_aluno}}'}</span>
+                  VariÃ¡veis: <span className="font-black">{'{{nome}}'}</span>, <span className="font-black">{'{{nome_pai}}'}</span>, <span className="font-black">{'{{nome_colaborador}}'}</span>, <span className="font-black">{'{{parentesco}}'}</span>, <span className="font-black">{'{{alunos}}'}</span>, <span className="font-black">{'{{saldo}}'}</span>, <span className="font-black">{'{{plano}}'}</span>, <span className="font-black">{'{{consumo_hoje}}'}</span>, <span className="font-black">{'{{status_entrega}}'}</span>, <span className="font-black">{'{{periodo_referencia}}'}</span>, <span className="font-black">{'{{periodo_nome}}'}</span>, <span className="font-black">{'{{saldo_por_aluno}}'}</span>, <span className="font-black">{'{{consumo_total_periodo}}'}</span>, <span className="font-black">{'{{consumo_total_por_aluno}}'}</span>
                 </p>
               </label>
+              )}
 
-              <label className="space-y-1 block">
+              <label className="space-y-1 block order-1">
                 <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Modo de envio</span>
                 <select
                   value={sendMode}
                   onChange={(e) => setSendMode(e.target.value as DispatchSendMode)}
                   className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                 >
-                  <option value="TEXT_ONLY">Apenas texto</option>
-                  <option value="TEXT_AND_REPORT_PDF">Texto + relatório PDF automático</option>
-                  <option value="TEXT_AND_UPLOAD_PDF">Texto + PDF por upload</option>
+                  <option value="TEXT">TEXTO</option>
+                  <option value="TEXT_AND_STATEMENT_PDF">TEXTO + EXTRATO PDF</option>
+                  <option value="TEXT_AND_UPLOAD_FILE">TEXTO + UPLOAD ARQUIVO</option>
+                  <option value="EXTERNAL_BUTTONS">API EXTERNA + BOTÕES</option>
+                  <option value="EXTERNAL_LIST">API EXTERNA + LISTA</option>
+                  <option value="EXTERNAL_POLL">API EXTERNA + ENQUETE</option>
+                  <option value="EXTERNAL_CAROUSEL">API EXTERNA + CARROSSEL</option>
+                  <option value="EXTERNAL_PIX">API EXTERNA + PIX</option>
                 </select>
                 <p className="text-xs font-semibold text-orange-700">
-                  Lista de opções de PDF: automático por contato ou PDF único por upload.
+                  Modos nativos e funções da API externa: botões, lista, enquete, carrossel e PIX.
                 </p>
               </label>
 
-              {sendMode === 'TEXT_AND_UPLOAD_PDF' && (
-                <label className="space-y-1 block">
-                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">PDF para envio</span>
+              {isExternalInteractiveMode(sendMode) && (
+                <div className="space-y-4 rounded-2xl border-2 border-cyan-200 bg-cyan-50/80 p-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Texto da mensagem *</label>
+                    <textarea
+                      rows={3}
+                      value={externalMenuText}
+                      onChange={(e) => setExternalMenuText(e.target.value)}
+                      placeholder="Ex: Escolha uma opção abaixo:"
+                      className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-cyan-400 outline-none text-sm resize-none bg-white"
+                    />
+                  </div>
+
+                  {sendMode === 'EXTERNAL_LIST' && (
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Texto do botão da lista</label>
+                      <input
+                        value={externalListButton}
+                        onChange={(e) => setExternalListButton(e.target.value)}
+                        placeholder="Ver opções"
+                        className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-cyan-400 outline-none text-sm bg-white"
+                      />
+                    </div>
+                  )}
+
+                  {sendMode === 'EXTERNAL_POLL' && (
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Quantidade de seleções</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={externalSelectableCount}
+                        onChange={(e) => setExternalSelectableCount(Math.max(1, Math.min(10, Number(e.target.value || 1))))}
+                        className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-cyan-400 outline-none text-sm bg-white"
+                      />
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        Opções ({externalChoices.filter((item) => cleanupMessage(item)).length}/{sendMode === 'EXTERNAL_LIST' ? 10 : 3})
+                      </label>
+                      {externalChoices.length < (sendMode === 'EXTERNAL_LIST' ? 10 : 3) && (
+                        <button
+                          type="button"
+                          onClick={addExternalChoice}
+                          className="flex items-center gap-1 text-cyan-700 text-[11px] font-black hover:underline"
+                        >
+                          <Plus size={12} /> Adicionar
+                        </button>
+                      )}
+                    </div>
+                    {externalChoices.map((choice, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <input
+                          value={choice}
+                          onChange={(e) => updateExternalChoice(index, e.target.value)}
+                          placeholder={`Opção ${index + 1}`}
+                          className="flex-1 px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-cyan-400 outline-none text-sm bg-white"
+                          maxLength={60}
+                        />
+                        {externalChoices.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeExternalChoice(index)}
+                            className="p-2 rounded-lg border border-rose-200 text-rose-500 hover:bg-rose-50"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Rodapé (opcional)</label>
+                    <input
+                      value={externalMenuFooter}
+                      onChange={(e) => setExternalMenuFooter(e.target.value)}
+                      placeholder="Ex: Cantina Smart"
+                      className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-cyan-400 outline-none text-sm bg-white"
+                      maxLength={60}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {sendMode === 'EXTERNAL_CAROUSEL' && (
+                <div className="space-y-4 rounded-2xl border-2 border-violet-200 bg-violet-50/80 p-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Texto principal *</label>
+                    <textarea
+                      rows={2}
+                      value={externalCarouselHeaderText}
+                      onChange={(e) => setExternalCarouselHeaderText(e.target.value)}
+                      placeholder="Ex: Veja nossas novidades!"
+                      className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-violet-400 outline-none text-sm resize-none bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
+                    {externalCarouselCards.map((card, cardIndex) => (
+                      <div key={cardIndex} className="rounded-2xl border-2 border-slate-100 p-3 space-y-2 bg-white">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Card {cardIndex + 1}</p>
+                          {externalCarouselCards.length > 2 && (
+                            <button
+                              type="button"
+                              onClick={() => removeCarouselCard(cardIndex)}
+                              className="p-1 text-rose-400 hover:text-rose-600"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
+
+                        <input
+                          value={card.image}
+                          onChange={(e) => updateCarouselCard(cardIndex, { image: e.target.value })}
+                          placeholder="URL da imagem (https://...)"
+                          className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-violet-400 outline-none text-sm bg-white"
+                        />
+
+                        <textarea
+                          rows={2}
+                          value={card.text}
+                          onChange={(e) => updateCarouselCard(cardIndex, { text: e.target.value })}
+                          placeholder="Texto do card"
+                          className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-violet-400 outline-none text-sm resize-none bg-white"
+                        />
+
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Botões ({card.buttons.length}/3)</p>
+                            {card.buttons.length < 3 && (
+                              <button
+                                type="button"
+                                onClick={() => addCarouselButton(cardIndex)}
+                                className="text-violet-600 text-[10px] font-black hover:underline flex items-center gap-0.5"
+                              >
+                                <Plus size={11} /> Botão
+                              </button>
+                            )}
+                          </div>
+                          {card.buttons.map((button, buttonIndex) => (
+                            <div key={button.id} className="flex items-center gap-2">
+                              <select
+                                value={button.type}
+                                onChange={(e) => updateCarouselButton(cardIndex, buttonIndex, { type: e.target.value as ExternalCarouselButtonType })}
+                                className="px-2 py-1.5 rounded-lg border-2 border-slate-200 text-[11px] font-bold outline-none bg-white"
+                              >
+                                <option value="REPLY">Resposta</option>
+                                <option value="URL">URL</option>
+                                <option value="COPY">Copiar</option>
+                                <option value="CALL">Ligar</option>
+                              </select>
+                              <input
+                                value={button.text}
+                                onChange={(e) => updateCarouselButton(cardIndex, buttonIndex, { text: e.target.value })}
+                                placeholder="Texto do botão"
+                                className="flex-1 px-2 py-1.5 rounded-lg border-2 border-slate-200 focus:border-violet-400 outline-none text-sm bg-white"
+                                maxLength={25}
+                              />
+                              {card.buttons.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeCarouselButton(cardIndex, buttonIndex)}
+                                  className="p-1.5 text-rose-400 hover:text-rose-600"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {externalCarouselCards.length < 10 && (
+                    <button
+                      type="button"
+                      onClick={addCarouselCard}
+                      className="w-full py-2 rounded-xl border-2 border-dashed border-violet-300 text-violet-600 text-xs font-black uppercase tracking-widest hover:bg-violet-50"
+                    >
+                      + Adicionar card
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {sendMode === 'EXTERNAL_PIX' && (
+                <div className="space-y-4 rounded-2xl border-2 border-amber-200 bg-amber-50/80 p-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Título (opcional)</label>
+                      <input
+                        value={externalPixTitle}
+                        onChange={(e) => setExternalPixTitle(e.target.value)}
+                        placeholder="Ex: Pagamento da mensalidade"
+                        className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-amber-400 outline-none text-sm bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Valor (R$) *</label>
+                      <input
+                        value={externalPixAmount}
+                        onChange={(e) => setExternalPixAmount(e.target.value)}
+                        placeholder="0,00"
+                        className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-amber-400 outline-none text-sm bg-white"
+                        inputMode="decimal"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Mensagem *</label>
+                    <textarea
+                      rows={2}
+                      value={externalPixText}
+                      onChange={(e) => setExternalPixText(e.target.value)}
+                      placeholder="Ex: Segue a cobrança da mensalidade."
+                      className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-amber-400 outline-none text-sm resize-none bg-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Tipo de chave PIX</label>
+                      <select
+                        value={externalPixType}
+                        onChange={(e) => setExternalPixType(e.target.value as DispatchExternalPixType)}
+                        className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 outline-none text-sm font-semibold bg-white"
+                      >
+                        <option value="EVP">Chave aleatória (EVP)</option>
+                        <option value="CPF">CPF</option>
+                        <option value="CNPJ">CNPJ</option>
+                        <option value="PHONE">Telefone</option>
+                        <option value="EMAIL">E-mail</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Chave PIX</label>
+                      <input
+                        value={externalPixKey}
+                        onChange={(e) => setExternalPixKey(e.target.value)}
+                        placeholder="Informe a chave"
+                        className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-amber-400 outline-none text-sm bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Nome do recebedor</label>
+                      <input
+                        value={externalPixName}
+                        onChange={(e) => setExternalPixName(e.target.value)}
+                        placeholder="Ex: Cantina Smart"
+                        className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-amber-400 outline-none text-sm bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Rodapé (opcional)</label>
+                      <input
+                        value={externalPixFooter}
+                        onChange={(e) => setExternalPixFooter(e.target.value)}
+                        placeholder="Ex: Obrigado!"
+                        className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-amber-400 outline-none text-sm bg-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {sendMode === 'TEXT_AND_UPLOAD_FILE' && (
+                <label className="space-y-1 block order-2">
+                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Arquivo para envio</span>
                   <input
                     type="file"
-                    accept="application/pdf"
+                    accept="*/*"
                     onChange={(e) => {
                       const file = e.target.files?.[0] || null;
                       handleUploadPdfSelected(file);
@@ -1997,16 +2896,16 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
                     className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                   />
                   {uploadedPdfAttachment?.fileName && (
-                    <p className="text-xs font-semibold text-orange-700">PDF selecionado: {uploadedPdfAttachment.fileName}</p>
+                    <p className="text-xs font-semibold text-orange-700">Arquivo selecionado: {uploadedPdfAttachment.fileName}</p>
                   )}
                 </label>
               )}
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white/90 p-3.5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900/70">
-              <p className="text-[11px] font-black uppercase tracking-[0.16em] text-orange-700 dark:text-orange-300">FREQUENCY</p>
+              <p className="text-[11px] font-black uppercase tracking-[0.16em] text-orange-700 dark:text-orange-300">FREQUÊNCIA</p>
               <label className="space-y-1 block">
-                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Frequência / período</span>
+                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">FrequÃªncia / perÃ­odo</span>
                 <select
                   value={periodMode}
                   onChange={(e) => setPeriodMode(e.target.value as DispatchPeriodMode)}
@@ -2019,12 +2918,85 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
                 </select>
               </label>
 
+              {isSemanalMode && (
+                <div className="rounded-xl border border-orange-200 bg-orange-50 px-3 py-3 space-y-3">
+                  <p className="text-[11px] font-black uppercase tracking-widest text-orange-700">Dias da semana</p>
+                  <div className="flex flex-wrap gap-2">
+                    {DISPATCH_WEEKDAYS.map((day) => {
+                      const active = weeklyDispatchDays.includes(day);
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() => toggleWeeklyDispatchDay(day)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-black border transition ${
+                            active
+                              ? 'border-orange-500 bg-orange-600 text-white'
+                              : 'border-orange-200 bg-white text-orange-700 hover:bg-orange-100'
+                          }`}
+                        >
+                          {WEEKDAY_SHORT_LABEL[day]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <label className="space-y-1 block">
+                    <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Hora do disparo semanal</span>
+                    <input
+                      type="time"
+                      value={weeklyDispatchTime}
+                      onChange={(e) => setWeeklyDispatchTime(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                    />
+                  </label>
+                </div>
+              )}
+
+              {isMensalMode && (
+                <div className="rounded-xl border border-orange-200 bg-orange-50 px-3 py-3 space-y-3">
+                  <label className="space-y-1 block">
+                    <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Janela mensal</span>
+                    <select
+                      value={monthlyWindowMode}
+                      onChange={(e) => setMonthlyWindowMode(e.target.value as DispatchMonthlyWindowMode)}
+                      className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                    >
+                      <option value="ROLLING_30_DAYS">Data de referência (30 dias)</option>
+                      <option value="CURRENT_MONTH">Mês atual (até 30 dias)</option>
+                    </select>
+                  </label>
+
+                  {monthlyWindowMode === 'ROLLING_30_DAYS' && (
+                    <label className="space-y-1 block">
+                      <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Data de referência</span>
+                      <input
+                        type="date"
+                        min={monthlyReferenceMinDate}
+                        max={monthlyReferenceMaxDate}
+                        value={monthlyReferenceDate}
+                        onChange={(e) => setMonthlyReferenceDate(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                      />
+                      <p className="text-xs font-semibold text-orange-700">
+                        Escolha de hoje até 30 dias para trás.
+                      </p>
+                    </label>
+                  )}
+                </div>
+              )}
+
               <div className="rounded-xl border border-orange-200 bg-orange-50 px-3 py-2">
                 <p className="text-[11px] font-black uppercase tracking-widest text-orange-700">Regra aplicada</p>
                 <p className="text-sm font-semibold text-orange-900">
                   {isDestaSemanaMode
-                    ? `Disparo semanal em ${selectedWeeklyDispatchMeta?.label || 'dia ativo'} às ${isValidTimeValue(weeklyDispatchTime) ? weeklyDispatchTime : DEFAULT_WEEKLY_TIME}`
-                    : 'Período corrido por datas'}
+                    ? `Disparo semanal em ${selectedWeeklyDispatchMeta?.label || 'dia ativo'} Ã s ${isValidTimeValue(weeklyDispatchTime) ? weeklyDispatchTime : DEFAULT_WEEKLY_TIME}`
+                    : isSemanalMode
+                      ? `Disparo semanal em ${weeklyDispatchDaysLabel || 'SEG'} Ã s ${isValidTimeValue(weeklyDispatchTime) ? weeklyDispatchTime : DEFAULT_WEEKLY_TIME}`
+                      : isMensalMode
+                        ? (monthlyWindowMode === 'CURRENT_MONTH'
+                          ? 'Período mensal: mês atual (até 30 dias).'
+                          : `Período mensal com referência em ${monthlyReferenceDate}.`)
+                    : 'PerÃ­odo corrido por datas'}
                 </p>
                 {isDestaSemanaMode && (
                   <p className="mt-1 text-xs font-semibold text-orange-700">
@@ -2034,7 +3006,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
               </div>
 
               <div className="rounded-xl border border-orange-200 bg-orange-50 px-3 py-2">
-                <p className="text-[11px] font-black uppercase tracking-widest text-orange-700">Período calculado</p>
+                <p className="text-[11px] font-black uppercase tracking-widest text-orange-700">PerÃ­odo calculado</p>
                 <p className="text-sm font-semibold text-orange-800">{periodLabel || 'Aguardando carregamento...'}</p>
                 {periodInfo && (
                   <p className="mt-1 text-xs font-semibold text-orange-700">{periodInfo}</p>
@@ -2057,7 +3029,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
                         <option key={day.key} value={day.key}>{day.label}</option>
                       ))}
                     </select>
-                    <p className="text-xs font-semibold text-orange-700">Dias disponíveis conforme Ajustes &gt; Atendimento.</p>
+                    <p className="text-xs font-semibold text-orange-700">Dias disponÃ­veis conforme Ajustes &gt; Atendimento.</p>
                   </label>
 
                   <label className="space-y-1 block">
@@ -2068,7 +3040,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
                       onChange={(e) => setWeeklyDispatchTime(e.target.value)}
                       className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                     />
-                    <p className="text-xs font-semibold text-orange-700">Esse dia e horário serão usados para o disparo recorrente semanal.</p>
+                    <p className="text-xs font-semibold text-orange-700">Esse dia e horÃ¡rio serÃ£o usados para o disparo recorrente semanal.</p>
                   </label>
                 </div>
               </div>
@@ -2117,15 +3089,15 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
                 checked={isSimulation}
                 onChange={(e) => setIsSimulation(e.target.checked)}
               />
-              Modo Simulação (não envia para WhatsApp)
+              Modo SimulaÃ§Ã£o (nÃ£o envia para WhatsApp)
             </label>
           </div>
 
           <div className="space-y-3">
             <div className="space-y-2">
-              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Prévia da mensagem</p>
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">PrÃ©via da mensagem</p>
               <label className="space-y-1 block">
-                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Contato de prévia</span>
+                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Contato de prÃ©via</span>
                 <input
                   type="text"
                   value={previewContactSearch}
@@ -2138,27 +3110,42 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
                   onChange={(e) => setUsuarioSelecionadoId(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                 >
-                  {previewRecipients.length === 0 && <option value="">Sem destinatários</option>}
+                  {previewRecipients.length === 0 && <option value="">Sem destinatÃ¡rios</option>}
                   {previewRecipients.map((item) => (
                     <option key={item.id} value={item.id}>
-                      {item.nome} ({item.tipo === 'RESPONSAVEL' ? 'Responsável' : 'Colaborador'})
+                      {item.nome} ({item.tipo === 'RESPONSAVEL' ? 'ResponsÃ¡vel' : 'Colaborador'})
                     </option>
                   ))}
                 </select>
               </label>
-              <WhatsAppMassPreview nome={previewName} mensagem={previewText} />
+              <WhatsAppMassPreview
+                nome={previewName}
+                mensagem={previewText}
+                sendMode={sendMode}
+                uploadedAttachment={sendMode === 'TEXT_AND_UPLOAD_FILE' ? uploadedPdfAttachment : null}
+                externalChoices={externalChoices}
+                externalListButton={externalListButton}
+                externalSelectableCount={externalSelectableCount}
+                externalCarouselCards={externalCarouselCards}
+                externalPixTitle={externalPixTitle}
+                externalPixFooter={externalPixFooter}
+                externalPixKey={externalPixKey}
+                externalPixType={externalPixType}
+                externalPixName={externalPixName}
+                externalPixAmount={externalPixAmount}
+              />
             </div>
 
             <div className="rounded-2xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
-              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Resumo da audiência</p>
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Resumo da audiÃªncia</p>
               <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-zinc-200">
                 <Users size={14} />
-                {isLoadingRecipients ? 'Carregando destinatários...' : `${recipients.length} destinatário(s) elegível(eis)`}
+                {isLoadingRecipients ? 'Carregando destinatÃ¡rios...' : `${recipients.length} destinatÃ¡rio(s) elegÃ­vel(eis)`}
               </div>
               {!isLoadingRecipients && (
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <div className="rounded-lg border border-orange-200 dark:border-orange-900/40 bg-orange-50 dark:bg-orange-950/30 px-2.5 py-2">
-                    <p className="text-[11px] font-black uppercase tracking-widest text-orange-700 dark:text-orange-300">Responsáveis</p>
+                    <p className="text-[11px] font-black uppercase tracking-widest text-orange-700 dark:text-orange-300">ResponsÃ¡veis</p>
                     <p className="text-sm font-black text-orange-900 dark:text-orange-200">{audienceCounters.responsaveis}</p>
                   </div>
                   <div className="rounded-lg border border-emerald-100 dark:border-emerald-900/40 bg-emerald-50 dark:bg-emerald-950/30 px-2.5 py-2">
@@ -2169,14 +3156,14 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
               )}
               {!isLoadingRecipients && recipients.length > batchLimit && (
                 <p className="mt-2 text-xs font-bold text-amber-700">
-                  Serão processados apenas os primeiros {Math.max(1, Math.min(50, batchLimit))} contatos neste lote.
+                  SerÃ£o processados apenas os primeiros {Math.max(1, Math.min(50, batchLimit))} contatos neste lote.
                 </p>
               )}
             </div>
 
             {usuarioSelecionado?.report && (
               <div className="rounded-2xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
-                <p className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Prévia do relatório</p>
+                <p className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">PrÃ©via do relatÃ³rio</p>
                 <p className="mt-1 text-sm font-black text-slate-900 dark:text-zinc-100">{usuarioSelecionado.report.title}</p>
                 <p className="text-xs font-semibold text-slate-600 dark:text-zinc-300">{usuarioSelecionado.report.periodLabel}</p>
                 <button
@@ -2187,13 +3174,13 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
                   Visualizar modelo em PDF
                 </button>
                 <p className="mt-2 text-xs font-semibold text-slate-500 dark:text-zinc-400">
-                  {usuarioSelecionado.report.rows.length} linha(s) para o relatório deste contato.
+                  {usuarioSelecionado.report.rows.length} linha(s) para o relatÃ³rio deste contato.
                 </p>
                 {usuarioSelecionado.report.rows.length > 0 && (
                   <ul className="mt-2 space-y-1">
                     {usuarioSelecionado.report.rows.slice(0, 3).map((row, idx) => (
                       <li key={`${row.alunoNome}_${row.data}_${idx}`} className="text-xs font-semibold text-slate-700 dark:text-zinc-200">
-                        {row.data} • {row.alunoNome} • {row.item} • {row.valor}
+                        {row.data} â€¢ {row.alunoNome} â€¢ {row.item} â€¢ {row.valor}
                       </li>
                     ))}
                   </ul>
@@ -2253,7 +3240,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
                   <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Perfil</th>
                   <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Telefone</th>
                   <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Status</th>
-                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Horário</th>
+                  <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">HorÃ¡rio</th>
                   <th className="py-2 pr-4 text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Detalhe</th>
                 </tr>
               </thead>
@@ -2269,7 +3256,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
                           ? 'bg-emerald-50 text-emerald-700'
                           : log.status === 'Simulado'
                             ? 'bg-orange-50 text-orange-700'
-                            : log.status === 'Inválido'
+                            : log.status === 'InvÃ¡lido'
                               ? 'bg-amber-50 text-amber-700'
                               : 'bg-rose-50 text-rose-700'
                       }`}>
@@ -2320,3 +3307,8 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
 };
 
 export default DisparoEmMassa;
+export { DisparoEmMassa };
+
+
+
+
