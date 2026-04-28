@@ -14,11 +14,10 @@ import {
 import { ApiService } from '../services/api';
 import UnitSalesTransactionsPage from './UnitSalesTransactionsPage';
 import { Client, Product, SaleItem, PaymentMethod, PaymentEntry, SuspendedSale, Role, User as UserType, Enterprise, TransactionRecord, Plan } from '../types';
-import { resolveApiAssetBaseUrl } from '../utils/apiBaseUrl';
 import { resolveUserAvatar } from '../utils/avatar';
 import { extractSchoolCalendarOperationalData } from '../utils/schoolCalendar';
 
-const API_BASE_URL = resolveApiAssetBaseUrl();
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace(/\/api\/?$/, '');
 const toAbsoluteProductImageUrl = (imageUrl?: string, productName?: string) => {
   if (imageUrl && /^https?:\/\//i.test(imageUrl)) return imageUrl;
   if (imageUrl && imageUrl.startsWith('/products_photos/')) return `${API_BASE_URL}${imageUrl}`;
@@ -529,14 +528,6 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       setSelectedClient(freshClient);
     }
     return freshClient;
-  };
-
-  const refreshTransactionsInPOS = async () => {
-    if (!activeEnterpriseId) return [] as any[];
-    const freshTransactions = await ApiService.getTransactions({ enterpriseId: activeEnterpriseId });
-    const normalizedTransactions = Array.isArray(freshTransactions) ? freshTransactions : [];
-    setPosTransactions(normalizedTransactions);
-    return normalizedTransactions;
   };
   const [quickClientForm, setQuickClientForm] = useState<{
     type: 'ALUNO' | 'COLABORADOR';
@@ -3024,11 +3015,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       }
 
       if (createdTransactions.length > 0) {
-        await refreshTransactionsInPOS();
-      }
-
-      if (selectedClient?.id) {
-        updatedSelectedClient = await refreshClientInPOS(selectedClient.id);
+        setPosTransactions(prev => [...createdTransactions, ...prev]);
       }
       
       // Registrar transação

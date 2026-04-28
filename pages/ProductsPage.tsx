@@ -8,14 +8,13 @@ import {
 import { ApiService } from '../services/api';
 import notificationService from '../services/notificationService';
 import { Product, User, Enterprise, Role, Category, ProductUnit } from '../types';
-import { resolveApiAssetBaseUrl } from '../utils/apiBaseUrl';
 
 interface ProductsPageProps {
   currentUser: User;
   activeEnterprise: Enterprise | null;
 }
 
-const API_BASE_URL = resolveApiAssetBaseUrl();
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace(/\/api\/?$/, '');
 
 const toAbsoluteProductImageUrl = (imageUrl?: string, productName?: string) => {
   if (imageUrl && /^https?:\/\//i.test(imageUrl)) return imageUrl;

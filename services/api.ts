@@ -1,6 +1,4 @@
-import { resolveApiBaseUrl } from '../utils/apiBaseUrl';
-
-const API_URL = resolveApiBaseUrl();
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 export class ApiService {
   private static token: string | null = null;
@@ -1343,7 +1341,8 @@ export class ApiService {
       body: JSON.stringify(backupData),
     });
     if (!response.ok) {
-      throw new Error(await this.readErrorMessage(response, 'Falha ao restaurar backup da database'));
+      const errorText = await response.text();
+      throw new Error(errorText || 'Falha ao restaurar backup da database');
     }
     return response.json();
   }
@@ -1645,8 +1644,6 @@ export class ApiService {
     profileType?: 'RESPONSAVEL_PARENTESCO' | 'COLABORADOR';
     periodMode?: 'SEMANAL' | 'QUINZENAL' | 'MENSAL' | 'DESTA_SEMANA';
     businessDaysOnly?: boolean;
-    monthlyWindowMode?: 'ROLLING_30_DAYS' | 'CURRENT_MONTH';
-    monthlyReferenceDate?: string;
   }) {
     const qs = new URLSearchParams({
       enterpriseId: String(params.enterpriseId || ''),
@@ -1655,12 +1652,6 @@ export class ApiService {
       periodMode: String(params.periodMode || 'SEMANAL'),
       businessDaysOnly: String(Boolean(params.businessDaysOnly)),
     });
-    if (String(params.monthlyWindowMode || '').trim()) {
-      qs.set('monthlyWindowMode', String(params.monthlyWindowMode || '').trim());
-    }
-    if (String(params.monthlyReferenceDate || '').trim()) {
-      qs.set('monthlyReferenceDate', String(params.monthlyReferenceDate || '').trim());
-    }
     const response = await fetch(`${API_URL}/whatsapp/dispatch/audience?${qs.toString()}`, {
       headers: this.getHeaders(),
     });

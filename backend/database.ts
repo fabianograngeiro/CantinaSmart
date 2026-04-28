@@ -27,7 +27,6 @@ const DATABASE_FILE = path.resolve(
   || path.join(DATA_DIR, 'database.json')
 );
 const LEGACY_DATABASE_FILE = path.join(LEGACY_DATA_DIR, 'database.json');
-export const getDatabaseFilePath = () => DATABASE_FILE;
 const CURRENT_SCHEMA_VERSION = 2;
 const NATIVE_INGREDIENT_CATEGORIES = ['Proteinas', 'Carboidratos', 'Legumes', 'Verduras', 'Frutas', 'Laticinios', 'Bebidas', 'Outros'];
 

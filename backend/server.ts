@@ -32,7 +32,6 @@ import { whatsappSession } from './utils/whatsappSession.js';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3001;
-const API_BODY_LIMIT = process.env.API_BODY_LIMIT || '100mb';
 
 const resolveFrontendDistPath = () => {
   const currentDir = path.basename(__dirname);
@@ -60,7 +59,7 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
-app.use(express.json({ limit: API_BODY_LIMIT }));
+app.use(express.json({ limit: '10mb' }));
 
 // Logging middleware
 app.use((req, res, next) => {
@@ -110,17 +109,6 @@ app.get('*', (req, res, next) => {
   if (req.path.startsWith('/products_photos')) return next();
   if (req.path.startsWith('/clients_photos')) return next();
   return res.sendFile(path.join(frontendDistPath, 'index.html'));
-});
-
-app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if (err?.type === 'entity.too.large') {
-    return res.status(413).json({
-      success: false,
-      message: 'Arquivo de backup muito grande para envio.',
-      error: `O arquivo excede o limite atual da API (${API_BODY_LIMIT}).`,
-    });
-  }
-  return next(err);
 });
 
 // Start server

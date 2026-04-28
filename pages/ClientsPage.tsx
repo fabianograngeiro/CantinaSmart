@@ -16,7 +16,6 @@ import ApiService from '../services/api';
 import { formatPhoneWithFlag } from '../utils/phone';
 import { extractSchoolCalendarOperationalData } from '../utils/schoolCalendar';
 import { buildEnterpriseLogoHtml, drawEnterpriseLogoOnPdf } from '../utils/enterpriseBranding';
-import { resolveApiAssetBaseUrl } from '../utils/apiBaseUrl';
 
 interface ClientsPageProps {
   currentUser: User;
@@ -103,7 +102,7 @@ const formatDateKeyBr = (dateKey?: string) => {
   return `${match[3]}/${match[2]}/${match[1]}`;
 };
 
-const API_BASE_URL = resolveApiAssetBaseUrl();
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace(/\/api\/?$/, '');
 
 const COUNTRY_OPTIONS = [
   { code: '55', label: 'Brasil', dial: '+55' },
@@ -325,16 +324,6 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     if (String(rechargingClient?.id || '') === clientId) setRechargingClient(freshClient);
     if (String(editingClient?.id || '') === clientId) setEditingClient(freshClient);
     return freshClient;
-  };
-
-  const reloadTransactionsSnapshot = async (enterpriseIdOverride?: string) => {
-    const normalizedEnterpriseId = String(enterpriseIdOverride || '').trim();
-    const freshTransactions = isSystemWideAdmin
-      ? await ApiService.getTransactions()
-      : await ApiService.getTransactions({ enterpriseId: normalizedEnterpriseId || activeEnterpriseId });
-    const normalizedTransactions = Array.isArray(freshTransactions) ? freshTransactions : [];
-    setTransactions(normalizedTransactions);
-    return normalizedTransactions;
   };
 
   useEffect(() => {
@@ -2839,7 +2828,7 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       }, {
         expectedUpdatedAt: String((rechargingClient as any)?.updatedAt || '').trim() || undefined,
       });
-      await ApiService.createTransaction({
+      const createdTransaction = await ApiService.createTransaction({
         clientId: rechargingClient.id,
         clientName: rechargingClient.name,
         enterpriseId: rechargingClient.enterpriseId,
@@ -2864,9 +2853,8 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
           return selectedPayer ? { payerResponsibleId: selectedPayer.id, payerResponsibleName: selectedPayer.parentName } : {};
         })()),
       });
-      const refreshedClient = await reloadClientSnapshot(rechargingClient.id);
-      await reloadTransactionsSnapshot(String(rechargingClient.enterpriseId || '').trim());
-      setClients(prev => prev.map(c => c.id === rechargingClient.id ? refreshedClient : updated));
+      setTransactions(prev => [createdTransaction, ...prev]);
+      setClients(prev => prev.map(c => c.id === rechargingClient.id ? updated : c));
       setIsRechargeModalOpen(false);
       setRechargingClient(null);
       setRechargePayerResponsibleId('');

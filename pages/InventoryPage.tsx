@@ -10,14 +10,13 @@ import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import { ApiService } from '../services/api';
 import { Product, ProductCategory, User, Enterprise, Role } from '../types';
-import { resolveApiAssetBaseUrl } from '../utils/apiBaseUrl';
 
 interface InventoryPageProps {
   currentUser: User;
   activeEnterprise: Enterprise;
 }
 
-const API_BASE_URL = resolveApiAssetBaseUrl();
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace(/\/api\/?$/, '');
 const toAbsoluteProductImageUrl = (imageUrl?: string, productName?: string) => {
   if (imageUrl && /^https?:\/\//i.test(imageUrl)) return imageUrl;
   if (imageUrl && imageUrl.startsWith('/products_photos/')) return `${API_BASE_URL}${imageUrl}`;

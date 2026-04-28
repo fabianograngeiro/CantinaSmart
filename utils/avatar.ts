@@ -1,6 +1,4 @@
-import { resolveApiAssetBaseUrl } from './apiBaseUrl';
-
-const API_BASE_URL = resolveApiAssetBaseUrl();
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace(/\/api\/?$/, '');
 
 export const resolveUserAvatar = (avatar?: string, userName?: string) => {
   const fallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(userName || 'User')}&background=4f46e5&color=fff&bold=true`;
