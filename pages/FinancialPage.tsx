@@ -25,7 +25,6 @@ import { drawEnterpriseLogoOnPdf } from '../utils/enterpriseBranding';
 type TimeFilter = 'TODAY' | 'MONTH' | 'YEAR' | 'DATE';
 type EntryType = 'RECEITA' | 'DESPESA';
 type FinancialSectionTab = 'PENDING' | 'REMINDERS' | 'LAUNCHES' | 'AUDIT';
-type PaymentMethodViewFilter = 'ALL' | 'CORE';
 
 type FinancialTx = {
   id: string;
@@ -50,6 +49,7 @@ type FinancialTx = {
   isAudit?: boolean;
   auditedItemType?: 'ITEM' | 'PLANO';
   auditedQuantity?: number;
+  items?: Array<{ name: string; quantity: number; unitPrice?: number; subtotal?: number }>;
 };
 
 interface FinancialPageProps {
@@ -235,6 +235,16 @@ const mapRawTransactionToFinancial = (tx: any): FinancialTx | null => {
       isAudit: true,
       auditedItemType: inferAuditItemType(tx),
       auditedQuantity: normalizedQuantity,
+      items: Array.isArray(tx?.items) ? tx.items.map((i: any) => ({
+        name: String(i?.name || i?.productName || ''),
+        quantity: Number(i?.quantity || 0),
+        unitPrice: i?.unitPrice != null && i?.unitPrice !== ''
+          ? Number(i.unitPrice)
+          : (i?.price != null && i?.price !== '' ? Number(i.price) : undefined),
+        subtotal: i?.total != null && i?.total !== ''
+          ? Number(i.total)
+          : (i?.subtotal != null && i?.subtotal !== '' ? Number(i.subtotal) : undefined),
+      })) : undefined,
     };
   }
 
@@ -260,6 +270,16 @@ const mapRawTransactionToFinancial = (tx: any): FinancialTx | null => {
       payerResponsibleId: String(tx?.payerResponsibleId || '').trim() || undefined,
       payerResponsibleName: String(tx?.payerResponsibleName || '').trim() || undefined,
       isAudit: false,
+      items: Array.isArray(tx?.items) ? tx.items.map((i: any) => ({
+        name: String(i?.name || i?.productName || ''),
+        quantity: Number(i?.quantity || 0),
+        unitPrice: i?.unitPrice != null && i?.unitPrice !== ''
+          ? Number(i.unitPrice)
+          : (i?.price != null && i?.price !== '' ? Number(i.price) : undefined),
+        subtotal: i?.total != null && i?.total !== ''
+          ? Number(i.total)
+          : (i?.subtotal != null && i?.subtotal !== '' ? Number(i.subtotal) : undefined),
+      })) : undefined,
     };
   }
 
@@ -288,6 +308,16 @@ const mapRawTransactionToFinancial = (tx: any): FinancialTx | null => {
       payerResponsibleId: String(tx?.payerResponsibleId || '').trim() || undefined,
       payerResponsibleName: String(tx?.payerResponsibleName || '').trim() || undefined,
       isAudit: false,
+      items: Array.isArray(tx?.items) ? tx.items.map((i: any) => ({
+        name: String(i?.name || i?.productName || ''),
+        quantity: Number(i?.quantity || 0),
+        unitPrice: i?.unitPrice != null && i?.unitPrice !== ''
+          ? Number(i.unitPrice)
+          : (i?.price != null && i?.price !== '' ? Number(i.price) : undefined),
+        subtotal: i?.total != null && i?.total !== ''
+          ? Number(i.total)
+          : (i?.subtotal != null && i?.subtotal !== '' ? Number(i.subtotal) : undefined),
+      })) : undefined,
     };
   }
 
@@ -306,16 +336,17 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
   const [launchTimeFilter, setLaunchTimeFilter] = useState<TimeFilter>('TODAY');
   const [launchSpecificDate, setLaunchSpecificDate] = useState(toLocalDateKey(new Date()));
   const [launchTypeFilter, setLaunchTypeFilter] = useState<'ALL' | 'RECEITA' | 'DESPESA'>('ALL');
+  const [launchPaymentMethodFilter, setLaunchPaymentMethodFilter] = useState('ALL');
   const [launchSearch, setLaunchSearch] = useState('');
   const [auditTimeFilter, setAuditTimeFilter] = useState<TimeFilter>('TODAY');
   const [auditSpecificDate, setAuditSpecificDate] = useState(toLocalDateKey(new Date()));
   const [auditSearch, setAuditSearch] = useState('');
   const [activeSectionTab, setActiveSectionTab] = useState<FinancialSectionTab>('PENDING');
-  const [paymentMethodViewFilter, setPaymentMethodViewFilter] = useState<PaymentMethodViewFilter>('ALL');
   const [selectedPendingClientIds, setSelectedPendingClientIds] = useState<string[]>([]);
   const [transactions, setTransactions] = useState<FinancialTx[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [detailTx, setDetailTx] = useState<FinancialTx | null>(null);
   const canHardDeleteTransactions = useMemo(() => {
     const role = normalizeUpper(currentUser?.role);
     return role === 'SUPERADMIN' || role === 'ADMIN_SISTEMA';
@@ -389,6 +420,24 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
 
   const availableCategories = entryType === 'RECEITA' ? revenueCategories : expenseCategories;
 
+  const clientById = useMemo(() => {
+    const map = new Map<string, { registrationId: string; name: string }>();
+    (Array.isArray(clients) ? clients : []).forEach((c) => {
+      if (c?.id) map.set(String(c.id), { registrationId: String(c.registrationId || ''), name: String(c.name || '') });
+    });
+    return map;
+  }, [clients]);
+
+  const getClientShortDisplay = (tx: FinancialTx): string => {
+    const rawClientId = String((tx as any).raw?.clientId || '').trim();
+    const found = rawClientId ? clientById.get(rawClientId) : undefined;
+    const name = found?.name || tx.client || '';
+    const regId = found?.registrationId || '';
+    const parts = name.trim().split(/\s+/).slice(0, 2).join(' ');
+    if (!parts) return '-';
+    return regId ? `${regId} - ${parts}` : parts;
+  };
+
   useEffect(() => {
     if (!selectedCategory && availableCategories.length > 0) {
       setSelectedCategory(availableCategories[0]);
@@ -444,19 +493,24 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
     };
   }, [summaryTransactions]);
 
-  const paymentMethodVisibleReport = useMemo(() => {
-    const coreMethods = new Set(['PIX', 'DINHEIRO', 'CARTAO DEBITO', 'CARTAO CREDITO']);
-    const rows = paymentMethodViewFilter === 'CORE'
-      ? paymentMethodReport.rows.filter((row) => coreMethods.has(row.method))
-      : paymentMethodReport.rows;
+  const launchPaymentMethodOptions = useMemo(() => {
+    const periodList = filterTransactionsByPeriod(transactions, launchTimeFilter, launchSpecificDate)
+      .filter((tx) => !tx.isAudit)
+      .filter((tx) => launchTypeFilter === 'ALL' || tx.type === launchTypeFilter);
 
-    const totalReceived = rows.reduce((sum, row) => sum + row.total, 0);
+    const methods = new Set<string>();
+    periodList.forEach((tx) => {
+      splitPaymentMethods(tx.method).forEach((method) => methods.add(method));
+    });
 
-    return {
-      rows,
-      totalReceived,
-    };
-  }, [paymentMethodReport, paymentMethodViewFilter]);
+    return Array.from(methods).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [transactions, launchTimeFilter, launchSpecificDate, launchTypeFilter]);
+
+  useEffect(() => {
+    if (launchPaymentMethodFilter === 'ALL') return;
+    if (launchPaymentMethodOptions.includes(launchPaymentMethodFilter)) return;
+    setLaunchPaymentMethodFilter('ALL');
+  }, [launchPaymentMethodOptions, launchPaymentMethodFilter]);
 
   const pendingClients = useMemo(() => {
     return clients
@@ -587,11 +641,13 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
     return periodList.filter((tx) => {
       if (tx.isAudit) return false;
       const matchesType = launchTypeFilter === 'ALL' || tx.type === launchTypeFilter;
+      const paymentTokens = splitPaymentMethods(tx.method);
+      const matchesPaymentMethod = launchPaymentMethodFilter === 'ALL' || paymentTokens.includes(launchPaymentMethodFilter);
       const matchesSearch = !term
-        || normalizeUpper(`${tx.description} ${tx.category} ${tx.client} ${tx.payerResponsibleName || ''}`).includes(term);
-      return matchesType && matchesSearch;
+        || normalizeUpper(`${tx.description} ${tx.category} ${tx.client} ${tx.payerResponsibleName || ''} ${tx.method || ''}`).includes(term);
+      return matchesType && matchesPaymentMethod && matchesSearch;
     });
-  }, [transactions, launchTimeFilter, launchSpecificDate, launchTypeFilter, launchSearch]);
+  }, [transactions, launchTimeFilter, launchSpecificDate, launchTypeFilter, launchPaymentMethodFilter, launchSearch]);
 
   const filteredAuditTransactions = useMemo(() => {
     const periodList = filterTransactionsByPeriod(transactions, auditTimeFilter, auditSpecificDate);
@@ -787,19 +843,55 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
     }
   };
 
+  const resolveCurrentCreditLabel = (tx: FinancialTx) => {
+    const isCantinaCredit = normalizeUpper(tx.category).includes('CREDITO CANTINA');
+    const isPlanCredit = normalizeUpper(tx.category).includes('CREDITO PLANO');
+    if (!isCantinaCredit && !isPlanCredit) return '-';
+
+    const clientId = String((tx as any).raw?.clientId || '').trim();
+    const client = (Array.isArray(clients) ? clients : []).find((item) => {
+      if (clientId && String(item?.id || '').trim() === clientId) return true;
+      return normalizeUpper(item?.name) === normalizeUpper(tx.client);
+    });
+    if (!client) return '-';
+
+    if (isCantinaCredit) {
+      const wallet = Number(client.balance || 0);
+      return `Cantina: R$ ${Number.isFinite(wallet) ? wallet.toFixed(2) : '0.00'}`;
+    }
+
+    const planId = String((tx as any).raw?.planId || '').trim();
+    const balances = (client as any)?.planCreditBalances && typeof (client as any).planCreditBalances === 'object'
+      ? Object.values((client as any).planCreditBalances)
+      : [];
+
+    let planBalance = 0;
+    if (planId) {
+      const found = (Array.isArray(balances) ? balances : []).find((entry: any) => String(entry?.planId || '').trim() === planId);
+      planBalance = Number(found?.balance || 0);
+    } else {
+      planBalance = (Array.isArray(balances) ? balances : []).reduce((sum: number, entry: any) => {
+        return sum + Number(entry?.balance || 0);
+      }, 0);
+    }
+
+    return `Plano: R$ ${Number.isFinite(planBalance) ? planBalance.toFixed(2) : '0.00'}`;
+  };
+
   const exportToCSV = () => {
-    const headers = ['ID', 'Data', 'Hora', 'Tipo', 'Categoria', 'Descrição', 'Responsável Pagante', 'Quantidade', 'Valor Unitário', 'Valor Total', 'Vencimento', 'Lembrete', 'Referência'];
+    const headers = ['ID', 'Data', 'Hora', 'Responsável Pagante', 'Aluno', 'Descrição', 'Categoria', 'Tipo', 'Forma de Pagamento', 'Valor Total', 'Crédito Atual', 'Vencimento', 'Lembrete', 'Referência'];
     const rows = filteredLaunchTransactions.map((tx) => [
       tx.id,
       tx.date,
       tx.time,
-      tx.type,
-      tx.category,
-      tx.description,
       tx.payerResponsibleName || '',
-      tx.quantity.toString(),
-      tx.unitPrice.toFixed(2),
+      getClientShortDisplay(tx),
+      normalizeUpper(tx.category).includes('VENDA AVULSA PDV') ? 'COMPRA PDV' : tx.description,
+      tx.category,
+      tx.type,
+      tx.method || '',
       tx.amount.toFixed(2),
+      resolveCurrentCreditLabel(tx),
       tx.dueDate || '',
       tx.reminderDate || '',
       tx.monthReference || ''
@@ -828,16 +920,17 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
     doc.text(`Receita: R$ ${totalRevenue.toFixed(2)} | Despesa: R$ ${totalExpense.toFixed(2)} | Lucro: R$ ${netProfit.toFixed(2)}`, leftStartX, 28);
 
     autoTable(doc, {
-      head: [['Data', 'Tipo', 'Categoria', 'Descrição', 'Responsável Pagante', 'Qtd', 'Unitário', 'Total', 'Vencimento', 'Lembrete']],
+      head: [['Data', 'Responsável Pagante', 'Aluno', 'Descrição', 'Categoria', 'Tipo', 'Forma Pagamento', 'Total', 'Crédito Atual', 'Vencimento', 'Lembrete']],
       body: filteredLaunchTransactions.map((tx) => [
         `${formatDateBr(tx.date)} ${tx.time}`,
-        tx.type,
-        tx.category,
-        tx.description,
         tx.payerResponsibleName || '-',
-        String(tx.quantity),
-        `R$ ${tx.unitPrice.toFixed(2)}`,
+        getClientShortDisplay(tx),
+        normalizeUpper(tx.category).includes('VENDA AVULSA PDV') ? 'COMPRA PDV' : tx.description,
+        tx.category,
+        tx.type,
+        tx.method || '-',
         `R$ ${tx.amount.toFixed(2)}`,
+        resolveCurrentCreditLabel(tx),
         tx.dueDate ? formatDateBr(tx.dueDate) : '-',
         tx.reminderDate ? `${formatDateBr(tx.reminderDate)} ${tx.monthReference ? `(${tx.monthReference})` : ''}` : '-'
       ]),
@@ -850,7 +943,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
     autoTable(doc, {
       startY: nextStartY,
       head: [['Forma de Pagamento', 'Total Recebido', 'Participação']],
-      body: paymentMethodVisibleReport.rows.map((row) => [
+      body: paymentMethodReport.rows.map((row) => [
         row.method,
         `R$ ${row.total.toFixed(2)}`,
         `${row.percentage.toFixed(1)}%`
@@ -935,39 +1028,19 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
             <CreditCard size={14} className="text-indigo-500" /> Relatório de Formas de Pagamento (Recebido)
           </h3>
           <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => setPaymentMethodViewFilter('ALL')}
-              className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${
-                paymentMethodViewFilter === 'ALL'
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              Todos
-            </button>
-            <button
-              onClick={() => setPaymentMethodViewFilter('CORE')}
-              className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${
-                paymentMethodViewFilter === 'CORE'
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              Pix/Dinheiro/Cartão
-            </button>
             <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg">
-              Total recebido: R$ {paymentMethodVisibleReport.totalReceived.toFixed(2)}
+              Total recebido: R$ {paymentMethodReport.totalReceived.toFixed(2)}
             </span>
           </div>
         </div>
 
-        {paymentMethodVisibleReport.rows.length === 0 ? (
+        {paymentMethodReport.rows.length === 0 ? (
           <div className="text-xs font-bold text-gray-400 uppercase tracking-[0.12em] py-4 text-center border border-dashed rounded-xl">
             Sem recebimentos no período selecionado.
           </div>
         ) : (
           <div className="space-y-2">
-            {paymentMethodVisibleReport.rows.map((row) => (
+            {paymentMethodReport.rows.map((row) => (
               <div key={`payment-method-${row.method}`} className="bg-white border rounded-xl p-2.5">
                 <div className="flex items-center justify-between text-xs font-black text-gray-800 mb-1.5">
                   <span>{row.method}</span>
@@ -1223,7 +1296,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
           <h3 className="text-xs font-black uppercase tracking-[0.12em] text-gray-700">Lançamentos Financeiros</h3>
           <span className="text-[10px] font-black text-gray-500">{isLoading ? 'Carregando...' : `${filteredLaunchTransactions.length} registro(s)`}</span>
         </div>
-        <div className="p-3 border-b bg-white grid grid-cols-1 md:grid-cols-4 gap-2.5">
+        <div className="p-3 border-b bg-white grid grid-cols-1 md:grid-cols-5 gap-2.5">
           <input
             type="text"
             value={launchSearch}
@@ -1250,6 +1323,16 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
             <option value="YEAR">Ano</option>
             <option value="DATE">Data</option>
           </select>
+          <select
+            value={launchPaymentMethodFilter}
+            onChange={(e) => setLaunchPaymentMethodFilter(e.target.value)}
+            className="w-full px-3 py-2 rounded-xl bg-gray-50 border border-transparent focus:border-indigo-500 outline-none text-[10px] font-black uppercase tracking-[0.12em]"
+          >
+            <option value="ALL">Forma de Pagamento</option>
+            {launchPaymentMethodOptions.map((method) => (
+              <option key={`launch-method-${method}`} value={method}>{method}</option>
+            ))}
+          </select>
           {launchTimeFilter === 'DATE' ? (
             <input
               type="date"
@@ -1266,30 +1349,41 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
             <thead className="bg-gray-50 text-[9px] font-black uppercase tracking-[0.12em] text-gray-400">
               <tr>
                 <th className="px-3 py-2.5 text-left">Data/Hora</th>
-                <th className="px-3 py-2.5 text-left">Tipo</th>
-                <th className="px-3 py-2.5 text-left">Categoria</th>
-                <th className="px-3 py-2.5 text-left">Descrição</th>
                 <th className="px-3 py-2.5 text-left">Responsável Pagante</th>
-                <th className="px-3 py-2.5 text-right">Qtd</th>
-                <th className="px-3 py-2.5 text-right">Unitário</th>
+                <th className="px-3 py-2.5 text-left">Aluno</th>
+                <th className="px-3 py-2.5 text-left">Descrição</th>
+                <th className="px-3 py-2.5 text-left">Categoria</th>
+                <th className="px-3 py-2.5 text-left">Tipo</th>
+                <th className="px-3 py-2.5 text-left">Forma de Pagamento</th>
                 <th className="px-3 py-2.5 text-right">Valor</th>
+                <th className="px-3 py-2.5 text-left">Crédito Atual</th>
                 <th className="px-3 py-2.5 text-left">Vencimento</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {filteredLaunchTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-400 font-bold uppercase text-xs">Sem lançamentos no período</td>
+                  <td colSpan={10} className="px-4 py-8 text-center text-gray-400 font-bold uppercase text-xs">Sem lançamentos no período</td>
                 </tr>
               ) : filteredLaunchTransactions.map((tx) => {
                 const isDeletionAdjustment = isDeletionAdjustmentTx(tx);
                 return (
                 <tr key={tx.id} className={isDeletionAdjustment ? 'bg-amber-50/40' : undefined}>
                   <td className="px-3 py-2.5 font-bold text-gray-700">{formatDateBr(tx.date)} {tx.time}</td>
-                  <td className="px-3 py-2.5">
-                    <span className={`text-[10px] font-black uppercase px-2 py-1 rounded ${tx.type === 'RECEITA' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
-                      {tx.type}
-                    </span>
+                  <td className="px-3 py-2.5 text-gray-700 font-bold">{tx.payerResponsibleName || '-'}</td>
+                  <td className="px-3 py-2.5 text-gray-700 font-bold">{getClientShortDisplay(tx)}</td>
+                  <td className="px-3 py-2.5 text-gray-800 font-bold">
+                    <div className="flex flex-col gap-1">
+                      <span>{normalizeUpper(tx.category).includes('VENDA AVULSA PDV') ? 'COMPRA PDV' : tx.description}</span>
+                      {tx.items && tx.items.length > 0 && (
+                        <button
+                          onClick={() => setDetailTx(tx)}
+                          className="self-start px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100"
+                        >
+                          Ver Detalhe
+                        </button>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-2.5 text-gray-700 font-bold">
                     <div className="flex items-center gap-2">
@@ -1301,13 +1395,16 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
                       )}
                     </div>
                   </td>
-                  <td className="px-3 py-2.5 text-gray-800 font-bold">{tx.description}</td>
-                  <td className="px-3 py-2.5 text-gray-700 font-bold">{tx.payerResponsibleName || '-'}</td>
-                  <td className="px-3 py-2.5 text-right font-bold">{tx.quantity}</td>
-                  <td className="px-3 py-2.5 text-right font-bold">R$ {tx.unitPrice.toFixed(2)}</td>
+                  <td className="px-3 py-2.5">
+                    <span className={`text-[10px] font-black uppercase px-2 py-1 rounded ${tx.type === 'RECEITA' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                      {tx.type}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-gray-700 font-bold">{tx.method || '-'}</td>
                   <td className={`px-3 py-2.5 text-right font-black ${tx.type === 'RECEITA' ? 'text-emerald-700' : 'text-red-700'}`}>
                     {tx.type === 'RECEITA' ? '+' : '-'} R$ {tx.amount.toFixed(2)}
                   </td>
+                  <td className="px-3 py-2.5 text-gray-700 font-bold">{resolveCurrentCreditLabel(tx)}</td>
                   <td className="px-3 py-2.5 text-gray-600 font-bold">{tx.dueDate ? formatDateBr(tx.dueDate) : '-'}</td>
                 </tr>
               )})}
@@ -1566,6 +1663,80 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
               >
                 {isSavingEntry ? 'Salvando...' : (editingEntryId ? `Atualizar ${entryType}` : `Salvar ${entryType}`)}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {detailTx && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setDetailTx(null)}></div>
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md z-10 overflow-hidden">
+            <div className="bg-indigo-600 px-5 py-4 flex items-center justify-between">
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-[0.12em] text-indigo-200">Detalhe da Transação</p>
+                <p className="text-sm font-black text-white leading-tight truncate max-w-xs">{detailTx.description}</p>
+              </div>
+              <button onClick={() => setDetailTx(null)} className="p-1 hover:bg-white/20 rounded text-white text-lg font-black leading-none">×</button>
+            </div>
+            <div className="p-5">
+              <div className="mb-3 flex gap-3 text-xs font-bold text-gray-500">
+                <span>{formatDateBr(detailTx.date)} {detailTx.time}</span>
+                <span>·</span>
+                <span className={detailTx.type === 'RECEITA' ? 'text-emerald-600' : 'text-red-600'}>{detailTx.type}</span>
+                <span>·</span>
+                <span className="font-black text-gray-800">R$ {detailTx.amount.toFixed(2)}</span>
+              </div>
+              <table className="w-full text-xs border rounded-xl overflow-hidden">
+                <thead className="bg-gray-50 text-[9px] font-black uppercase tracking-[0.12em] text-gray-400">
+                  <tr>
+                    <th className="px-3 py-2.5 text-left">Item</th>
+                    <th className="px-3 py-2.5 text-right">Qtd</th>
+                    <th className="px-3 py-2.5 text-right">Unit.</th>
+                    <th className="px-3 py-2.5 text-right">Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {(detailTx.items || []).map((item, idx) => {
+                    const qty = item.quantity || 0;
+                    const unit = item.unitPrice != null ? Number(item.unitPrice) : null;
+                    const subtotal = item.subtotal != null
+                      ? Number(item.subtotal)
+                      : (unit != null ? qty * unit : null);
+                    return (
+                      <tr key={idx} className="hover:bg-gray-50">
+                        <td className="px-3 py-2 font-bold text-gray-800">{item.name || '-'}</td>
+                        <td className="px-3 py-2 text-right font-black text-gray-700">{qty}</td>
+                        <td className="px-3 py-2 text-right font-bold text-gray-600">
+                          {unit != null ? `R$ ${unit.toFixed(2)}` : '-'}
+                        </td>
+                        <td className="px-3 py-2 text-right font-black text-gray-800">
+                          {subtotal != null ? `R$ ${subtotal.toFixed(2)}` : '-'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot className="bg-gray-50 border-t">
+                  <tr>
+                    <td className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-gray-500">Total de itens</td>
+                    <td className="px-3 py-2 text-right font-black text-gray-800">
+                      {(detailTx.items || []).reduce((s, i) => s + (i.quantity || 0), 0)}
+                    </td>
+                    <td />
+                    <td className="px-3 py-2 text-right font-black text-indigo-700">
+                      {(() => {
+                        const total = (detailTx.items || []).reduce((s, i) => {
+                          if (i.subtotal != null) return s + Number(i.subtotal);
+                          const u = i.unitPrice != null ? Number(i.unitPrice) : null;
+                          return u != null ? s + (i.quantity || 0) * u : s;
+                        }, 0);
+                        return total > 0 ? `R$ ${total.toFixed(2)}` : '-';
+                      })()}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           </div>
         </div>

@@ -24,8 +24,12 @@ interface DashboardProps {
 type DashboardMetrics = {
   salesToday: number;
   salesYesterday: number;
+  salesMonth: number;
+  salesPreviousMonth: number;
   creditsToday: number;
   creditsYesterday: number;
+  creditsMonth: number;
+  creditsPreviousMonth: number;
   uniqueClientsToday: number;
   uniqueClientsYesterday: number;
   criticalStockCount: number;
@@ -116,8 +120,12 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
   const [dashboardMetrics, setDashboardMetrics] = useState<DashboardMetrics>({
     salesToday: 0,
     salesYesterday: 0,
+    salesMonth: 0,
+    salesPreviousMonth: 0,
     creditsToday: 0,
     creditsYesterday: 0,
+    creditsMonth: 0,
+    creditsPreviousMonth: 0,
     uniqueClientsToday: 0,
     uniqueClientsYesterday: 0,
     criticalStockCount: 0,
@@ -241,8 +249,11 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
       const today = new Date();
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
+      const previousMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
       const todayKey = toDateKey(today);
       const yesterdayKey = toDateKey(yesterday);
+      const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+      const previousMonthKey = `${previousMonthDate.getFullYear()}-${String(previousMonthDate.getMonth() + 1).padStart(2, '0')}`;
 
       const productById = new Map<string, Product>(products.map((product: Product) => [product.id, product]));
       const todayHourlyMap = new Map<string, number>();
@@ -456,26 +467,44 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
         return Number.isFinite(value) ? value : 0;
       };
 
-      const isCreditTx = (tx: any) => {
-        const txType = String(tx?.type || '').toUpperCase();
-        const method = String(tx?.method || tx?.paymentMethod || '').toUpperCase();
-        return txType.includes('CREDIT') || txType.includes('CREDITO') || txType.includes('ENTRADA') || method.includes('CREDIT');
+      const normalizeType = (tx: any) =>
+        String(tx?.type || '')
+          .trim()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toUpperCase();
+
+      const resolveDashboardBucket = (tx: any): 'CREDIT' | 'SALE' | 'IGNORE' => {
+        const txType = normalizeType(tx);
+        if (txType.includes('AUDITORIA')) return 'IGNORE';
+        if (txType === 'CREDIT' || txType === 'CREDITO' || txType === 'ENTRADA') return 'CREDIT';
+        if (txType === 'DEBIT' || txType === 'CONSUMO' || txType === 'VENDA_BALCAO') return 'SALE';
+        return 'IGNORE';
       };
 
       const txToday = transactions.filter((tx: any) => getDateKeyFromTransaction(tx) === todayKey);
       const txYesterday = transactions.filter((tx: any) => getDateKeyFromTransaction(tx) === yesterdayKey);
+      const txCurrentMonth = transactions.filter((tx: any) => getDateKeyFromTransaction(tx).startsWith(`${currentMonthKey}-`));
+      const txPreviousMonth = transactions.filter((tx: any) => getDateKeyFromTransaction(tx).startsWith(`${previousMonthKey}-`));
 
       let salesToday = 0;
       let salesYesterday = 0;
+      let salesMonth = 0;
+      let salesPreviousMonth = 0;
       let creditsToday = 0;
       let creditsYesterday = 0;
+      let creditsMonth = 0;
+      let creditsPreviousMonth = 0;
 
       txToday.forEach((tx: any) => {
         const value = getNumericValue(tx);
-        if (isCreditTx(tx)) {
+        const bucket = resolveDashboardBucket(tx);
+        if (bucket === 'CREDIT') {
           creditsToday += value;
-        } else {
+        } else if (bucket === 'SALE') {
           salesToday += value;
+        } else {
+          return;
         }
 
         const txDate = tx?.timestamp ? new Date(tx.timestamp) : null;
@@ -494,10 +523,31 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
 
       txYesterday.forEach((tx: any) => {
         const value = getNumericValue(tx);
-        if (isCreditTx(tx)) {
+        const bucket = resolveDashboardBucket(tx);
+        if (bucket === 'CREDIT') {
           creditsYesterday += value;
-        } else {
+        } else if (bucket === 'SALE') {
           salesYesterday += value;
+        }
+      });
+
+      txCurrentMonth.forEach((tx: any) => {
+        const value = getNumericValue(tx);
+        const bucket = resolveDashboardBucket(tx);
+        if (bucket === 'CREDIT') {
+          creditsMonth += value;
+        } else if (bucket === 'SALE') {
+          salesMonth += value;
+        }
+      });
+
+      txPreviousMonth.forEach((tx: any) => {
+        const value = getNumericValue(tx);
+        const bucket = resolveDashboardBucket(tx);
+        if (bucket === 'CREDIT') {
+          creditsPreviousMonth += value;
+        } else if (bucket === 'SALE') {
+          salesPreviousMonth += value;
         }
       });
 
@@ -538,8 +588,12 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
       setDashboardMetrics({
         salesToday: Number(salesToday.toFixed(2)),
         salesYesterday: Number(salesYesterday.toFixed(2)),
+        salesMonth: Number(salesMonth.toFixed(2)),
+        salesPreviousMonth: Number(salesPreviousMonth.toFixed(2)),
         creditsToday: Number(creditsToday.toFixed(2)),
         creditsYesterday: Number(creditsYesterday.toFixed(2)),
+        creditsMonth: Number(creditsMonth.toFixed(2)),
+        creditsPreviousMonth: Number(creditsPreviousMonth.toFixed(2)),
         uniqueClientsToday,
         uniqueClientsYesterday,
         criticalStockCount,
@@ -1275,10 +1329,11 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
 
       <div className="dash-kpi-grid gap-4">
         <StatCard
-          title="Vendas Hoje"
-          value={isLoadingDashboardMetrics ? '...' : `R$ ${dashboardMetrics.salesToday.toFixed(2)}`}
-          change={toPercentDelta(dashboardMetrics.salesToday, dashboardMetrics.salesYesterday)}
-          isPositive={dashboardMetrics.salesToday >= dashboardMetrics.salesYesterday}
+          title="Venda Mês"
+          description="Total vendido no mês atual, comparado ao mês anterior."
+          value={isLoadingDashboardMetrics ? '...' : `R$ ${dashboardMetrics.salesMonth.toFixed(2)}`}
+          change={toPercentDelta(dashboardMetrics.salesMonth, dashboardMetrics.salesPreviousMonth)}
+          isPositive={dashboardMetrics.salesMonth >= dashboardMetrics.salesPreviousMonth}
           icon={<TrendingUp className="text-indigo-600" />}
           monoValue
           loading={isLoadingDashboardMetrics}
@@ -1286,10 +1341,11 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
           cta="Abrir Transações"
         />
         <StatCard
-          title="Recargas Hoje"
-          value={isLoadingDashboardMetrics ? '...' : `R$ ${dashboardMetrics.creditsToday.toFixed(2)}`}
-          change={toPercentDelta(dashboardMetrics.creditsToday, dashboardMetrics.creditsYesterday)}
-          isPositive={dashboardMetrics.creditsToday >= dashboardMetrics.creditsYesterday}
+          title="Recarga Mês"
+          description="Valor recarregado pelos clientes no mês atual."
+          value={isLoadingDashboardMetrics ? '...' : `R$ ${dashboardMetrics.creditsMonth.toFixed(2)}`}
+          change={toPercentDelta(dashboardMetrics.creditsMonth, dashboardMetrics.creditsPreviousMonth)}
+          isPositive={dashboardMetrics.creditsMonth >= dashboardMetrics.creditsPreviousMonth}
           icon={<Wallet className="text-emerald-600" />}
           monoValue
           loading={isLoadingDashboardMetrics}
@@ -1298,6 +1354,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
         />
         <StatCard
           title="Fluxo Clientes"
+          description="Clientes únicos que tiveram movimentação hoje."
           value={isLoadingDashboardMetrics ? '...' : `${dashboardMetrics.uniqueClientsToday}`}
           change={toCountDelta(dashboardMetrics.uniqueClientsToday, dashboardMetrics.uniqueClientsYesterday)}
           isPositive={dashboardMetrics.uniqueClientsToday >= dashboardMetrics.uniqueClientsYesterday}
@@ -1308,6 +1365,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
         />
         <StatCard
           title="Estoque Crítico"
+          description="Itens em nível mínimo que exigem reposição imediata."
           value={isLoadingDashboardMetrics ? '...' : `${dashboardMetrics.criticalStockCount} itens`}
           change={dashboardMetrics.criticalStockCount > 0 ? 'Urgente' : 'Normal'}
           isPositive={dashboardMetrics.criticalStockCount === 0}
@@ -1320,6 +1378,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
         <div className="lg:col-span-2">
           <StatCard
             title="Entrega SEG a SEX"
+            description="Total de entregas programadas durante os dias úteis."
             value={isLoadingDashboardMetrics ? '...' : `${dashboardMetrics.weekdayDeliveriesCount}`}
             valueBesideIcon
             hideMainValue
@@ -1395,6 +1454,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
         <div className="lg:col-span-1">
           <StatCard
             title="Alunos c/ Plano Ativo"
+            description="Alunos com saldo disponível em planos ativos."
             value={isLoadingDashboardMetrics ? '...' : `${dashboardMetrics.activeStudentsWithPlanBalance}`}
             valueBesideIcon
             hideMainValue
@@ -1489,6 +1549,18 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
                   </p>
                 </div>
               </button>
+              <button
+                onClick={() => navigate('/financial')}
+                className="w-full text-left p-3 bg-emerald-50 dark:bg-emerald-500/10 rounded-xl border border-emerald-100 dark:border-emerald-400/20 flex gap-2.5 items-center hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-all"
+              >
+                <div className="bg-emerald-600 text-white p-1.5 rounded-lg shadow-lg"><Wallet size={14} /></div>
+                <div>
+                  <p className="text-[9px] font-black text-emerald-900 dark:text-emerald-200 uppercase">Recarga Hoje</p>
+                  <p className="text-sm font-black text-emerald-600 leading-none mt-0.5">
+                    R$ {dashboardMetrics.creditsToday.toFixed(2)}
+                  </p>
+                </div>
+              </button>
             </div>
           </div>
           <button
@@ -1576,7 +1648,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ currentUser, activeEnterprise
   );
 };
 
-const StatCard: React.FC<any> = ({ title, value, change, isPositive, icon, isWarning, onClick, cta, renderExtra, valueBesideIcon, hideMainValue, monoValue, loading }) => (
+const StatCard: React.FC<any> = ({ title, description, value, change, isPositive, icon, isWarning, onClick, cta, renderExtra, valueBesideIcon, hideMainValue, monoValue, loading }) => (
   <button
     type="button"
     onClick={onClick}
@@ -1596,6 +1668,7 @@ const StatCard: React.FC<any> = ({ title, value, change, isPositive, icon, isWar
       </div>
     </div>
     <p className="text-gray-400 dark:text-slate-400 text-[10px] font-black uppercase tracking-widest">{title}</p>
+    {description ? <p className="mt-1 text-[11px] leading-tight text-slate-500 dark:text-slate-300">{description}</p> : null}
     {!hideMainValue ? (
       loading
         ? <div className="mt-1.5 h-7 w-24 rounded-lg bg-slate-200 dark:bg-slate-700 animate-pulse" />

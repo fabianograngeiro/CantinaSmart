@@ -2597,8 +2597,29 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       }
     }
 
+    const fallbackRegistrationId = (() => {
+      if (editingClient?.registrationId) return String(editingClient.registrationId).trim();
+
+      const usedRegistrationIds = new Set(
+        clients
+          .map((client) => String(client?.registrationId || '').trim())
+          .filter(Boolean)
+      );
+
+      const numericIds = Array.from(usedRegistrationIds)
+        .map((value) => Number.parseInt(value, 10))
+        .filter((value) => Number.isFinite(value));
+
+      let nextId = numericIds.length > 0 ? Math.max(...numericIds) + 1 : 1000;
+      while (usedRegistrationIds.has(String(nextId))) {
+        nextId += 1;
+      }
+
+      return String(nextId);
+    })();
+
     const clientPayloadBase = {
-      registrationId: editingClient?.registrationId || (clients.length + 1000).toString(),
+      registrationId: fallbackRegistrationId,
       name: formData.name,
       type: formData.type,
       class: classValue,

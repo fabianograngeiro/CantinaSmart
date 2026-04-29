@@ -7,6 +7,7 @@ import { canAccessAllEnterprises, requesterCanAccessEnterprise } from '../utils/
 import { shouldCheckDuplicateStudentOnUpdate } from '../utils/clientDuplicateRules.js';
 import { detectStudentDuplicateReason } from '../utils/studentDuplicateMatcher.js';
 import { getResponsibleCpf } from '../utils/clientDocument.js';
+import { resolveUniqueStudentRegistrationId } from '../utils/studentRegistrationId.js';
 
 const router = Router();
 
@@ -320,7 +321,16 @@ router.post('/', (req: AuthRequest, res: Response) => {
       createdAt: Date.now(),
     });
 
-    const duplicate = findDuplicateStudent({ enterpriseId, payload: req.body });
+    const createPayload = { ...(req.body || {}) };
+    if (String(createPayload?.type || '').trim().toUpperCase() === 'ALUNO') {
+      const unitStudents = db.getClients(enterpriseId).filter((item: any) => String(item?.type || '').trim().toUpperCase() === 'ALUNO');
+      createPayload.registrationId = resolveUniqueStudentRegistrationId({
+        candidate: createPayload,
+        students: unitStudents,
+      });
+    }
+
+    const duplicate = findDuplicateStudent({ enterpriseId, payload: createPayload });
     if (duplicate) {
       clientCreateIdempotencyStore.delete(idempotencyKey);
       return res.status(409).json({
@@ -332,7 +342,7 @@ router.post('/', (req: AuthRequest, res: Response) => {
       });
     }
 
-    const newClient = db.createClient(req.body);
+    const newClient = db.createClient(createPayload);
     clientCreateIdempotencyStore.set(idempotencyKey, {
       status: 'DONE',
       createdAt: Date.now(),
