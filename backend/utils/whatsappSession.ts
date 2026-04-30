@@ -7080,13 +7080,34 @@ class WhatsAppSessionManager {
   }
 
   async getChatMessages(chatId: string, limit = 80): Promise<ChatMessage[]> {
-    const jid = this.toBaileysJid(chatId);
-    if (!jid || !this.isClientJid(jid) || this.isSelfJid(jid)) throw new Error('Chat inválido.');
+    const aliasJids = this.getChatAliasJids(chatId);
+    if (aliasJids.length === 0) throw new Error('Chat inválido.');
 
-    const rawMessages = this.messageMap.get(jid) || [];
+    const mergedMessages: ChatMessage[] = [];
+    for (const alias of aliasJids) {
+      const list = this.messageMap.get(alias) || [];
+      for (const item of list) {
+        mergedMessages.push(item);
+      }
+    }
+
+    const deduped = Array.from(new Map(
+      mergedMessages.map((item) => {
+        const id = String(item?.id || '').trim();
+        const key = id || `${Number(item?.timestamp || 0)}:${String(item?.body || '')}:${item?.fromMe ? '1' : '0'}`;
+        return [key, item] as const;
+      })
+    ).values());
+
+    deduped.sort((a, b) => {
+      const tsDiff = Number(a?.timestamp || 0) - Number(b?.timestamp || 0);
+      if (tsDiff !== 0) return tsDiff;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+
     const messages = this.resolveSyncPeriodWindowMs()
-      ? rawMessages.filter((item) => this.isWithinConfiguredSyncWindow(item?.timestamp))
-      : rawMessages;
+      ? deduped.filter((item) => this.isWithinConfiguredSyncWindow(item?.timestamp))
+      : deduped;
     const safeLimit = Math.max(10, Math.min(200, Number(limit) || 80));
     return messages.slice(-safeLimit);
   }

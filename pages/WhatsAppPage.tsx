@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import {
@@ -23,6 +23,7 @@ import {
   Video,
   MoreVertical,
   LayoutDashboard,
+  QrCode,
   Settings2,
   Bot,
   GitBranch,
@@ -43,6 +44,7 @@ import EnvioAvancadoModal from '../components/EnvioAvancadoModal';
 interface WhatsAppPageProps {
   currentUser: User;
   activeEnterprise: Enterprise | null;
+  mode?: 'CHAT' | 'CONFIG';
 }
 
 type WhatsAppStatusSnapshot = {
@@ -948,7 +950,8 @@ const normalizeAiConfigState = (raw: any): AiConfigState => {
   };
 };
 
-const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterprise }) => {
+const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterprise, mode = 'CHAT' }) => {
+  const isConfigMode = mode === 'CONFIG';
   const [activeTab, setActiveTab] = useState<WhatsTab>('CRM');
   const [crmView, setCrmView] = useState<CrmView>('CONVERSAS');
   const [crmFilter, setCrmFilter] = useState<'ALL' | 'UNREAD' | 'WAITING'>('ALL');
@@ -986,6 +989,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const [chatReply, setChatReply] = useState('');
   const [isImprovingChatReply, setIsImprovingChatReply] = useState(false);
   const [aiAgentEnabledForChat, setAiAgentEnabledForChat] = useState(false);
+  const [aiAgentCoolingDownForChat, setAiAgentCoolingDownForChat] = useState(false);
+  const [aiAgentAutoResumeAtForChat, setAiAgentAutoResumeAtForChat] = useState<string | null>(null);
   const [isUpdatingAiAgentForChat, setIsUpdatingAiAgentForChat] = useState(false);
   const [chatAttachment, setChatAttachment] = useState<ChatAttachment | null>(null);
   const [selectedStudentConsumedToday, setSelectedStudentConsumedToday] = useState<boolean | null>(null);
@@ -1931,6 +1936,33 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     }
   }, [activeEnterprise?.id, status.connected, providerConfig.mode, providerConfig.external.enabled, activeTab]);
 
+  const refreshSelectedChatAiAgentState = useCallback(async (chatIdOverride?: string | null) => {
+    const targetChatId = String(chatIdOverride || selectedChatId || '').trim();
+    if (!activeEnterprise?.id || !targetChatId) {
+      setAiAgentEnabledForChat(false);
+      setAiAgentCoolingDownForChat(false);
+      setAiAgentAutoResumeAtForChat(null);
+      return;
+    }
+
+    try {
+      const result = await ApiService.getWhatsAppChatAiAgentState(targetChatId);
+      const enabled = Boolean(result?.enabled);
+      const coolingDown = Boolean(result?.coolingDown);
+      setAiAgentEnabledForChat(enabled);
+      setAiAgentCoolingDownForChat(coolingDown);
+      setAiAgentAutoResumeAtForChat(
+        coolingDown && result?.autoResumeAt
+          ? String(result.autoResumeAt)
+          : null
+      );
+    } catch {
+      setAiAgentEnabledForChat(false);
+      setAiAgentCoolingDownForChat(false);
+      setAiAgentAutoResumeAtForChat(null);
+    }
+  }, [activeEnterprise?.id, selectedChatId]);
+
   useEffect(() => {
     if (!activeEnterprise?.id) {
       setAiAuditLogs([]);
@@ -1956,6 +1988,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
             if (selectedChatId) {
               await loadMessages(selectedChatId, false);
               await loadSchedules(selectedChatId);
+              await refreshSelectedChatAiAgentState(selectedChatId);
             }
           }
         }
@@ -1965,7 +1998,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     }, 6000);
 
     return () => window.clearInterval(timer);
-  }, [activeTab, crmView, status.connected, providerConfig.mode, providerConfig.external.enabled, selectedChatId]);
+  }, [activeTab, crmView, status.connected, providerConfig.mode, providerConfig.external.enabled, selectedChatId, refreshSelectedChatAiAgentState]);
 
   useEffect(() => {
     if (activeTab === 'CRM' && crmView === 'WEBHOOK_LOGS') {
@@ -1974,29 +2007,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   }, [activeTab, crmView, activeEnterprise?.id]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    const loadAiAgentState = async () => {
-      if (!activeEnterprise?.id || !selectedChatId) {
-        setAiAgentEnabledForChat(false);
-        return;
-      }
-      try {
-        const result = await ApiService.getWhatsAppChatAiAgentState(selectedChatId);
-        if (cancelled) return;
-        setAiAgentEnabledForChat(Boolean(result?.enabled));
-      } catch {
-        if (!cancelled) {
-          setAiAgentEnabledForChat(false);
-        }
-      }
-    };
-
-    loadAiAgentState();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeEnterprise?.id, selectedChatId]);
+    refreshSelectedChatAiAgentState(selectedChatId);
+  }, [selectedChatId, refreshSelectedChatAiAgentState]);
 
   const recipients = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -5534,7 +5546,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     try {
       const result = await ApiService.setWhatsAppChatAiAgentState(selectedChatId, !aiAgentEnabledForChat);
       const enabled = Boolean(result?.enabled);
+      const coolingDown = Boolean(result?.coolingDown);
       setAiAgentEnabledForChat(enabled);
+      setAiAgentCoolingDownForChat(coolingDown);
+      setAiAgentAutoResumeAtForChat(
+        coolingDown && result?.autoResumeAt
+          ? String(result.autoResumeAt)
+          : null
+      );
       setFeedback(enabled
         ? 'Agente IA ativado para esta conversa.'
         : 'Agente IA desativado para esta conversa.');
@@ -6185,102 +6204,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         </div>
       </div>
 
-      <div className="rounded-[20px] border border-slate-200/90 bg-white/95 p-2 grid grid-cols-2 md:grid-cols-7 gap-2 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.65)] dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
-        <button
-          onClick={() => {
-            setActiveTab('CRM');
-            setCrmView('CONVERSAS');
-          }}
-          className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.14em] border transition-all ${
-            activeTab === 'CRM' && crmView === 'CONVERSAS'
-              ? 'border-transparent bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-[0_8px_20px_-12px_rgba(249,115,22,0.85)]'
-              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300'
-          }`}
-        >
-          Conversas
-        </button>
-        <button
-          onClick={() => {
-            setActiveTab('CRM');
-            setCrmView('DASHBOARD');
-          }}
-          className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.14em] border transition-all ${
-            activeTab === 'CRM' && crmView === 'DASHBOARD'
-              ? 'border-transparent bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-[0_8px_20px_-12px_rgba(249,115,22,0.85)]'
-              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300'
-          }`}
-        >
-          Dashboard
-        </button>
-        <button
-          onClick={() => setActiveTab('DISPAROS')}
-          className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.14em] border transition-all ${
-            activeTab === 'DISPAROS'
-              ? 'border-transparent bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-[0_8px_20px_-12px_rgba(249,115,22,0.85)]'
-              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300'
-          }`}
-        >
-          Disparos
-        </button>
-        <button
-          onClick={() => setActiveTab('SESSION_QR')}
-          className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.14em] border transition-all ${
-            activeTab === 'SESSION_QR'
-              ? 'border-transparent bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-[0_8px_20px_-12px_rgba(249,115,22,0.85)]'
-              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300'
-          }`}
-        >
-          QR Code
-        </button>
-        <button
-          onClick={() => {
-            setActiveTab('CRM');
-            setCrmView('AI_CONFIG');
-          }}
-          className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.14em] border transition-all ${
-            activeTab === 'CRM' && crmView === 'AI_CONFIG'
-              ? 'border-transparent bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-[0_8px_20px_-12px_rgba(249,115,22,0.85)]'
-              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300'
-          }`}
-        >
-          IA Config
-        </button>
-        <button
-          onClick={() => {
-            setActiveTab('CRM');
-            setCrmView('CONTA');
-          }}
-          className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.14em] border transition-all ${
-            activeTab === 'CRM' && crmView === 'CONTA'
-              ? 'border-transparent bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-[0_8px_20px_-12px_rgba(249,115,22,0.85)]'
-              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300'
-          }`}
-        >
-          Conta
-        </button>
-        <button
-          onClick={() => {
-            setActiveTab('CRM');
-            setCrmView('WEBHOOK_LOGS');
-          }}
-          className={`px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.14em] border transition-all ${
-            activeTab === 'CRM' && crmView === 'WEBHOOK_LOGS'
-              ? 'border-transparent bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-[0_8px_20px_-12px_rgba(249,115,22,0.85)]'
-              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300'
-          }`}
-        >
-          Webhook Logs
-        </button>
-      </div>
-
       {activeTab === 'CRM' && (
         <div className="rounded-[28px] border-2 border-cyan-200 bg-white/95 overflow-hidden shadow-md dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
-          <div className="grid grid-cols-1 h-[78vh] min-h-[620px] max-h-[78vh] overflow-hidden xl:h-[calc(100vh-13rem)] xl:max-h-[calc(100vh-13rem)]">
-            <aside className="hidden border-r-2 border-cyan-100 bg-gradient-to-b from-white to-cyan-50/20 p-4 flex-col dark:border-white/10 dark:bg-zinc-950/80 dark:from-zinc-950 dark:to-zinc-900/60">
+          <div className="grid grid-cols-1 lg:grid-cols-[230px_1fr] h-[78vh] min-h-[620px] max-h-[78vh] overflow-hidden xl:h-[calc(100vh-13rem)] xl:max-h-[calc(100vh-13rem)]">
+            <aside className="hidden lg:flex border-r-2 border-cyan-100 bg-gradient-to-b from-white to-cyan-50/20 p-4 flex-col dark:border-white/10 dark:bg-zinc-950/80 dark:from-zinc-950 dark:to-zinc-900/60">
               <div className="flex items-center gap-3 px-2 py-2">
                 <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center text-white font-black">WA</div>
                 <div>
-                  <p className="text-lg font-black text-slate-900 leading-tight">CRM WhatsApp</p>
+                  <p className="text-lg font-black text-slate-900 leading-tight">WHATS CONFIG</p>
                   <p className="text-[11px] font-bold text-emerald-600">{status.connected ? 'Conectado' : status.state}</p>
                 </div>
               </div>
@@ -6288,48 +6219,84 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
               <nav className="mt-6 space-y-1">
                 <button
                   type="button"
-                  onClick={() => setCrmView('CONVERSAS')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${crmView === 'CONVERSAS' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'text-slate-600 hover:bg-cyan-50'}`}
-                >
-                  <MessagesSquare size={16} />
-                  Conversas
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCrmView('DASHBOARD')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${crmView === 'DASHBOARD' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'text-slate-600 hover:bg-cyan-50'}`}
+                  onClick={() => {
+                    setActiveTab('CRM');
+                    setCrmView('DASHBOARD');
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${
+                    activeTab === 'CRM' && crmView === 'DASHBOARD'
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                      : 'text-slate-600 hover:bg-cyan-50'
+                  }`}
                 >
                   <LayoutDashboard size={16} />
                   Dashboard
                 </button>
                 <button
                   type="button"
-                  onClick={() => setCrmView('CONTATOS')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${crmView === 'CONTATOS' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'text-slate-600 hover:bg-cyan-50'}`}
+                  onClick={() => setActiveTab('DISPAROS')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${
+                    activeTab === 'DISPAROS'
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                      : 'text-slate-600 hover:bg-cyan-50'
+                  }`}
                 >
-                  <Users size={16} />
-                  Contatos
+                  <Send size={16} />
+                  Disparos
                 </button>
                 <button
                   type="button"
-                  onClick={() => setCrmView('AI_CONFIG')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${crmView === 'AI_CONFIG' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'text-slate-600 hover:bg-cyan-50'}`}
+                  onClick={() => setActiveTab('SESSION_QR')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${
+                    activeTab === 'SESSION_QR'
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                      : 'text-slate-600 hover:bg-cyan-50'
+                  }`}
+                >
+                  <QrCode size={16} />
+                  QR Code
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('CRM');
+                    setCrmView('AI_CONFIG');
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${
+                    activeTab === 'CRM' && crmView === 'AI_CONFIG'
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                      : 'text-slate-600 hover:bg-cyan-50'
+                  }`}
                 >
                   <Bot size={16} />
-                  AI Config
+                  IA Config
                 </button>
                 <button
                   type="button"
-                  onClick={() => setCrmView('AI_FLOW')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${crmView === 'AI_FLOW' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'text-slate-600 hover:bg-cyan-50'}`}
+                  onClick={() => {
+                    setActiveTab('CRM');
+                    setCrmView('CONTA');
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${
+                    activeTab === 'CRM' && crmView === 'CONTA'
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                      : 'text-slate-600 hover:bg-cyan-50'
+                  }`}
                 >
-                  <GitBranch size={16} />
-                  AI Fluxo
+                  <Settings2 size={16} />
+                  Conta
                 </button>
                 <button
                   type="button"
-                  onClick={() => setCrmView('WEBHOOK_LOGS')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${crmView === 'WEBHOOK_LOGS' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'text-slate-600 hover:bg-cyan-50'}`}
+                  onClick={() => {
+                    setActiveTab('CRM');
+                    setCrmView('WEBHOOK_LOGS');
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${
+                    activeTab === 'CRM' && crmView === 'WEBHOOK_LOGS'
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                      : 'text-slate-600 hover:bg-cyan-50'
+                  }`}
                 >
                   <FileText size={16} />
                   Webhook Logs
@@ -6339,11 +6306,18 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
               <div className="mt-auto pt-4 border-t border-cyan-100">
                 <button
                   type="button"
-                  onClick={() => setCrmView('CONTA')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${crmView === 'CONTA' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'text-slate-600 hover:bg-cyan-50'}`}
+                  onClick={() => {
+                    setActiveTab('CRM');
+                    setCrmView('CONVERSAS');
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${
+                    activeTab === 'CRM' && crmView === 'CONVERSAS'
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                      : 'text-slate-600 hover:bg-cyan-50'
+                  }`}
                 >
-                  <Settings2 size={16} />
-                  Conta
+                  <MessagesSquare size={16} />
+                  WhatsApp
                 </button>
                 <div className="mt-4 rounded-xl border border-cyan-100 bg-cyan-50/50 px-3 py-2 dark:border-white/10 dark:bg-zinc-900/60">
                   <p className="text-sm font-black text-slate-800 truncate">{currentUser?.name || 'Usuário'}</p>
@@ -6354,14 +6328,16 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
             <div className={`flex flex-col min-h-0 ${crmView === 'CONVERSAS' ? 'overflow-hidden' : ''}`}>
               <div className="px-5 py-4 border-b-2 border-cyan-100 bg-white flex items-center gap-3 dark:bg-zinc-900/80 dark:border-white/10">
-                <div className="relative flex-1">
-                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    value={chatSearchName}
-                    onChange={(e) => setChatSearchName(e.target.value)}
-                    placeholder="Pesquisar conversas, contatos ou leads..."
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-slate-50 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
-                  />
+                <div className="flex-1">
+                  <p className="text-sm font-black uppercase tracking-[0.14em] text-slate-500 dark:text-zinc-300">
+                    {crmView === 'DASHBOARD'
+                      ? 'Dashboard'
+                      : crmView === 'CONVERSAS'
+                        ? 'Conversas'
+                        : crmView === 'WEBHOOK_LOGS'
+                          ? 'Webhook Logs'
+                          : 'Configuração'}
+                  </p>
                 </div>
                 <span className="px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-black uppercase tracking-widest dark:bg-zinc-900 dark:text-zinc-300">
                   {crmView === 'DASHBOARD'
@@ -6542,8 +6518,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                   >
                   <section className="border-r border-slate-200 flex flex-col min-h-0 h-full overflow-hidden bg-[#f7f8fb] dark:bg-zinc-900 dark:border-white/10">
                     <div className="p-4 border-b border-slate-200 space-y-3 bg-white/95 dark:bg-zinc-900/80 dark:border-white/10">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Central de Atendimento</p>
+                      <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => {
                             if (!status.connected && !canUseExternalProvider) {
@@ -6647,6 +6622,15 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         >
                           Resolvidas
                         </button>
+                      </div>
+                      <div className="relative">
+                        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          value={chatSearchName}
+                          onChange={(e) => setChatSearchName(e.target.value)}
+                          placeholder="Pesquisar conversas, contatos ou leads..."
+                          className="w-full pl-10 pr-4 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-slate-50 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
+                        />
                       </div>
                     </div>
 
@@ -6854,11 +6838,18 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${
                                 aiAgentEnabledForChat
                                   ? 'bg-emerald-100 text-emerald-700'
-                                  : 'bg-slate-100 text-slate-500 dark:bg-zinc-900 dark:text-zinc-400'
+                                  : aiAgentCoolingDownForChat
+                                    ? 'bg-amber-100 text-amber-700'
+                                    : 'bg-slate-100 text-slate-500 dark:bg-zinc-900 dark:text-zinc-400'
                               }`}>
-                                IA {aiAgentEnabledForChat ? 'Auto ON' : 'Auto OFF'}
+                                IA {aiAgentEnabledForChat ? 'Auto ON' : aiAgentCoolingDownForChat ? 'Pausada' : 'Auto OFF'}
                               </span>
                             </div>
+                            {!aiAgentEnabledForChat && aiAgentCoolingDownForChat && aiAgentAutoResumeAtForChat && (
+                              <p className="mt-1 text-xs font-semibold text-amber-600">
+                                Agente em pausa temporária até {new Date(aiAgentAutoResumeAtForChat).toLocaleString('pt-BR')}.
+                              </p>
+                            )}
                           </div>
                           </div>
                           <div className="flex items-center gap-2 text-slate-500 dark:text-zinc-400">

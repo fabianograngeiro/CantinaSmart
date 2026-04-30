@@ -27,11 +27,54 @@ const MOCK_TODAY_HISTORY = [
   { id: 4, type: 'PLAN_USE', item: 'Almoço PF', value: 1, time: '12:30', category: 'PF_FIXO' },
 ];
 
+const MONTH_OPTIONS = [
+  { value: 1, label: 'Janeiro' },
+  { value: 2, label: 'Fevereiro' },
+  { value: 3, label: 'Março' },
+  { value: 4, label: 'Abril' },
+  { value: 5, label: 'Maio' },
+  { value: 6, label: 'Junho' },
+  { value: 7, label: 'Julho' },
+  { value: 8, label: 'Agosto' },
+  { value: 9, label: 'Setembro' },
+  { value: 10, label: 'Outubro' },
+  { value: 11, label: 'Novembro' },
+  { value: 12, label: 'Dezembro' },
+];
+
+const CONTEST_SUBJECT_OPTIONS = [
+  { value: 'SALDO', label: 'Saldo' },
+  { value: 'DUPLICIDADE', label: 'Duplicidade' },
+  { value: 'PERIODO', label: 'Periodo' },
+  { value: 'AUSENTE', label: 'Ausente' },
+  { value: 'COBRANCA', label: 'Cobranca' },
+] as const;
+
+type HistoryFilterMode = 'MONTH' | 'YEAR';
+type ContestSubject = typeof CONTEST_SUBJECT_OPTIONS[number]['value'];
+
 const formatLocalDate = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+const parseTransactionDate = (tx: any) => {
+  const raw = String(tx?.date || tx?.timestamp || tx?.time || '').trim();
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+};
+
+const formatTransactionItem = (tx: any) => {
+  const type = String(tx?.type || '').toUpperCase();
+  if (String(tx?.item || '').trim()) return String(tx.item);
+  if (String(tx?.description || '').trim()) return String(tx.description);
+  if (type.includes('CREDIT') || type.includes('CREDITO') || type.includes('RECHARGE')) return 'Recarga de saldo';
+  if (type.includes('PLAN_USE') || type.includes('PLANO')) return 'Uso de plano';
+  return 'Consumo';
 };
 
 type Period = 'MORNING' | 'AFTERNOON' | 'NIGHT';
@@ -80,6 +123,20 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
   const [enterprises, setEnterprises] = useState<Enterprise[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [isLoadingTransactions, setIsLoadingTransactions] = useState(false);
+
+  const now = new Date();
+  const [historyFilterMode, setHistoryFilterMode] = useState<HistoryFilterMode>('MONTH');
+  const [selectedHistoryMonth, setSelectedHistoryMonth] = useState(now.getMonth() + 1);
+  const [selectedHistoryYear, setSelectedHistoryYear] = useState(now.getFullYear());
+
+  const [isContestScreenOpen, setIsContestScreenOpen] = useState(false);
+  const [selectedContestTransaction, setSelectedContestTransaction] = useState<any | null>(null);
+  const [contestSubject, setContestSubject] = useState<ContestSubject>('SALDO');
+  const [contestReason, setContestReason] = useState('');
+  const [isSubmittingContest, setIsSubmittingContest] = useState(false);
+  const [contestFeedbackMessage, setContestFeedbackMessage] = useState('');
 
   // Carregar clientes do backend
   useEffect(() => {
@@ -126,6 +183,32 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
     };
     loadData();
   }, [enterpriseId, currentUser]);
+
+  useEffect(() => {
+    const loadTransactions = async () => {
+      const selectedChild = children[activeChildIndex];
+      if (!selectedChild?.id) {
+        setTransactions([]);
+        return;
+      }
+
+      try {
+        setIsLoadingTransactions(true);
+        const txData = await ApiService.getTransactions({
+          clientId: selectedChild.id,
+          enterpriseId: selectedChild.enterpriseId,
+        });
+        setTransactions(Array.isArray(txData) ? txData : []);
+      } catch (error) {
+        console.error('Erro ao carregar transacoes do portal (desktop):', error);
+        setTransactions([]);
+      } finally {
+        setIsLoadingTransactions(false);
+      }
+    };
+
+    loadTransactions();
+  }, [children, activeChildIndex]);
 
   const handleAddChild = async () => {
     
@@ -216,6 +299,109 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
     const aCost = (activeChild.servicePlans || []).includes('PF_FIXO') ? almocoSubtotal : 0;
     return lCost + aCost;
   }, [activeChild, lancheSubtotal, almocoSubtotal]);
+
+  const historyYearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const years: number[] = [];
+    for (let year = currentYear; year >= 2025; year -= 1) {
+      years.push(year);
+    }
+    return years;
+  }, []);
+
+  const normalizedTransactions = useMemo(() => {
+    const source = transactions.length > 0 ? transactions : MOCK_TODAY_HISTORY;
+    return source
+      .map((tx: any, index: number) => {
+        const parsedDate = parseTransactionDate(tx) || new Date();
+        const rawAmount = Number(tx?.total ?? tx?.amount ?? tx?.value ?? 0) || 0;
+        const type = String(tx?.type || '').toUpperCase();
+        const isCredit = type.includes('CREDIT') || type.includes('CREDITO') || type.includes('RECHARGE');
+        return {
+          id: String(tx?.id || `mock-${index}`),
+          item: formatTransactionItem(tx),
+          description: String(tx?.description || ''),
+          method: String(tx?.paymentMethod || tx?.method || tx?.category || ''),
+          payerResponsibleName: String(tx?.payerResponsibleName || ''),
+          date: parsedDate,
+          amount: rawAmount,
+          signedAmount: isCredit ? rawAmount : -Math.abs(rawAmount),
+          isCredit,
+          raw: tx,
+        };
+      })
+      .sort((a, b) => b.date.getTime() - a.date.getTime());
+  }, [transactions]);
+
+  const filteredTransactions = useMemo(() => {
+    return normalizedTransactions.filter((tx) => {
+      const txYear = tx.date.getFullYear();
+      if (txYear !== selectedHistoryYear) return false;
+      if (historyFilterMode === 'YEAR') return true;
+      return tx.date.getMonth() + 1 === selectedHistoryMonth;
+    });
+  }, [normalizedTransactions, historyFilterMode, selectedHistoryMonth, selectedHistoryYear]);
+
+  const openContestationScreen = (tx: any) => {
+    setSelectedContestTransaction(tx);
+    setContestSubject('SALDO');
+    setContestReason('');
+    setContestFeedbackMessage('');
+    setIsContestScreenOpen(true);
+  };
+
+  const handleSubmitContestation = async () => {
+    const reason = contestReason.trim();
+    if (!selectedContestTransaction) {
+      return;
+    }
+    if (!reason) {
+      setContestFeedbackMessage('Preencha o campo Motivo para enviar a contestacao.');
+      return;
+    }
+
+    try {
+      setIsSubmittingContest(true);
+      setContestFeedbackMessage('');
+
+      const subjectLabel = CONTEST_SUBJECT_OPTIONS.find((option) => option.value === contestSubject)?.label || 'Outro';
+      const contestDescription = [
+        `Motivo informado: ${reason}`,
+        `Transacao: ${selectedContestTransaction.item}`,
+        `Data/Hora: ${selectedContestTransaction.date.toLocaleString('pt-BR')}`,
+        `Valor: ${selectedContestTransaction.signedAmount >= 0 ? '+' : '-'}R$ ${Math.abs(selectedContestTransaction.signedAmount).toFixed(2)}`,
+        `Metodo: ${selectedContestTransaction.method || 'Nao informado'}`,
+      ].join(' | ');
+
+      await ApiService.createContestation({
+        enterpriseId: activeChild?.enterpriseId,
+        enterpriseName: enterprises.find((ent) => ent.id === activeChild?.enterpriseId)?.name,
+        clientId: activeChild?.id,
+        clientName: activeChild?.name,
+        subject: `Contestacao - ${subjectLabel}`,
+        description: contestDescription,
+        type: contestSubject,
+        priority: 'MEDIA',
+        amount: Math.abs(selectedContestTransaction.signedAmount),
+        transactionId: selectedContestTransaction.id,
+        transactionDate: selectedContestTransaction.date.toISOString(),
+        paymentMethod: selectedContestTransaction.method || '',
+        portalSource: true,
+      });
+
+      setContestFeedbackMessage('Contestacao enviada com sucesso. O retorno sera enviado no WhatsApp do responsavel.');
+      setContestReason('');
+      window.setTimeout(() => {
+        setIsContestScreenOpen(false);
+        setSelectedContestTransaction(null);
+      }, 900);
+    } catch (error) {
+      console.error('Erro ao enviar contestacao (desktop):', error);
+      setContestFeedbackMessage('Nao foi possivel enviar a contestacao agora. Tente novamente.');
+    } finally {
+      setIsSubmittingContest(false);
+    }
+  };
 
   const handleLogout = () => {
     ApiService.clearToken();
@@ -728,36 +914,119 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
               <div className="space-y-6 animate-in fade-in">
                 <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
                   <h3 className="text-lg font-black text-gray-900 mb-6">Extrato de Transações</h3>
+                  <div className="mb-6 p-5 rounded-2xl border border-gray-100 bg-gray-50 space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => setHistoryFilterMode('MONTH')}
+                        className={`py-3 rounded-xl text-xs font-black uppercase tracking-widest border transition-all ${
+                          historyFilterMode === 'MONTH'
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-white text-gray-700 border-gray-200'
+                        }`}
+                      >
+                        Mês
+                      </button>
+                      <button
+                        onClick={() => setHistoryFilterMode('YEAR')}
+                        className={`py-3 rounded-xl text-xs font-black uppercase tracking-widest border transition-all ${
+                          historyFilterMode === 'YEAR'
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-white text-gray-700 border-gray-200'
+                        }`}
+                      >
+                        Anual
+                      </button>
+                    </div>
+                    <div className={`grid gap-3 ${historyFilterMode === 'MONTH' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                      {historyFilterMode === 'MONTH' && (
+                        <select
+                          value={selectedHistoryMonth}
+                          onChange={(e) => setSelectedHistoryMonth(Number(e.target.value))}
+                          aria-label="Selecionar mes"
+                          title="Selecionar mes"
+                          className="w-full rounded-xl border border-slate-200 bg-slate-100 text-gray-900 px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-200"
+                        >
+                          {MONTH_OPTIONS.map((month) => (
+                            <option key={month.value} value={month.value}>{month.label}</option>
+                          ))}
+                        </select>
+                      )}
+                      <select
+                        value={selectedHistoryYear}
+                        onChange={(e) => setSelectedHistoryYear(Number(e.target.value))}
+                        aria-label="Selecionar ano"
+                        title="Selecionar ano"
+                        className="w-full rounded-xl border border-slate-200 bg-slate-100 text-gray-900 px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-200"
+                      >
+                        {historyYearOptions.map((year) => (
+                          <option key={year} value={year}>{year}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
-                    {[...MOCK_TODAY_HISTORY, ...MOCK_TODAY_HISTORY].map((item, idx) => (
-                      <div key={idx} className="p-4 bg-gray-50 rounded-lg flex items-center justify-between hover:bg-gray-100 transition-all">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`w-12 h-12 rounded-lg flex items-center justify-center ${
-                              item.type === 'CONSUMPTION'
-                                ? 'bg-orange-100 text-orange-600'
-                                : 'bg-emerald-100 text-emerald-600'
-                            }`}
-                          >
-                            {item.type === 'CONSUMPTION' ? (
-                              <ShoppingCart size={20} />
-                            ) : (
-                              <Plus size={20} />
-                            )}
-                          </div>
-                          <div>
-                            <p className="font-bold text-gray-900">{item.item}</p>
-                            <p className="text-sm text-gray-500">
-                              {new Date().toLocaleDateString('pt-BR')} às {item.time}
-                            </p>
-                            {(item as any).payerResponsibleName && (
-                              <p className="text-xs text-emerald-600 font-black uppercase mt-1">
-                                Pagante: {(item as any).payerResponsibleName}
+                    <div className="p-3 bg-slate-100 rounded-lg border border-slate-200 text-[10px] font-bold text-slate-600 uppercase tracking-widest">
+                      Para abrir uma contestacao, clique em CONTESTAR na linha da transacao.
+                    </div>
+                    {isLoadingTransactions && (
+                      <div className="p-4 bg-gray-50 rounded-lg text-sm font-bold text-gray-500 text-center">
+                        Carregando transações...
+                      </div>
+                    )}
+                    {!isLoadingTransactions && filteredTransactions.length === 0 && (
+                      <div className="p-4 bg-gray-50 rounded-lg text-sm font-bold text-gray-500 text-center border border-dashed border-gray-200">
+                        Nenhuma transação encontrada para o período selecionado.
+                      </div>
+                    )}
+                    {!isLoadingTransactions && filteredTransactions.map((item) => (
+                      <div key={item.id} className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-all space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`w-12 h-12 rounded-lg flex items-center justify-center ${
+                                item.isCredit
+                                  ? 'bg-emerald-100 text-emerald-600'
+                                  : String(item.raw?.type || '').toUpperCase().includes('PLAN_USE')
+                                  ? 'bg-blue-100 text-blue-600'
+                                  : 'bg-orange-100 text-orange-600'
+                              }`}
+                            >
+                              {item.isCredit ? (
+                                <Plus size={20} />
+                              ) : String(item.raw?.type || '').toUpperCase().includes('PLAN_USE') ? (
+                                <Check size={20} />
+                              ) : (
+                                <ShoppingCart size={20} />
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-bold text-gray-900">{item.item}</p>
+                              <p className="text-sm text-gray-500">
+                                {item.date.toLocaleDateString('pt-BR')} às {item.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                               </p>
-                            )}
+                              {item.payerResponsibleName && (
+                                <p className="text-xs text-emerald-600 font-black uppercase mt-1">
+                                  Pagante: {item.payerResponsibleName}
+                                </p>
+                              )}
+                            </div>
                           </div>
+                          <p className={`text-lg font-black ${item.isCredit ? 'text-emerald-600' : 'text-orange-600'}`}>
+                            {item.signedAmount >= 0 ? '+' : '-'}R$ {Math.abs(item.signedAmount).toFixed(2)}
+                          </p>
                         </div>
-                        <p className="text-lg font-black text-orange-600">-R$ {(item.value || 0).toFixed(2)}</p>
+                        <div className="flex items-center justify-between gap-4">
+                          <p className="text-xs font-bold text-gray-500 uppercase tracking-widest truncate">
+                            {item.method || 'Metodo nao informado'}
+                          </p>
+                          <button
+                            onClick={() => openContestationScreen(item)}
+                            className="px-4 py-2 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all"
+                          >
+                            CONTESTAR
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -853,6 +1122,80 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
             )}
           </div>
         </div>
+
+        {isContestScreenOpen && selectedContestTransaction && (
+          <div className="fixed inset-0 z-[1900] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                <h3 className="text-base font-black text-slate-900 uppercase tracking-widest">Contestacao de Transacao</h3>
+                <button
+                  onClick={() => setIsContestScreenOpen(false)}
+                  aria-label="Fechar contestacao"
+                  title="Fechar contestacao"
+                  className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+                <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-slate-700 text-sm leading-relaxed">
+                  Ao enviar a contestacao, o atendente tem ate 3 dias uteis para aprovar ou reprovar com resposta. O retorno sera enviado pelo WhatsApp do responsavel cadastrado.
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Transacao selecionada</p>
+                  <p className="text-sm font-black text-slate-900 uppercase">{selectedContestTransaction.item}</p>
+                  <p className="text-xs font-bold text-slate-500 mt-1">
+                    {selectedContestTransaction.date.toLocaleDateString('pt-BR')} {selectedContestTransaction.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                  <p className="text-sm font-black text-slate-900 mt-2">
+                    {selectedContestTransaction.signedAmount >= 0 ? '+' : '-'} R$ {Math.abs(selectedContestTransaction.signedAmount).toFixed(2)}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Tipo de assunto</label>
+                  <select
+                    value={contestSubject}
+                    onChange={(e) => setContestSubject(e.target.value as ContestSubject)}
+                    aria-label="Selecionar tipo de assunto"
+                    title="Selecionar tipo de assunto"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-100 text-slate-900 px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-200"
+                  >
+                    {CONTEST_SUBJECT_OPTIONS.map((subject) => (
+                      <option key={subject.value} value={subject.value}>{subject.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Motivo</label>
+                  <textarea
+                    value={contestReason}
+                    onChange={(e) => setContestReason(e.target.value)}
+                    className="w-full min-h-[130px] rounded-xl border border-slate-200 bg-slate-50 text-slate-900 px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-200 resize-none"
+                    placeholder="Descreva o motivo da contestacao"
+                  />
+                </div>
+
+                {contestFeedbackMessage && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700">
+                    {contestFeedbackMessage}
+                  </div>
+                )}
+
+                <button
+                  onClick={handleSubmitContestation}
+                  disabled={isSubmittingContest}
+                  className="w-full py-4 rounded-2xl bg-indigo-600 text-white text-xs font-black uppercase tracking-widest hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed transition-all"
+                >
+                  {isSubmittingContest ? 'Enviando...' : 'Enviar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* MODAL DE DELETE */}
         {deleteConfirm && (

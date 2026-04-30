@@ -26,11 +26,54 @@ const MOCK_TODAY_HISTORY = [
   { id: 4, type: 'PLAN_USE', item: 'Almoço PF', value: 1, time: '12:30', category: 'PF_FIXO' },
 ];
 
+const MONTH_OPTIONS = [
+  { value: 1, label: 'Janeiro' },
+  { value: 2, label: 'Fevereiro' },
+  { value: 3, label: 'Março' },
+  { value: 4, label: 'Abril' },
+  { value: 5, label: 'Maio' },
+  { value: 6, label: 'Junho' },
+  { value: 7, label: 'Julho' },
+  { value: 8, label: 'Agosto' },
+  { value: 9, label: 'Setembro' },
+  { value: 10, label: 'Outubro' },
+  { value: 11, label: 'Novembro' },
+  { value: 12, label: 'Dezembro' },
+];
+
+const CONTEST_SUBJECT_OPTIONS = [
+  { value: 'SALDO', label: 'Saldo' },
+  { value: 'DUPLICIDADE', label: 'Duplicidade' },
+  { value: 'PERIODO', label: 'Periodo' },
+  { value: 'AUSENTE', label: 'Ausente' },
+  { value: 'COBRANCA', label: 'Cobranca' },
+] as const;
+
+type HistoryFilterMode = 'MONTH' | 'YEAR';
+type ContestSubject = typeof CONTEST_SUBJECT_OPTIONS[number]['value'];
+
 const formatLocalDate = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+const parseTransactionDate = (tx: any) => {
+  const raw = String(tx?.date || tx?.timestamp || tx?.time || '').trim();
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+};
+
+const formatTransactionItem = (tx: any) => {
+  const type = String(tx?.type || '').toUpperCase();
+  if (String(tx?.item || '').trim()) return String(tx.item);
+  if (String(tx?.description || '').trim()) return String(tx.description);
+  if (type.includes('CREDIT') || type.includes('CREDITO') || type.includes('RECHARGE')) return 'Recarga de saldo';
+  if (type.includes('PLAN_USE') || type.includes('PLANO')) return 'Uso de plano';
+  return 'Consumo';
 };
 
 type Period = 'MORNING' | 'AFTERNOON' | 'NIGHT';
@@ -86,6 +129,20 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
   const [plans, setPlans] = useState<Plan[]>([]);
   const [weeklyMenu, setWeeklyMenu] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [isLoadingTransactions, setIsLoadingTransactions] = useState(false);
+
+  const now = new Date();
+  const [historyFilterMode, setHistoryFilterMode] = useState<HistoryFilterMode>('MONTH');
+  const [selectedHistoryMonth, setSelectedHistoryMonth] = useState(now.getMonth() + 1);
+  const [selectedHistoryYear, setSelectedHistoryYear] = useState(now.getFullYear());
+
+  const [isContestScreenOpen, setIsContestScreenOpen] = useState(false);
+  const [selectedContestTransaction, setSelectedContestTransaction] = useState<any | null>(null);
+  const [contestSubject, setContestSubject] = useState<ContestSubject>('SALDO');
+  const [contestReason, setContestReason] = useState('');
+  const [isSubmittingContest, setIsSubmittingContest] = useState(false);
+  const [contestFeedbackMessage, setContestFeedbackMessage] = useState('');
 
   // Carregar clientes do backend
   useEffect(() => {
@@ -133,6 +190,32 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
     };
     loadData();
   }, [enterpriseId, currentUser]);
+
+  useEffect(() => {
+    const loadTransactions = async () => {
+      const selectedChild = children[activeChildIndex];
+      if (!selectedChild?.id) {
+        setTransactions([]);
+        return;
+      }
+
+      try {
+        setIsLoadingTransactions(true);
+        const txData = await ApiService.getTransactions({
+          clientId: selectedChild.id,
+          enterpriseId: selectedChild.enterpriseId,
+        });
+        setTransactions(Array.isArray(txData) ? txData : []);
+      } catch (error) {
+        console.error('Erro ao carregar transacoes do portal:', error);
+        setTransactions([]);
+      } finally {
+        setIsLoadingTransactions(false);
+      }
+    };
+
+    loadTransactions();
+  }, [children, activeChildIndex]);
 
   const handleAddChild = async () => {
     
@@ -221,6 +304,109 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
   const filteredMenu = useMemo(() => {
     return weeklyMenu;
   }, [weeklyMenu]);
+
+  const historyYearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const years: number[] = [];
+    for (let year = currentYear; year >= 2025; year -= 1) {
+      years.push(year);
+    }
+    return years;
+  }, []);
+
+  const normalizedTransactions = useMemo(() => {
+    const source = transactions.length > 0 ? transactions : MOCK_TODAY_HISTORY;
+    return source
+      .map((tx: any, index: number) => {
+        const parsedDate = parseTransactionDate(tx) || new Date();
+        const rawAmount = Number(tx?.total ?? tx?.amount ?? tx?.value ?? 0) || 0;
+        const type = String(tx?.type || '').toUpperCase();
+        const isCredit = type.includes('CREDIT') || type.includes('CREDITO') || type.includes('RECHARGE');
+        return {
+          id: String(tx?.id || `mock-${index}`),
+          item: formatTransactionItem(tx),
+          description: String(tx?.description || ''),
+          method: String(tx?.paymentMethod || tx?.method || tx?.category || ''),
+          payerResponsibleName: String(tx?.payerResponsibleName || ''),
+          date: parsedDate,
+          amount: rawAmount,
+          signedAmount: isCredit ? rawAmount : -Math.abs(rawAmount),
+          isCredit,
+          raw: tx,
+        };
+      })
+      .sort((a, b) => b.date.getTime() - a.date.getTime());
+  }, [transactions]);
+
+  const filteredTransactions = useMemo(() => {
+    return normalizedTransactions.filter((tx) => {
+      const txYear = tx.date.getFullYear();
+      if (txYear !== selectedHistoryYear) return false;
+      if (historyFilterMode === 'YEAR') return true;
+      return tx.date.getMonth() + 1 === selectedHistoryMonth;
+    });
+  }, [normalizedTransactions, historyFilterMode, selectedHistoryMonth, selectedHistoryYear]);
+
+  const openContestationScreen = (tx: any) => {
+    setSelectedContestTransaction(tx);
+    setContestSubject('SALDO');
+    setContestReason('');
+    setContestFeedbackMessage('');
+    setIsContestScreenOpen(true);
+  };
+
+  const handleSubmitContestation = async () => {
+    const reason = contestReason.trim();
+    if (!selectedContestTransaction) {
+      return;
+    }
+    if (!reason) {
+      setContestFeedbackMessage('Preencha o campo Motivo para enviar a contestacao.');
+      return;
+    }
+
+    try {
+      setIsSubmittingContest(true);
+      setContestFeedbackMessage('');
+
+      const subjectLabel = CONTEST_SUBJECT_OPTIONS.find((option) => option.value === contestSubject)?.label || 'Outro';
+      const contestDescription = [
+        `Motivo informado: ${reason}`,
+        `Transacao: ${selectedContestTransaction.item}`,
+        `Data/Hora: ${selectedContestTransaction.date.toLocaleString('pt-BR')}`,
+        `Valor: ${selectedContestTransaction.signedAmount >= 0 ? '+' : '-'}R$ ${Math.abs(selectedContestTransaction.signedAmount).toFixed(2)}`,
+        `Metodo: ${selectedContestTransaction.method || 'Nao informado'}`,
+      ].join(' | ');
+
+      await ApiService.createContestation({
+        enterpriseId: activeChild?.enterpriseId,
+        enterpriseName: enterprises.find((ent) => ent.id === activeChild?.enterpriseId)?.name,
+        clientId: activeChild?.id,
+        clientName: activeChild?.name,
+        subject: `Contestacao - ${subjectLabel}`,
+        description: contestDescription,
+        type: contestSubject,
+        priority: 'MEDIA',
+        amount: Math.abs(selectedContestTransaction.signedAmount),
+        transactionId: selectedContestTransaction.id,
+        transactionDate: selectedContestTransaction.date.toISOString(),
+        paymentMethod: selectedContestTransaction.method || '',
+        portalSource: true,
+      });
+
+      setContestFeedbackMessage('Contestacao enviada com sucesso. O retorno sera enviado no WhatsApp do responsavel.');
+      setContestReason('');
+      window.setTimeout(() => {
+        setIsContestScreenOpen(false);
+        setSelectedContestTransaction(null);
+      }, 900);
+    } catch (error) {
+      console.error('Erro ao enviar contestacao:', error);
+      setContestFeedbackMessage('Nao foi possivel enviar a contestacao agora. Tente novamente.');
+    } finally {
+      setIsSubmittingContest(false);
+    }
+  };
 
   if (!activeChild) {
     return (
@@ -689,31 +875,110 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
                 </div>
                 <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl"><History size={24} /></div>
              </div>
+
+             <div className="bg-white p-5 rounded-[28px] border border-gray-100 shadow-sm space-y-4">
+               <div className="grid grid-cols-2 gap-3">
+                 <button
+                   onClick={() => setHistoryFilterMode('MONTH')}
+                   className={`py-3 rounded-2xl text-xs font-black uppercase tracking-widest border transition-all ${
+                     historyFilterMode === 'MONTH'
+                       ? 'bg-indigo-600 text-white border-indigo-600'
+                       : 'bg-slate-100 text-gray-700 border-slate-200'
+                   }`}
+                 >
+                   Mês
+                 </button>
+                 <button
+                   onClick={() => setHistoryFilterMode('YEAR')}
+                   className={`py-3 rounded-2xl text-xs font-black uppercase tracking-widest border transition-all ${
+                     historyFilterMode === 'YEAR'
+                       ? 'bg-indigo-600 text-white border-indigo-600'
+                       : 'bg-slate-100 text-gray-700 border-slate-200'
+                   }`}
+                 >
+                   Anual
+                 </button>
+               </div>
+               <div className={`grid gap-3 ${historyFilterMode === 'MONTH' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                 {historyFilterMode === 'MONTH' && (
+                   <select
+                     value={selectedHistoryMonth}
+                     onChange={(e) => setSelectedHistoryMonth(Number(e.target.value))}
+                    aria-label="Selecionar mes"
+                    title="Selecionar mes"
+                     className="w-full rounded-xl border border-slate-200 bg-slate-100 text-gray-900 px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-200"
+                   >
+                     {MONTH_OPTIONS.map((month) => (
+                       <option key={month.value} value={month.value}>{month.label}</option>
+                     ))}
+                   </select>
+                 )}
+                 <select
+                   value={selectedHistoryYear}
+                   onChange={(e) => setSelectedHistoryYear(Number(e.target.value))}
+                  aria-label="Selecionar ano"
+                  title="Selecionar ano"
+                   className="w-full rounded-xl border border-slate-200 bg-slate-100 text-gray-900 px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-200"
+                 >
+                   {historyYearOptions.map((year) => (
+                     <option key={year} value={year}>{year}</option>
+                   ))}
+                 </select>
+               </div>
+             </div>
              
              <div className="space-y-4">
-                {[...MOCK_TODAY_HISTORY, ...MOCK_TODAY_HISTORY].map((item, idx) => (
-                  <div key={`${item.id}-${idx}`} className="bg-white p-6 rounded-[32px] flex justify-between items-center border border-gray-100 shadow-sm hover:shadow-md transition-all">
-                     <div className="flex items-center gap-4">
+               <div className="bg-slate-100 border border-slate-200 rounded-2xl px-4 py-3 text-[10px] font-bold text-slate-600 uppercase tracking-widest">
+                 Para abrir uma contestacao, clique em CONTESTAR na linha da transacao.
+               </div>
+               {isLoadingTransactions && (
+                 <div className="bg-white p-6 rounded-[28px] border border-slate-100 text-center text-sm font-bold text-slate-500">
+                   Carregando transações...
+                 </div>
+               )}
+               {!isLoadingTransactions && filteredTransactions.length === 0 && (
+                 <div className="bg-white p-6 rounded-[28px] border border-dashed border-slate-200 text-center text-sm font-bold text-slate-500">
+                   Nenhuma transação encontrada para o período selecionado.
+                 </div>
+               )}
+               {!isLoadingTransactions && filteredTransactions.map((item) => (
+                  <div key={item.id} className="bg-white p-6 rounded-[32px] border border-gray-100 shadow-sm hover:shadow-md transition-all space-y-4">
+                     <div className="flex justify-between items-center">
+                       <div className="flex items-center gap-4">
                         <div className={`p-4 rounded-2xl ${
-                          item.type === 'RECHARGE'
+                          item.isCredit
                             ? 'bg-emerald-50 text-emerald-600'
-                            : item.type === 'PLAN_USE'
+                            : String(item.raw?.type || '').toUpperCase().includes('PLAN_USE')
                             ? 'bg-blue-50 text-blue-600'
                             : 'bg-orange-50 text-orange-600'
                         }`}>
-                          {item.type === 'RECHARGE' ? <Plus size={20} /> : item.type === 'PLAN_USE' ? <Check size={20} /> : <ShoppingCart size={20} />}
+                          {item.isCredit ? <Plus size={20} /> : String(item.raw?.type || '').toUpperCase().includes('PLAN_USE') ? <Check size={20} /> : <ShoppingCart size={20} />}
                         </div>
                         <div>
                            <span className="text-[11px] font-black text-gray-800 uppercase tracking-tight">{item.item}</span>
-                           <p className="text-[9px] text-gray-400 font-bold uppercase mt-0.5">{new Date().toLocaleDateString('pt-BR')} • {item.time}</p>
-                          {(item as any).payerResponsibleName && (
-                            <p className="text-[9px] text-emerald-600 font-black uppercase mt-0.5">Pagante: {(item as any).payerResponsibleName}</p>
+                           <p className="text-[9px] text-gray-400 font-bold uppercase mt-0.5">
+                             {item.date.toLocaleDateString('pt-BR')} • {item.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                           </p>
+                          {item.payerResponsibleName && (
+                            <p className="text-[9px] text-emerald-600 font-black uppercase mt-0.5">Pagante: {item.payerResponsibleName}</p>
                           )}
                         </div>
                      </div>
-                     <span className={`text-lg font-black tracking-tight ${item.type === 'RECHARGE' ? 'text-emerald-600' : 'text-gray-900'}`}>
-                       {item.type === 'PLAN_USE' ? `-${item.value} un` : `${item.type === 'RECHARGE' ? '+' : '-'} R$ ${(item.value || 0).toFixed(2)}`}
+                     <span className={`text-lg font-black tracking-tight ${item.isCredit ? 'text-emerald-600' : 'text-gray-900'}`}>
+                       {item.signedAmount >= 0 ? '+' : '-'} R$ {Math.abs(item.signedAmount).toFixed(2)}
                      </span>
+                     </div>
+                     <div className="flex items-center justify-between gap-3">
+                       <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 truncate">
+                         {item.method || 'Metodo nao informado'}
+                       </p>
+                       <button
+                         onClick={() => openContestationScreen(item)}
+                         className="px-5 py-2 rounded-xl bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all"
+                       >
+                         CONTESTAR
+                       </button>
+                     </div>
                   </div>
                 ))}
              </div>
@@ -749,7 +1014,7 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
       case 'CONFIGURACOES':
         return (
           <div className="space-y-8 pb-40 animate-in slide-in-from-right-4 duration-500 px-1 overflow-y-auto">
-             <div className="bg-white p-10 rounded-[48px] border border-gray-100 shadow-sm space-y-10">
+             <div className="bg-slate-50 p-10 rounded-[48px] border border-slate-200 shadow-sm space-y-10">
                 <div className="flex items-center gap-5 border-b border-gray-50 pb-6">
                    <div className="p-4 bg-indigo-50 rounded-[28px] text-indigo-600 shadow-inner"><Lock size={28} /></div>
                    <div>
@@ -759,7 +1024,7 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
                 </div>
 
                 <div className="space-y-6">
-                   <button className="w-full flex items-center justify-between p-6 bg-gray-50 rounded-3xl hover:bg-indigo-50 transition-all group shadow-inner">
+                   <button className="w-full flex items-center justify-between p-6 bg-slate-100 rounded-3xl hover:bg-indigo-50 transition-all group shadow-inner border border-slate-200">
                       <div className="flex items-center gap-4">
                          <div className="p-3 bg-white rounded-2xl shadow-sm text-indigo-400 group-hover:text-indigo-600"><Key size={20}/></div>
                          <span className="text-sm font-black text-gray-700 uppercase tracking-tight">Alterar Senha</span>
@@ -767,7 +1032,7 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
                       <ChevronRight size={18} className="text-gray-300" />
                    </button>
                    
-                   <button onClick={() => { ApiService.clearToken(); localStorage.clear(); window.location.hash = '#/'; }} className="w-full flex items-center justify-between p-6 bg-red-50 rounded-3xl hover:bg-red-100 transition-all group border border-red-100 shadow-inner">
+                   <button onClick={() => { ApiService.clearToken(); localStorage.clear(); window.location.hash = '#/'; }} className="w-full flex items-center justify-between p-6 bg-red-50 rounded-3xl hover:bg-red-100 transition-all group border border-red-200 shadow-inner">
                       <div className="flex items-center gap-4">
                          <div className="p-3 bg-white rounded-2xl shadow-sm text-red-400 group-hover:text-red-600"><LogOut size={20}/></div>
                          <span className="text-sm font-black text-red-600 uppercase tracking-tight">Sair da Conta</span>
@@ -845,6 +1110,80 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
           <TabItem icon={<User size={26} />} active={activeTab === 'ALUNOS'} onClick={() => setActiveTab('ALUNOS')} label="Alunos" />
           <TabItem icon={<Settings size={26} />} active={activeTab === 'CONFIGURACOES'} onClick={() => setActiveTab('CONFIGURACOES')} label="Config." />
         </div>
+
+        {isContestScreenOpen && selectedContestTransaction && (
+          <div className="fixed inset-0 z-[1200] bg-slate-950/70 backdrop-blur-sm flex items-end">
+            <div className="relative w-full h-full bg-white overflow-y-auto">
+              <div className="sticky top-0 bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between">
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Contestacao de Transacao</h3>
+                <button
+                  onClick={() => setIsContestScreenOpen(false)}
+                  aria-label="Fechar contestacao"
+                  title="Fechar contestacao"
+                  className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-6 pb-28">
+                <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-slate-700 text-sm leading-relaxed">
+                  Ao enviar a contestacao, o atendente tem ate 3 dias uteis para aprovar ou reprovar com resposta. O retorno sera enviado pelo WhatsApp do responsavel cadastrado.
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Transacao selecionada</p>
+                  <p className="text-sm font-black text-slate-900 uppercase">{selectedContestTransaction.item}</p>
+                  <p className="text-xs font-bold text-slate-500 mt-1">
+                    {selectedContestTransaction.date.toLocaleDateString('pt-BR')} {selectedContestTransaction.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                  <p className="text-sm font-black text-slate-900 mt-2">
+                    {selectedContestTransaction.signedAmount >= 0 ? '+' : '-'} R$ {Math.abs(selectedContestTransaction.signedAmount).toFixed(2)}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Tipo de assunto</label>
+                  <select
+                    value={contestSubject}
+                    onChange={(e) => setContestSubject(e.target.value as ContestSubject)}
+                    aria-label="Selecionar tipo de assunto"
+                    title="Selecionar tipo de assunto"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-100 text-slate-900 px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-200"
+                  >
+                    {CONTEST_SUBJECT_OPTIONS.map((subject) => (
+                      <option key={subject.value} value={subject.value}>{subject.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Motivo</label>
+                  <textarea
+                    value={contestReason}
+                    onChange={(e) => setContestReason(e.target.value)}
+                    className="w-full min-h-[130px] rounded-xl border border-slate-200 bg-slate-50 text-slate-900 px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-200 resize-none"
+                    placeholder="Descreva o motivo da contestacao"
+                  />
+                </div>
+
+                {contestFeedbackMessage && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700">
+                    {contestFeedbackMessage}
+                  </div>
+                )}
+
+                <button
+                  onClick={handleSubmitContestation}
+                  disabled={isSubmittingContest}
+                  className="w-full py-4 rounded-2xl bg-indigo-600 text-white text-xs font-black uppercase tracking-widest hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed transition-all"
+                >
+                  {isSubmittingContest ? 'Enviando...' : 'Enviar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* MODAL DE PAGAMENTO UNIFICADO (RECARGA+) */}
         {isPlanModalOpen && (
@@ -936,7 +1275,7 @@ const ClientPortalPage: React.FC<{ enterpriseId?: string; currentUser?: any } | 
                                value={rechargeValue}
                                onChange={e => setRechargeValue(e.target.value)}
                                placeholder={rechargingPlan === 'PREPAGO' || !rechargingPlan ? "0,00" : "0"} 
-                               className={`w-full pl-16 pr-6 py-6 bg-white rounded-[32px] border-none font-black text-3xl outline-none shadow-sm placeholder:text-gray-100 ${rechargingPlan === 'LANCHE_FIXO' ? 'text-amber-600' : rechargingPlan === 'PF_FIXO' ? 'text-orange-600' : 'text-indigo-600'}`} 
+                               className={`w-full pl-16 pr-6 py-6 bg-slate-100 rounded-[32px] border border-slate-200 font-black text-3xl outline-none shadow-sm placeholder:text-gray-300 ${rechargingPlan === 'LANCHE_FIXO' ? 'text-amber-600' : rechargingPlan === 'PF_FIXO' ? 'text-orange-600' : 'text-indigo-600'}`} 
                              />
                           </div>
                           {rechargingPlan && rechargingPlan !== 'PREPAGO' && (

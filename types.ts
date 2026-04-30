@@ -85,7 +85,7 @@ export type Enterprise = {
   planType?: 'BASIC' | 'PREMIUM' | 'PRO' | 'ENTERPRISE';
   serviceStatus?: 'TRIAL' | 'ATIVO' | 'PAUSADO' | 'INADIMPLENTE' | 'CANCELADO';
   lastPaymentStatus?: 'PAID' | 'PENDING' | 'OVERDUE';
-  collaboratorPaymentStartDay?: number; // Dia do mês para início do período de consumo (1-31) - Exemplo: 5 significa 5 março até 4 abril
+  collaboratorPaymentStartDay?: number; // Configuração legada do início do período de consumo (atualmente o período está fixo no mês calendário: 1 até último dia)
   collaboratorPaymentDueDay?: number; // Dia do mês para vencimento do pagamento do mês anterior (1-31) - Exemplo: 7 de abril para consumo de março
   allowNegativeSalesForClients?: boolean;
   negativeLimitClients?: number;

@@ -43,6 +43,7 @@ interface DatabaseShape {
   transactions: any[];
   orders: any[];
   ingredients: any[];
+  contestations?: any[];
   errorTickets: any[];
   financialEntries?: any[];
   financialSettingsByEnterprise?: Record<string, any>;
@@ -88,6 +89,7 @@ const createEmptyDatabase = (): DatabaseShape => ({
   transactions: [],
   orders: [],
   ingredients: [],
+  contestations: [],
   errorTickets: [],
   financialEntries: [],
   financialSettingsByEnterprise: {},
@@ -122,6 +124,7 @@ export class Database {
   private transactions: any[] = [];
   private orders: any[] = [];
   private ingredients: any[] = [];
+  private contestations: any[] = [];
   private errorTickets: any[] = [];
   private financialEntries: any[] = [];
   private financialSettingsByEnterprise: Record<string, any> = {};
@@ -1578,6 +1581,7 @@ export class Database {
       transactions: readArrayFile('transactions.json'),
       orders: readArrayFile('orders.json'),
       ingredients: readArrayFile('ingredients.json'),
+      contestations: [],
       errorTickets: [],
       financialEntries: [],
       financialSettingsByEnterprise: {},
@@ -1709,6 +1713,7 @@ export class Database {
       transactions: remappedTransactions,
       orders: remappedOrders,
       ingredients: ensureArray(safeRaw.ingredients),
+      contestations: ensureArray((safeRaw as any).contestations),
       errorTickets: ensureArray((safeRaw as any).errorTickets),
       financialEntries: ensureArray((safeRaw as any).financialEntries),
       financialSettingsByEnterprise: (safeRaw as any).financialSettingsByEnterprise && typeof (safeRaw as any).financialSettingsByEnterprise === 'object'
@@ -1764,6 +1769,7 @@ export class Database {
     this.transactions = data.transactions;
     this.orders = data.orders;
     this.ingredients = data.ingredients;
+    this.contestations = Array.isArray((data as any).contestations) ? (data as any).contestations : [];
     this.errorTickets = Array.isArray((data as any).errorTickets) ? (data as any).errorTickets : [];
     this.financialEntries = Array.isArray((data as any).financialEntries) ? (data as any).financialEntries : [];
     this.financialSettingsByEnterprise = (data as any).financialSettingsByEnterprise && typeof (data as any).financialSettingsByEnterprise === 'object'
@@ -1812,6 +1818,7 @@ export class Database {
       transactions: this.transactions,
       orders: this.orders,
       ingredients: this.ingredients,
+      contestations: this.contestations,
       errorTickets: this.errorTickets,
       financialEntries: this.financialEntries,
       financialSettingsByEnterprise: this.financialSettingsByEnterprise,
@@ -1935,6 +1942,7 @@ export class Database {
       schoolCalendars: this.schoolCalendars.length,
       orders: this.orders.length,
       transactions: this.transactions.length,
+      contestations: this.contestations.length,
       errorTickets: this.errorTickets.length,
       financialEntries: this.financialEntries.length,
       saasCashflowEntries: this.saasCashflowEntries.length,
@@ -2237,6 +2245,148 @@ export class Database {
     };
     this.saveData();
     return this.getDevAssistantConfig();
+  }
+
+  // ===== CONTESTACOES =====
+  private normalizeContestationStatus(value: any, fallback: string = 'PENDENTE'): string {
+    const token = this.normalizeToken(String(value || ''));
+    if (!token) {
+      const fallbackToken = this.normalizeToken(String(fallback || ''));
+      if (!fallbackToken) return '';
+      return this.normalizeContestationStatus(fallbackToken, 'PENDENTE');
+    }
+    if (['PENDENTE', 'OPEN'].includes(token)) return 'PENDENTE';
+    if (['EM_ANALISE', 'EMANALISE', 'IN_PROGRESS', 'IN_REVIEW'].includes(token)) return 'EM_ANALISE';
+    if (['RESOLVIDO', 'RESOLVED'].includes(token)) return 'RESOLVIDO';
+    if (['REJEITADO', 'REJECTED'].includes(token)) return 'REJEITADO';
+    if (!String(fallback || '').trim()) return '';
+    return this.normalizeContestationStatus(fallback, 'PENDENTE');
+  }
+
+  private normalizeContestationPriority(value: any, fallback: string = 'MEDIA'): string {
+    const token = this.normalizeToken(String(value || ''));
+    if (!token) {
+      const fallbackToken = this.normalizeToken(String(fallback || ''));
+      if (!fallbackToken) return '';
+      return this.normalizeContestationPriority(fallbackToken, 'MEDIA');
+    }
+    if (['BAIXA', 'LOW'].includes(token)) return 'BAIXA';
+    if (['MEDIA', 'MEDIO', 'MEDIUM'].includes(token)) return 'MEDIA';
+    if (['ALTA', 'HIGH'].includes(token)) return 'ALTA';
+    if (['CRITICA', 'CRITICO', 'CRITICAL'].includes(token)) return 'CRITICA';
+    if (!String(fallback || '').trim()) return '';
+    return this.normalizeContestationPriority(fallback, 'MEDIA');
+  }
+
+  getContestations(filters?: { enterpriseIds?: string[]; status?: string; priority?: string; clientId?: string }) {
+    const allowedEnterpriseIds = Array.isArray(filters?.enterpriseIds)
+      ? filters?.enterpriseIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : [];
+    const status = this.normalizeContestationStatus(filters?.status || '', '');
+    const priority = this.normalizeContestationPriority(filters?.priority || '', '');
+    const clientId = String(filters?.clientId || '').trim();
+
+    let result = [...this.contestations];
+
+    if (allowedEnterpriseIds.length > 0) {
+      const allowedSet = new Set(allowedEnterpriseIds);
+      result = result.filter((item: any) => allowedSet.has(String(item?.enterpriseId || '').trim()));
+    }
+
+    if (status) {
+      result = result.filter((item: any) => this.normalizeContestationStatus(item?.status || '', '') === status);
+    }
+
+    if (priority) {
+      result = result.filter((item: any) => this.normalizeContestationPriority(item?.priority || '', '') === priority);
+    }
+
+    if (clientId) {
+      result = result.filter((item: any) => String(item?.clientId || '').trim() === clientId);
+    }
+
+    return result.sort((a: any, b: any) => {
+      const aTs = new Date(String(a?.createdAt || '')).getTime();
+      const bTs = new Date(String(b?.createdAt || '')).getTime();
+      return (Number.isFinite(bTs) ? bTs : 0) - (Number.isFinite(aTs) ? aTs : 0);
+    });
+  }
+
+  getContestation(id: string) {
+    const normalizedId = String(id || '').trim();
+    if (!normalizedId) return null;
+    return this.contestations.find((item: any) => String(item?.id || '').trim() === normalizedId) || null;
+  }
+
+  createContestation(data: any) {
+    const nowIso = new Date().toISOString();
+    const next = {
+      id: String(data?.id || this.generateEntityId('cont')).trim(),
+      enterpriseId: String(data?.enterpriseId || '').trim(),
+      enterpriseName: String(data?.enterpriseName || '').trim(),
+      clientId: String(data?.clientId || '').trim(),
+      clientName: String(data?.clientName || '').trim(),
+      subject: String(data?.subject || data?.title || '').trim(),
+      description: String(data?.description || '').trim(),
+      type: this.normalizeToken(data?.type || 'OUTRO'),
+      status: this.normalizeContestationStatus(data?.status || 'PENDENTE'),
+      priority: this.normalizeContestationPriority(data?.priority || 'MEDIA'),
+      amount: this.roundValue(this.toFiniteNumber(data?.amount, 0), 2),
+      resolution: String(data?.resolution || '').trim(),
+      resolutionNote: String(data?.resolutionNote || '').trim(),
+      portalSource: Boolean(data?.portalSource),
+      createdByUserId: String(data?.createdByUserId || '').trim(),
+      createdByUserRole: this.normalizeToken(data?.createdByUserRole || ''),
+      createdAt: String(data?.createdAt || nowIso),
+      updatedAt: nowIso,
+      resolvedAt: String(data?.resolvedAt || '').trim(),
+      resolvedByUserId: String(data?.resolvedByUserId || '').trim(),
+    };
+
+    this.contestations.push(next);
+    this.saveData();
+    return next;
+  }
+
+  updateContestation(id: string, data: any) {
+    const index = this.contestations.findIndex((item: any) => String(item?.id || '').trim() === String(id || '').trim());
+    if (index === -1) return null;
+
+    const current = this.contestations[index] || {};
+    const status = data?.status !== undefined
+      ? this.normalizeContestationStatus(data?.status, current?.status || 'PENDENTE')
+      : this.normalizeContestationStatus(current?.status || 'PENDENTE');
+
+    const next = {
+      ...current,
+      ...data,
+      subject: data?.subject !== undefined ? String(data?.subject || '').trim() : String(current?.subject || '').trim(),
+      description: data?.description !== undefined ? String(data?.description || '').trim() : String(current?.description || '').trim(),
+      status,
+      priority: data?.priority !== undefined
+        ? this.normalizeContestationPriority(data?.priority, current?.priority || 'MEDIA')
+        : this.normalizeContestationPriority(current?.priority || 'MEDIA'),
+      amount: data?.amount !== undefined
+        ? this.roundValue(this.toFiniteNumber(data?.amount, this.toFiniteNumber(current?.amount, 0)), 2)
+        : this.roundValue(this.toFiniteNumber(current?.amount, 0), 2),
+      resolution: data?.resolution !== undefined
+        ? String(data?.resolution || '').trim()
+        : String(current?.resolution || '').trim(),
+      resolutionNote: data?.resolutionNote !== undefined
+        ? String(data?.resolutionNote || '').trim()
+        : String(current?.resolutionNote || '').trim(),
+      resolvedAt: status === 'RESOLVIDO'
+        ? String(data?.resolvedAt || current?.resolvedAt || new Date().toISOString()).trim()
+        : '',
+      resolvedByUserId: status === 'RESOLVIDO'
+        ? String(data?.resolvedByUserId || current?.resolvedByUserId || '').trim()
+        : '',
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.contestations[index] = next;
+    this.saveData();
+    return next;
   }
 
   // ===== ERROR TICKETS =====

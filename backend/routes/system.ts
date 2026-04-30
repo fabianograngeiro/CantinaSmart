@@ -77,7 +77,7 @@ const normalizeBackupPayload = (payload: any): DatabaseBackupShape => {
   }
 
   // Campos opcionais que devem ser preservados se existirem
-  const optionalArrayFields = ['errorTickets', 'financialEntries', 'saasCashflowEntries', 'taskReminders', 'menus', 'schoolCalendars'];
+  const optionalArrayFields = ['contestations', 'errorTickets', 'financialEntries', 'saasCashflowEntries', 'taskReminders', 'menus', 'schoolCalendars'];
   const optionalArrays: Record<string, any[]> = {};
   for (const field of optionalArrayFields) {
     if (payload[field] !== undefined) {

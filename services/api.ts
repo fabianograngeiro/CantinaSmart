@@ -418,6 +418,38 @@ export class ApiService {
     return response.json();
   }
 
+  // ===== CONTESTACOES =====
+  static async getContestacoes(filters?: { enterpriseId?: string; status?: string; priority?: string; clientId?: string }) {
+    const response = await fetch(this.buildApiUrl('/contestacoes', filters), {
+      headers: this.getHeaders(),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao buscar contestacoes'));
+    return response.json();
+  }
+
+  static async createContestation(data: any) {
+    const response = await fetch(`${API_URL}/contestacoes`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(data || {}),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao criar contestacao'));
+    return response.json();
+  }
+
+  static async updateContestation(id: string, data: any) {
+    const response = await fetch(`${API_URL}/contestacoes/${encodeURIComponent(String(id || '').trim())}`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify(data || {}),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao atualizar contestacao'));
+    return response.json();
+  }
+
   // ===== ENTERPRISES =====
   static async getEnterprises() {
     try {

@@ -54,6 +54,7 @@ import SystemSettingsPage from './pages/SystemSettingsPage';
 import SettingsPage from './pages/SettingsPage';
 import FinancialPage from './pages/FinancialPage';
 import WhatsAppPage from './pages/WhatsAppPage';
+import ContestationsPage from './pages/ContestationsPage';
 import NotificationCenter from './components/NotificationCenter';
 import { useTheme } from './components/ThemeProvider';
 import AdminContactsPage from './pages/AdminContactsPage';
@@ -411,6 +412,7 @@ const AppContent: React.FC<any> = (props) => {
     availableEnterprises,
     showEnterpriseSelector, setShowEnterpriseSelector, setCurrentUser, resolvedPermissions
   } = props;
+  const roleKey = normalizeRole(String(currentUser?.role || ''));
   const [trialBanner, setTrialBanner] = React.useState<{ show: boolean; expiresAt: string; daysLeft: number }>({
     show: false,
     expiresAt: '',
@@ -458,6 +460,7 @@ const AppContent: React.FC<any> = (props) => {
   const canAccessPOS = isOwnerUnitPanel ? true : resolvedPermissions.canAccessPOS;
   const canAccessClients = isOwnerUnitPanel ? true : resolvedPermissions.canAccessClients;
   const canManageStaff = isOwnerUnitPanel ? true : resolvedPermissions.canManageStaff;
+  const canAccessContestations = canAccessReports || roleKey === Role.ADMIN || roleKey === Role.ADMIN_RESTAURANTE;
   const canAccessUsersRoute = isSuperAdmin || (isOwner ? !isOwnerUnitPanel : canManageStaff);
   const canAccessSystemSettingsRoute = isSuperAdmin || isAdminSistema || (isOwner && !isOwnerUnitPanel);
   const ownerMatrixLogo = String((currentUser as any)?.matrizLogo || '').trim();
@@ -609,7 +612,7 @@ const AppContent: React.FC<any> = (props) => {
                  path="/portal"
                  element={
                    currentUser?.role === 'COLABORADOR'
-                     ? <CollaboratorPortalPage />
+                     ? <CollaboratorPortalPage currentUser={currentUser} handleLogout={handleLogout} />
                      : <ClientPortalPageWrapper currentUser={currentUser} />
                  }
                />
@@ -617,7 +620,7 @@ const AppContent: React.FC<any> = (props) => {
                  path="*"
                  element={
                    currentUser?.role === 'COLABORADOR'
-                     ? <CollaboratorPortalPage />
+                     ? <CollaboratorPortalPage currentUser={currentUser} handleLogout={handleLogout} />
                      : <ClientPortalPageWrapper currentUser={currentUser} />
                  }
                />
@@ -714,6 +717,7 @@ const AppContent: React.FC<any> = (props) => {
                     {canAccessReports && <SidebarItem icon={<ReceiptText size={20} />} label="Transacoes" to="/unit-sales" isOpen={isSidebarOpen} />}
                     {canAccessReports && <SidebarItem icon={<DollarSign size={20} />} label="Financeiro" to="/financial" isOpen={isSidebarOpen} />}
                     {canAccessReports && <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp" to="/whatsapp" isOpen={isSidebarOpen} />}
+                    {canAccessContestations && <SidebarItem icon={<AlertTriangle size={20} />} label="Contestações" to="/contestacoes" isOpen={isSidebarOpen} />}
                     {canAccessInventory && <SidebarItem icon={<ArrowRightLeft size={20} />} label="Estoque Unidade" to="/inventory" isOpen={isSidebarOpen} />}
                       {canAccessReports && <SidebarItem icon={<Users size={20} />} label="Contato WPP" to="/whatsapp-contacts" isOpen={isSidebarOpen} />}
                     {canManageStaff && <SidebarItem icon={<Settings size={20} />} label="Ajustes" to="/settings" isOpen={isSidebarOpen} />}
@@ -866,6 +870,7 @@ const AppContent: React.FC<any> = (props) => {
                   <Route path="/unit-sales" element={canAccessReports ? <UnitSalesTransactionsPage activeEnterprise={activeEnterprise} transactions={transactions} currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/financial" element={canAccessReports ? <FinancialPage activeEnterprise={activeEnterprise} currentUser={currentUser} /> : <Navigate to="/" />} />
                   <Route path="/whatsapp" element={canAccessReports ? <WhatsAppPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
+                  <Route path="/contestacoes" element={canAccessContestations ? <ContestationsPage /> : <Navigate to="/" />} />
                   <Route path="/users" element={canAccessUsersRoute ? <UserManagementPage currentUser={currentUser} /> : <Navigate to="/" />} />
                     <Route path="/whatsapp-contacts" element={canAccessReports ? <AdminContactsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/system-settings" element={canAccessSystemSettingsRoute ? <SystemSettingsPage currentUser={currentUser} /> : <Navigate to="/" />} />
@@ -879,7 +884,7 @@ const AppContent: React.FC<any> = (props) => {
                   <Route path="/suppliers" element={<SuppliersPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
                   <Route path="/portal" element={
                     currentUser?.role === 'RESPONSAVEL' ? <ClientPortalPageWrapper /> :
-                    currentUser?.role === 'COLABORADOR' ? <CollaboratorPortalPage /> :
+                    currentUser?.role === 'COLABORADOR' ? <CollaboratorPortalPage currentUser={currentUser} handleLogout={handleLogout} /> :
                     <Navigate to="/" />
                   } />
                   <Route path="/menu-lunch" element={canAccessInventory ? <MenuManagementPage type="ALMOCO" currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />

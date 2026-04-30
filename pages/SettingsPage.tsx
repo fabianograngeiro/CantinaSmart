@@ -647,7 +647,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser: _currentUser, 
                       <label className="text-xs font-black text-indigo-900 uppercase tracking-widest block mb-1">
                         Dia de Início do Período de Consumo
                       </label>
-                      <p className="text-xs text-indigo-700">Exemplo: se escolher dia 5, o período será de 5 do mês atual até 4 do mês seguinte.</p>
+                      <p className="text-xs text-indigo-700">Período mensal fixo: sempre de 1 até o último dia do mês atual (30 ou 31, conforme o mês).</p>
                     </div>
                   </div>
                   <input

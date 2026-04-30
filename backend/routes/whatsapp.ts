@@ -5,6 +5,7 @@ import { canAccessAllEnterprises, requesterCanAccessEnterprise } from '../utils/
 import {
   buildDispatchAudience,
   DispatchAudienceFilter,
+  DispatchMonthlyWindowMode,
   DispatchProfileType,
   DispatchPeriodMode,
 } from '../services/dispatchAudienceService.js';
@@ -577,21 +578,6 @@ router.all('/webhook/external', async (req: Request, res: Response) => {
       return res.status(202).json({ success: true, ignored: true, reason: 'external_provider_disabled' });
     }
 
-    if (webhook.fromMe) {
-      appendWebhookLog(enterpriseId, {
-        status: 'IGNORED',
-        reason: 'outgoing_message',
-        method: req.method,
-        fromMe: webhook.fromMe,
-        number: webhook.number,
-        chatId: webhook.chatId,
-        message: webhook.message,
-        messageId: webhook.messageId,
-        payload,
-      });
-      return res.status(202).json({ success: true, ignored: true, reason: 'outgoing_message' });
-    }
-
     const target = webhook.chatId || webhook.number;
     if (!String(target || '').trim()) {
       appendWebhookLog(enterpriseId, {
@@ -606,6 +592,58 @@ router.all('/webhook/external', async (req: Request, res: Response) => {
         payload,
       });
       return res.status(202).json({ success: true, ignored: true, reason: 'missing_sender' });
+    }
+
+    if (webhook.fromMe) {
+      const hasContent = Boolean(
+        String(webhook.message || '').trim()
+        || String(webhook.mediaType || '').trim()
+        || String(webhook.messageId || '').trim()
+      );
+      if (!hasContent) {
+        appendWebhookLog(enterpriseId, {
+          status: 'IGNORED',
+          reason: 'outgoing_without_content',
+          method: req.method,
+          fromMe: webhook.fromMe,
+          number: webhook.number,
+          chatId: webhook.chatId,
+          message: webhook.message,
+          messageId: webhook.messageId,
+          payload,
+        });
+        return res.status(202).json({ success: true, ignored: true, reason: 'outgoing_without_content' });
+      }
+
+      const outboundResult = await whatsappSession.ingestExternalOutboundMessage({
+        chatId: webhook.chatId,
+        number: webhook.number,
+        name: webhook.name,
+        message: webhook.message,
+        messageId: webhook.messageId,
+        timestamp: webhook.timestamp,
+        mediaType: webhook.mediaType,
+        fileName: webhook.fileName,
+        mimeType: webhook.mimeType,
+        avatarUrl: webhook.avatarUrl,
+      });
+
+      appendWebhookLog(enterpriseId, {
+        status: 'RECEIVED',
+        reason: outboundResult?.duplicate ? 'outgoing_duplicate' : 'outgoing_ingested',
+        method: req.method,
+        fromMe: webhook.fromMe,
+        number: webhook.number,
+        chatId: webhook.chatId,
+        message: webhook.message,
+        messageId: webhook.messageId,
+        payload,
+      });
+
+      return res.json({
+        enterpriseId,
+        ...outboundResult,
+      });
     }
 
     const result = await whatsappSession.ingestExternalInboundMessage({
@@ -742,6 +780,8 @@ router.get('/dispatch/audience', async (req: AuthRequest, res: Response) => {
     const filter = String(req.query.filter || 'TODOS').toUpperCase() as DispatchAudienceFilter;
     const profileType = String(req.query.profileType || 'RESPONSAVEL_PARENTESCO').toUpperCase() as DispatchProfileType;
     const periodMode = String(req.query.periodMode || 'SEMANAL').toUpperCase() as DispatchPeriodMode;
+    const monthlyWindowMode = String(req.query.monthlyWindowMode || '').toUpperCase() as DispatchMonthlyWindowMode;
+    const monthlyReferenceDate = String(req.query.monthlyReferenceDate || '').trim();
     const businessDaysOnly = String(req.query.businessDaysOnly || '').toLowerCase() === 'true';
     const data = buildDispatchAudience({
       enterpriseId,
@@ -749,6 +789,8 @@ router.get('/dispatch/audience', async (req: AuthRequest, res: Response) => {
       profileType,
       periodMode,
       businessDaysOnly,
+      monthlyWindowMode,
+      monthlyReferenceDate,
     });
 
     res.json({
@@ -1922,7 +1964,16 @@ router.post('/send-request-payment', async (req: AuthRequest, res: Response) => 
       });
     }
 
-    if (!isSpecialTargetJid(target) && !getEnterprisePhoneSet(enterpriseId).has(normalizePhoneDigits(target))) {
+    const normalizedTarget = normalizePhoneDigits(target);
+    const externalEnabled = providerConfig.mode === 'EXTERNAL' && providerConfig.external.enabled;
+    const isKnownPhone = normalizedTarget
+      ? getEnterprisePhoneSet(enterpriseId).has(normalizedTarget)
+      : false;
+    const isLeadPhone = normalizedTarget
+      ? getLeadPhoneSetForEnterprise(enterpriseId).has(normalizedTarget)
+      : false;
+
+    if (!isSpecialTargetJid(target) && !externalEnabled && !isKnownPhone && !isLeadPhone) {
       return res.status(403).json({
         success: false,
         message: 'Telefone não pertence à unidade selecionada.',
