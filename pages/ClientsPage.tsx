@@ -743,6 +743,49 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
     const rows: ResponsibleOrCollaboratorRow[] = [];
     const responsibleMap = new Map<string, ResponsibleOrCollaboratorRow>();
 
+    const resolveLinkedResponsibleClient = (student: Client) => {
+      const linkedById = String((student as any)?.responsibleClientId || '').trim();
+      if (linkedById) {
+        const byId = clients.find((candidate) => String(candidate?.id || '').trim() === linkedById);
+        if (byId && String(byId?.type || '').toUpperCase() === 'RESPONSAVEL') {
+          return byId;
+        }
+      }
+
+      const studentId = String(student?.id || '').trim();
+      const studentName = normalizeSearchText(String(student?.parentName || student?.guardianName || '').trim());
+      const studentPhone = String(student?.parentWhatsapp || student?.guardianPhone || '').replace(/\D/g, '');
+      const studentEmail = normalizeSearchText(String(student?.parentEmail || student?.guardianEmail || '').trim());
+
+      const candidates = clients.filter((candidate) => {
+        if (String(candidate?.type || '').toUpperCase() !== 'RESPONSAVEL') return false;
+        if (!matchesUnit(candidate)) return false;
+        return true;
+      });
+
+      const byRelationship = candidates.find((candidate: any) => {
+        const relatedStudentIds = Array.isArray(candidate?.relatedStudentIds)
+          ? candidate.relatedStudentIds.map((id: unknown) => String(id || '').trim())
+          : [];
+        return studentId && relatedStudentIds.includes(studentId);
+      });
+      if (byRelationship) return byRelationship;
+
+      return candidates.find((candidate: any) => {
+        const candidateName = normalizeSearchText(String(candidate?.name || '').trim());
+        const candidatePhone = String(candidate?.phone || candidate?.parentWhatsapp || candidate?.guardianPhone || '').replace(/\D/g, '');
+        const candidateEmail = normalizeSearchText(String(candidate?.email || candidate?.parentEmail || candidate?.guardianEmail || '').trim());
+
+        const nameMatch = Boolean(studentName) && Boolean(candidateName) && studentName === candidateName;
+        const phoneMatch = Boolean(studentPhone) && Boolean(candidatePhone) && studentPhone === candidatePhone;
+        const emailMatch = Boolean(studentEmail) && Boolean(candidateEmail) && studentEmail === candidateEmail;
+
+        if (phoneMatch && nameMatch) return true;
+        if (emailMatch && (nameMatch || phoneMatch)) return true;
+        return false;
+      }) || null;
+    };
+
     clients.forEach((client) => {
       if (!matchesUnit(client)) return;
       const type = String(client.type || '').toUpperCase();
@@ -769,17 +812,38 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
       const responsiblePhone = String(client.parentWhatsapp || client.guardianPhone || '').trim();
       if (!responsibleName && !responsiblePhone) return;
 
-      const key = `${normalizeSearchText(responsibleName)}|${String(responsiblePhone).replace(/\D/g, '')}`;
+      const linkedResponsibleClient = resolveLinkedResponsibleClient(client);
+      const resolvedResponsibleName = String(linkedResponsibleClient?.name || responsibleName || '').trim();
+      const resolvedResponsiblePhone = String(
+        linkedResponsibleClient?.phone
+        || (linkedResponsibleClient as any)?.parentWhatsapp
+        || responsiblePhone
+        || ''
+      ).trim();
+      const resolvedResponsibleEmail = String(
+        linkedResponsibleClient?.email
+        || (linkedResponsibleClient as any)?.parentEmail
+        || (linkedResponsibleClient as any)?.guardianEmail
+        || client.parentEmail
+        || client.guardianEmail
+        || ''
+      ).trim();
+
+      const key = `${normalizeSearchText(resolvedResponsibleName || responsibleName)}|${String(resolvedResponsiblePhone || responsiblePhone).replace(/\D/g, '')}`;
       if (!responsibleMap.has(key)) {
         responsibleMap.set(key, {
           id: `responsavel:${key || client.id}`,
-          registrationId: client.registrationId || '-',
-          name: responsibleName || 'Não informado',
-          photo: client.photo,
+          registrationId: String(linkedResponsibleClient?.registrationId || client.registrationId || '-'),
+          name: resolvedResponsibleName || 'Não informado',
+          photo: linkedResponsibleClient?.photo || client.photo,
           tipoConta: 'RESPONSAVEL',
-          cargoParentesco: formatParentRelationship((client as any)?.parentRelationship) || resolveKinshipOrRole(`${client.parentName || ''} ${client.guardianName || ''}`),
-          phone: responsiblePhone,
-          email: client.parentEmail || client.guardianEmail || '',
+          cargoParentesco:
+            formatParentRelationship((linkedResponsibleClient as any)?.parentRelationship)
+            || formatParentRelationship((client as any)?.parentRelationship)
+            || resolveKinshipOrRole(`${client.parentName || ''} ${client.guardianName || ''}`),
+          phone: resolvedResponsiblePhone,
+          email: resolvedResponsibleEmail,
+          sourceClient: linkedResponsibleClient || undefined,
         });
       }
     });
@@ -855,7 +919,27 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
   };
 
   const handleGeneratePortalLink = async (row: ResponsibleOrCollaboratorRow) => {
-    const userId = String(row?.sourceClient?.id || '').trim();
+    const fallbackClient = clients.find((candidate) => {
+      const type = String(candidate?.type || '').toUpperCase();
+      if (type !== 'RESPONSAVEL' && type !== 'COLABORADOR') return false;
+
+      const rowPhone = String(row?.phone || '').replace(/\D/g, '');
+      const candidatePhone = String(candidate?.phone || candidate?.parentWhatsapp || candidate?.guardianPhone || '').replace(/\D/g, '');
+      const rowName = normalizeSearchText(String(row?.name || ''));
+      const candidateName = normalizeSearchText(String(candidate?.name || ''));
+      const rowEmail = normalizeSearchText(String(row?.email || ''));
+      const candidateEmail = normalizeSearchText(String(candidate?.email || candidate?.parentEmail || candidate?.guardianEmail || ''));
+
+      const phoneMatch = Boolean(rowPhone) && Boolean(candidatePhone) && rowPhone === candidatePhone;
+      const nameMatch = Boolean(rowName) && Boolean(candidateName) && rowName === candidateName;
+      const emailMatch = Boolean(rowEmail) && Boolean(candidateEmail) && rowEmail === candidateEmail;
+
+      if (phoneMatch && nameMatch) return true;
+      if (emailMatch && (nameMatch || phoneMatch)) return true;
+      return false;
+    });
+
+    const userId = String(row?.sourceClient?.id || fallbackClient?.id || '').trim();
     if (!userId) {
       alert('Este contato não possui cadastro próprio de responsável/colaborador. Cadastre-o como cliente para gerar o link do painel.');
       return;

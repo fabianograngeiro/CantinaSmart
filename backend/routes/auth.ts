@@ -390,13 +390,20 @@ router.post('/:id/portal-link', (req: AuthRequest, res: Response) => {
 
   let updated = targetUser;
   if (!rawToken) {
-    rawToken = randomBytes(48).toString('hex');
-    const tokenHash = buildPortalAccessTokenHash(rawToken);
-    updated = db.updateUser(targetUser.id, {
-      portalAccessEnabled: true,
-      portalAccessTokenHash: tokenHash,
-      portalAccessTokenCreatedAt: new Date().toISOString(),
-    });
+    // Reuse existing raw token if stored (avoids breaking links already shared)
+    const existingRaw = String(targetUser.portalAccessTokenRaw || '').trim();
+    if (existingRaw && String(targetUser.portalAccessTokenHash || '').trim()) {
+      rawToken = existingRaw;
+    } else {
+      rawToken = randomBytes(48).toString('hex');
+      const tokenHash = buildPortalAccessTokenHash(rawToken);
+      updated = db.updateUser(targetUser.id, {
+        portalAccessEnabled: true,
+        portalAccessTokenHash: tokenHash,
+        portalAccessTokenRaw: rawToken,
+        portalAccessTokenCreatedAt: new Date().toISOString(),
+      }) || targetUser;
+    }
   }
 
   if (!updated) {
@@ -545,8 +552,12 @@ router.post('/portal-links/backfill', (req: AuthRequest, res: Response) => {
       return;
     }
 
-    const ensured = db.ensurePortalAccessForClientId(String(client?.id || '').trim(), { regenerateToken: true });
-    if (!ensured?.user || !ensured?.rawToken) {
+    const ensured = db.ensurePortalAccessForClientId(String(client?.id || '').trim(), { regenerateToken: false });
+    // If no raw token stored (created before this fix), regenerate to persist it
+    const finalEnsured = (!ensured?.rawToken && ensured?.user)
+      ? db.ensurePortalAccessForClientId(String(client?.id || '').trim(), { regenerateToken: true })
+      : ensured;
+    if (!finalEnsured?.user || !finalEnsured?.rawToken) {
       skipped.push({
         clientId: String(client?.id || '').trim(),
         name: String(client?.name || '').trim(),
@@ -559,9 +570,9 @@ router.post('/portal-links/backfill', (req: AuthRequest, res: Response) => {
       clientId: String(client?.id || '').trim(),
       name: String(client?.name || '').trim(),
       type,
-      userId: String(ensured.user?.id || '').trim(),
+      userId: String(finalEnsured.user?.id || '').trim(),
       enterpriseId: String(client?.enterpriseId || '').trim(),
-      accessLink: `${getPortalAccessBaseUrl(req)}?t=${encodeURIComponent(String(ensured.rawToken || '').trim())}`,
+      accessLink: `${getPortalAccessBaseUrl(req)}?t=${encodeURIComponent(String(finalEnsured.rawToken || '').trim())}`,
     });
   });
 

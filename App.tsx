@@ -34,6 +34,7 @@ import SuppliersPage from './pages/SuppliersPage';
 import ClientPortalPage from './pages/ClientPortalPage';
 import ClientPortalPageDesktop from './pages/ClientPortalPage_Desktop';
 import CollaboratorPortalPage from './pages/CollaboratorPortalPage';
+import ResponsiblePortalPage from './pages/ResponsiblePortalPage';
 import PortalAccessPage from './pages/PortalAccessPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import MenuManagementPage from './pages/MenuManagementPage';
@@ -613,7 +614,9 @@ const AppContent: React.FC<any> = (props) => {
                  element={
                    currentUser?.role === 'COLABORADOR'
                      ? <CollaboratorPortalPage currentUser={currentUser} handleLogout={handleLogout} />
-                     : <ClientPortalPageWrapper currentUser={currentUser} />
+                     : currentUser?.role === 'RESPONSAVEL'
+                       ? <ResponsiblePortalPage currentUser={currentUser} handleLogout={handleLogout} />
+                       : <ClientPortalPageWrapper currentUser={currentUser} />
                  }
                />
                <Route
@@ -621,7 +624,9 @@ const AppContent: React.FC<any> = (props) => {
                  element={
                    currentUser?.role === 'COLABORADOR'
                      ? <CollaboratorPortalPage currentUser={currentUser} handleLogout={handleLogout} />
-                     : <ClientPortalPageWrapper currentUser={currentUser} />
+                     : currentUser?.role === 'RESPONSAVEL'
+                       ? <ResponsiblePortalPage currentUser={currentUser} handleLogout={handleLogout} />
+                       : <ClientPortalPageWrapper currentUser={currentUser} />
                  }
                />
              </Routes>
@@ -883,7 +888,7 @@ const AppContent: React.FC<any> = (props) => {
                   />
                   <Route path="/suppliers" element={<SuppliersPage currentUser={currentUser} activeEnterprise={activeEnterprise} />} />
                   <Route path="/portal" element={
-                    currentUser?.role === 'RESPONSAVEL' ? <ClientPortalPageWrapper /> :
+                    currentUser?.role === 'RESPONSAVEL' ? <ResponsiblePortalPage currentUser={currentUser} handleLogout={handleLogout} /> :
                     currentUser?.role === 'COLABORADOR' ? <CollaboratorPortalPage currentUser={currentUser} handleLogout={handleLogout} /> :
                     <Navigate to="/" />
                   } />
