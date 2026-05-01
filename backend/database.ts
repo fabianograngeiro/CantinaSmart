@@ -278,6 +278,7 @@ export class Database {
         document: normalizedClientCpf,
         portalAccessEnabled: true,
         portalAccessTokenHash: this.buildPortalAccessTokenHash(token),
+        portalAccessTokenRaw: token,
         portalAccessTokenCreatedAt: new Date().toISOString(),
       });
       return { user, rawToken };
@@ -299,8 +300,12 @@ export class Database {
     const shouldEnsureToken = options?.ensureToken !== false;
     const shouldRegenerateToken = Boolean(options?.regenerateToken);
     const hasTokenHash = String(user?.portalAccessTokenHash || '').trim().length > 0;
+    const existingRawToken = String(user?.portalAccessTokenRaw || '').trim();
     if (shouldEnsureToken && (shouldRegenerateToken || !hasTokenHash)) {
       rawToken = this.generatePortalRawToken();
+    } else if (shouldEnsureToken && hasTokenHash && existingRawToken && !shouldRegenerateToken) {
+      // Return the stored raw token so callers can reconstruct the link without regenerating
+      rawToken = existingRawToken;
     }
 
     const updated = this.updateUser(String(user.id || '').trim(), {
@@ -314,9 +319,10 @@ export class Database {
       phone,
       document: normalizedClientCpf || String(user?.document || '').replace(/\D/g, ''),
       portalAccessEnabled: true,
-      ...(rawToken
+      ...(rawToken && (shouldRegenerateToken || !hasTokenHash)
         ? {
             portalAccessTokenHash: this.buildPortalAccessTokenHash(rawToken),
+            portalAccessTokenRaw: rawToken,
             portalAccessTokenCreatedAt: new Date().toISOString(),
           }
         : {}),
