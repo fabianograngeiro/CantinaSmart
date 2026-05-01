@@ -2181,6 +2181,7 @@ export class ApiService {
     };
     scheduleAt?: string | number;
     sendNow?: boolean;
+    deliveryService?: 'AUTO' | 'NATIVE' | 'EXTERNAL';
   }) {
     const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(`${API_URL}/whatsapp/stories`, {
@@ -2218,6 +2219,7 @@ export class ApiService {
       track_id?: string;
     };
     scheduleAt?: string | number;
+    deliveryService?: 'AUTO' | 'NATIVE' | 'EXTERNAL';
   }) {
     const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(`${API_URL}/whatsapp/stories/${encodeURIComponent(String(id || ''))}`, {

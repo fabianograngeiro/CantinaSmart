@@ -42,7 +42,6 @@ import notificationService from '../services/notificationService';
 import { formatPhoneWithCountryTag } from '../utils/phone';
 import CentralDisparos from '../components/whatsapp-disparos/CentralDisparos';
 import EnvioAvancadoModal from '../components/EnvioAvancadoModal';
-import UazapiStoriesManager from '../components/whatsapp-disparos/UazapiStoriesManager';
 
 interface WhatsAppPageProps {
   currentUser: User;
@@ -9962,10 +9961,6 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                       </button>
                     </div>
                   </div>
-
-                  {providerConfig.mode === 'EXTERNAL' && isUazapiExternal && providerConfig.external.enabled && (
-                    <UazapiStoriesManager />
-                  )}
                 </div>
               )}
             </div>
