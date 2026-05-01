@@ -6,6 +6,7 @@ export type ExternalProviderHttpMethod = 'GET' | 'POST' | 'PUT';
 
 export type WhatsAppExternalProviderConfig = {
   enabled: boolean;
+  autoFallbackToNativeOnFailure: boolean;
   providerCode: string;
   baseUrl: string;
   subdomain: string;
@@ -26,6 +27,8 @@ export type WhatsAppExternalProviderConfig = {
   paymentMethod: ExternalProviderHttpMethod;
   bulkPath: string;
   bulkMethod: ExternalProviderHttpMethod;
+  storyPath: string;
+  storyMethod: ExternalProviderHttpMethod;
   webhook: {
     enabled: boolean;
     method: ExternalProviderHttpMethod;
@@ -52,6 +55,7 @@ type ProviderRequestContext = {
 
 const DEFAULT_EXTERNAL_CONFIG: WhatsAppExternalProviderConfig = {
   enabled: false,
+  autoFallbackToNativeOnFailure: false,
   providerCode: 'UAZAPI',
   baseUrl: '',
   subdomain: '',
@@ -72,6 +76,8 @@ const DEFAULT_EXTERNAL_CONFIG: WhatsAppExternalProviderConfig = {
   paymentMethod: 'POST',
   bulkPath: '/send/text',
   bulkMethod: 'POST',
+  storyPath: '/stories/send',
+  storyMethod: 'POST',
   webhook: {
     enabled: false,
     method: 'POST',
@@ -148,12 +154,16 @@ const normalizeExternalConfig = (value: any, existing?: WhatsAppExternalProvider
   const defaultCarouselPath = providerCode === 'UAZAPI' ? '/send/carousel' : DEFAULT_EXTERNAL_CONFIG.carouselPath;
   const defaultPaymentPath = providerCode === 'UAZAPI' ? '/send/pix-button' : DEFAULT_EXTERNAL_CONFIG.paymentPath;
   const defaultBulkPath = providerCode === 'UAZAPI' ? '/send/text' : DEFAULT_EXTERNAL_CONFIG.bulkPath;
+  const defaultStoryPath = providerCode === 'UAZAPI' ? '/stories/send' : DEFAULT_EXTERNAL_CONFIG.storyPath;
   const defaultTestPath = providerCode === 'UAZAPI' ? '/send/text' : DEFAULT_EXTERNAL_CONFIG.testPath;
   const defaultTokenHeaderName = providerCode === 'UAZAPI' ? 'token' : 'Authorization';
   const defaultTokenPrefix = providerCode === 'UAZAPI' ? '' : 'Bearer';
 
   return {
     enabled: incoming.enabled !== undefined ? Boolean(incoming.enabled) : Boolean(safeExisting.enabled),
+    autoFallbackToNativeOnFailure: incoming.autoFallbackToNativeOnFailure !== undefined
+      ? Boolean(incoming.autoFallbackToNativeOnFailure)
+      : Boolean(safeExisting.autoFallbackToNativeOnFailure),
     providerCode,
     baseUrl: String(incoming.baseUrl || safeExisting.baseUrl || '').trim().replace(/\/+$/, ''),
     subdomain: String(incoming.subdomain || safeExisting.subdomain || '').trim(),
@@ -196,6 +206,10 @@ const normalizeExternalConfig = (value: any, existing?: WhatsAppExternalProvider
       ? resolveProviderPath(incoming.bulkPath, safeExisting.bulkPath, defaultBulkPath, DEFAULT_EXTERNAL_CONFIG.bulkPath)
       : normalizePath(incoming.bulkPath, providerCodeChanged ? defaultBulkPath : (safeExisting.bulkPath || defaultBulkPath)),
     bulkMethod: normalizeMethod(incoming.bulkMethod, safeExisting.bulkMethod || DEFAULT_EXTERNAL_CONFIG.bulkMethod),
+    storyPath: providerCode === 'UAZAPI'
+      ? resolveProviderPath(incoming.storyPath, safeExisting.storyPath, defaultStoryPath, DEFAULT_EXTERNAL_CONFIG.storyPath)
+      : normalizePath(incoming.storyPath, providerCodeChanged ? defaultStoryPath : (safeExisting.storyPath || defaultStoryPath)),
+    storyMethod: normalizeMethod(incoming.storyMethod, safeExisting.storyMethod || DEFAULT_EXTERNAL_CONFIG.storyMethod),
     webhook: {
       enabled: incoming?.webhook?.enabled !== undefined
         ? Boolean(incoming.webhook.enabled)
@@ -368,9 +382,101 @@ const getProviderConfigMap = () => {
   return map && typeof map === 'object' ? map : {};
 };
 
+const EXTERNAL_COMM_FAILURE_THRESHOLD = 3;
+const externalFailuresByEnterprise = new Map<string, number>();
+
+const resetExternalFailureCounter = (enterpriseId: string) => {
+  const safeEnterpriseId = String(enterpriseId || '').trim();
+  if (!safeEnterpriseId) return;
+  externalFailuresByEnterprise.set(safeEnterpriseId, 0);
+};
+
+const shouldCountAsExternalCommunicationFailure = (error: unknown) => {
+  const message = String(error instanceof Error ? error.message : error || '').toLowerCase();
+  if (!message) return false;
+  return message.includes('falha de rede')
+    || message.includes('fetch')
+    || message.includes('endpoint externo inválido')
+    || message.includes('base url da api externa')
+    || message.includes('timed out')
+    || message.includes('timeout')
+    || message.includes('econn')
+    || message.includes('enotfound')
+    || message.includes('socket')
+    || message.includes('falha no provedor externo (5')
+    || message.includes('falha no envio de mídia externo (5')
+    || message.includes('falha no envio de menu externo (5')
+    || message.includes('falha no envio de carrossel externo (5')
+    || message.includes('falha ao solicitar pagamento externo (5')
+    || message.includes('falha no envio de story externo (5')
+    || message.includes('falha no disparo externo (5');
+};
+
+const switchEnterpriseProviderToNativeFallback = (enterpriseId: string, reason: string) => {
+  const safeEnterpriseId = String(enterpriseId || '').trim();
+  if (!safeEnterpriseId) return;
+
+  const map = getProviderConfigMap();
+  const existing = normalizeProviderConfig(map[safeEnterpriseId]);
+  if (existing.mode === 'NATIVE') {
+    resetExternalFailureCounter(safeEnterpriseId);
+    return;
+  }
+
+  const updated = normalizeProviderConfig(
+    {
+      ...existing,
+      mode: 'NATIVE',
+      updatedByName: 'AUTO_FAILOVER',
+      updatedByUserId: 'AUTO_FAILOVER',
+    },
+    existing
+  );
+  map[safeEnterpriseId] = updated;
+  saveProviderConfigMap(map);
+  resetExternalFailureCounter(safeEnterpriseId);
+  console.warn(`[whatsapp-provider-bridge] fallback automatico para NATIVE ativado em ${safeEnterpriseId}: ${reason}`);
+};
+
+const withExternalAutoFailover = async <T>(params: {
+  enterpriseId: string;
+  actionName: string;
+  runner: () => Promise<T>;
+}) => {
+  const enterpriseId = String(params.enterpriseId || '').trim();
+  const config = getEnterpriseProviderConfig(enterpriseId);
+
+  try {
+    const result = await params.runner();
+    resetExternalFailureCounter(enterpriseId);
+    return result;
+  } catch (err) {
+    const countAsFailure = shouldCountAsExternalCommunicationFailure(err);
+    if (countAsFailure) {
+      const nextFailureCount = Number(externalFailuresByEnterprise.get(enterpriseId) || 0) + 1;
+      externalFailuresByEnterprise.set(enterpriseId, nextFailureCount);
+
+      if (
+        config.mode === 'EXTERNAL'
+        && config.external.enabled
+        && config.external.autoFallbackToNativeOnFailure
+        && nextFailureCount >= EXTERNAL_COMM_FAILURE_THRESHOLD
+      ) {
+        switchEnterpriseProviderToNativeFallback(
+          enterpriseId,
+          `${params.actionName} atingiu ${nextFailureCount} falhas de comunicacao consecutivas`
+        );
+        throw new Error('API externa com falha de comunicação em 3 tentativas. Sistema mudou automaticamente para Baileys (NATIVE).');
+      }
+    }
+
+    throw err;
+  }
+};
+
 const canUseExternalAdvancedProvider = (config: WhatsAppProviderConfig) => {
   const providerCode = String(config?.external?.providerCode || '').trim().toUpperCase();
-  return Boolean(config?.external?.enabled) && Boolean(providerCode);
+  return config?.mode === 'EXTERNAL' && Boolean(config?.external?.enabled) && Boolean(providerCode);
 };
 
 const saveProviderConfigMap = (map: Record<string, any>) => {
@@ -629,21 +735,29 @@ export const sendByConfiguredProvider = async (params: {
     };
   }
 
-  void triggerUazapiPresenceUpdate(config.external, normalizedPhone, 'composing').catch(() => {});
+  const response = await withExternalAutoFailover({
+    enterpriseId: params.enterpriseId,
+    actionName: 'send-text',
+    runner: async () => {
+      void triggerUazapiPresenceUpdate(config.external, normalizedPhone, 'composing').catch(() => {});
 
-  const response = await callExternalEndpoint(
-    config.external,
-    config.external.sendMethod,
-    config.external.sendPath,
-    buildSendPayload(config.external, normalizedPhone, normalizedMessage)
-  );
+      const result = await callExternalEndpoint(
+        config.external,
+        config.external.sendMethod,
+        config.external.sendPath,
+        buildSendPayload(config.external, normalizedPhone, normalizedMessage)
+      );
 
-  if (!response.ok) {
-    const detailText = typeof response.payload === 'string'
-      ? response.payload
-      : JSON.stringify(response.payload);
-    throw new Error(`Falha no provedor externo (${response.status}): ${detailText || 'erro desconhecido'}`);
-  }
+      if (!result.ok) {
+        const detailText = typeof result.payload === 'string'
+          ? result.payload
+          : JSON.stringify(result.payload);
+        throw new Error(`Falha no provedor externo (${result.status}): ${detailText || 'erro desconhecido'}`);
+      }
+
+      return result;
+    },
+  });
 
   return {
     handledByExternal: true,
@@ -675,73 +789,81 @@ export const sendBulkByConfiguredProvider = async (params: {
     ? params.recipients.map((item) => normalizeExternalTarget(config.external.providerCode, String(item || ''))).filter(Boolean)
     : [];
 
-  if (String(config.external.providerCode || '').trim().toUpperCase() === 'UAZAPI') {
-    const results: Array<{ success: boolean; phone: string; messageId?: string; payload?: unknown; error?: string }> = [];
-    for (const target of recipients) {
-      try {
-        void triggerUazapiPresenceUpdate(config.external, target, 'composing').catch(() => {});
-        const sent = await callExternalEndpoint(
-          config.external,
-          config.external.sendMethod,
-          config.external.sendPath,
-          buildSendPayload(config.external, target, String(params.message || ''))
-        );
-        if (!sent.ok) {
-          const detailText = typeof sent.payload === 'string' ? sent.payload : JSON.stringify(sent.payload);
-          results.push({
-            success: false,
-            phone: target,
-            error: `Falha (${sent.status}): ${detailText || 'erro desconhecido'}`,
-          });
-          continue;
+  const resultPayload = await withExternalAutoFailover({
+    enterpriseId: params.enterpriseId,
+    actionName: 'send-bulk',
+    runner: async () => {
+      if (String(config.external.providerCode || '').trim().toUpperCase() === 'UAZAPI') {
+        const results: Array<{ success: boolean; phone: string; messageId?: string; payload?: unknown; error?: string }> = [];
+        let communicationFailures = 0;
+        for (const target of recipients) {
+          try {
+            void triggerUazapiPresenceUpdate(config.external, target, 'composing').catch(() => {});
+            const sent = await callExternalEndpoint(
+              config.external,
+              config.external.sendMethod,
+              config.external.sendPath,
+              buildSendPayload(config.external, target, String(params.message || ''))
+            );
+            if (!sent.ok) {
+              const detailText = typeof sent.payload === 'string' ? sent.payload : JSON.stringify(sent.payload);
+              throw new Error(`Falha (${sent.status}): ${detailText || 'erro desconhecido'}`);
+            }
+            results.push({
+              success: true,
+              phone: target,
+              messageId: extractMessageId(sent.payload),
+              payload: sent.payload,
+            });
+          } catch (err) {
+            if (shouldCountAsExternalCommunicationFailure(err)) {
+              communicationFailures += 1;
+            }
+            results.push({
+              success: false,
+              phone: target,
+              error: err instanceof Error ? err.message : 'falha de envio',
+            });
+          }
         }
-        results.push({
-          success: true,
-          phone: target,
-          messageId: extractMessageId(sent.payload),
-          payload: sent.payload,
-        });
-      } catch (err) {
-        results.push({
-          success: false,
-          phone: target,
-          error: err instanceof Error ? err.message : 'falha de envio',
-        });
+        const successCount = results.filter((item) => item.success).length;
+        if (successCount === 0 && communicationFailures > 0) {
+          throw new Error('Falha de rede ao chamar API externa em envio em massa.');
+        }
+        return {
+          total: recipients.length,
+          successCount,
+          failedCount: recipients.length - successCount,
+          results,
+          payload: { results },
+        };
       }
-    }
-    const successCount = results.filter((item) => item.success).length;
-    return {
-      handledByExternal: true,
-      result: {
-        success: true,
-        providerMode: 'EXTERNAL',
-        providerCode: config.external.providerCode,
+
+      const response = await callExternalEndpoint(
+        config.external,
+        config.external.bulkMethod,
+        config.external.bulkPath,
+        {
+          ...normalizeObjectRecord(config.external.commonFields, {}),
+          subdomain: config.external.subdomain,
+          recipients,
+          message: String(params.message || ''),
+        }
+      );
+
+      if (!response.ok) {
+        const detailText = typeof response.payload === 'string'
+          ? response.payload
+          : JSON.stringify(response.payload);
+        throw new Error(`Falha no disparo externo (${response.status}): ${detailText || 'erro desconhecido'}`);
+      }
+
+      return {
         total: recipients.length,
-        successCount,
-        failedCount: recipients.length - successCount,
-        results,
-      },
-    };
-  }
-
-  const response = await callExternalEndpoint(
-    config.external,
-    config.external.bulkMethod,
-    config.external.bulkPath,
-    {
-      ...normalizeObjectRecord(config.external.commonFields, {}),
-      subdomain: config.external.subdomain,
-      recipients,
-      message: String(params.message || ''),
-    }
-  );
-
-  if (!response.ok) {
-    const detailText = typeof response.payload === 'string'
-      ? response.payload
-      : JSON.stringify(response.payload);
-    throw new Error(`Falha no disparo externo (${response.status}): ${detailText || 'erro desconhecido'}`);
-  }
+        payload: response.payload,
+      };
+    },
+  });
 
   return {
     handledByExternal: true,
@@ -749,8 +871,11 @@ export const sendBulkByConfiguredProvider = async (params: {
       success: true,
       providerMode: 'EXTERNAL',
       providerCode: config.external.providerCode,
-      total: recipients.length,
-      payload: response.payload,
+      total: Number((resultPayload as any)?.total || recipients.length),
+      successCount: (resultPayload as any)?.successCount,
+      failedCount: (resultPayload as any)?.failedCount,
+      results: (resultPayload as any)?.results,
+      payload: (resultPayload as any)?.payload,
     },
   };
 };
@@ -774,31 +899,39 @@ export const sendMediaByConfiguredProvider = async (params: {
     };
   }
 
-  void triggerUazapiPresenceUpdate(config.external, String(params.target || ''), 'composing').catch(() => {});
+  const response = await withExternalAutoFailover({
+    enterpriseId: params.enterpriseId,
+    actionName: 'send-media',
+    runner: async () => {
+      void triggerUazapiPresenceUpdate(config.external, String(params.target || ''), 'composing').catch(() => {});
 
-  const response = await callExternalEndpoint(
-    config.external,
-    config.external.mediaMethod,
-    config.external.mediaPath,
-    buildMediaPayload({
-      config: config.external,
-      target: String(params.target || ''),
-      message: String(params.message || ''),
-      attachment: {
-        mediaType: String(params.attachment?.mediaType || ''),
-        base64Data: String(params.attachment?.base64Data || ''),
-        mimeType: params.attachment?.mimeType ? String(params.attachment.mimeType) : undefined,
-        fileName: params.attachment?.fileName ? String(params.attachment.fileName) : undefined,
-      },
-    })
-  );
+      const result = await callExternalEndpoint(
+        config.external,
+        config.external.mediaMethod,
+        config.external.mediaPath,
+        buildMediaPayload({
+          config: config.external,
+          target: String(params.target || ''),
+          message: String(params.message || ''),
+          attachment: {
+            mediaType: String(params.attachment?.mediaType || ''),
+            base64Data: String(params.attachment?.base64Data || ''),
+            mimeType: params.attachment?.mimeType ? String(params.attachment.mimeType) : undefined,
+            fileName: params.attachment?.fileName ? String(params.attachment.fileName) : undefined,
+          },
+        })
+      );
 
-  if (!response.ok) {
-    const detailText = typeof response.payload === 'string'
-      ? response.payload
-      : JSON.stringify(response.payload);
-    throw new Error(`Falha no envio de mídia externo (${response.status}): ${detailText || 'erro desconhecido'}`);
-  }
+      if (!result.ok) {
+        const detailText = typeof result.payload === 'string'
+          ? result.payload
+          : JSON.stringify(result.payload);
+        throw new Error(`Falha no envio de mídia externo (${result.status}): ${detailText || 'erro desconhecido'}`);
+      }
+
+      return result;
+    },
+  });
 
   return {
     handledByExternal: true,
@@ -870,19 +1003,27 @@ export const sendMenuByConfiguredProvider = async (params: {
     track_id: String(menu.trackId || '').trim() || undefined,
   };
 
-  const response = await callExternalEndpoint(
-    config.external,
-    config.external.menuMethod,
-    config.external.menuPath,
-    payload
-  );
+  const response = await withExternalAutoFailover({
+    enterpriseId: params.enterpriseId,
+    actionName: 'send-menu',
+    runner: async () => {
+      const result = await callExternalEndpoint(
+        config.external,
+        config.external.menuMethod,
+        config.external.menuPath,
+        payload
+      );
 
-  if (!response.ok) {
-    const detailText = typeof response.payload === 'string'
-      ? response.payload
-      : JSON.stringify(response.payload);
-    throw new Error(`Falha no envio de menu externo (${response.status}): ${detailText || 'erro desconhecido'}`);
-  }
+      if (!result.ok) {
+        const detailText = typeof result.payload === 'string'
+          ? result.payload
+          : JSON.stringify(result.payload);
+        throw new Error(`Falha no envio de menu externo (${result.status}): ${detailText || 'erro desconhecido'}`);
+      }
+
+      return result;
+    },
+  });
 
   return {
     handledByExternal: true,
@@ -962,19 +1103,27 @@ export const sendCarouselByConfiguredProvider = async (params: {
     track_id: String(params.trackId || '').trim() || undefined,
   };
 
-  const response = await callExternalEndpoint(
-    config.external,
-    config.external.carouselMethod,
-    config.external.carouselPath,
-    payload
-  );
+  const response = await withExternalAutoFailover({
+    enterpriseId: params.enterpriseId,
+    actionName: 'send-carousel',
+    runner: async () => {
+      const result = await callExternalEndpoint(
+        config.external,
+        config.external.carouselMethod,
+        config.external.carouselPath,
+        payload
+      );
 
-  if (!response.ok) {
-    const detailText = typeof response.payload === 'string'
-      ? response.payload
-      : JSON.stringify(response.payload);
-    throw new Error(`Falha no envio de carrossel externo (${response.status}): ${detailText || 'erro desconhecido'}`);
-  }
+      if (!result.ok) {
+        const detailText = typeof result.payload === 'string'
+          ? result.payload
+          : JSON.stringify(result.payload);
+        throw new Error(`Falha no envio de carrossel externo (${result.status}): ${detailText || 'erro desconhecido'}`);
+      }
+
+      return result;
+    },
+  });
 
   return {
     handledByExternal: true,
@@ -1073,19 +1222,27 @@ export const sendPaymentRequestByConfiguredProvider = async (params: {
       track_id: String(req.trackId || '').trim() || undefined,
     };
 
-  const response = await callExternalEndpoint(
-    config.external,
-    config.external.paymentMethod,
-    config.external.paymentPath,
-    payload
-  );
+  const response = await withExternalAutoFailover({
+    enterpriseId: params.enterpriseId,
+    actionName: 'send-payment',
+    runner: async () => {
+      const result = await callExternalEndpoint(
+        config.external,
+        config.external.paymentMethod,
+        config.external.paymentPath,
+        payload
+      );
 
-  if (!response.ok) {
-    const detailText = typeof response.payload === 'string'
-      ? response.payload
-      : JSON.stringify(response.payload);
-    throw new Error(`Falha ao solicitar pagamento externo (${response.status}): ${detailText || 'erro desconhecido'}`);
-  }
+      if (!result.ok) {
+        const detailText = typeof result.payload === 'string'
+          ? result.payload
+          : JSON.stringify(result.payload);
+        throw new Error(`Falha ao solicitar pagamento externo (${result.status}): ${detailText || 'erro desconhecido'}`);
+      }
+
+      return result;
+    },
+  });
 
   return {
     handledByExternal: true,
@@ -1097,4 +1254,77 @@ export const sendPaymentRequestByConfiguredProvider = async (params: {
       payload: response.payload,
     },
   };
+};
+
+export const sendStoryByConfiguredProvider = async (params: {
+  enterpriseId: string;
+  story: {
+    type: 'text' | 'image' | 'video';
+    text?: string;
+    background_color?: number;
+    font?: number;
+    file?: string;
+    thumbnail?: string;
+    mimetype?: string;
+    replyid?: string;
+    mentions?: string;
+    readchat?: boolean;
+    readmessages?: boolean;
+    delay?: number;
+    forward?: boolean;
+    async?: boolean;
+    track_source?: string;
+    track_id?: string;
+  };
+}) => {
+  const config = getEnterpriseProviderConfig(params.enterpriseId);
+  if (!canUseExternalAdvancedProvider(config)) {
+    return {
+      handledByExternal: false,
+      result: null,
+    };
+  }
+
+  const providerCode = String(config.external.providerCode || '').trim().toUpperCase();
+  if (providerCode === 'UAZAPI') {
+    const payload = {
+      ...normalizeObjectRecord(config.external.commonFields, {}),
+      ...normalizeObjectRecord(params.story, {}),
+    };
+
+    const response = await withExternalAutoFailover({
+      enterpriseId: params.enterpriseId,
+      actionName: 'send-story',
+      runner: async () => {
+        const result = await callExternalEndpoint(
+          config.external,
+          config.external.storyMethod,
+          config.external.storyPath,
+          payload as Record<string, unknown>
+        );
+
+        if (!result.ok) {
+          const detailText = typeof result.payload === 'string'
+            ? result.payload
+            : JSON.stringify(result.payload);
+          throw new Error(`Falha no envio de story externo (${result.status}): ${detailText || 'erro desconhecido'}`);
+        }
+
+        return result;
+      },
+    });
+
+    return {
+      handledByExternal: true,
+      result: {
+        success: true,
+        providerMode: 'EXTERNAL',
+        providerCode: config.external.providerCode,
+        messageId: extractMessageId(response.payload),
+        payload: response.payload,
+      },
+    };
+  }
+
+  throw new Error('Provedor externo atual não suporta stories por este endpoint.');
 };

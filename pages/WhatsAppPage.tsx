@@ -42,6 +42,7 @@ import notificationService from '../services/notificationService';
 import { formatPhoneWithCountryTag } from '../utils/phone';
 import CentralDisparos from '../components/whatsapp-disparos/CentralDisparos';
 import EnvioAvancadoModal from '../components/EnvioAvancadoModal';
+import UazapiStoriesManager from '../components/whatsapp-disparos/UazapiStoriesManager';
 
 interface WhatsAppPageProps {
   currentUser: User;
@@ -66,6 +67,7 @@ type WhatsAppProviderConfigState = {
   mode: WhatsAppProviderMode;
   external: {
     enabled: boolean;
+    autoFallbackToNativeOnFailure: boolean;
     providerCode: string;
     baseUrl: string;
     subdomain: string;
@@ -88,6 +90,8 @@ type WhatsAppProviderConfigState = {
     paymentMethod: ExternalProviderHttpMethod;
     bulkPath: string;
     bulkMethod: ExternalProviderHttpMethod;
+    storyPath: string;
+    storyMethod: ExternalProviderHttpMethod;
     webhookEnabled: boolean;
     webhookMethod: ExternalProviderHttpMethod;
     webhookUrl: string;
@@ -1095,6 +1099,7 @@ const getDefaultWhatsAppProviderConfig = (): WhatsAppProviderConfigState => ({
   mode: 'NATIVE',
   external: {
     enabled: false,
+    autoFallbackToNativeOnFailure: false,
     providerCode: 'UAZAPI',
     baseUrl: '',
     subdomain: '',
@@ -1117,6 +1122,8 @@ const getDefaultWhatsAppProviderConfig = (): WhatsAppProviderConfigState => ({
     paymentMethod: 'POST',
     bulkPath: '/send/text',
     bulkMethod: 'POST',
+    storyPath: '/stories/send',
+    storyMethod: 'POST',
     webhookEnabled: false,
     webhookMethod: 'POST',
     webhookUrl: '',
@@ -1875,6 +1882,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         mode: String(incoming.mode || '').toUpperCase() === 'EXTERNAL' ? 'EXTERNAL' : 'NATIVE',
         external: {
           enabled: Boolean(incoming?.external?.enabled),
+          autoFallbackToNativeOnFailure: Boolean(incoming?.external?.autoFallbackToNativeOnFailure),
           providerCode: incomingProviderCode,
           baseUrl: String(incoming?.external?.baseUrl || '').trim(),
           subdomain: String(incoming?.external?.subdomain || '').trim(),
@@ -1923,6 +1931,12 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           bulkMethod: String(incoming?.external?.bulkMethod || 'POST').toUpperCase() === 'GET'
             ? 'GET'
             : String(incoming?.external?.bulkMethod || 'POST').toUpperCase() === 'PUT'
+              ? 'PUT'
+              : 'POST',
+          storyPath: String(incoming?.external?.storyPath || (useUazapiDefaults ? '/stories/send' : '/stories/send')).trim() || '/stories/send',
+          storyMethod: String(incoming?.external?.storyMethod || 'POST').toUpperCase() === 'GET'
+            ? 'GET'
+            : String(incoming?.external?.storyMethod || 'POST').toUpperCase() === 'PUT'
               ? 'PUT'
               : 'POST',
           webhookEnabled: Boolean(incoming?.external?.webhook?.enabled),
@@ -1998,6 +2012,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         mode: providerConfig.mode,
         external: {
           enabled: providerConfig.external.enabled,
+          autoFallbackToNativeOnFailure: providerConfig.external.autoFallbackToNativeOnFailure,
           providerCode: providerConfig.external.providerCode,
           baseUrl: providerConfig.external.baseUrl,
           subdomain: providerConfig.external.subdomain,
@@ -2018,6 +2033,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
           paymentMethod: providerConfig.external.paymentMethod,
           bulkPath: providerConfig.external.bulkPath,
           bulkMethod: providerConfig.external.bulkMethod,
+          storyPath: providerConfig.external.storyPath,
+          storyMethod: providerConfig.external.storyMethod,
           webhook: {
             enabled: providerConfig.external.webhookEnabled,
             method: providerConfig.external.webhookMethod,
@@ -5718,17 +5735,6 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   const handleTranscribeAudioMessage = async (msg: ChatMessage) => {
     const msgId = String(msg.id || '').trim();
     if (!msgId) return;
-    if (!msg.mediaDataUrl) {
-      setAudioTranscriptions((prev) => ({
-        ...prev,
-        [msgId]: {
-          loading: false,
-          text: '',
-          error: 'Não foi possível transcrever: áudio sem dados para leitura.',
-        },
-      }));
-      return;
-    }
 
     setAudioTranscriptions((prev) => ({
       ...prev,
@@ -5743,7 +5749,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       const result = await ApiService.transcribeWhatsAppAudio({
         chatId: selectedChatId || undefined,
         messageId: msgId,
-        mediaDataUrl: msg.mediaDataUrl,
+        mediaDataUrl: msg.mediaDataUrl || undefined,
         mimeType: msg.mimeType || undefined,
         fileName: msg.fileName || undefined,
       });
@@ -9521,6 +9527,20 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                           />
                           Ativar provedor externo
                         </label>
+                        <label className="md:col-span-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-zinc-200">
+                          <input
+                            type="checkbox"
+                            checked={providerConfig.external.autoFallbackToNativeOnFailure}
+                            onChange={(e) => setProviderConfig((prev) => ({
+                              ...prev,
+                              external: {
+                                ...prev.external,
+                                autoFallbackToNativeOnFailure: e.target.checked,
+                              },
+                            }))}
+                          />
+                          Fallback automático para Baileys após 3 falhas de comunicação na API externa
+                        </label>
                         <label className="space-y-1">
                           <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Provedor externo</span>
                           <select
@@ -9552,6 +9572,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                 paymentMethod: nextIsUazapi ? 'POST' : prev.external.paymentMethod,
                                 bulkPath: nextIsUazapi ? '/send/text' : prev.external.bulkPath,
                                 bulkMethod: nextIsUazapi ? 'POST' : prev.external.bulkMethod,
+                                storyPath: nextIsUazapi ? '/stories/send' : prev.external.storyPath,
+                                storyMethod: nextIsUazapi ? 'POST' : prev.external.storyMethod,
                                 webhookMethod: nextIsUazapi ? 'POST' : prev.external.webhookMethod,
                                 webhookEventsCsv: nextIsUazapi
                                   ? (String(prev.external.webhookEventsCsv || '').trim() || 'messages')
@@ -9940,6 +9962,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                       </button>
                     </div>
                   </div>
+
+                  {providerConfig.mode === 'EXTERNAL' && isUazapiExternal && providerConfig.external.enabled && (
+                    <UazapiStoriesManager />
+                  )}
                 </div>
               )}
             </div>
