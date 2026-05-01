@@ -24,6 +24,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const exec = promisify(execCallback);
 const PRODUCT_PHOTOS_DIR = path.resolve(__dirname, '../products_photos');
+const WHATSAPP_AUTH_DIR = path.resolve(__dirname, '../data/whatsapp-auth');
 const isSystemAdmin = (role?: string) => {
   const normalized = String(role || '').trim().toUpperCase();
   return normalized === 'SUPERADMIN' || normalized === 'ADMIN_SISTEMA';
@@ -400,6 +401,118 @@ const attachProductImagesToBackup = async (backupPayload: any, includeProductIma
   };
 };
 
+const walkDirectoryFiles = async (rootDir: string, currentDir = rootDir): Promise<Array<{ relativePath: string; absolutePath: string }>> => {
+  let entries: Array<any> = [];
+  try {
+    entries = await fs.readdir(currentDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const results: Array<{ relativePath: string; absolutePath: string }> = [];
+  for (const entry of entries) {
+    const absolutePath = path.resolve(currentDir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...await walkDirectoryFiles(rootDir, absolutePath));
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    results.push({
+      relativePath: path.relative(rootDir, absolutePath).replace(/\\/g, '/'),
+      absolutePath,
+    });
+  }
+  return results;
+};
+
+const attachWhatsAppAuthToBackup = async (backupPayload: any, options: { includeWhatsAppAuth: boolean; scope: BackupScope }) => {
+  const safePayload = backupPayload && typeof backupPayload === 'object' ? backupPayload : {};
+  if (!options.includeWhatsAppAuth || options.scope !== 'GLOBAL') {
+    return {
+      ...safePayload,
+      assets: {
+        ...((safePayload as any)?.assets || {}),
+        whatsappAuthSessions: [],
+      },
+    };
+  }
+
+  const files = await walkDirectoryFiles(WHATSAPP_AUTH_DIR);
+  const encodedFiles = await Promise.all(files.map(async ({ relativePath, absolutePath }) => {
+    try {
+      const buffer = await fs.readFile(absolutePath);
+      return {
+        relativePath,
+        sizeBytes: buffer.byteLength,
+        dataBase64: buffer.toString('base64'),
+      };
+    } catch {
+      return {
+        relativePath,
+        sizeBytes: 0,
+        dataBase64: '',
+        missing: true,
+      };
+    }
+  }));
+
+  return {
+    ...safePayload,
+    assets: {
+      ...((safePayload as any)?.assets || {}),
+      whatsappAuthSessions: encodedFiles,
+    },
+  };
+};
+
+const removeDirectoryIfExists = async (targetPath: string) => {
+  try {
+    await fs.rm(targetPath, { recursive: true, force: true });
+  } catch {
+    // no-op
+  }
+};
+
+const restoreBackupAssets = async (backupPayload: any) => {
+  const assets = backupPayload && typeof backupPayload === 'object' ? (backupPayload as any).assets : null;
+  if (!assets || typeof assets !== 'object') return;
+
+  const productPhotos = Array.isArray(assets.productPhotos) ? assets.productPhotos : [];
+  if (productPhotos.length > 0) {
+    await fs.mkdir(PRODUCT_PHOTOS_DIR, { recursive: true });
+    for (const item of productPhotos) {
+      const fileName = String(item?.fileName || '').trim();
+      const dataBase64 = String(item?.dataBase64 || '').trim();
+      if (!fileName || !dataBase64) continue;
+      const absolutePath = path.resolve(PRODUCT_PHOTOS_DIR, fileName);
+      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+      await fs.writeFile(absolutePath, Buffer.from(dataBase64, 'base64'));
+    }
+  }
+
+  const whatsappAuthSessions = Array.isArray(assets.whatsappAuthSessions) ? assets.whatsappAuthSessions : [];
+  if (whatsappAuthSessions.length > 0) {
+    await removeDirectoryIfExists(WHATSAPP_AUTH_DIR);
+    await fs.mkdir(WHATSAPP_AUTH_DIR, { recursive: true });
+    for (const item of whatsappAuthSessions) {
+      const relativePath = String(item?.relativePath || '').trim().replace(/^\/+/, '');
+      const dataBase64 = String(item?.dataBase64 || '').trim();
+      if (!relativePath || !dataBase64) continue;
+      const absolutePath = path.resolve(WHATSAPP_AUTH_DIR, relativePath);
+      if (!absolutePath.startsWith(WHATSAPP_AUTH_DIR)) continue;
+      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+      await fs.writeFile(absolutePath, Buffer.from(dataBase64, 'base64'));
+    }
+  }
+};
+
+const stripRuntimeBackupFields = (payload: any) => {
+  const safePayload = payload && typeof payload === 'object' ? { ...payload } : {};
+  delete (safePayload as any).assets;
+  delete (safePayload as any).backupMeta;
+  return safePayload;
+};
+
 router.get('/printers', authMiddleware, async (_req: AuthRequest, res: Response) => {
   try {
     const printers = await listSystemPrinters();
@@ -427,6 +540,7 @@ router.get('/backup', authMiddleware, async (req: AuthRequest, res: Response) =>
   const requestedEnterpriseId = String(req.query?.enterpriseId || '').trim();
   const userRole = String(req.userRole || '').trim().toUpperCase();
   const includeProductImages = String(req.query?.includeProductImages || 'true').trim().toLowerCase() !== 'false';
+  const includeWhatsAppAuth = String(req.query?.includeWhatsAppAuth || 'true').trim().toLowerCase() !== 'false';
   const userId = String(req.userId || '').trim();
   const requesterName = resolveRequesterName(req);
 
@@ -491,7 +605,8 @@ router.get('/backup', authMiddleware, async (req: AuthRequest, res: Response) =>
       requestedByName: requesterName,
       requestedByRole: userRole,
     });
-    const scopedBackup = await attachProductImagesToBackup(scopedBackupBase, includeProductImages);
+    const backupWithImages = await attachProductImagesToBackup(scopedBackupBase, includeProductImages);
+    const scopedBackup = await attachWhatsAppAuthToBackup(backupWithImages, { includeWhatsAppAuth, scope });
     const outputRaw = JSON.stringify(scopedBackup, null, 2);
 
     const now = new Date();
@@ -524,8 +639,10 @@ router.post('/restore-setup', async (req: Request, res: Response) => {
     }
 
     const normalizedBackup = normalizeBackupPayload(req.body);
+    const databasePayload = stripRuntimeBackupFields(normalizedBackup);
     const databasePath = path.resolve(__dirname, '../data/database.json');
-    await fs.writeFile(databasePath, JSON.stringify(normalizedBackup, null, 2), 'utf-8');
+    await fs.writeFile(databasePath, JSON.stringify(databasePayload, null, 2), 'utf-8');
+    await restoreBackupAssets(req.body);
     db.reload();
 
     res.json({
@@ -594,7 +711,9 @@ router.post('/restore', authMiddleware, async (req: AuthRequest, res: Response) 
   });
   try {
     const databasePath = path.resolve(__dirname, '../data/database.json');
-    await fs.writeFile(databasePath, JSON.stringify(normalizedBackup, null, 2), 'utf-8');
+    const databasePayload = stripRuntimeBackupFields(normalizedBackup);
+    await fs.writeFile(databasePath, JSON.stringify(databasePayload, null, 2), 'utf-8');
+    await restoreBackupAssets(restorePayload);
     db.reload();
     await appendDestructiveActionAudit({
       actionKey: 'SYSTEM_RESTORE_DATABASE',
