@@ -47,8 +47,20 @@ const resolveFrontendDistPath = () => {
 const frontendDistPath = resolveFrontendDistPath();
 
 // Middleware
+const rawCorsOrigin = (process.env.CORS_ORIGIN || '').trim();
+const allowedOrigins = rawCorsOrigin
+  ? rawCorsOrigin.split(',').map((o) => o.trim()).filter(Boolean)
+  : [];
+
 const corsOptions = {
-  origin: '*',
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    // Allow requests with no origin (mobile apps, curl, server-to-server)
+    if (!origin) return callback(null, true);
+    // Allow all origins if no explicit list is set
+    if (allowedOrigins.length === 0) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS: origin '${origin}' not allowed`));
+  },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
     'Content-Type',
@@ -57,9 +69,39 @@ const corsOptions = {
     'x-idempotency-key',
     'X-Idempotency-Key',
   ],
+  credentials: false,
 };
+
+// Apply CORS as the very first middleware — must be before any auth or routing
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
+
+// Belt-and-suspenders: manually set CORS headers for all responses
+// (catches edge cases where nginx or a proxy strips them)
+app.use((req, res, next) => {
+  const origin = req.headers.origin as string | undefined;
+  const allowed =
+    allowedOrigins.length === 0
+    || (origin && allowedOrigins.includes(origin));
+
+  if (origin && allowed) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (!origin) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type,Authorization,X-Requested-With,x-idempotency-key,X-Idempotency-Key',
+  );
+
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Max-Age', '86400');
+    return res.sendStatus(204);
+  }
+  return next();
+});
 app.use(express.json({ limit: '10mb' }));
 
 // Logging middleware

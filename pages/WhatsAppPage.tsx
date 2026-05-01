@@ -6445,152 +6445,123 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         </div>
       </div>
 
+      {/* Horizontal top nav */}
+      <div className="rounded-2xl border border-slate-200 bg-white/90 dark:bg-zinc-900/80 dark:border-white/10 px-3 py-2 flex items-center gap-1 flex-wrap shadow-sm">
+        <button
+          type="button"
+          onClick={() => { setActiveTab('CRM'); setCrmView('CONVERSAS'); }}
+          className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black transition-colors ${activeTab === 'CRM' && crmView === 'CONVERSAS' ? 'bg-emerald-500 text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800'}`}
+        >
+          <MessagesSquare size={14} /> Conversas
+        </button>
+        <button
+          type="button"
+          onClick={() => { setActiveTab('CRM'); setCrmView('DASHBOARD'); }}
+          className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black transition-colors ${activeTab === 'CRM' && crmView === 'DASHBOARD' ? 'bg-emerald-500 text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800'}`}
+        >
+          <LayoutDashboard size={14} /> Dashboard
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('DISPAROS')}
+          className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black transition-colors ${activeTab === 'DISPAROS' ? 'bg-emerald-500 text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800'}`}
+        >
+          <Send size={14} /> Disparos
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('SESSION_QR')}
+          className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black transition-colors ${activeTab === 'SESSION_QR' ? 'bg-emerald-500 text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800'}`}
+        >
+          <QrCode size={14} /> QR Code
+        </button>
+        <button
+          type="button"
+          onClick={() => { setActiveTab('CRM'); setCrmView('AI_CONFIG'); }}
+          className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black transition-colors ${activeTab === 'CRM' && crmView === 'AI_CONFIG' ? 'bg-emerald-500 text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800'}`}
+        >
+          <Bot size={14} /> IA Config
+        </button>
+        <button
+          type="button"
+          onClick={() => { setActiveTab('CRM'); setCrmView('CONTA'); }}
+          className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black transition-colors ${activeTab === 'CRM' && crmView === 'CONTA' ? 'bg-emerald-500 text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800'}`}
+        >
+          <Settings2 size={14} /> Conta
+        </button>
+        <button
+          type="button"
+          onClick={() => { setActiveTab('CRM'); setCrmView('WEBHOOK_LOGS'); }}
+          className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black transition-colors ${activeTab === 'CRM' && crmView === 'WEBHOOK_LOGS' ? 'bg-emerald-500 text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800'}`}
+        >
+          <FileText size={14} /> Webhook Logs
+        </button>
+        <div className="ml-auto flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-white/10">
+          <div className="w-7 h-7 rounded-lg bg-emerald-500 flex items-center justify-center text-white font-black text-[10px]">WA</div>
+          <div className="hidden sm:block">
+            <p className="text-xs font-black text-slate-700 dark:text-zinc-200 leading-none">{currentUser?.name || 'Usuário'}</p>
+            <p className="text-[10px] font-semibold text-emerald-600 leading-none mt-0.5">{status.connected ? 'Conectado' : status.state}</p>
+          </div>
+        </div>
+      </div>
+
       {activeTab === 'CRM' && (
         <div className="rounded-[28px] border-2 border-cyan-200 bg-white/95 overflow-hidden shadow-md dark:bg-[#121214] dark:border-white/10 dark:ring-1 dark:ring-white/5">
-          <div className="grid grid-cols-1 lg:grid-cols-[230px_1fr] h-[78vh] min-h-[620px] max-h-[78vh] overflow-hidden xl:h-[calc(100vh-13rem)] xl:max-h-[calc(100vh-13rem)]">
-            <aside className="hidden lg:flex border-r-2 border-cyan-100 bg-gradient-to-b from-white to-cyan-50/20 p-4 flex-col dark:border-white/10 dark:bg-zinc-950/80 dark:from-zinc-950 dark:to-zinc-900/60">
-              <div className="flex items-center gap-3 px-2 py-2">
-                <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center text-white font-black">WA</div>
-                <div>
-                  <p className="text-lg font-black text-slate-900 leading-tight">WHATS CONFIG</p>
-                  <p className="text-[11px] font-bold text-emerald-600">{status.connected ? 'Conectado' : status.state}</p>
-                </div>
-              </div>
-
-              <nav className="mt-6 space-y-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('CRM');
-                    setCrmView('DASHBOARD');
-                  }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${
-                    activeTab === 'CRM' && crmView === 'DASHBOARD'
-                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                      : 'text-slate-600 hover:bg-cyan-50'
-                  }`}
-                >
-                  <LayoutDashboard size={16} />
-                  Dashboard
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('DISPAROS')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${
-                    activeTab === 'DISPAROS'
-                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                      : 'text-slate-600 hover:bg-cyan-50'
-                  }`}
-                >
-                  <Send size={16} />
-                  Disparos
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('SESSION_QR')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${
-                    activeTab === 'SESSION_QR'
-                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                      : 'text-slate-600 hover:bg-cyan-50'
-                  }`}
-                >
-                  <QrCode size={16} />
-                  QR Code
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('CRM');
-                    setCrmView('AI_CONFIG');
-                  }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${
-                    activeTab === 'CRM' && crmView === 'AI_CONFIG'
-                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                      : 'text-slate-600 hover:bg-cyan-50'
-                  }`}
-                >
-                  <Bot size={16} />
-                  IA Config
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('CRM');
-                    setCrmView('CONTA');
-                  }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${
-                    activeTab === 'CRM' && crmView === 'CONTA'
-                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                      : 'text-slate-600 hover:bg-cyan-50'
-                  }`}
-                >
-                  <Settings2 size={16} />
-                  Conta
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('CRM');
-                    setCrmView('WEBHOOK_LOGS');
-                  }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${
-                    activeTab === 'CRM' && crmView === 'WEBHOOK_LOGS'
-                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                      : 'text-slate-600 hover:bg-cyan-50'
-                  }`}
-                >
-                  <FileText size={16} />
-                  Webhook Logs
-                </button>
-              </nav>
-
-              <div className="mt-auto pt-4 border-t border-cyan-100">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('CRM');
-                    setCrmView('CONVERSAS');
-                  }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-black ${
-                    activeTab === 'CRM' && crmView === 'CONVERSAS'
-                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                      : 'text-slate-600 hover:bg-cyan-50'
-                  }`}
-                >
-                  <MessagesSquare size={16} />
-                  WhatsApp
-                </button>
-                <div className="mt-4 rounded-xl border border-cyan-100 bg-cyan-50/50 px-3 py-2 dark:border-white/10 dark:bg-zinc-900/60">
-                  <p className="text-sm font-black text-slate-800 truncate">{currentUser?.name || 'Usuário'}</p>
-                  <p className="text-[11px] font-semibold text-slate-500 truncate">{currentUser?.role || 'Acesso'}</p>
-                </div>
-              </div>
-            </aside>
-
-            <div className={`flex flex-col min-h-0 ${crmView === 'CONVERSAS' ? 'overflow-hidden' : ''}`}>
-              <div className="px-5 py-4 border-b-2 border-cyan-100 bg-white flex items-center gap-3 dark:bg-zinc-900/80 dark:border-white/10">
-                <div className="flex-1">
-                  <p className="text-sm font-black uppercase tracking-[0.14em] text-slate-500 dark:text-zinc-300">
-                    {crmView === 'DASHBOARD'
-                      ? 'Dashboard'
-                      : crmView === 'CONVERSAS'
-                        ? 'Conversas'
-                        : crmView === 'WEBHOOK_LOGS'
-                          ? 'Webhook Logs'
-                          : 'Configuração'}
-                  </p>
-                </div>
-                <span className="px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-black uppercase tracking-widest dark:bg-zinc-900 dark:text-zinc-300">
-                  {crmView === 'DASHBOARD'
-                    ? 'Painel'
-                    : crmView === 'CONVERSAS'
-                      ? 'Atendimento'
-                      : crmView === 'WEBHOOK_LOGS'
-                        ? 'Webhook'
-                        : 'Configuração'}
-                </span>
+          <div className="flex flex-col h-[78vh] min-h-[620px] max-h-[78vh] overflow-hidden xl:h-[calc(100vh-16rem)] xl:max-h-[calc(100vh-16rem)]">
+            <div className={`flex flex-col min-h-0 flex-1 ${crmView === 'CONVERSAS' ? 'overflow-hidden' : ''}`}>
+              <div className="px-3 py-2 border-b-2 border-cyan-100 bg-white flex items-center gap-2 flex-wrap dark:bg-zinc-900/80 dark:border-white/10">
+                {crmView === 'CONVERSAS' ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        if (!status.connected && !canUseExternalProvider) {
+                          setFeedback('Para abrir uma nova conversa, conecte o WhatsApp na aba QR CODE.');
+                          setActiveTab('SESSION_QR');
+                          return;
+                        }
+                        setNewChatMode('AGENDA');
+                        setSelectedAgendaClientId(null);
+                        setAgendaSearch('');
+                        setNewChatType('ALUNO');
+                        setNewChatName('');
+                        setNewChatRegistrationId('');
+                        setNewChatClassName('');
+                        setNewChatPhone('');
+                        setNewChatEmail('');
+                        setNewChatCpf('');
+                        setNewChatResponsibleName('');
+                        setNewChatResponsibleType('PAIS');
+                        setIsNewChatModalOpen(true);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-[#064e3b] text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-800 flex items-center gap-1 shadow-sm flex-shrink-0"
+                    >
+                      <Plus size={11} /> Nova
+                    </button>
+                    <div className="w-px h-5 bg-slate-200 dark:bg-white/10 flex-shrink-0" />
+                    <button type="button" onClick={() => setCrmFilter('ALL')} className={`px-3 py-1 rounded-full text-[11px] font-black flex-shrink-0 ${crmFilter === 'ALL' ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300'}`}>Todas</button>
+                    <button type="button" onClick={() => setCrmFilter('UNREAD')} className={`px-3 py-1 rounded-full text-[11px] font-black flex-shrink-0 ${crmFilter === 'UNREAD' ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300'}`}>Não lidas</button>
+                    <button type="button" onClick={() => setCrmFilter('WAITING')} className={`px-3 py-1 rounded-full text-[11px] font-black flex-shrink-0 ${crmFilter === 'WAITING' ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300'}`}>Aguardando</button>
+                    <button type="button" onClick={() => setCrmFilter('ALL')} className="px-3 py-1 rounded-full text-[11px] font-black flex-shrink-0 bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300">Resolvidas</button>
+                    <div className="w-px h-5 bg-slate-200 dark:bg-white/10 flex-shrink-0" />
+                    <div className="relative flex-1 min-w-[140px]">
+                      <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        value={chatSearchName}
+                        onChange={(e) => setChatSearchName(e.target.value)}
+                        placeholder="Pesquisar..."
+                        className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 focus:border-cyan-400 outline-none text-xs font-medium bg-slate-50 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex-1">
+                    <p className="text-sm font-black uppercase tracking-[0.14em] text-slate-500 dark:text-zinc-300">
+                      {crmView === 'DASHBOARD' ? 'Dashboard' : crmView === 'WEBHOOK_LOGS' ? 'Webhook Logs' : 'Configuração'}
+                    </p>
+                  </div>
+                )}
                 <span
-                  className={`px-3 py-2 rounded-xl text-xs font-black uppercase tracking-widest inline-flex items-center gap-2 ${
+                  className={`ml-auto px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-widest inline-flex items-center gap-2 flex-shrink-0 ${
                     isBackendOffline
                       ? 'bg-rose-100 text-rose-700 border border-rose-200'
                       : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
@@ -6758,35 +6729,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                     }`}
                   >
                   <section className="border-r border-slate-200 flex flex-col min-h-0 h-full overflow-hidden bg-[#f7f8fb] dark:bg-zinc-900 dark:border-white/10">
-                    <div className="p-4 border-b border-slate-200 space-y-3 bg-white/95 dark:bg-zinc-900/80 dark:border-white/10">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => {
-                            if (!status.connected && !canUseExternalProvider) {
-                              setFeedback('Para abrir uma nova conversa, conecte o WhatsApp na aba QR CODE.');
-                              setActiveTab('SESSION_QR');
-                              return;
-                            }
-                            setNewChatMode('AGENDA');
-                            setSelectedAgendaClientId(null);
-                            setAgendaSearch('');
-                            setNewChatType('ALUNO');
-                            setNewChatName('');
-                            setNewChatRegistrationId('');
-                            setNewChatClassName('');
-                            setNewChatPhone('');
-                            setNewChatEmail('');
-                            setNewChatCpf('');
-                            setNewChatResponsibleName('');
-                            setNewChatResponsibleType('PAIS');
-                            setIsNewChatModalOpen(true);
-                          }}
-                          className="px-3 py-2 rounded-xl bg-[#064e3b] text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-800 flex items-center gap-1 shadow-sm"
-                        >
-                          <Plus size={12} />
-                          Nova
-                        </button>
-                      </div>
+                    <div className="p-3 border-b border-slate-200 space-y-2 bg-white/95 dark:bg-zinc-900/80 dark:border-white/10">
                       <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 space-y-2 dark:bg-zinc-900 dark:border-white/10">
                         <div className="flex items-center gap-3">
                           <label className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-600 dark:text-zinc-300">
@@ -6833,45 +6776,6 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                             </span>
                           </div>
                         )}
-                      </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <button
-                          type="button"
-                          onClick={() => setCrmFilter('ALL')}
-                          className={`px-3 py-1 rounded-full text-[11px] font-black ${crmFilter === 'ALL' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300'}`}
-                        >
-                          Todas
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setCrmFilter('UNREAD')}
-                          className={`px-3 py-1 rounded-full text-[11px] font-black ${crmFilter === 'UNREAD' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300'}`}
-                        >
-                          Não lidas
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setCrmFilter('WAITING')}
-                          className={`px-3 py-1 rounded-full text-[11px] font-black ${crmFilter === 'WAITING' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300'}`}
-                        >
-                          Aguardando
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setCrmFilter('ALL')}
-                          className="px-3 py-1 rounded-full text-[11px] font-black bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300"
-                        >
-                          Resolvidas
-                        </button>
-                      </div>
-                      <div className="relative">
-                        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input
-                          value={chatSearchName}
-                          onChange={(e) => setChatSearchName(e.target.value)}
-                          placeholder="Pesquisar conversas, contatos ou leads..."
-                          className="w-full pl-10 pr-4 py-2.5 rounded-xl border-2 border-cyan-100 focus:border-cyan-400 outline-none text-sm font-medium bg-slate-50 dark:bg-zinc-900 dark:border-white/10 dark:text-zinc-100"
-                        />
                       </div>
                     </div>
 
