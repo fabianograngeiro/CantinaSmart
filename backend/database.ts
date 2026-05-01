@@ -69,6 +69,7 @@ interface DatabaseShape {
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
     dispatchIdempotencyByEnterprise?: Record<string, any[]>;
+    storySchedulesByEnterprise?: Record<string, any[]>;
     providerConfigByEnterprise?: Record<string, any>;
     sessionBoundEnterpriseId?: string;
     sessionBoundAt?: string;
@@ -108,6 +109,7 @@ const createEmptyDatabase = (): DatabaseShape => ({
     leadPhonesByEnterprise: {},
     webhookLogsByEnterprise: {},
     providerConfigByEnterprise: {},
+    storySchedulesByEnterprise: {},
   },
 });
 
@@ -154,6 +156,7 @@ export class Database {
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
     dispatchIdempotencyByEnterprise?: Record<string, any[]>;
+    storySchedulesByEnterprise?: Record<string, any[]>;
     providerConfigByEnterprise?: Record<string, any>;
     sessionBoundEnterpriseId?: string;
     sessionBoundAt?: string;
@@ -1799,6 +1802,9 @@ export class Database {
     if (!this.whatsappStore.webhookLogsByEnterprise || typeof this.whatsappStore.webhookLogsByEnterprise !== 'object') {
       this.whatsappStore.webhookLogsByEnterprise = {};
     }
+    if (!this.whatsappStore.storySchedulesByEnterprise || typeof this.whatsappStore.storySchedulesByEnterprise !== 'object') {
+      this.whatsappStore.storySchedulesByEnterprise = {};
+    }
     if (!this.whatsappStore.providerConfigByEnterprise || typeof this.whatsappStore.providerConfigByEnterprise !== 'object') {
       this.whatsappStore.providerConfigByEnterprise = {};
     }
@@ -2805,6 +2811,7 @@ export class Database {
     dispatchAutomationProfilesByEnterprise?: Record<string, any[]>;
     dispatchLogsByEnterprise?: Record<string, any[]>;
     dispatchIdempotencyByEnterprise?: Record<string, any[]>;
+    storySchedulesByEnterprise?: Record<string, any[]>;
     providerConfigByEnterprise?: Record<string, any>;
     sessionBoundEnterpriseId?: string;
     sessionBoundAt?: string;
@@ -2818,6 +2825,9 @@ export class Database {
       webhookLogsByEnterprise: patch?.webhookLogsByEnterprise && typeof patch.webhookLogsByEnterprise === 'object'
         ? patch.webhookLogsByEnterprise
         : ((this.getWhatsAppStore() as any)?.webhookLogsByEnterprise || {}),
+      storySchedulesByEnterprise: patch?.storySchedulesByEnterprise && typeof patch.storySchedulesByEnterprise === 'object'
+        ? patch.storySchedulesByEnterprise
+        : ((this.getWhatsAppStore() as any)?.storySchedulesByEnterprise || {}),
       providerConfigByEnterprise: patch?.providerConfigByEnterprise && typeof patch.providerConfigByEnterprise === 'object'
         ? patch.providerConfigByEnterprise
         : ((this.getWhatsAppStore() as any)?.providerConfigByEnterprise || {}),

@@ -2076,7 +2076,7 @@ export class ApiService {
   static async transcribeWhatsAppAudio(payload: {
     chatId?: string;
     messageId?: string;
-    mediaDataUrl: string;
+    mediaDataUrl?: string;
     mimeType?: string | null;
     fileName?: string | null;
   }) {
@@ -2140,6 +2140,110 @@ export class ApiService {
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text || 'Falha ao cancelar agendamento');
+    }
+    return response.json();
+  }
+
+  static async listWhatsAppStories(params: { status?: string; limit?: number } = {}) {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(this.buildApiUrl('/whatsapp/stories', {
+      enterpriseId,
+      status: String(params.status || '').trim() || undefined,
+      limit: Number(params.limit || 200),
+    }), {
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao listar stories');
+    }
+    return response.json();
+  }
+
+  static async createWhatsAppStory(payload: {
+    story: {
+      type: 'text' | 'image' | 'video';
+      text?: string;
+      background_color?: number;
+      font?: number;
+      file?: string;
+      thumbnail?: string;
+      mimetype?: string;
+      replyid?: string;
+      mentions?: string;
+      readchat?: boolean;
+      readmessages?: boolean;
+      delay?: number;
+      forward?: boolean;
+      async?: boolean;
+      track_source?: string;
+      track_id?: string;
+    };
+    scheduleAt?: string | number;
+    sendNow?: boolean;
+  }) {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(`${API_URL}/whatsapp/stories`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({
+        enterpriseId,
+        ...(payload || {}),
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao criar story');
+    }
+    return response.json();
+  }
+
+  static async updateWhatsAppStory(id: string, payload: {
+    story?: {
+      type?: 'text' | 'image' | 'video';
+      text?: string;
+      background_color?: number;
+      font?: number;
+      file?: string;
+      thumbnail?: string;
+      mimetype?: string;
+      replyid?: string;
+      mentions?: string;
+      readchat?: boolean;
+      readmessages?: boolean;
+      delay?: number;
+      forward?: boolean;
+      async?: boolean;
+      track_source?: string;
+      track_id?: string;
+    };
+    scheduleAt?: string | number;
+  }) {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(`${API_URL}/whatsapp/stories/${encodeURIComponent(String(id || ''))}`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify({
+        enterpriseId,
+        ...(payload || {}),
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao editar story');
+    }
+    return response.json();
+  }
+
+  static async deleteWhatsAppStory(id: string) {
+    const enterpriseId = this.requireActiveEnterpriseId();
+    const response = await fetch(this.buildApiUrl(`/whatsapp/stories/${encodeURIComponent(String(id || ''))}`, { enterpriseId }), {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || 'Falha ao remover story');
     }
     return response.json();
   }

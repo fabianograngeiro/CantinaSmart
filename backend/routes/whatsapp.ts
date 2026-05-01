@@ -25,12 +25,196 @@ import {
   sendMenuByConfiguredProvider,
   sendCarouselByConfiguredProvider,
   sendPaymentRequestByConfiguredProvider,
+  sendStoryByConfiguredProvider,
 } from '../services/whatsappProviderBridge.js';
 import { db } from '../database.js';
 
 const router = Router();
 const WEBHOOK_UNRESOLVED_BUCKET = '__UNRESOLVED__';
 const WEBHOOK_LOG_MAX_ITEMS = 500;
+const STORY_SCHEDULER_INTERVAL_MS = 15 * 1000;
+
+type StoryType = 'text' | 'image' | 'video';
+type StoryScheduleStatus = 'pending' | 'sent' | 'failed';
+
+type StoryPayload = {
+  type: StoryType;
+  text?: string;
+  background_color?: number;
+  font?: number;
+  file?: string;
+  thumbnail?: string;
+  mimetype?: string;
+  replyid?: string;
+  mentions?: string;
+  readchat?: boolean;
+  readmessages?: boolean;
+  delay?: number;
+  forward?: boolean;
+  async?: boolean;
+  track_source?: string;
+  track_id?: string;
+};
+
+type StoryScheduleItem = {
+  id: string;
+  enterpriseId: string;
+  payload: StoryPayload;
+  scheduleAt: number;
+  status: StoryScheduleStatus;
+  createdAt: string;
+  updatedAt: string;
+  sentAt?: string;
+  providerMessageId?: string;
+  providerPayload?: any;
+  error?: string;
+  attempts: number;
+};
+
+let storiesSchedulerStarted = false;
+let storiesProcessorRunning = false;
+
+const parseStoryNumberField = (value: unknown, min: number, max: number) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  return Math.max(min, Math.min(max, Math.floor(parsed)));
+};
+
+const parseStoryBooleanField = (value: unknown, fallback?: boolean) => {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  const token = String(value).trim().toLowerCase();
+  if (token === 'true' || token === '1') return true;
+  if (token === 'false' || token === '0') return false;
+  return fallback;
+};
+
+const sanitizeStoryPayload = (raw: any): StoryPayload => {
+  const safe = raw && typeof raw === 'object' ? raw : {};
+  const typeRaw = String(safe.type || 'text').trim().toLowerCase();
+  const type: StoryType = (typeRaw === 'image' || typeRaw === 'video') ? typeRaw : 'text';
+
+  return {
+    type,
+    text: String(safe.text || '').trim() || undefined,
+    background_color: parseStoryNumberField(safe.background_color, 0, 50),
+    font: parseStoryNumberField(safe.font, 0, 10),
+    file: String(safe.file || '').trim() || undefined,
+    thumbnail: String(safe.thumbnail || '').trim() || undefined,
+    mimetype: String(safe.mimetype || '').trim() || undefined,
+    replyid: String(safe.replyid || '').trim() || undefined,
+    mentions: String(safe.mentions || '').trim() || undefined,
+    readchat: parseStoryBooleanField(safe.readchat, undefined),
+    readmessages: parseStoryBooleanField(safe.readmessages, undefined),
+    delay: parseStoryNumberField(safe.delay, 0, 300000),
+    forward: parseStoryBooleanField(safe.forward, undefined),
+    async: parseStoryBooleanField(safe.async, undefined),
+    track_source: String(safe.track_source || '').trim() || undefined,
+    track_id: String(safe.track_id || '').trim() || undefined,
+  };
+};
+
+const assertStoryPayload = (payload: StoryPayload) => {
+  if (payload.type === 'text' && !String(payload.text || '').trim()) {
+    throw new Error('Para story de texto, o campo text é obrigatório.');
+  }
+  if ((payload.type === 'image' || payload.type === 'video') && !String(payload.file || '').trim()) {
+    throw new Error('Para story de imagem/vídeo, o campo file é obrigatório.');
+  }
+};
+
+const parseScheduleTimestamp = (value: unknown) => {
+  const raw = Number(value);
+  if (Number.isFinite(raw) && raw > 0) return Math.floor(raw);
+  const parsed = Date.parse(String(value || '').trim());
+  if (Number.isFinite(parsed) && parsed > 0) return Math.floor(parsed);
+  return Date.now();
+};
+
+const getStorySchedulesByEnterprise = () => {
+  const store = db.getWhatsAppStore() as any;
+  const map = store?.storySchedulesByEnterprise;
+  return map && typeof map === 'object' ? map : {};
+};
+
+const saveStorySchedulesByEnterprise = (nextMap: Record<string, StoryScheduleItem[]>) => {
+  db.updateWhatsAppStore({
+    storySchedulesByEnterprise: nextMap,
+  });
+};
+
+const updateStoryScheduleItem = (
+  enterpriseId: string,
+  id: string,
+  updater: (item: StoryScheduleItem) => StoryScheduleItem
+) => {
+  const map = getStorySchedulesByEnterprise();
+  const list = Array.isArray(map[enterpriseId]) ? map[enterpriseId] : [];
+  let changed = false;
+  const nextList = list.map((item: StoryScheduleItem) => {
+    if (String(item?.id || '') !== id) return item;
+    changed = true;
+    return updater(item);
+  });
+  if (!changed) return null;
+  saveStorySchedulesByEnterprise({
+    ...map,
+    [enterpriseId]: nextList,
+  });
+  return nextList.find((item: StoryScheduleItem) => item.id === id) || null;
+};
+
+const processPendingStorySchedules = async () => {
+  if (storiesProcessorRunning) return;
+  storiesProcessorRunning = true;
+  try {
+    const map = getStorySchedulesByEnterprise();
+    const now = Date.now();
+
+    for (const [enterpriseId, listRaw] of Object.entries(map)) {
+      const list = Array.isArray(listRaw) ? listRaw as StoryScheduleItem[] : [];
+      const dueItems = list.filter((item) => item.status === 'pending' && Number(item.scheduleAt || 0) <= now);
+      for (const item of dueItems) {
+        try {
+          const sent = await sendStoryByConfiguredProvider({
+            enterpriseId,
+            story: item.payload,
+          });
+          updateStoryScheduleItem(enterpriseId, item.id, (current) => ({
+            ...current,
+            status: 'sent',
+            updatedAt: new Date().toISOString(),
+            sentAt: new Date().toISOString(),
+            providerMessageId: String((sent.result as any)?.messageId || '').trim() || undefined,
+            providerPayload: (sent.result as any)?.payload,
+            attempts: Number(current.attempts || 0) + 1,
+            error: '',
+          }));
+        } catch (err) {
+          updateStoryScheduleItem(enterpriseId, item.id, (current) => ({
+            ...current,
+            status: 'failed',
+            updatedAt: new Date().toISOString(),
+            attempts: Number(current.attempts || 0) + 1,
+            error: err instanceof Error ? err.message : 'Falha ao enviar story agendado.',
+          }));
+        }
+      }
+    }
+  } finally {
+    storiesProcessorRunning = false;
+  }
+};
+
+const startStoriesScheduler = () => {
+  if (storiesSchedulerStarted) return;
+  storiesSchedulerStarted = true;
+  setInterval(() => {
+    processPendingStorySchedules().catch(() => undefined);
+  }, STORY_SCHEDULER_INTERVAL_MS);
+};
+
+startStoriesScheduler();
 
 const normalizePhoneDigits = (value: unknown) => String(value ?? '').replace(/\D/g, '');
 const normalizeTextToken = (value: unknown) => String(value || '')
@@ -49,6 +233,129 @@ const normalizeImportedPhone = (value: unknown) => {
   const digits = normalizePhoneDigits(value);
   if (!digits) return '';
   return digits.startsWith('55') ? digits : `55${digits}`;
+};
+
+const normalizeProviderPath = (value: unknown, fallback: string) => {
+  const text = String(value || '').trim();
+  if (!text) return fallback;
+  return text.startsWith('/') ? text : `/${text}`;
+};
+
+const buildExternalBaseUrl = (config: { baseUrl?: string; subdomain?: string; }) => {
+  const rawBaseUrl = String(config?.baseUrl || '').trim().replace(/\/+$/, '');
+  if (!rawBaseUrl) return '';
+  if (!rawBaseUrl.includes('{subdomain}')) return rawBaseUrl;
+  const subdomain = String(config?.subdomain || '').trim().replace(/^https?:\/\//i, '').replace(/\.uazapi\.com$/i, '').split('/')[0];
+  if (!subdomain) return '';
+  return rawBaseUrl.split('{subdomain}').join(subdomain);
+};
+
+const buildExternalAuthHeaders = (config: {
+  token?: string;
+  tokenHeaderName?: string;
+  tokenPrefix?: string;
+}) => {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+  const token = String(config?.token || '').trim();
+  if (!token) return headers;
+  const headerName = String(config?.tokenHeaderName || 'Authorization').trim() || 'Authorization';
+  const prefix = String(config?.tokenPrefix || '').trim();
+  headers[headerName] = prefix ? `${prefix} ${token}` : token;
+  return headers;
+};
+
+const collectNestedValuesByKeys = (input: unknown, keys: string[], bucket: string[] = []) => {
+  if (!input || typeof input !== 'object') return bucket;
+  if (Array.isArray(input)) {
+    input.forEach((item) => collectNestedValuesByKeys(item, keys, bucket));
+    return bucket;
+  }
+
+  Object.entries(input as Record<string, unknown>).forEach(([key, value]) => {
+    const normalizedKey = String(key || '').trim().toLowerCase();
+    if (keys.includes(normalizedKey) && typeof value === 'string' && value.trim()) {
+      bucket.push(value.trim());
+    }
+    if (value && typeof value === 'object') {
+      collectNestedValuesByKeys(value, keys, bucket);
+    }
+  });
+
+  return bucket;
+};
+
+const resolveExternalTranscriptionMedia = async (enterpriseId: string, messageId: string) => {
+  const providerConfig = getEnterpriseProviderConfig(enterpriseId);
+  if (providerConfig.mode !== 'EXTERNAL' || !providerConfig.external.enabled) {
+    return null;
+  }
+
+  const external = providerConfig.external;
+  const providerCode = String(external.providerCode || '').trim().toUpperCase();
+  if (providerCode !== 'UAZAPI') {
+    return null;
+  }
+
+  const baseUrl = buildExternalBaseUrl(external);
+  if (!baseUrl) {
+    throw new Error('Base URL da API externa não configurada.');
+  }
+
+  const endpointUrl = `${baseUrl}${normalizeProviderPath('/message/download', '/message/download')}`;
+  const response = await fetch(endpointUrl, {
+    method: 'POST',
+    headers: buildExternalAuthHeaders(external),
+    body: JSON.stringify({
+      id: messageId,
+      return_base64: true,
+      generate_mp3: false,
+      return_link: false,
+      transcribe: false,
+      download_quoted: false,
+    }),
+  });
+
+  const rawText = await response.text();
+  let parsed: any = null;
+  try {
+    parsed = rawText ? JSON.parse(rawText) : null;
+  } catch {
+    parsed = null;
+  }
+
+  if (!response.ok) {
+    throw new Error(`Falha ao baixar áudio na UAZAPI: ${response.status} ${rawText || 'sem resposta'}`);
+  }
+
+  const dataUrlCandidates = collectNestedValuesByKeys(parsed, ['medidataurl', 'dataurl', 'base64dataurl']);
+  const base64Candidates = collectNestedValuesByKeys(parsed, ['base64', 'base64data', 'filebase64']);
+  const mimeTypeCandidates = collectNestedValuesByKeys(parsed, ['mimetype', 'mime', 'mimetypeaudio', 'contenttype']);
+  const fileNameCandidates = collectNestedValuesByKeys(parsed, ['filename', 'file_name', 'name']);
+
+  const firstDataUrl = dataUrlCandidates.find((value) => /^data:/i.test(value));
+  if (firstDataUrl) {
+    return {
+      mediaDataUrl: firstDataUrl,
+      mimeType: mimeTypeCandidates[0] || undefined,
+      fileName: fileNameCandidates[0] || undefined,
+    };
+  }
+
+  const firstBase64 = base64Candidates.find(Boolean);
+  if (firstBase64) {
+    const cleaned = firstBase64.replace(/^data:[^;]+;base64,/i, '').trim();
+    const mimeType = String(mimeTypeCandidates[0] || 'audio/ogg').trim() || 'audio/ogg';
+    return {
+      mediaDataUrl: `data:${mimeType};base64,${cleaned}`,
+      mimeType,
+      fileName: fileNameCandidates[0] || undefined,
+    };
+  }
+
+  throw new Error('A UAZAPI não retornou base64 do áudio para transcrição.');
 };
 
 const parseIdempotencyTtlSeconds = (value: unknown) => {
@@ -428,6 +735,42 @@ const extractInboundWebhookMessage = (payload: any) => {
     || nestedMessage?.audioMessage?.mimetype
     || ''
   ).trim();
+  const mediaDataUrl = String(
+    externalMessage?.mediaDataUrl
+    || externalMessage?.dataUrl
+    || externalMessage?.base64DataUrl
+    || body?.mediaDataUrl
+    || body?.dataUrl
+    || body?.base64DataUrl
+    || nested?.mediaDataUrl
+    || nested?.dataUrl
+    || ''
+  ).trim();
+  const mediaBase64 = String(
+    externalMessage?.base64
+    || externalMessage?.base64Data
+    || externalMessage?.fileBase64
+    || body?.base64
+    || body?.base64Data
+    || body?.fileBase64
+    || nested?.base64
+    || nested?.base64Data
+    || ''
+  ).trim();
+  const mediaUrl = String(
+    externalMessage?.mediaUrl
+    || externalMessage?.url
+    || externalMessage?.fileUrl
+    || externalMessage?.link
+    || body?.mediaUrl
+    || body?.url
+    || body?.fileUrl
+    || body?.link
+    || nested?.mediaUrl
+    || nested?.url
+    || nested?.fileUrl
+    || ''
+  ).trim();
 
   const messageTextFromNestedObject =
     nestedMessage?.conversation
@@ -483,7 +826,51 @@ const extractInboundWebhookMessage = (payload: any) => {
     fileName: fileName || null,
     mimeType: mimeType || null,
     avatarUrl: avatarUrl || null,
+    mediaDataUrl: mediaDataUrl || null,
+    mediaBase64: mediaBase64 || null,
+    mediaUrl: mediaUrl || null,
   };
+};
+
+const ensureExternalMediaDataUrl = async (input: {
+  mediaDataUrl?: string | null;
+  mediaBase64?: string | null;
+  mediaUrl?: string | null;
+  mimeType?: string | null;
+}) => {
+  const dataUrl = String(input.mediaDataUrl || '').trim();
+  if (/^data:/i.test(dataUrl)) {
+    return dataUrl;
+  }
+
+  const rawBase64 = String(input.mediaBase64 || '').trim();
+  if (rawBase64) {
+    const cleaned = rawBase64.replace(/^data:[^;]+;base64,/i, '').trim();
+    if (cleaned) {
+      return `data:${String(input.mimeType || 'application/octet-stream').trim() || 'application/octet-stream'};base64,${cleaned}`;
+    }
+  }
+
+  const mediaUrl = String(input.mediaUrl || '').trim();
+  if (!/^https?:\/\//i.test(mediaUrl)) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(mediaUrl);
+    if (!response.ok) {
+      return null;
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    if (buffer.length === 0 || buffer.length > 12 * 1024 * 1024) {
+      return null;
+    }
+    const resolvedMimeType = String(response.headers.get('content-type') || input.mimeType || 'application/octet-stream').trim();
+    return `data:${resolvedMimeType};base64,${buffer.toString('base64')}`;
+  } catch {
+    return null;
+  }
 };
 
 const safeWebhookPayloadPreview = (payload: any) => {
@@ -546,6 +933,12 @@ router.all('/webhook/external', async (req: Request, res: Response) => {
       headers: req.headers,
     });
     const webhook = extractInboundWebhookMessage(payload);
+    const resolvedMediaDataUrl = await ensureExternalMediaDataUrl({
+      mediaDataUrl: webhook.mediaDataUrl,
+      mediaBase64: webhook.mediaBase64,
+      mediaUrl: webhook.mediaUrl,
+      mimeType: webhook.mimeType,
+    });
     const enterpriseId = resolveWebhookEnterpriseId(payload);
     if (!enterpriseId) {
       appendWebhookLog('', {
@@ -625,6 +1018,7 @@ router.all('/webhook/external', async (req: Request, res: Response) => {
         mediaType: webhook.mediaType,
         fileName: webhook.fileName,
         mimeType: webhook.mimeType,
+        mediaDataUrl: resolvedMediaDataUrl,
         avatarUrl: webhook.avatarUrl,
       });
 
@@ -656,6 +1050,7 @@ router.all('/webhook/external', async (req: Request, res: Response) => {
       mediaType: webhook.mediaType,
       fileName: webhook.fileName,
       mimeType: webhook.mimeType,
+      mediaDataUrl: resolvedMediaDataUrl,
       avatarUrl: webhook.avatarUrl,
     });
 
@@ -2616,10 +3011,24 @@ router.post('/transcribe-audio', async (req: AuthRequest, res: Response) => {
     const enterpriseId = resolveEnterpriseIdOrReject(req, res);
     if (!enterpriseId) return;
     const { chatId, messageId, mediaDataUrl, mimeType, fileName } = req.body || {};
-    if (!mediaDataUrl) {
+    const resolvedMessageId = messageId ? String(messageId) : undefined;
+    let resolvedMediaDataUrl = String(mediaDataUrl || '').trim();
+    let resolvedMimeType = mimeType ? String(mimeType) : undefined;
+    let resolvedFileName = fileName ? String(fileName) : undefined;
+
+    if (!resolvedMediaDataUrl && resolvedMessageId) {
+      const externalMedia = await resolveExternalTranscriptionMedia(enterpriseId, resolvedMessageId);
+      if (externalMedia?.mediaDataUrl) {
+        resolvedMediaDataUrl = externalMedia.mediaDataUrl;
+        resolvedMimeType = externalMedia.mimeType || resolvedMimeType;
+        resolvedFileName = externalMedia.fileName || resolvedFileName;
+      }
+    }
+
+    if (!resolvedMediaDataUrl) {
       return res.status(400).json({
         success: false,
-        message: 'Informe mediaDataUrl do áudio para transcrição.'
+        message: 'Informe mediaDataUrl do áudio para transcrição ou um messageId válido da API externa.'
       });
     }
 
@@ -2629,10 +3038,10 @@ router.post('/transcribe-audio', async (req: AuthRequest, res: Response) => {
 
     const result = await whatsappSession.transcribeAudioMessage({
       chatId: chatId ? String(chatId) : undefined,
-      messageId: messageId ? String(messageId) : undefined,
-      mediaDataUrl: String(mediaDataUrl),
-      mimeType: mimeType ? String(mimeType) : undefined,
-      fileName: fileName ? String(fileName) : undefined,
+      messageId: resolvedMessageId,
+      mediaDataUrl: resolvedMediaDataUrl,
+      mimeType: resolvedMimeType,
+      fileName: resolvedFileName,
     });
 
     res.json(result);
@@ -2710,6 +3119,178 @@ router.delete('/schedule/:id', async (req: AuthRequest, res: Response) => {
     res.status(400).json({
       success: false,
       message: err instanceof Error ? err.message : 'Falha ao cancelar agendamento.'
+    });
+  }
+});
+
+router.post('/stories', async (req: AuthRequest, res: Response) => {
+  try {
+    const enterpriseId = resolveEnterpriseIdOrReject(req, res);
+    if (!enterpriseId) return;
+
+    const payload = sanitizeStoryPayload((req.body as any)?.story || req.body || {});
+    assertStoryPayload(payload);
+
+    const scheduleAt = parseScheduleTimestamp((req.body as any)?.scheduleAt);
+    const sendNow = parseStoryBooleanField((req.body as any)?.sendNow, false) || scheduleAt <= Date.now();
+
+    if (sendNow) {
+      const sent = await sendStoryByConfiguredProvider({
+        enterpriseId,
+        story: payload,
+      });
+
+      return res.json({
+        success: true,
+        sent: true,
+        story: {
+          id: `story-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          payload,
+          scheduleAt,
+          status: 'sent',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          sentAt: new Date().toISOString(),
+          providerMessageId: String((sent.result as any)?.messageId || '').trim() || undefined,
+          providerPayload: (sent.result as any)?.payload,
+        },
+      });
+    }
+
+    const map = getStorySchedulesByEnterprise();
+    const list = Array.isArray(map[enterpriseId]) ? map[enterpriseId] as StoryScheduleItem[] : [];
+    const nowIso = new Date().toISOString();
+    const item: StoryScheduleItem = {
+      id: `story-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      enterpriseId,
+      payload,
+      scheduleAt,
+      status: 'pending',
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      attempts: 0,
+    };
+
+    saveStorySchedulesByEnterprise({
+      ...map,
+      [enterpriseId]: [item, ...list].slice(0, 500),
+    });
+
+    res.json({
+      success: true,
+      sent: false,
+      story: item,
+    });
+  } catch (err) {
+    res.status(400).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao criar story.',
+    });
+  }
+});
+
+router.get('/stories', async (req: AuthRequest, res: Response) => {
+  try {
+    const enterpriseId = resolveEnterpriseIdOrReject(req, res);
+    if (!enterpriseId) return;
+
+    const map = getStorySchedulesByEnterprise();
+    const list = Array.isArray(map[enterpriseId]) ? map[enterpriseId] as StoryScheduleItem[] : [];
+    const statusFilter = String(req.query.status || '').trim().toLowerCase();
+    const limitRaw = Number(req.query.limit);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(500, Math.floor(limitRaw))) : 200;
+    const filtered = statusFilter
+      ? list.filter((item) => String(item?.status || '').toLowerCase() === statusFilter)
+      : list;
+
+    res.json({
+      success: true,
+      stories: filtered
+        .sort((a, b) => Number(b.scheduleAt || 0) - Number(a.scheduleAt || 0))
+        .slice(0, limit),
+    });
+  } catch (err) {
+    res.status(400).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao listar stories.',
+    });
+  }
+});
+
+router.put('/stories/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const enterpriseId = resolveEnterpriseIdOrReject(req, res);
+    if (!enterpriseId) return;
+
+    const id = String(req.params.id || '').trim();
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'ID do story é obrigatório.' });
+    }
+
+    const map = getStorySchedulesByEnterprise();
+    const list = Array.isArray(map[enterpriseId]) ? map[enterpriseId] as StoryScheduleItem[] : [];
+    const current = list.find((item) => item.id === id);
+    if (!current) {
+      return res.status(404).json({ success: false, message: 'Story não encontrado.' });
+    }
+    if (current.status !== 'pending') {
+      return res.status(400).json({ success: false, message: 'Apenas stories pendentes podem ser editados.' });
+    }
+
+    const payload = sanitizeStoryPayload((req.body as any)?.story || current.payload);
+    assertStoryPayload(payload);
+    const scheduleAt = (req.body as any)?.scheduleAt !== undefined
+      ? parseScheduleTimestamp((req.body as any)?.scheduleAt)
+      : Number(current.scheduleAt || Date.now());
+
+    const updated = updateStoryScheduleItem(enterpriseId, id, (item) => ({
+      ...item,
+      payload,
+      scheduleAt,
+      updatedAt: new Date().toISOString(),
+      error: '',
+    }));
+
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Story não encontrado.' });
+    }
+
+    res.json({ success: true, story: updated });
+  } catch (err) {
+    res.status(400).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao editar story.',
+    });
+  }
+});
+
+router.delete('/stories/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const enterpriseId = resolveEnterpriseIdOrReject(req, res);
+    if (!enterpriseId) return;
+
+    const id = String(req.params.id || '').trim();
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'ID do story é obrigatório.' });
+    }
+
+    const map = getStorySchedulesByEnterprise();
+    const list = Array.isArray(map[enterpriseId]) ? map[enterpriseId] as StoryScheduleItem[] : [];
+    const exists = list.some((item) => item.id === id);
+    if (!exists) {
+      return res.status(404).json({ success: false, message: 'Story não encontrado.' });
+    }
+
+    saveStorySchedulesByEnterprise({
+      ...map,
+      [enterpriseId]: list.filter((item) => item.id !== id),
+    });
+
+    res.json({ success: true, removedId: id });
+  } catch (err) {
+    res.status(400).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha ao remover story.',
     });
   }
 });
