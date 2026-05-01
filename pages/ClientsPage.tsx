@@ -342,6 +342,25 @@ const ClientsPage: React.FC<ClientsPageProps> = ({ currentUser, activeEnterprise
           ApiService.getTransactions()
         ]);
 
+        // Load persisted portal links
+        try {
+          const portalLinksResult = await ApiService.getPortalLinks(activeEnterpriseId || undefined);
+          const linksArray = Array.isArray(portalLinksResult?.links) ? portalLinksResult.links : [];
+          if (linksArray.length > 0) {
+            setPortalLinksByRowId((prev) => {
+              const next = { ...prev };
+              linksArray.forEach((item: any) => {
+                const clientId = String(item?.clientId || '').trim();
+                const link = String(item?.accessLink || '').trim();
+                if (clientId && link) next[`direct:${clientId}`] = link;
+              });
+              return next;
+            });
+          }
+        } catch {
+          // Non-fatal: links will just not be pre-filled
+        }
+
         const clientsData = clientsByEnterprise.flat();
         const plansData = plansByEnterprise.flat();
         const dedupById = <T extends { id?: string }>(items: T[]) => {

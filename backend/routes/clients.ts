@@ -343,6 +343,16 @@ router.post('/', (req: AuthRequest, res: Response) => {
     }
 
     const newClient = db.createClient(createPayload);
+    // Auto-generate portal access link for RESPONSAVEL and COLABORADOR clients
+    const newClientType = String(newClient?.type || '').trim().toUpperCase();
+    if (newClientType === 'RESPONSAVEL' || newClientType === 'COLABORADOR') {
+      try {
+        db.ensurePortalAccessForClientId(String(newClient.id || '').trim(), { regenerateToken: false });
+      } catch (_e) {
+        // Non-fatal: portal link generation is best-effort
+      }
+    }
+
     clientCreateIdempotencyStore.set(idempotencyKey, {
       status: 'DONE',
       createdAt: Date.now(),

@@ -585,6 +585,49 @@ router.post('/portal-links/backfill', (req: AuthRequest, res: Response) => {
   });
 });
 
+// GET /auth/portal-links — return existing portal links without regenerating
+router.get('/portal-links', (req: AuthRequest, res: Response) => {
+  const requesterRole = normalizeRole(req.userRole);
+  if (!['SUPERADMIN', 'ADMIN_SISTEMA', 'OWNER', 'ADMIN'].includes(requesterRole)) {
+    return res.status(403).json({ error: 'Sem permissão.' });
+  }
+
+  const requestedEnterpriseId = String(req.query?.enterpriseId || '').trim();
+  const canAccessAll = canAccessAllEnterprises(req.userRole);
+  const allowedEnterpriseIds = getRequesterEnterpriseIds(req);
+
+  const portalUsers = db.getUsers().filter((user: any) => {
+    const role = normalizeRole(String(user?.role || ''));
+    if (!['RESPONSAVEL', 'COLABORADOR', 'CLIENTE'].includes(role)) return false;
+    if (!String(user?.portalAccessTokenRaw || '').trim()) return false;
+    if (!user?.portalAccessEnabled) return false;
+
+    if (canAccessAll) {
+      if (!requestedEnterpriseId) return true;
+      const enterpriseIds = Array.isArray(user?.enterpriseIds) ? user.enterpriseIds : [user?.enterpriseId].filter(Boolean);
+      return enterpriseIds.includes(requestedEnterpriseId);
+    }
+
+    const enterpriseIds = Array.isArray(user?.enterpriseIds) ? user.enterpriseIds : [user?.enterpriseId].filter(Boolean);
+    const allowed = requestedEnterpriseId
+      ? allowedEnterpriseIds.includes(requestedEnterpriseId) && enterpriseIds.includes(requestedEnterpriseId)
+      : enterpriseIds.some((id: string) => allowedEnterpriseIds.includes(id));
+    return allowed;
+  });
+
+  const baseUrl = getPortalAccessBaseUrl(req);
+  const links = portalUsers.map((user: any) => ({
+    userId: String(user.id || '').trim(),
+    clientId: String(user.linkedClientId || '').trim(),
+    name: String(user.name || '').trim(),
+    role: String(user.role || '').trim(),
+    enterpriseId: String(user.enterpriseId || '').trim(),
+    accessLink: `${baseUrl}?t=${encodeURIComponent(String(user.portalAccessTokenRaw || '').trim())}`,
+  }));
+
+  return res.json({ links });
+});
+
 // Get all users
 router.get('/', (req: AuthRequest, res: Response) => {
   console.log('📋 [AUTH] Fetching all users');
