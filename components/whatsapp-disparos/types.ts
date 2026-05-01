@@ -24,7 +24,7 @@ export type DispatchAudienceFilter =
   | 'PLANO_A_VENCER'
   | 'RELATORIO_ENTREGA';
 
-export type DispatchProfileType = 'RESPONSAVEL_PARENTESCO' | 'COLABORADOR';
+export type DispatchProfileType = 'RESPONSAVEL_PARENTESCO' | 'COLABORADOR' | 'TODOS';
 export type DispatchPeriodMode = 'SEMANAL' | 'QUINZENAL' | 'MENSAL' | 'DESTA_SEMANA';
 export type DispatchWeekday = 'DOMINGO' | 'SEGUNDA' | 'TERCA' | 'QUARTA' | 'QUINTA' | 'SEXTA' | 'SABADO';
 export type DispatchSendMode = 'TEXT_ONLY' | 'TEXT_AND_REPORT_PDF' | 'TEXT_AND_UPLOAD_PDF';

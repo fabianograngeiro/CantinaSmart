@@ -220,6 +220,12 @@ type AiConfig = {
   openAiToken: string;
   geminiToken: string;
   groqToken: string;
+  systemAiEnabled?: boolean;
+  userOwnAiEnabled?: boolean;
+  systemPreferredProvider?: AiProvider;
+  systemOpenAiToken?: string;
+  systemGeminiToken?: string;
+  systemGroqToken?: string;
   sttEnabled: boolean;
   sttModel: string;
   companyName: string;
@@ -342,8 +348,8 @@ class WhatsAppSessionManager {
   private static readonly LEGACY_AI_CONFIG_FILE_PATH = path.resolve(__dirname, '../data/whatsapp-ai-config.json');
   private static readonly AI_AUDIT_MAX_ITEMS = 300;
   private static readonly AI_AGENT_AUTO_RESUME_MS = 6 * 60 * 60 * 1000;
-  private static readonly AI_HUMAN_HANDOFF_WAIT_MS = 3 * 60 * 1000;
-  private static readonly AI_HUMAN_HANDOFF_AUTO_ACCEPT_MS = 2 * 60 * 1000;
+  private static readonly AI_HUMAN_HANDOFF_WAIT_MS = 60 * 1000;
+  private static readonly AI_HUMAN_HANDOFF_AUTO_ACCEPT_MS = 60 * 1000;
   private static readonly AI_HUMAN_HANDOFF_TTL_MS = 30 * 60 * 1000;
   private static readonly SYNC_ACTIVITY_QUIET_WINDOW_MS = 8 * 1000;
   private static readonly SYNC_HEARTBEAT_INTERVAL_MS = 1000;
@@ -418,6 +424,12 @@ class WhatsAppSessionManager {
     openAiToken: '',
     geminiToken: '',
     groqToken: '',
+    systemAiEnabled: true,
+    userOwnAiEnabled: false,
+    systemPreferredProvider: 'groq',
+    systemOpenAiToken: '',
+    systemGeminiToken: '',
+    systemGroqToken: '',
     sttEnabled: true,
     sttModel: '',
     companyName: '',
@@ -935,7 +947,7 @@ class WhatsAppSessionManager {
           reason: analysis.reason,
         });
       } catch (err) {
-        this.logWarn('Falha ao avaliar handoff IA após timeout de 3 minutos.', err instanceof Error ? err.message : err);
+        this.logWarn('Falha ao avaliar handoff IA após timeout configurado.', err instanceof Error ? err.message : err);
       }
     }, WhatsAppSessionManager.AI_HUMAN_HANDOFF_WAIT_MS);
 
@@ -974,7 +986,7 @@ class WhatsAppSessionManager {
       for (const request of shouldAutoAccept) {
         try {
           await this.decideAiHumanHandoffRequest(request.id, true, 'auto_timeout_without_human_decision');
-          this.logInfo('Handoff IA autoaceito por ausência de decisão humana em 2 minutos.', {
+          this.logInfo('Handoff IA autoaceito por ausência de decisão humana no tempo configurado.', {
             chatId: request.chatId,
             contactName: request.contactName,
           });
@@ -1526,6 +1538,20 @@ class WhatsAppSessionManager {
       openAiToken: String(raw?.openAiToken || '').trim(),
       geminiToken: String(raw?.geminiToken || '').trim(),
       groqToken: String(raw?.groqToken || '').trim(),
+      systemAiEnabled: raw?.systemAiEnabled === undefined
+        ? (this.aiConfig.systemAiEnabled === undefined ? true : Boolean(this.aiConfig.systemAiEnabled))
+        : Boolean(raw?.systemAiEnabled),
+      userOwnAiEnabled: raw?.userOwnAiEnabled === undefined
+        ? (this.aiConfig.userOwnAiEnabled === undefined ? false : Boolean(this.aiConfig.userOwnAiEnabled))
+        : Boolean(raw?.userOwnAiEnabled),
+      systemPreferredProvider: String(raw?.systemPreferredProvider || this.aiConfig.systemPreferredProvider || '').trim().toLowerCase() === 'openai'
+        ? 'openai'
+        : String(raw?.systemPreferredProvider || this.aiConfig.systemPreferredProvider || '').trim().toLowerCase() === 'gemini'
+          ? 'gemini'
+          : 'groq',
+      systemOpenAiToken: String(raw?.systemOpenAiToken || this.aiConfig.systemOpenAiToken || '').trim(),
+      systemGeminiToken: String(raw?.systemGeminiToken || this.aiConfig.systemGeminiToken || '').trim(),
+      systemGroqToken: String(raw?.systemGroqToken || this.aiConfig.systemGroqToken || '').trim(),
       sttEnabled: raw?.sttEnabled === undefined ? true : Boolean(raw?.sttEnabled),
       sttModel: String(raw?.sttModel || '').trim(),
       companyName: String(raw?.companyName || '').trim(),

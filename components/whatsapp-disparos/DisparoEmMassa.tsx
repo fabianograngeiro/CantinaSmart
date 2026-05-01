@@ -125,7 +125,7 @@ const ALLOWED_FILTERS: AudienceFilter[] = [
   'RELATORIO_ENTREGA',
 ];
 const ALLOWED_PERIOD_MODES: DispatchPeriodMode[] = ['SEMANAL', 'QUINZENAL', 'MENSAL', 'DESTA_SEMANA'];
-const ALLOWED_PROFILE_TYPES: ReportProfileType[] = ['RESPONSAVEL_PARENTESCO', 'COLABORADOR'];
+const ALLOWED_PROFILE_TYPES: ReportProfileType[] = ['RESPONSAVEL_PARENTESCO', 'COLABORADOR', 'TODOS'];
 const DISPATCH_WEEKDAYS: DispatchWeekday[] = ['DOMINGO', 'SEGUNDA', 'TERCA', 'QUARTA', 'QUINTA', 'SEXTA', 'SABADO'];
 const DEFAULT_WEEKLY_DAY: DispatchWeekday = 'SEGUNDA';
 const DEFAULT_WEEKLY_TIME = '17:00';
@@ -241,6 +241,12 @@ const renderizarMensagem = (template: string, usuario: AudienceRecipient) => {
     consumo_total_periodo: String(usuario?.variables?.consumo_total_periodo || ''),
     consumo_total_por_aluno: String(usuario?.variables?.consumo_total_por_aluno || ''),
     filhos_label: alunosArray.length > 1 ? 'seus filhos' : 'seu filho',
+    alunos_detalhes: (() => {
+      const saldoPorAlunoRaw = String(usuario?.variables?.saldo_por_aluno || '').trim();
+      if (saldoPorAlunoRaw) return saldoPorAlunoRaw;
+      if (alunosArray.length === 0) return 'Sem alunos vinculados';
+      return alunosArray.map((nome) => `${nome} Saldo: -`).join('\n');
+    })(),
   };
 
   const rendered = String(template || '').replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_, key: string) => {
@@ -1542,14 +1548,14 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
   }, [activeDispatchDays, weeklyDispatchDay]);
 
   useEffect(() => {
-    if (reportProfileType === 'COLABORADOR' && audienceFilter === 'RESPONSAVEIS') {
+    if (reportProfileType === 'RESPONSAVEL_PARENTESCO') {
+      setAudienceFilter('RESPONSAVEIS');
+    } else if (reportProfileType === 'COLABORADOR') {
+      setAudienceFilter('COLABORADORES');
+    } else {
       setAudienceFilter('TODOS');
-      return;
     }
-    if (reportProfileType === 'RESPONSAVEL_PARENTESCO' && audienceFilter === 'COLABORADORES') {
-      setAudienceFilter('TODOS');
-    }
-  }, [reportProfileType, audienceFilter]);
+  }, [reportProfileType]);
 
   useEffect(() => {
     if (!activeEnterprise?.id) return;
@@ -1906,56 +1912,29 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
                 />
               </label>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <label className="space-y-1 block">
-                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Tipo de perfil do relatório</span>
-                  <select
-                    value={reportProfileType}
-                    onChange={(e) => setReportProfileType(e.target.value as ReportProfileType)}
-                    className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
-                  >
-                    <option value="RESPONSAVEL_PARENTESCO">Responsável / Parentesco</option>
-                    <option value="COLABORADOR">Colaborador</option>
-                  </select>
-                </label>
-
-                <label className="space-y-1 block">
-                  <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Filtro de audiência</span>
-                  <select
-                    value={audienceFilter}
-                    onChange={(e) => setAudienceFilter(e.target.value as AudienceFilter)}
-                    className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
-                  >
-                    <option value="TODOS">Todos</option>
-                    <option value="RESPONSAVEIS">Apenas Responsáveis</option>
-                    <option value="COLABORADORES">Apenas Colaboradores</option>
-                    <option value="SALDO_BAIXO">Saldo baixo (&lt; R$ 10,00)</option>
-                    <option value="PLANO_A_VENCER">Plano a vencer (5 dias)</option>
-                    <option value="RELATORIO_ENTREGA">Relatório de entrega</option>
-                  </select>
-                </label>
-              </div>
+              <label className="space-y-1 block">
+                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Para quem será enviado esta mensagem?</span>
+                <select
+                  value={reportProfileType}
+                  onChange={(e) => setReportProfileType(e.target.value as ReportProfileType)}
+                  className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                >
+                  <option value="RESPONSAVEL_PARENTESCO">RESPONSÁVEL</option>
+                  <option value="COLABORADOR">FUNC.ESCOLA</option>
+                  <option value="TODOS">TODOS</option>
+                </select>
+              </label>
 
               <label className="space-y-1 block">
                 <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">Mensagem</span>
                 <div className="mb-2 flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => setTemplate(buildDefaultTemplate(reportProfileType, periodMode))}
-                    className="px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-[11px] font-black text-emerald-700"
+                    onClick={() => setTemplate((prev) => prev + '{{alunos_detalhes}}')}
+                    className="px-2.5 py-1.5 rounded-lg border border-sky-200 bg-sky-50 hover:bg-sky-100 text-[11px] font-black text-sky-700"
                   >
-                    🧩 Modelo do período
+                    📋 Inserir alunos_detalhes
                   </button>
-                  {templatesRapidos.map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => setTemplate(preset.text)}
-                      className="px-2.5 py-1.5 rounded-lg border border-orange-200 bg-orange-50 hover:bg-orange-100 text-[11px] font-black text-orange-700"
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
                 </div>
                 <textarea
                   rows={8}
@@ -1964,7 +1943,7 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
                   className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-medium bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
                 />
                 <p className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
-                  Variáveis: <span className="font-black">{'{{nome}}'}</span>, <span className="font-black">{'{{nome_pai}}'}</span>, <span className="font-black">{'{{nome_colaborador}}'}</span>, <span className="font-black">{'{{parentesco}}'}</span>, <span className="font-black">{'{{alunos}}'}</span>, <span className="font-black">{'{{saldo}}'}</span>, <span className="font-black">{'{{plano}}'}</span>, <span className="font-black">{'{{consumo_hoje}}'}</span>, <span className="font-black">{'{{status_entrega}}'}</span>, <span className="font-black">{'{{periodo_referencia}}'}</span>, <span className="font-black">{'{{periodo_nome}}'}</span>, <span className="font-black">{'{{saldo_por_aluno}}'}</span>, <span className="font-black">{'{{consumo_total_periodo}}'}</span>, <span className="font-black">{'{{consumo_total_por_aluno}}'}</span>
+                  Variáveis: <span className="font-black">{'{{nome}}'}</span>, <span className="font-black">{'{{nome_pai}}'}</span>, <span className="font-black">{'{{nome_colaborador}}'}</span>, <span className="font-black">{'{{parentesco}}'}</span>, <span className="font-black">{'{{alunos}}'}</span>, <span className="font-black">{'{{saldo}}'}</span>, <span className="font-black">{'{{plano}}'}</span>, <span className="font-black">{'{{consumo_hoje}}'}</span>, <span className="font-black">{'{{status_entrega}}'}</span>, <span className="font-black">{'{{periodo_referencia}}'}</span>, <span className="font-black">{'{{periodo_nome}}'}</span>, <span className="font-black">{'{{saldo_por_aluno}}'}</span>, <span className="font-black">{'{{consumo_total_periodo}}'}</span>, <span className="font-black">{'{{consumo_total_por_aluno}}'}</span>, <span className="font-black text-sky-600">{'{{alunos_detalhes}}'}</span> <span className="text-sky-600">(lista todos os alunos do responsável com saldo por linha)</span>
                 </p>
               </label>
 

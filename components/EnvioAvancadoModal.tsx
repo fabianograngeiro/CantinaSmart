@@ -482,7 +482,7 @@ const CarouselModal: React.FC<BaseProps> = ({ phone, onClose, onSent }) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-const PixModal: React.FC<BaseProps> = ({ phone, onClose, onSent }) => {
+const PixModal: React.FC<BaseProps> = ({ chatId, phone, onClose, onSent }) => {
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
   const [footer, setFooter] = useState('');
@@ -501,6 +501,7 @@ const PixModal: React.FC<BaseProps> = ({ phone, onClose, onSent }) => {
     setError('');
     try {
       await ApiService.sendWhatsAppRequestPayment({
+        chatId: String(chatId || '').trim() || undefined,
         number: phone,
         title: title.trim() || undefined,
         text: text.trim(),

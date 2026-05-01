@@ -1927,6 +1927,7 @@ router.post('/send-request-payment', async (req: AuthRequest, res: Response) => 
     const enterpriseId = resolveEnterpriseIdOrReject(req, res);
     if (!enterpriseId) return;
     const {
+      chatId,
       number,
       title,
       text,
@@ -1945,7 +1946,8 @@ router.post('/send-request-payment', async (req: AuthRequest, res: Response) => 
       trackId,
     } = req.body || {};
 
-    const target = String(number || '').trim();
+    const safeChatId = String(chatId || '').replace(/__AT__/g, '@').trim();
+    const target = String(number || '').trim() || extractPhoneFromChatId(safeChatId);
     const providerConfig = getEnterpriseProviderConfig(enterpriseId);
     const providerCode = String(providerConfig?.external?.providerCode || '').trim().toUpperCase();
     const paymentPath = String(providerConfig?.external?.paymentPath || '').trim();
@@ -1972,8 +1974,9 @@ router.post('/send-request-payment', async (req: AuthRequest, res: Response) => 
     const isLeadPhone = normalizedTarget
       ? getLeadPhoneSetForEnterprise(enterpriseId).has(normalizedTarget)
       : false;
+    const isAllowedByChatId = safeChatId ? isChatAllowedForEnterprise(safeChatId, enterpriseId) : false;
 
-    if (!isSpecialTargetJid(target) && !externalEnabled && !isKnownPhone && !isLeadPhone) {
+    if (!isSpecialTargetJid(target) && !externalEnabled && !isKnownPhone && !isLeadPhone && !isAllowedByChatId) {
       return res.status(403).json({
         success: false,
         message: 'Telefone não pertence à unidade selecionada.',

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCheck, Loader2, Paperclip, Search, Send } from 'lucide-react';
+import ApiService from '../../services/api';
 
 type ClienteOption = {
   id: string;
@@ -84,8 +85,10 @@ const DisparoUnicoForm: React.FC = () => {
     'Olá {{nome}}, tudo bem?\nSeu saldo atual é {{saldo}}.\nAluno relacionado: {{aluno}}.'
   );
   const [dataAgendamento, setDataAgendamento] = useState('');
+  const [delayMode, setDelayMode] = useState<'RANDOM' | 'INTERVAL'>('RANDOM');
   const [delayMin, setDelayMin] = useState(2);
   const [delayMax, setDelayMax] = useState(5);
+  const [intervalSeconds, setIntervalSeconds] = useState(3);
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [buscaCliente, setBuscaCliente] = useState('');
   const [horaAtual, setHoraAtual] = useState(formatarHoraAtual());
@@ -107,6 +110,24 @@ const DisparoUnicoForm: React.FC = () => {
   });
   const [feedback, setFeedback] = useState('');
 
+  const [useExternalText, setUseExternalText] = useState(true);
+  const [useExternalMedia, setUseExternalMedia] = useState(false);
+  const [useExternalMenu, setUseExternalMenu] = useState(false);
+  const [useExternalCarousel, setUseExternalCarousel] = useState(false);
+  const [useExternalPayment, setUseExternalPayment] = useState(false);
+
+  const [menuType, setMenuType] = useState<'button' | 'list' | 'poll'>('button');
+  const [menuChoicesCsv, setMenuChoicesCsv] = useState('Confirmar, Falar com atendimento');
+
+  const [carouselTitle, setCarouselTitle] = useState('Oferta especial da cantina');
+  const [carouselImageUrl, setCarouselImageUrl] = useState('https://images.unsplash.com/photo-1542838132-92c53300491e?w=1200');
+
+  const [pixAmount, setPixAmount] = useState(25);
+  const [pixItemName, setPixItemName] = useState('Recarga de saldo');
+  const [pixKey, setPixKey] = useState('');
+
+  const [externalProviderEnabled, setExternalProviderEnabled] = useState(false);
+
   const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
   useEffect(() => {
@@ -121,6 +142,25 @@ const DisparoUnicoForm: React.FC = () => {
       // ignore
     }
   }, [logs]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadProvider = async () => {
+      try {
+        const result = await ApiService.getWhatsAppProviderConfig();
+        const cfg = result?.config;
+        const enabled = String(cfg?.mode || '').toUpperCase() === 'EXTERNAL' && Boolean(cfg?.external?.enabled);
+        if (!cancelled) setExternalProviderEnabled(enabled);
+      } catch {
+        if (!cancelled) setExternalProviderEnabled(false);
+      }
+    };
+
+    loadProvider();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const clientesFiltrados = useMemo(() => {
     const termo = String(buscaCliente || '').toLowerCase().trim();
@@ -173,11 +213,22 @@ const DisparoUnicoForm: React.FC = () => {
       setFeedback('Delay máximo precisa ser maior ou igual ao mínimo.');
       return;
     }
+    if (delayMode === 'INTERVAL' && intervalSeconds < 0) {
+      setFeedback('Intervalo deve ser maior ou igual a 0.');
+      return;
+    }
+    if (useExternalMedia && !arquivo) {
+      setFeedback('Ative mídia apenas quando houver anexo selecionado.');
+      return;
+    }
 
     setFeedback('');
     setIsSending(true);
 
-    const delayAleatorioMs = Math.floor(Math.random() * (delayMax - delayMin + 1) + delayMin) * 1000;
+    const delaySeconds = delayMode === 'INTERVAL'
+      ? Math.max(0, Number(intervalSeconds) || 0)
+      : Math.floor(Math.random() * (delayMax - delayMin + 1) + delayMin);
+    const delayAleatorioMs = delaySeconds * 1000;
     const agendamentoMs = dataAgendamento
       ? Math.max(0, new Date(dataAgendamento).getTime() - Date.now())
       : 0;
@@ -187,31 +238,88 @@ const DisparoUnicoForm: React.FC = () => {
       await aguardarComProgresso(totalEsperaMs);
 
       const anexoBase64 = arquivo ? await fileToBase64(arquivo) : null;
-      const payload = {
-        numero: clienteSelecionado.telefone,
-        mensagem: mensagemProcessada,
-        arquivo: anexoBase64
-          ? {
-              nome: arquivo?.name || 'anexo',
-              mimeType: arquivo?.type || 'application/octet-stream',
-              base64: anexoBase64,
-            }
-          : null,
-      };
+      const executedActions: string[] = [];
+      const targetPhone = clienteSelecionado.telefone;
+      const targetChatId = `${String(targetPhone || '').replace(/\D/g, '')}@c.us`;
 
-      // Simulando axios.post com fetch e mantendo URL via VITE_API_URL
-      const response = await fetch(`${apiBaseUrl}/whatsapp/send`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: payload.numero,
-          message: payload.mensagem,
-        }),
-      });
+      if (useExternalText) {
+        await ApiService.sendWhatsAppMessage(targetPhone, mensagemProcessada);
+        executedActions.push('texto');
+      }
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || 'Falha ao disparar mensagem.');
+      if (useExternalMedia && arquivo && anexoBase64) {
+        const mimeType = String(arquivo.type || '').toLowerCase();
+        const mediaType: 'image' | 'audio' | 'video' | 'document' = mimeType.startsWith('image/')
+          ? 'image'
+          : mimeType.startsWith('audio/')
+            ? 'audio'
+            : mimeType.startsWith('video/')
+              ? 'video'
+              : 'document';
+
+        await ApiService.sendWhatsAppMediaToChat(targetChatId, mensagemProcessada, {
+          mediaType,
+          base64Data: anexoBase64,
+          mimeType: arquivo.type || undefined,
+          fileName: arquivo.name || undefined,
+        });
+        executedActions.push('mídia');
+      }
+
+      if (useExternalMenu) {
+        const choices = String(menuChoicesCsv || '')
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean)
+          .slice(0, 12);
+
+        if (choices.length === 0) {
+          throw new Error('Informe opções do menu separadas por vírgula.');
+        }
+
+        await ApiService.sendWhatsAppInteractiveMenu({
+          number: targetPhone,
+          type: menuType,
+          text: mensagemProcessada,
+          choices,
+          footerText: 'Disparo Único',
+        });
+        executedActions.push('menu');
+      }
+
+      if (useExternalCarousel) {
+        await ApiService.sendWhatsAppCarousel({
+          number: targetPhone,
+          text: mensagemProcessada,
+          carousel: [
+            {
+              text: carouselTitle || 'Oferta especial',
+              image: carouselImageUrl,
+              buttons: [
+                { id: 'btn-1', text: 'Tenho interesse', type: 'REPLY' },
+                { id: 'btn-2', text: 'Falar com atendente', type: 'REPLY' },
+              ],
+            },
+          ],
+        });
+        executedActions.push('carrossel');
+      }
+
+      if (useExternalPayment) {
+        await ApiService.sendWhatsAppRequestPayment({
+          number: targetPhone,
+          amount: Math.max(0.01, Number(pixAmount) || 0),
+          itemName: pixItemName || 'Cobrança',
+          text: mensagemProcessada,
+          title: 'Solicitação de pagamento',
+          pixKey: String(pixKey || '').trim() || undefined,
+        });
+        executedActions.push('pagamento');
+      }
+
+      if (executedActions.length === 0) {
+        await ApiService.sendWhatsAppMessage(targetPhone, mensagemProcessada);
+        executedActions.push('texto');
       }
 
       setLogs((prev) => [
@@ -223,7 +331,7 @@ const DisparoUnicoForm: React.FC = () => {
         },
         ...prev,
       ]);
-      setFeedback('Mensagem enviada com sucesso.');
+      setFeedback(`Mensagem enviada com sucesso (${executedActions.join(', ')}).`);
     } catch (error) {
       setLogs((prev) => [
         {
@@ -267,6 +375,8 @@ const DisparoUnicoForm: React.FC = () => {
               value={buscaCliente}
               onChange={(e) => setBuscaCliente(e.target.value)}
               placeholder="Pesquisar por nome..."
+              aria-label="Buscar responsável por nome"
+              title="Buscar responsável por nome"
               className="w-full pl-9 pr-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
             />
           </div>
@@ -278,6 +388,8 @@ const DisparoUnicoForm: React.FC = () => {
               const cliente = CLIENTES_MOCK.find((item) => item.id === id);
               setClienteNome(cliente?.nome || '');
             }}
+            aria-label="Selecionar responsável"
+            title="Selecionar responsável"
             className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
           >
             <option value="">Selecione um cliente</option>
@@ -316,6 +428,8 @@ const DisparoUnicoForm: React.FC = () => {
               type="datetime-local"
               value={dataAgendamento}
               onChange={(e) => setDataAgendamento(e.target.value)}
+              aria-label="Data e hora de agendamento"
+              title="Data e hora de agendamento"
               className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
             />
           </div>
@@ -329,6 +443,8 @@ const DisparoUnicoForm: React.FC = () => {
               <input
                 type="file"
                 className="hidden"
+                aria-label="Selecionar arquivo de anexo"
+                title="Selecionar arquivo de anexo"
                 onChange={(e) => setArquivo(e.target.files?.[0] || null)}
               />
             </label>
@@ -336,6 +452,55 @@ const DisparoUnicoForm: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2 space-y-1.5">
+            <label className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
+              Modo de delay
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setDelayMode('RANDOM')}
+                className={`px-3 py-2 rounded-xl border-2 text-xs font-black uppercase tracking-wide ${
+                  delayMode === 'RANDOM'
+                    ? 'border-orange-400 bg-orange-50 text-orange-700'
+                    : 'border-slate-200 bg-white text-slate-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+                }`}
+              >
+                Aleatório (Min/Max)
+              </button>
+              <button
+                type="button"
+                onClick={() => setDelayMode('INTERVAL')}
+                className={`px-3 py-2 rounded-xl border-2 text-xs font-black uppercase tracking-wide ${
+                  delayMode === 'INTERVAL'
+                    ? 'border-orange-400 bg-orange-50 text-orange-700'
+                    : 'border-slate-200 bg-white text-slate-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+                }`}
+              >
+                Intervalo fixo
+              </button>
+            </div>
+          </div>
+
+          {delayMode === 'INTERVAL' && (
+            <div className="col-span-2 space-y-1.5">
+              <label className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
+                Intervalo (s)
+              </label>
+              <input
+                type="number"
+                min={0}
+                value={intervalSeconds}
+                onChange={(e) => setIntervalSeconds(Math.max(0, Number(e.target.value) || 0))}
+                aria-label="Intervalo fixo em segundos"
+                title="Intervalo fixo em segundos"
+                className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+              />
+            </div>
+          )}
+
+          {delayMode === 'RANDOM' && (
+            <>
           <div className="space-y-1.5">
             <label className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
               Delay Min (s)
@@ -345,6 +510,8 @@ const DisparoUnicoForm: React.FC = () => {
               min={0}
               value={delayMin}
               onChange={(e) => setDelayMin(Math.max(0, Number(e.target.value) || 0))}
+              aria-label="Delay mínimo em segundos"
+              title="Delay mínimo em segundos"
               className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
             />
           </div>
@@ -357,9 +524,119 @@ const DisparoUnicoForm: React.FC = () => {
               min={0}
               value={delayMax}
               onChange={(e) => setDelayMax(Math.max(0, Number(e.target.value) || 0))}
+              aria-label="Delay máximo em segundos"
+              title="Delay máximo em segundos"
               className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
             />
           </div>
+            </>
+          )}
+        </div>
+
+        <div className="rounded-xl border-2 border-slate-200 dark:border-zinc-700 p-3 space-y-3 bg-white/70 dark:bg-zinc-900/50">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">
+              Funções da API externa (toggle)
+            </p>
+            <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full ${externalProviderEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+              {externalProviderEnabled ? 'API externa ativa' : 'API externa inativa'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+            <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-zinc-300">
+              <input type="checkbox" checked={useExternalText} onChange={(e) => setUseExternalText(e.target.checked)} /> Texto
+            </label>
+            <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-zinc-300">
+              <input type="checkbox" checked={useExternalMedia} onChange={(e) => setUseExternalMedia(e.target.checked)} /> Mídia
+            </label>
+            <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-zinc-300">
+              <input type="checkbox" checked={useExternalMenu} onChange={(e) => setUseExternalMenu(e.target.checked)} /> Menu
+            </label>
+            <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-zinc-300">
+              <input type="checkbox" checked={useExternalCarousel} onChange={(e) => setUseExternalCarousel(e.target.checked)} /> Carrossel
+            </label>
+            <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-zinc-300">
+              <input type="checkbox" checked={useExternalPayment} onChange={(e) => setUseExternalPayment(e.target.checked)} /> Pagamento PIX
+            </label>
+          </div>
+
+          {useExternalMenu && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <select
+                value={menuType}
+                onChange={(e) => setMenuType(e.target.value as 'button' | 'list' | 'poll')}
+                aria-label="Tipo de menu interativo"
+                title="Tipo de menu interativo"
+                className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+              >
+                <option value="button">Menu botão</option>
+                <option value="list">Menu lista</option>
+                <option value="poll">Enquete</option>
+              </select>
+              <input
+                value={menuChoicesCsv}
+                onChange={(e) => setMenuChoicesCsv(e.target.value)}
+                placeholder="Opções do menu (separadas por vírgula)"
+                aria-label="Opções do menu separadas por vírgula"
+                title="Opções do menu separadas por vírgula"
+                className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+              />
+            </div>
+          )}
+
+          {useExternalCarousel && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <input
+                value={carouselTitle}
+                onChange={(e) => setCarouselTitle(e.target.value)}
+                placeholder="Título do card do carrossel"
+                aria-label="Título do card de carrossel"
+                title="Título do card de carrossel"
+                className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+              />
+              <input
+                value={carouselImageUrl}
+                onChange={(e) => setCarouselImageUrl(e.target.value)}
+                placeholder="URL da imagem do carrossel"
+                aria-label="URL da imagem do carrossel"
+                title="URL da imagem do carrossel"
+                className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+              />
+            </div>
+          )}
+
+          {useExternalPayment && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <input
+                type="number"
+                min={0.01}
+                step={0.01}
+                value={pixAmount}
+                onChange={(e) => setPixAmount(Math.max(0.01, Number(e.target.value) || 0.01))}
+                placeholder="Valor"
+                aria-label="Valor da cobrança PIX"
+                title="Valor da cobrança PIX"
+                className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+              />
+              <input
+                value={pixItemName}
+                onChange={(e) => setPixItemName(e.target.value)}
+                placeholder="Descrição do item"
+                aria-label="Descrição do item da cobrança"
+                title="Descrição do item da cobrança"
+                className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+              />
+              <input
+                value={pixKey}
+                onChange={(e) => setPixKey(e.target.value)}
+                placeholder="Chave PIX (opcional)"
+                aria-label="Chave PIX opcional"
+                title="Chave PIX opcional"
+                className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 dark:border-zinc-700 focus:border-orange-400 outline-none text-sm font-semibold bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+              />
+            </div>
+          )}
         </div>
 
         {isSending && (
@@ -371,9 +648,12 @@ const DisparoUnicoForm: React.FC = () => {
               </p>
             </div>
             <div className="h-2 rounded-full bg-orange-100 dark:bg-orange-950/40 overflow-hidden">
-              <div
-                className="h-full bg-orange-500 transition-all duration-300"
-                style={{ width: `${Math.min(100, Math.max(0, progressPct))}%` }}
+              <progress
+                value={Math.min(100, Math.max(0, progressPct))}
+                max={100}
+                aria-label="Progresso do aguardo para envio"
+                title="Progresso do aguardo para envio"
+                className="h-full w-full [&::-webkit-progress-bar]:bg-orange-100 [&::-webkit-progress-value]:bg-orange-500 [&::-moz-progress-bar]:bg-orange-500"
               />
             </div>
           </div>
