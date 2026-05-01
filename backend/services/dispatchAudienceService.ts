@@ -10,6 +10,7 @@ export type DispatchAudienceFilter =
 
 export type DispatchProfileType = 'RESPONSAVEL_PARENTESCO' | 'COLABORADOR';
 export type DispatchPeriodMode = 'SEMANAL' | 'QUINZENAL' | 'MENSAL' | 'DESTA_SEMANA';
+export type DispatchMonthlyWindowMode = 'ROLLING_30_DAYS' | 'CURRENT_MONTH';
 
 type AudienceReportRow = {
   alunoNome: string;
@@ -393,6 +394,8 @@ export const buildDispatchAudience = (params: {
   profileType?: DispatchProfileType;
   periodMode?: DispatchPeriodMode;
   businessDaysOnly?: boolean;
+  monthlyWindowMode?: DispatchMonthlyWindowMode;
+  monthlyReferenceDate?: string;
 }) => {
   const filter = String(params.filter || 'TODOS').toUpperCase() as DispatchAudienceFilter;
   const profileType = String(params.profileType || 'RESPONSAVEL_PARENTESCO').toUpperCase() as DispatchProfileType;
