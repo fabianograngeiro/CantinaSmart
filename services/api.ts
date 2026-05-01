@@ -1637,6 +1637,7 @@ export class ApiService {
   }
 
   static async sendWhatsAppRequestPayment(payload: {
+    chatId?: string;
     number: string;
     title?: string;
     text?: string;
@@ -1664,8 +1665,15 @@ export class ApiService {
       }),
     });
     if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || 'Falha ao solicitar pagamento');
+      let message = '';
+      try {
+        const data = await response.json();
+        message = String(data?.message || '').trim();
+      } catch {
+        const text = await response.text();
+        message = String(text || '').trim();
+      }
+      throw new Error(message || 'Falha ao solicitar pagamento');
     }
     return response.json();
   }
@@ -2050,7 +2058,7 @@ export class ApiService {
   static async sendWhatsAppMediaToChat(
     chatId: string,
     message: string,
-    attachment: { mediaType: 'image' | 'document' | 'audio'; base64Data: string; mimeType?: string; fileName?: string }
+    attachment: { mediaType: 'image' | 'document' | 'audio' | 'video'; base64Data: string; mimeType?: string; fileName?: string }
   ) {
     const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(`${API_URL}/whatsapp/send-media-to-chat`, {
@@ -2092,7 +2100,7 @@ export class ApiService {
     chatId: string;
     message?: string;
     scheduleAt: string;
-    attachment?: { mediaType: 'image' | 'document' | 'audio'; base64Data: string; mimeType?: string; fileName?: string } | null;
+    attachment?: { mediaType: 'image' | 'document' | 'audio' | 'video'; base64Data: string; mimeType?: string; fileName?: string } | null;
   }) {
     const enterpriseId = this.requireActiveEnterpriseId();
     const response = await fetch(`${API_URL}/whatsapp/schedule`, {

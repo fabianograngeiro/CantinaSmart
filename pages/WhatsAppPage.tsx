@@ -32,6 +32,8 @@ import {
   CalendarDays,
   CheckCheck,
   Sparkles,
+  Play,
+  Pause,
 } from 'lucide-react';
 import { Client, Enterprise, Plan, User } from '../types';
 import ApiService from '../services/api';
@@ -125,7 +127,7 @@ type ChatMessage = {
   body: string;
   fromMe: boolean;
   timestamp: number;
-  mediaType?: 'image' | 'document' | 'audio' | null;
+  mediaType?: 'image' | 'document' | 'audio' | 'video' | null;
   mimeType?: string | null;
   fileName?: string | null;
   mediaDataUrl?: string | null;
@@ -149,7 +151,7 @@ type AiHandoffRequest = {
 };
 
 type ChatAttachment = {
-  mediaType: 'image' | 'document' | 'audio';
+  mediaType: 'image' | 'document' | 'audio' | 'video';
   base64Data: string;
   mimeType?: string;
   fileName?: string;
@@ -196,7 +198,7 @@ type ScheduledItem = {
   sentAt?: number | null;
   error?: string | null;
   attachment?: {
-    mediaType: 'image' | 'document' | 'audio';
+    mediaType: 'image' | 'document' | 'audio' | 'video';
     mimeType?: string | null;
     fileName?: string | null;
   } | null;
@@ -401,6 +403,7 @@ const WHATSAPP_SIGNATURE_NAME_KEY = 'whatsapp_signature_name';
 const NEW_CHAT_COUNTRY_CODE_KEY = 'whatsapp_new_chat_country_code';
 const WHATSAPP_QUICK_REPLIES_KEY = 'whatsapp_quick_replies';
 const WHATSAPP_AI_CONFIG_KEY = 'whatsapp_ai_config';
+const WHATSAPP_AI_CONFIG_LAST_SAVED_AT_KEY = 'whatsapp_ai_config_last_saved_at';
 const WHATSAPP_CAMPAIGN_REPORTS_KEY = 'whatsapp_campaign_reports';
 const WHATSAPP_PLAN_CONSUMPTION_REPORTS_KEY = 'whatsapp_plan_consumption_reports';
 const WHATSAPP_OPEN_CONTEXT_KEY = 'whatsapp_open_context';
@@ -582,11 +585,192 @@ const formatMessageBodyForDisplay = (msg: ChatMessage) => {
   if (hasPlaceholder || msg.mediaType) {
     if (msg.mediaType === 'audio') return fileName ? `🎤 Áudio (${fileName})` : '🎤 Áudio';
     if (msg.mediaType === 'image') return fileName ? `🖼️ Imagem (${fileName})` : '🖼️ Imagem';
+    if (msg.mediaType === 'video') return fileName ? `🎬 Vídeo (${fileName})` : '🎬 Vídeo';
     if (msg.mediaType === 'document') return fileName ? `📄 Documento (${fileName})` : '📄 Documento';
     if (hasPlaceholder) return fileName ? `📎 Arquivo (${fileName})` : '📎 Arquivo';
   }
 
   return text;
+};
+
+const formatAudioTime = (seconds: number) => {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+  const total = Math.floor(seconds);
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${mins}:${String(secs).padStart(2, '0')}`;
+};
+
+const AUDIO_WAVE_BARS = [
+  28, 44, 34, 52, 31, 48, 30, 40, 50, 36, 46, 33,
+  41, 54, 35, 47, 30, 45, 38, 49, 34, 43, 33, 46,
+];
+
+const WhatsAppAudioPlayer: React.FC<{ src: string; fromMe: boolean }> = ({ src, fromMe }) => {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const onLoadedMetadata = () => {
+      const nextDuration = Number(audio.duration || 0);
+      setDuration(Number.isFinite(nextDuration) ? nextDuration : 0);
+    };
+    const onTimeUpdate = () => setCurrentTime(Number(audio.currentTime || 0));
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+    const onEnded = () => {
+      setIsPlaying(false);
+      setCurrentTime(0);
+      audio.currentTime = 0;
+    };
+
+    audio.addEventListener('loadedmetadata', onLoadedMetadata);
+    audio.addEventListener('timeupdate', onTimeUpdate);
+    audio.addEventListener('play', onPlay);
+    audio.addEventListener('pause', onPause);
+    audio.addEventListener('ended', onEnded);
+
+    return () => {
+      audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+      audio.removeEventListener('timeupdate', onTimeUpdate);
+      audio.removeEventListener('play', onPlay);
+      audio.removeEventListener('pause', onPause);
+      audio.removeEventListener('ended', onEnded);
+    };
+  }, []);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.playbackRate = playbackRate;
+  }, [playbackRate]);
+
+  const togglePlay = async () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (isPlaying) {
+      audio.pause();
+      return;
+    }
+    try {
+      await audio.play();
+    } catch {
+      // Browsers may block autoplay; user can retry.
+    }
+  };
+
+  const handleSeek = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const next = Number(event.target.value || 0);
+    audio.currentTime = next;
+    setCurrentTime(next);
+  };
+
+  const cyclePlaybackRate = () => {
+    setPlaybackRate((prev: number) => {
+      return prev === 1 ? 2 : 1;
+    });
+  };
+
+  const progressMax = duration > 0 ? duration : 1;
+  const playedBarsFloat = (Math.min(currentTime, progressMax) / progressMax) * AUDIO_WAVE_BARS.length;
+  const fullyPlayedBars = Math.floor(playedBarsFloat);
+  const activeBarIndex = Math.min(AUDIO_WAVE_BARS.length - 1, fullyPlayedBars);
+  const activeBarProgress = Math.max(0, Math.min(1, playedBarsFloat - fullyPlayedBars));
+
+  return (
+    <div className={`mb-2 rounded-2xl px-3 py-2 border ${
+      fromMe
+        ? 'border-white/25 bg-white/10'
+        : 'border-cyan-200 bg-cyan-50/80 dark:border-white/10 dark:bg-zinc-900'
+    }`}>
+      <audio ref={audioRef} preload="metadata" src={src} />
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={togglePlay}
+          className={`h-8 w-8 rounded-full inline-flex items-center justify-center transition-colors ${
+            fromMe
+              ? 'bg-white/20 hover:bg-white/30 text-white'
+              : 'bg-white hover:bg-cyan-100 text-cyan-700 border border-cyan-200 dark:bg-zinc-800 dark:border-white/10 dark:text-zinc-100'
+          }`}
+          aria-label={isPlaying ? 'Pausar áudio' : 'Reproduzir áudio'}
+          title={isPlaying ? 'Pausar áudio' : 'Reproduzir áudio'}
+        >
+          {isPlaying ? <Pause size={14} /> : <Play size={14} className="ml-0.5" />}
+        </button>
+        <div className="flex-1 min-w-0">
+          <div className="mb-1 h-5 flex items-end gap-px">
+            {AUDIO_WAVE_BARS.map((barHeight, index) => {
+              const isPlayedBar = index < fullyPlayedBars;
+              const isCurrentBar = index === activeBarIndex && activeBarProgress > 0;
+              const currentBarOpacity = isCurrentBar ? 0.35 + (activeBarProgress * 0.65) : 0;
+              return (
+                <span
+                  key={`wave-${index}`}
+                  className={`block flex-1 rounded-full transition-all duration-200 ${
+                    isPlayedBar
+                      ? fromMe
+                        ? 'bg-white/85'
+                        : 'bg-sky-500'
+                      : isCurrentBar
+                        ? fromMe
+                          ? 'bg-white'
+                          : 'bg-sky-500'
+                      : fromMe
+                        ? 'bg-white/30'
+                        : 'bg-slate-300 dark:bg-zinc-700'
+                  }`}
+                  style={{
+                    height: `${barHeight}%`,
+                    opacity: isCurrentBar ? currentBarOpacity : 1,
+                  }}
+                />
+              );
+            })}
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={progressMax}
+            step={0.1}
+            value={Math.min(currentTime, progressMax)}
+            onChange={handleSeek}
+            className="w-full accent-emerald-500 cursor-pointer"
+            aria-label="Progresso do áudio"
+          />
+          <div className={`mt-1 flex items-center justify-between text-[10px] font-bold ${
+            fromMe ? 'text-white/80' : 'text-slate-500 dark:text-zinc-400'
+          }`}>
+            <span>{formatAudioTime(currentTime)}</span>
+            <div className="inline-flex items-center gap-2">
+              <button
+                type="button"
+                onClick={cyclePlaybackRate}
+                className={`px-1.5 py-0.5 rounded-md border transition-colors ${
+                  fromMe
+                    ? 'border-white/40 bg-white/10 hover:bg-white/20 text-white'
+                    : 'border-cyan-200 bg-white hover:bg-cyan-50 text-cyan-700 dark:bg-zinc-800 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-zinc-700'
+                }`}
+                title="Velocidade do áudio"
+                aria-label="Velocidade do áudio"
+              >
+                {playbackRate}x
+              </button>
+              <span>{formatAudioTime(duration)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 const PT_WEEKDAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
@@ -854,8 +1038,9 @@ const AI_CONTEXT_DATA_OPTIONS = [
   { key: 'DATA_FINAL', label: 'Data final', variable: '{data_final}' },
 ] as const;
 
-const normalizeAiConfigState = (raw: any): AiConfigState => {
+const normalizeAiConfigState = (raw: any, modeFallbackRaw?: any): AiConfigState => {
   const fallback = getDefaultAiConfig();
+  const modeFallback = modeFallbackRaw && typeof modeFallbackRaw === 'object' ? modeFallbackRaw : null;
   const providerRaw = String(raw?.provider || '').toLowerCase();
   const provider: AiProvider = providerRaw === 'gemini'
     ? 'gemini'
@@ -900,22 +1085,51 @@ const normalizeAiConfigState = (raw: any): AiConfigState => {
       : [],
   }));
 
+  const hasAnyUserToken = Boolean(
+    String(raw?.openAiToken || '').trim()
+    || String(raw?.geminiToken || '').trim()
+    || String(raw?.groqToken || '').trim()
+  );
+
+  const hasRawSystemMode = raw?.systemAiEnabled !== undefined;
+  const hasRawUserMode = raw?.userOwnAiEnabled !== undefined;
+  const hasFallbackSystemMode = modeFallback?.systemAiEnabled !== undefined;
+  const hasFallbackUserMode = modeFallback?.userOwnAiEnabled !== undefined;
+
+  const systemAiEnabled = hasRawSystemMode
+    ? Boolean(raw?.systemAiEnabled)
+    : hasFallbackSystemMode
+      ? Boolean(modeFallback?.systemAiEnabled)
+      : false;
+
+  let userOwnAiEnabled = hasRawUserMode
+    ? Boolean(raw?.userOwnAiEnabled)
+    : hasFallbackUserMode
+      ? Boolean(modeFallback?.userOwnAiEnabled)
+      : hasAnyUserToken;
+
+  if (systemAiEnabled) {
+    userOwnAiEnabled = false;
+  }
+
+  const preferredProviderRaw = String(raw?.systemPreferredProvider || modeFallback?.systemPreferredProvider || '').toLowerCase();
+
   return {
     provider,
     model,
     openAiToken: String(raw?.openAiToken || ''),
     geminiToken: String(raw?.geminiToken || ''),
     groqToken: String(raw?.groqToken || ''),
-    systemAiEnabled: raw?.systemAiEnabled === undefined ? true : Boolean(raw?.systemAiEnabled),
-    userOwnAiEnabled: Boolean(raw?.userOwnAiEnabled),
-    systemPreferredProvider: String(raw?.systemPreferredProvider || '').toLowerCase() === 'openai'
+    systemAiEnabled,
+    userOwnAiEnabled,
+    systemPreferredProvider: preferredProviderRaw === 'openai'
       ? 'openai'
-      : String(raw?.systemPreferredProvider || '').toLowerCase() === 'gemini'
+      : preferredProviderRaw === 'gemini'
         ? 'gemini'
         : 'groq',
-    systemOpenAiToken: String(raw?.systemOpenAiToken || ''),
-    systemGeminiToken: String(raw?.systemGeminiToken || ''),
-    systemGroqToken: String(raw?.systemGroqToken || ''),
+    systemOpenAiToken: String(raw?.systemOpenAiToken || modeFallback?.systemOpenAiToken || ''),
+    systemGeminiToken: String(raw?.systemGeminiToken || modeFallback?.systemGeminiToken || ''),
+    systemGroqToken: String(raw?.systemGroqToken || modeFallback?.systemGroqToken || ''),
     sttEnabled: raw?.sttEnabled === undefined ? fallback.sttEnabled : Boolean(raw?.sttEnabled),
     sttModel: AI_STT_MODELS[provider].includes(String(raw?.sttModel || '').trim())
       ? String(raw?.sttModel || '').trim()
@@ -1095,6 +1309,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   });
   const [aiConfig, setAiConfig] = useState<AiConfigState>(getDefaultAiConfig);
   const [savedAiConfig, setSavedAiConfig] = useState<AiConfigState>(getDefaultAiConfig);
+  const [isSavingAiConfig, setIsSavingAiConfig] = useState(false);
+  const [aiConfigLastSavedAt, setAiConfigLastSavedAt] = useState<number | null>(null);
   const [providerConfig, setProviderConfig] = useState<WhatsAppProviderConfigState>(getDefaultWhatsAppProviderConfig);
   const [isSavingProviderConfig, setIsSavingProviderConfig] = useState(false);
   const [isTestingProviderConfig, setIsTestingProviderConfig] = useState(false);
@@ -1799,6 +2015,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     const storedCountryCode = localStorage.getItem(NEW_CHAT_COUNTRY_CODE_KEY);
     const storedQuickRepliesRaw = localStorage.getItem(WHATSAPP_QUICK_REPLIES_KEY);
     const storedAiConfigRaw = localStorage.getItem(WHATSAPP_AI_CONFIG_KEY);
+    const storedAiConfigLastSavedAtRaw = localStorage.getItem(WHATSAPP_AI_CONFIG_LAST_SAVED_AT_KEY);
     const storedCampaignReportsRaw = localStorage.getItem(WHATSAPP_CAMPAIGN_REPORTS_KEY);
     const storedPlanConsumptionReportsRaw = localStorage.getItem(WHATSAPP_PLAN_CONSUMPTION_REPORTS_KEY);
     const normalizedStoredName = String(storedName || '');
@@ -1884,6 +2101,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     if (parsedAiConfig.contexts.length === 0) {
       parsedAiConfig.contexts = getDefaultAiConfig().contexts;
     }
+
+    const parsedAiConfigLastSavedAt = Number(storedAiConfigLastSavedAtRaw || 0);
+    setAiConfigLastSavedAt(Number.isFinite(parsedAiConfigLastSavedAt) && parsedAiConfigLastSavedAt > 0 ? parsedAiConfigLastSavedAt : null);
+
     setAiConfig(parsedAiConfig);
     setSavedAiConfig(parsedAiConfig);
     setSelectedAiContextId(parsedAiConfig.contexts[0]?.id || null);
@@ -1907,7 +2128,16 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
         if (cancelled) return;
         const backendConfig = result?.config;
         if (!backendConfig || typeof backendConfig !== 'object') return;
-        const normalized = normalizeAiConfigState(backendConfig);
+        const modeFallback = (() => {
+          try {
+            const persistedRaw = localStorage.getItem(WHATSAPP_AI_CONFIG_KEY);
+            return persistedRaw ? JSON.parse(persistedRaw) : aiConfig;
+          } catch {
+            return aiConfig;
+          }
+        })();
+
+        const normalized = normalizeAiConfigState(backendConfig, modeFallback);
         setAiConfig(normalized);
         setSavedAiConfig(normalized);
         setSelectedAiContextId(Array.isArray(normalized.contexts) ? normalized.contexts[0]?.id || null : null);
@@ -5268,16 +5498,23 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       payload.systemAiEnabled = false;
     }
 
+    setIsSavingAiConfig(true);
     ApiService.updateWhatsAppAiConfig(payload)
       .then((result) => {
-        const nextConfig = normalizeAiConfigState(result?.config || payload);
+        const nextConfig = normalizeAiConfigState(result?.config || payload, payload);
+        const savedAt = Date.now();
         setAiConfig(nextConfig);
         setSavedAiConfig(nextConfig);
+        setAiConfigLastSavedAt(savedAt);
         localStorage.setItem(WHATSAPP_AI_CONFIG_KEY, JSON.stringify(nextConfig));
+        localStorage.setItem(WHATSAPP_AI_CONFIG_LAST_SAVED_AT_KEY, String(savedAt));
         setFeedback('Configuração de AI salva com sucesso.');
       })
       .catch((err) => {
         setFeedback(err instanceof Error ? err.message : 'Falha ao salvar configuração de AI.');
+      })
+      .finally(() => {
+        setIsSavingAiConfig(false);
       });
   };
 
@@ -5302,11 +5539,13 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     try {
       const base64 = await toBase64(file);
       const mimeType = String(file.type || '').toLowerCase();
-      const mediaType: 'image' | 'document' | 'audio' =
+      const mediaType: 'image' | 'document' | 'audio' | 'video' =
         mimeType.startsWith('image/')
           ? 'image'
           : mimeType.startsWith('audio/')
             ? 'audio'
+            : mimeType.startsWith('video/')
+              ? 'video'
             : 'document';
 
       setChatAttachment({
@@ -5335,11 +5574,13 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     try {
       const base64 = await toBase64(file);
       const mimeType = String(file.type || '').toLowerCase();
-      const mediaType: 'image' | 'document' | 'audio' =
+      const mediaType: 'image' | 'document' | 'audio' | 'video' =
         mimeType.startsWith('image/')
           ? 'image'
           : mimeType.startsWith('audio/')
             ? 'audio'
+            : mimeType.startsWith('video/')
+              ? 'video'
             : 'document';
 
       setCampaignAttachment({
@@ -6873,6 +7114,11 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                               const previous = index > 0 ? messages[index - 1] : null;
                               const hasValidTimestamp = Boolean(normalizeTimestampMs(msg.timestamp));
                               const showDateDivider = hasValidTimestamp && (index === 0 || !isSameCalendarDay(msg.timestamp, previous?.timestamp));
+                              const normalizedMimeType = String(msg.mimeType || '').toLowerCase();
+                              const isImageMessage = msg.mediaType === 'image' || normalizedMimeType.startsWith('image/');
+                              const isAudioMessage = msg.mediaType === 'audio' || normalizedMimeType.startsWith('audio/');
+                              const isVideoMessage = msg.mediaType === 'video' || normalizedMimeType.startsWith('video/');
+                              const isDocumentMessage = msg.mediaType === 'document' || (!isImageMessage && !isAudioMessage && !isVideoMessage && Boolean(msg.mediaDataUrl));
                               return (
                                 <React.Fragment key={msg.id}>
                                   {showDateDivider && (
@@ -6896,7 +7142,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                           : '-left-2 border-r-[10px] border-r-white border-t-[7px] border-t-transparent border-b-[7px] border-b-transparent dark:border-r-zinc-900'
                                       }`}
                                     />
-                                    {msg.mediaType === 'image' && msg.mediaDataUrl && (
+                                    {isImageMessage && msg.mediaDataUrl && (
                                       <a href={msg.mediaDataUrl} target="_blank" rel="noreferrer" className="block mb-2">
                                         <img
                                           src={msg.mediaDataUrl}
@@ -6906,12 +7152,29 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                       </a>
                                     )}
 
-                                    {msg.mediaType === 'audio' && (
+                                    {isVideoMessage && msg.mediaDataUrl && (
                                       <div className="mb-2">
+                                        <video
+                                          controls
+                                          preload="metadata"
+                                          src={msg.mediaDataUrl}
+                                          className="max-h-80 w-full rounded-xl border border-white/20 bg-black"
+                                        >
+                                          Seu navegador não suporta vídeo.
+                                        </video>
+                                      </div>
+                                    )}
+                                    {isVideoMessage && !msg.mediaDataUrl && (
+                                      <div className="mb-2 text-xs font-semibold opacity-80 inline-flex items-center gap-1.5">
+                                        <Video size={13} />
+                                        Vídeo recebido (pré-visualização indisponível).
+                                      </div>
+                                    )}
+
+                                    {isAudioMessage && (
+                                      <div>
                                         {msg.mediaDataUrl ? (
-                                          <audio controls className="w-full" src={msg.mediaDataUrl}>
-                                            Seu navegador não suporta áudio.
-                                          </audio>
+                                          <WhatsAppAudioPlayer src={msg.mediaDataUrl} fromMe={msg.fromMe} />
                                         ) : (
                                           <div className="text-xs font-semibold opacity-80 mb-2 inline-flex items-center gap-1.5">
                                             <Volume2 size={13} />
@@ -6951,12 +7214,11 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                         )}
                                       </div>
                                     )}
-                                    {msg.mediaType === 'document' && (
+                                    {isDocumentMessage && (
                                       <div className="mb-2">
                                         {msg.mediaDataUrl ? (
                                           <a
                                             href={msg.mediaDataUrl}
-                                            download={msg.fileName || 'arquivo'}
                                             target="_blank"
                                             rel="noreferrer"
                                             className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black ${
@@ -6966,7 +7228,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                             }`}
                                           >
                                             <FileText size={14} />
-                                            {msg.fileName || 'Abrir arquivo'}
+                                            {msg.fileName || 'Abrir documento'}
                                           </a>
                                         ) : (
                                           <div className="text-xs font-semibold opacity-80 inline-flex items-center gap-1.5">
@@ -8015,6 +8277,11 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         <p className="text-sm font-semibold text-slate-500">Configure API, modelo, identidade e prompt global do assistente.</p>
                       </div>
                       <div className="flex items-center gap-2">
+                        {aiConfigLastSavedAt && !aiHasChanges && (
+                          <span className="px-3 py-1 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 text-[11px] font-black uppercase tracking-wide">
+                            Salvo em servidor: {new Date(aiConfigLastSavedAt).toLocaleString('pt-BR')}
+                          </span>
+                        )}
                         <button
                           type="button"
                           onClick={async () => {
@@ -8039,7 +8306,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         <button
                           type="button"
                           onClick={handleDiscardAiConfig}
-                          disabled={!aiHasChanges}
+                          disabled={!aiHasChanges || isSavingAiConfig}
                           className="px-4 py-2 rounded-xl border border-slate-300 text-slate-600 text-xs font-black uppercase tracking-widest hover:bg-white disabled:opacity-60"
                         >
                           Descartar
@@ -8047,10 +8314,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                         <button
                           type="button"
                           onClick={handleSaveAiConfig}
-                          disabled={!aiHasChanges}
+                          disabled={!aiHasChanges || isSavingAiConfig}
                           className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-300 text-white text-xs font-black uppercase tracking-widest"
                         >
-                          Salvar Alterações
+                          {isSavingAiConfig ? 'Salvando...' : 'Salvar Alterações'}
                         </button>
                       </div>
                     </div>
