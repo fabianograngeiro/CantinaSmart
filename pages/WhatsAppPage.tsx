@@ -604,14 +604,52 @@ const formatAudioTime = (seconds: number) => {
 const AUDIO_WAVE_BARS = [
   28, 44, 34, 52, 31, 48, 30, 40, 50, 36, 46, 33,
   41, 54, 35, 47, 30, 45, 38, 49, 34, 43, 33, 46,
+  31, 42, 29, 55, 37, 44, 34, 53, 32, 39, 47, 35,
 ];
 
-const WhatsAppAudioPlayer: React.FC<{ src: string; fromMe: boolean }> = ({ src, fromMe }) => {
+const buildAudioWaveBars = (samples: Float32Array, barCount = AUDIO_WAVE_BARS.length) => {
+  if (!samples.length || barCount <= 0) return AUDIO_WAVE_BARS;
+
+  const blockSize = Math.max(1, Math.floor(samples.length / barCount));
+  const bars = Array.from({ length: barCount }, (_, index) => {
+    const start = index * blockSize;
+    const end = Math.min(samples.length, start + blockSize);
+    let peak = 0;
+
+    for (let cursor = start; cursor < end; cursor += 1) {
+      const value = Math.abs(samples[cursor] || 0);
+      if (value > peak) peak = value;
+    }
+
+    const normalized = Math.min(1, peak * 1.9);
+    return Math.max(16, Math.round(18 + (normalized * 42)));
+  });
+
+  return bars.some((value) => value > 18) ? bars : AUDIO_WAVE_BARS;
+};
+
+const getAudioPlayerInitials = (value?: string | null) => {
+  const tokens = String(value || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+  if (tokens.length === 0) return 'AU';
+  return tokens.map((token) => token[0]?.toUpperCase() || '').join('') || 'AU';
+};
+
+const WhatsAppAudioPlayer: React.FC<{
+  src: string;
+  fromMe: boolean;
+  avatarUrl?: string | null;
+  displayName?: string | null;
+}> = ({ src, fromMe, avatarUrl, displayName }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const frameRef = useRef<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [playbackRate, setPlaybackRate] = useState(1);
+  const [waveBars, setWaveBars] = useState<number[]>(AUDIO_WAVE_BARS);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -621,35 +659,104 @@ const WhatsAppAudioPlayer: React.FC<{ src: string; fromMe: boolean }> = ({ src, 
       const nextDuration = Number(audio.duration || 0);
       setDuration(Number.isFinite(nextDuration) ? nextDuration : 0);
     };
-    const onTimeUpdate = () => setCurrentTime(Number(audio.currentTime || 0));
+    const syncCurrentTime = () => setCurrentTime(Number(audio.currentTime || 0));
+    const startFrameLoop = () => {
+      if (frameRef.current !== null) {
+        cancelAnimationFrame(frameRef.current);
+      }
+      const tick = () => {
+        syncCurrentTime();
+        if (!audio.paused && !audio.ended) {
+          frameRef.current = requestAnimationFrame(tick);
+        } else {
+          frameRef.current = null;
+        }
+      };
+      frameRef.current = requestAnimationFrame(tick);
+    };
+    const stopFrameLoop = () => {
+      if (frameRef.current !== null) {
+        cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+    };
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
     const onEnded = () => {
       setIsPlaying(false);
       setCurrentTime(0);
       audio.currentTime = 0;
+      stopFrameLoop();
+    };
+    const onSeeking = () => syncCurrentTime();
+    const onPlayWithLoop = () => {
+      setIsPlaying(true);
+      startFrameLoop();
+    };
+    const onPauseWithStop = () => {
+      setIsPlaying(false);
+      syncCurrentTime();
+      stopFrameLoop();
     };
 
     audio.addEventListener('loadedmetadata', onLoadedMetadata);
-    audio.addEventListener('timeupdate', onTimeUpdate);
-    audio.addEventListener('play', onPlay);
-    audio.addEventListener('pause', onPause);
+    audio.addEventListener('timeupdate', syncCurrentTime);
+    audio.addEventListener('seeking', onSeeking);
+    audio.addEventListener('play', onPlayWithLoop);
+    audio.addEventListener('pause', onPauseWithStop);
     audio.addEventListener('ended', onEnded);
 
     return () => {
+      stopFrameLoop();
       audio.removeEventListener('loadedmetadata', onLoadedMetadata);
-      audio.removeEventListener('timeupdate', onTimeUpdate);
-      audio.removeEventListener('play', onPlay);
-      audio.removeEventListener('pause', onPause);
+      audio.removeEventListener('timeupdate', syncCurrentTime);
+      audio.removeEventListener('seeking', onSeeking);
+      audio.removeEventListener('play', onPlayWithLoop);
+      audio.removeEventListener('pause', onPauseWithStop);
       audio.removeEventListener('ended', onEnded);
     };
   }, []);
 
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.playbackRate = playbackRate;
-  }, [playbackRate]);
+    let cancelled = false;
+    let audioContext: AudioContext | null = null;
+
+    const decodeWaveform = async () => {
+      if (typeof window === 'undefined' || typeof window.AudioContext === 'undefined') {
+        setWaveBars(AUDIO_WAVE_BARS);
+        return;
+      }
+
+      try {
+        const response = await fetch(src);
+        const buffer = await response.arrayBuffer();
+        audioContext = new window.AudioContext();
+        const decoded = await audioContext.decodeAudioData(buffer.slice(0));
+        const channelData = decoded.getChannelData(0);
+        const nextBars = buildAudioWaveBars(channelData);
+        if (!cancelled) {
+          setWaveBars(nextBars);
+        }
+      } catch {
+        if (!cancelled) {
+          setWaveBars(AUDIO_WAVE_BARS);
+        }
+      } finally {
+        if (audioContext) {
+          void audioContext.close().catch(() => undefined);
+        }
+      }
+    };
+
+    void decodeWaveform();
+
+    return () => {
+      cancelled = true;
+      if (audioContext) {
+        void audioContext.close().catch(() => undefined);
+      }
+    };
+  }, [src]);
 
   const togglePlay = async () => {
     const audio = audioRef.current;
@@ -673,99 +780,112 @@ const WhatsAppAudioPlayer: React.FC<{ src: string; fromMe: boolean }> = ({ src, 
     setCurrentTime(next);
   };
 
-  const cyclePlaybackRate = () => {
-    setPlaybackRate((prev: number) => {
-      return prev === 1 ? 2 : 1;
-    });
-  };
-
   const progressMax = duration > 0 ? duration : 1;
-  const playedBarsFloat = (Math.min(currentTime, progressMax) / progressMax) * AUDIO_WAVE_BARS.length;
+  const progressRatio = Math.max(0, Math.min(1, currentTime / progressMax));
+  const playedBarsFloat = (Math.min(currentTime, progressMax) / progressMax) * waveBars.length;
   const fullyPlayedBars = Math.floor(playedBarsFloat);
-  const activeBarIndex = Math.min(AUDIO_WAVE_BARS.length - 1, fullyPlayedBars);
+  const activeBarIndex = Math.min(waveBars.length - 1, fullyPlayedBars);
   const activeBarProgress = Math.max(0, Math.min(1, playedBarsFloat - fullyPlayedBars));
+  const playerInitials = getAudioPlayerInitials(displayName);
 
   return (
-    <div className={`mb-2 rounded-2xl px-3 py-2 border ${
+    <div className={`mb-2 rounded-[22px] px-3 py-2.5 border shadow-sm ${
       fromMe
-        ? 'border-white/25 bg-white/10'
-        : 'border-cyan-200 bg-cyan-50/80 dark:border-white/10 dark:bg-zinc-900'
+        ? 'border-white/15 bg-black/10'
+        : 'border-cyan-100 bg-[#f6f7fb] dark:border-white/10 dark:bg-zinc-900/90'
     }`}>
       <audio ref={audioRef} preload="metadata" src={src} />
       <div className="flex items-center gap-3">
+        <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-full border border-white/20 bg-emerald-700/90 shadow-sm">
+          {avatarUrl ? (
+            <img src={avatarUrl} alt={displayName || 'Contato'} className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-[11px] font-black uppercase text-white">
+              {playerInitials}
+            </div>
+          )}
+          <div className={`absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-white ${
+            fromMe ? 'bg-emerald-500' : 'bg-cyan-500'
+          }`}>
+            <Mic size={9} className="text-white" />
+          </div>
+        </div>
         <button
           type="button"
           onClick={togglePlay}
-          className={`h-8 w-8 rounded-full inline-flex items-center justify-center transition-colors ${
+          className={`h-10 w-10 shrink-0 rounded-full inline-flex items-center justify-center transition-all duration-200 ${
             fromMe
-              ? 'bg-white/20 hover:bg-white/30 text-white'
-              : 'bg-white hover:bg-cyan-100 text-cyan-700 border border-cyan-200 dark:bg-zinc-800 dark:border-white/10 dark:text-zinc-100'
+              ? 'bg-white/20 hover:bg-white/30 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]'
+              : 'bg-white hover:bg-cyan-100 text-slate-700 border border-slate-200 shadow-sm dark:bg-zinc-800 dark:border-white/10 dark:text-zinc-100'
           }`}
           aria-label={isPlaying ? 'Pausar áudio' : 'Reproduzir áudio'}
           title={isPlaying ? 'Pausar áudio' : 'Reproduzir áudio'}
         >
-          {isPlaying ? <Pause size={14} /> : <Play size={14} className="ml-0.5" />}
+          {isPlaying ? <Pause size={15} /> : <Play size={15} className="ml-0.5" />}
         </button>
-        <div className="flex-1 min-w-0">
-          <div className="mb-1 h-5 flex items-end gap-px">
-            {AUDIO_WAVE_BARS.map((barHeight, index) => {
+        <div className="relative flex-1 min-w-0">
+          <div className={`relative mb-1.5 rounded-full px-1.5 py-1 ${
+            fromMe ? 'bg-white/5' : 'bg-white/80 dark:bg-zinc-950/70'
+          }`}>
+            <div className="h-8 flex items-center gap-[2px]">
+            {waveBars.map((barHeight, index) => {
               const isPlayedBar = index < fullyPlayedBars;
               const isCurrentBar = index === activeBarIndex && activeBarProgress > 0;
               const currentBarOpacity = isCurrentBar ? 0.35 + (activeBarProgress * 0.65) : 0;
               return (
                 <span
                   key={`wave-${index}`}
-                  className={`block flex-1 rounded-full transition-all duration-200 ${
+                  className={`block flex-1 rounded-full transition-all duration-150 ${
                     isPlayedBar
                       ? fromMe
-                        ? 'bg-white/85'
-                        : 'bg-sky-500'
+                        ? 'bg-white/90'
+                        : 'bg-cyan-500'
                       : isCurrentBar
                         ? fromMe
                           ? 'bg-white'
-                          : 'bg-sky-500'
+                          : 'bg-cyan-500'
                       : fromMe
-                        ? 'bg-white/30'
+                        ? 'bg-white/35'
                         : 'bg-slate-300 dark:bg-zinc-700'
                   }`}
                   style={{
-                    height: `${barHeight}%`,
+                    height: `${Math.max(20, barHeight)}%`,
                     opacity: isCurrentBar ? currentBarOpacity : 1,
                   }}
                 />
               );
             })}
+            </div>
+            <div
+              className={`pointer-events-none absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 rounded-full border-2 border-white shadow transition-[left] duration-75 ${
+                fromMe ? 'bg-white' : 'bg-cyan-500'
+              }`}
+              style={{ left: `calc(${Math.max(0, Math.min(100, progressRatio * 100))}% - 7px)` }}
+            />
+            {isPlaying && (
+              <div
+                className={`pointer-events-none absolute top-1/2 h-5 w-5 -translate-y-1/2 rounded-full opacity-25 ${
+                  fromMe ? 'bg-white' : 'bg-cyan-400'
+                }`}
+                style={{ left: `calc(${Math.max(0, Math.min(100, progressRatio * 100))}% - 10px)` }}
+              />
+            )}
+            <input
+              type="range"
+              min={0}
+              max={progressMax}
+              step={0.1}
+              value={Math.min(currentTime, progressMax)}
+              onChange={handleSeek}
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              aria-label="Progresso do áudio"
+            />
           </div>
-          <input
-            type="range"
-            min={0}
-            max={progressMax}
-            step={0.1}
-            value={Math.min(currentTime, progressMax)}
-            onChange={handleSeek}
-            className="w-full accent-emerald-500 cursor-pointer"
-            aria-label="Progresso do áudio"
-          />
-          <div className={`mt-1 flex items-center justify-between text-[10px] font-bold ${
+          <div className={`mt-1 flex items-center justify-between text-[11px] font-bold ${
             fromMe ? 'text-white/80' : 'text-slate-500 dark:text-zinc-400'
           }`}>
             <span>{formatAudioTime(currentTime)}</span>
-            <div className="inline-flex items-center gap-2">
-              <button
-                type="button"
-                onClick={cyclePlaybackRate}
-                className={`px-1.5 py-0.5 rounded-md border transition-colors ${
-                  fromMe
-                    ? 'border-white/40 bg-white/10 hover:bg-white/20 text-white'
-                    : 'border-cyan-200 bg-white hover:bg-cyan-50 text-cyan-700 dark:bg-zinc-800 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-zinc-700'
-                }`}
-                title="Velocidade do áudio"
-                aria-label="Velocidade do áudio"
-              >
-                {playbackRate}x
-              </button>
-              <span>{formatAudioTime(duration)}</span>
-            </div>
+            <span className="tracking-wide">{formatAudioTime(duration)}</span>
           </div>
         </div>
       </div>
@@ -7078,7 +7198,12 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
                                     {isAudioMessage && (
                                       <div>
                                         {msg.mediaDataUrl ? (
-                                          <WhatsAppAudioPlayer src={msg.mediaDataUrl} fromMe={msg.fromMe} />
+                                          <WhatsAppAudioPlayer
+                                            src={msg.mediaDataUrl}
+                                            fromMe={msg.fromMe}
+                                            avatarUrl={msg.fromMe ? null : selectedChat?.avatarUrl}
+                                            displayName={msg.fromMe ? currentUser?.name : selectedChat?.displayName}
+                                          />
                                         ) : (
                                           <div className="text-xs font-semibold opacity-80 mb-2 inline-flex items-center gap-1.5">
                                             <Volume2 size={13} />
