@@ -334,6 +334,16 @@ export class ApiService {
     return response.json();
   }
 
+  static async getPortalLinks(enterpriseId?: string) {
+    const params = enterpriseId ? `?enterpriseId=${encodeURIComponent(enterpriseId)}` : '';
+    const response = await fetch(`${API_URL}/auth/portal-links${params}`, {
+      headers: this.getHeaders(),
+    });
+    this.handleUnauthorized(response);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response, 'Falha ao carregar links do portal'));
+    return response.json();
+  }
+
   // ===== SAAS FINANCIAL =====
   static async getSaasCashflowEntries() {
     const response = await fetch(`${API_URL}/saas-financial/cashflow`, {
