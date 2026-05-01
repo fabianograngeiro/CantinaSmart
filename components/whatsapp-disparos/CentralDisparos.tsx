@@ -3,13 +3,14 @@ import { Enterprise } from '../../types';
 import DisparoUnicoForm from './DisparoUnicoForm';
 import DisparoEmMassa from './DisparoEmMassa';
 import PerfilDisparoTab from './PerfilDisparoTab';
+import UazapiStoriesManager from './UazapiStoriesManager';
 import { DispatchAutomationConfig } from './types';
 
 type CentralDisparosProps = {
   activeEnterprise: Enterprise | null;
 };
 
-type DisparosTab = 'DISPARO_UNICO' | 'DISPARO_MASSA' | 'PERFIL_DISPARO';
+type DisparosTab = 'DISPARO_UNICO' | 'DISPARO_MASSA' | 'PERFIL_DISPARO' | 'STORIES';
 
 const CentralDisparos: React.FC<CentralDisparosProps> = ({ activeEnterprise }) => {
   const [activeSubTab, setActiveSubTab] = useState<DisparosTab>('DISPARO_UNICO');
@@ -59,6 +60,17 @@ const CentralDisparos: React.FC<CentralDisparosProps> = ({ activeEnterprise }) =
           >
             Perfil Disparo
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('STORIES')}
+            className={`px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-[0.14em] border transition-all ${
+              activeSubTab === 'STORIES'
+                ? 'border-transparent bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-[0_8px_20px_-12px_rgba(249,115,22,0.9)]'
+                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
+            }`}
+          >
+            Stories
+          </button>
         </div>
       </div>
 
@@ -79,6 +91,7 @@ const CentralDisparos: React.FC<CentralDisparosProps> = ({ activeEnterprise }) =
           }}
         />
       )}
+      {activeSubTab === 'STORIES' && <UazapiStoriesManager />}
     </div>
   );
 };

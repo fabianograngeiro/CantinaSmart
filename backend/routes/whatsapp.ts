@@ -36,6 +36,7 @@ const STORY_SCHEDULER_INTERVAL_MS = 15 * 1000;
 
 type StoryType = 'text' | 'image' | 'video';
 type StoryScheduleStatus = 'pending' | 'sent' | 'failed';
+type StoryDeliveryService = 'AUTO' | 'NATIVE' | 'EXTERNAL';
 
 type StoryPayload = {
   type: StoryType;
@@ -60,6 +61,7 @@ type StoryScheduleItem = {
   id: string;
   enterpriseId: string;
   payload: StoryPayload;
+  deliveryService: StoryDeliveryService;
   scheduleAt: number;
   status: StoryScheduleStatus;
   createdAt: string;
@@ -131,6 +133,47 @@ const parseScheduleTimestamp = (value: unknown) => {
   return Date.now();
 };
 
+const parseStoryDeliveryService = (value: unknown): StoryDeliveryService => {
+  const token = String(value || '').trim().toUpperCase();
+  if (token === 'NATIVE') return 'NATIVE';
+  if (token === 'EXTERNAL') return 'EXTERNAL';
+  return 'AUTO';
+};
+
+const resolveStoryExecutionService = (enterpriseId: string, deliveryService: StoryDeliveryService) => {
+  if (deliveryService === 'NATIVE' || deliveryService === 'EXTERNAL') return deliveryService;
+  const cfg = getEnterpriseProviderConfig(enterpriseId);
+  return cfg.mode === 'EXTERNAL' && cfg.external.enabled ? 'EXTERNAL' : 'NATIVE';
+};
+
+const sendStoryBySelectedService = async (params: {
+  enterpriseId: string;
+  payload: StoryPayload;
+  deliveryService: StoryDeliveryService;
+}) => {
+  const executionService = resolveStoryExecutionService(params.enterpriseId, params.deliveryService);
+
+  if (executionService === 'NATIVE') {
+    throw new Error('Stories não são suportados no serviço WhatsApp Baileys. Selecione API cadastrada (UAZAPIGO).');
+  }
+
+  const providerConfig = getEnterpriseProviderConfig(params.enterpriseId);
+  if (params.deliveryService === 'EXTERNAL' && !(providerConfig.mode === 'EXTERNAL' && providerConfig.external.enabled)) {
+    throw new Error('Serviço API cadastrada selecionado, mas o provedor externo não está ativo em CONTA.');
+  }
+
+  const sent = await sendStoryByConfiguredProvider({
+    enterpriseId: params.enterpriseId,
+    story: params.payload,
+  });
+
+  if (!sent?.handledByExternal) {
+    throw new Error('Não foi possível enviar o story na API externa. Verifique o modo EXTERNAL e a configuração da UAZAPIGO.');
+  }
+
+  return sent;
+};
+
 const getStorySchedulesByEnterprise = () => {
   const store = db.getWhatsAppStore() as any;
   const map = store?.storySchedulesByEnterprise;
@@ -176,24 +219,29 @@ const processPendingStorySchedules = async () => {
       const dueItems = list.filter((item) => item.status === 'pending' && Number(item.scheduleAt || 0) <= now);
       for (const item of dueItems) {
         try {
-          const sent = await sendStoryByConfiguredProvider({
+          const deliveryService = parseStoryDeliveryService((item as any)?.deliveryService);
+          const sentByService = await sendStoryBySelectedService({
             enterpriseId,
-            story: item.payload,
+            payload: item.payload,
+            deliveryService,
           });
           updateStoryScheduleItem(enterpriseId, item.id, (current) => ({
             ...current,
             status: 'sent',
             updatedAt: new Date().toISOString(),
             sentAt: new Date().toISOString(),
-            providerMessageId: String((sent.result as any)?.messageId || '').trim() || undefined,
-            providerPayload: (sent.result as any)?.payload,
+            deliveryService,
+            providerMessageId: String((sentByService.result as any)?.messageId || '').trim() || undefined,
+            providerPayload: (sentByService.result as any)?.payload,
             attempts: Number(current.attempts || 0) + 1,
             error: '',
           }));
         } catch (err) {
+          const deliveryService = parseStoryDeliveryService((item as any)?.deliveryService);
           updateStoryScheduleItem(enterpriseId, item.id, (current) => ({
             ...current,
             status: 'failed',
+            deliveryService,
             updatedAt: new Date().toISOString(),
             attempts: Number(current.attempts || 0) + 1,
             error: err instanceof Error ? err.message : 'Falha ao enviar story agendado.',
@@ -3135,9 +3183,11 @@ router.post('/stories', async (req: AuthRequest, res: Response) => {
     const sendNow = parseStoryBooleanField((req.body as any)?.sendNow, false) || scheduleAt <= Date.now();
 
     if (sendNow) {
-      const sent = await sendStoryByConfiguredProvider({
+      const deliveryService = parseStoryDeliveryService((req.body as any)?.deliveryService);
+      const sent = await sendStoryBySelectedService({
         enterpriseId,
-        story: payload,
+        payload,
+        deliveryService,
       });
 
       return res.json({
@@ -3146,6 +3196,7 @@ router.post('/stories', async (req: AuthRequest, res: Response) => {
         story: {
           id: `story-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
           payload,
+          deliveryService,
           scheduleAt,
           status: 'sent',
           createdAt: new Date().toISOString(),
@@ -3160,10 +3211,12 @@ router.post('/stories', async (req: AuthRequest, res: Response) => {
     const map = getStorySchedulesByEnterprise();
     const list = Array.isArray(map[enterpriseId]) ? map[enterpriseId] as StoryScheduleItem[] : [];
     const nowIso = new Date().toISOString();
+    const deliveryService = parseStoryDeliveryService((req.body as any)?.deliveryService);
     const item: StoryScheduleItem = {
       id: `story-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       enterpriseId,
       payload,
+      deliveryService,
       scheduleAt,
       status: 'pending',
       createdAt: nowIso,
@@ -3239,6 +3292,9 @@ router.put('/stories/:id', async (req: AuthRequest, res: Response) => {
 
     const payload = sanitizeStoryPayload((req.body as any)?.story || current.payload);
     assertStoryPayload(payload);
+    const deliveryService = (req.body as any)?.deliveryService !== undefined
+      ? parseStoryDeliveryService((req.body as any)?.deliveryService)
+      : parseStoryDeliveryService(current.deliveryService);
     const scheduleAt = (req.body as any)?.scheduleAt !== undefined
       ? parseScheduleTimestamp((req.body as any)?.scheduleAt)
       : Number(current.scheduleAt || Date.now());
@@ -3246,6 +3302,7 @@ router.put('/stories/:id', async (req: AuthRequest, res: Response) => {
     const updated = updateStoryScheduleItem(enterpriseId, id, (item) => ({
       ...item,
       payload,
+      deliveryService,
       scheduleAt,
       updatedAt: new Date().toISOString(),
       error: '',
