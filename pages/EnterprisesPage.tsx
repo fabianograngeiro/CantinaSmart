@@ -1,4 +1,4 @@
-﻿
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { 
@@ -183,7 +183,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
   const filteredEnterprises = useMemo(() => {
     return enterprises.filter(e => {
       // SUPERADMIN v? tudo
-      // OWNER v? todas as empresas (n?o filtra por enterpriseIds)
+      // OWNER vê todas as empresas (não filtra por enterpriseIds)
       const isUserEnterprise = isSuperAdmin || isOwner || (currentUser.enterpriseIds?.includes(e.id));
       
       const matchesSearch = 
@@ -459,7 +459,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
           entityId: enterprise.id,
           enterpriseId: enterprise.id,
           enterpriseName: enterprise.name,
-          summary: `Status do servi?o alterado para ${nextStatus}`,
+          summary: `Status do serviço alterado para ${nextStatus}`,
           metadata: {
             fromStatus: enterprise.serviceStatus || 'ATIVO',
             toStatus: nextStatus
@@ -473,7 +473,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
   };
 
   const handleDeleteEnterprise = async (enterprise: Enterprise) => {
-    const confirmed = window.confirm(`Deseja excluir o cliente SaaS "${enterprise.name}"? Essa a??o ? irrevers?vel.`);
+    const confirmed = window.confirm(`Deseja excluir o cliente SaaS "${enterprise.name}"? Essa ação ? irrevers?vel.`);
     if (!confirmed) return;
     try {
       await ApiService.deleteEnterprise(enterprise.id);
@@ -488,7 +488,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
           entityId: enterprise.id,
           enterpriseId: enterprise.id,
           enterpriseName: enterprise.name,
-          summary: 'Cliente SaaS exclu?do',
+          summary: 'Cliente SaaS excluído',
           metadata: {
             planType: enterprise.planType,
             monthlyFee: enterprise.monthlyFee
@@ -512,10 +512,10 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
             </div>
             <div>
               <h1 className="dash-title">
-                {isSuperAdmin ? 'Gest?o de Clientes SaaS' : 'Minhas Unidades'}
+                {isSuperAdmin ? 'Gestáo de Clientes SaaS' : 'Minhas Unidades'}
               </h1>
               <p className="dash-subtitle">
-                {isSuperAdmin ? 'Console de Administra??o Global do Sistema' : 'Gerenciamento de Unidades Operacionais'}
+                {isSuperAdmin ? 'Console de Administração Global do Sistema' : 'Gerenciamento de Unidades Operacionais'}
               </p>
             </div>
           </div>
@@ -535,7 +535,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
             <Sparkles size={16} className="text-indigo-600 mt-0.5" />
             <div>
               <p className="text-[11px] font-black uppercase tracking-wider text-indigo-700">Primeiro acesso do dono de rede</p>
-              <p className="text-sm font-bold text-indigo-900">Comece por aqui: clique em <strong>Cadastrar Nova Unidade</strong> para fazer a configura??o inicial da sua conta.</p>
+              <p className="text-sm font-bold text-indigo-900">Comece por aqui: clique em <strong>Cadastrar Nova Unidade</strong> para fazer a configuração inicial da sua conta.</p>
             </div>
           </div>
           <button
@@ -555,8 +555,8 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
       {isSuperAdmin && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
            <SaaSStatCard title="MRR Total" value={`R$ ${stats.totalMRR.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`} icon={<DollarSign className="text-emerald-500" />} />
-           <SaaSStatCard title="Licen?as Ativas" value={stats.active.toString()} icon={<CheckCircle2 className="text-indigo-500" />} />
-           <SaaSStatCard title="Inadimpl?ncia" value={stats.pending.toString()} icon={<AlertCircle className="text-red-500" />} />
+           <SaaSStatCard title="Licenças Ativas" value={stats.active.toString()} icon={<CheckCircle2 className="text-indigo-500" />} />
+           <SaaSStatCard title="Inadimplência" value={stats.pending.toString()} icon={<AlertCircle className="text-red-500" />} />
            <SaaSStatCard title="Total Clientes" value={stats.total.toString()} icon={<Users className="text-blue-500" />} />
         </div>
       )}
@@ -564,7 +564,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
       <div className="dash-filterbar flex flex-col md:flex-row items-center gap-3">
         <div className="relative flex-1 w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-          <input type="text" placeholder="Buscar por nome, dono, endere?o ou CNPJ..." className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border-transparent border focus:border-indigo-500 rounded-xl outline-none font-bold text-xs transition-all" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/>
+          <input type="text" placeholder="Buscar por nome, dono, endereço ou CNPJ..." className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border-transparent border focus:border-indigo-500 rounded-xl outline-none font-bold text-xs transition-all" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/>
         </div>
       </div>
 
@@ -737,7 +737,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
                              {editingEnterprise ? (isSuperAdmin ? 'Editar Cliente SaaS' : 'Editar Unidade') : (isSuperAdmin ? 'Novo Cliente SaaS' : 'Novo Registro de Filial')}
                            </h2>
                            <p className="text-[10px] font-bold text-indigo-100 uppercase tracking-widest mt-1">
-                             {editingEnterprise ? 'Atualiza??o de dados cadastrais e contrato' : (isSuperAdmin ? 'Configura??o de Licen?a e Acesso Master' : 'Escolha ?nica de opera??o e endere?o')}
+                             {editingEnterprise ? 'Atualização de dados cadastrais e contrato' : (isSuperAdmin ? 'Configuração de Licença e Acesso Master' : 'Escolha ?nica de operação e endereço')}
                            </p>
                         </div>
                      </div>
@@ -792,7 +792,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
                         </div>
                      </div>
 
-                    {/* Informa??es da Filial */}
+                    {/* Informações da Filial */}
                      <div className="space-y-4 pt-3 border-t border-gray-50">
                         <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[4px] border-b pb-2 flex items-center gap-2">
                            <ShieldCheck size={14}/> Dados Gerais
@@ -805,10 +805,10 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
                           onBlur={handleDocumentBlur}
                           required
                           placeholder={formData.type === 'RESTAURANTE' ? '00.000.000/0001-00 ou 000.000.000-00' : '00.000.000/0001-00'}
-                          helperText={isCnpjLookupLoading ? 'Consultando dados no CNPJ...' : 'Ao informar CNPJ v?lido, somente os dados da empresa s?o preenchidos (endere?o n?o ? preenchido).'}
+                          helperText={isCnpjLookupLoading ? 'Consultando dados no CNPJ...' : 'Ao informar CNPJ válido, somente os dados da empresa s?o preenchidos (endereço não ? preenchido).'}
                         />
                         <InputField
-                          label="Nome/Raz?o Social *"
+                          label="Nome/Razão Social *"
                           value={formData.nomeFantasia}
                           onChange={(v:string) => setFormData({...formData, nomeFantasia: v})}
                           required
@@ -816,7 +816,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
                         />
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <InputField label={isSuperAdmin ? "Nome do Propriet?rio *" : "Nome do Gerente Respons?vel *"} value={formData.managerName} onChange={(v:string) => setFormData({...formData, managerName: v})} required placeholder={formData.type === 'RESTAURANTE' ? 'Nome do gerente do restaurante' : 'Nome completo do respons?vel'} />
+                        <InputField label={isSuperAdmin ? "Nome do Proprietário *" : "Nome do Gerente Responsável *"} value={formData.managerName} onChange={(v:string) => setFormData({...formData, managerName: v})} required placeholder={formData.type === 'RESTAURANTE' ? 'Nome do gerente do restaurante' : 'Nome completo do respons?vel'} />
                            {isSuperAdmin ? (
                              <InputField label="E-mail de Acesso (Login) *" type="email" value={formData.email} onChange={(v:string) => setFormData({...formData, email: v})} required placeholder="exemplo@email.com" />
                            ) : (
@@ -831,7 +831,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
                         
                         {formData.type === 'CANTINA' && (
                            <div className="animate-in slide-in-from-top-2 duration-300">
-                             <InputField label="Nome da Institui??o Anexada *" value={formData.attachedSchoolName} onChange={(v:string) => setFormData({...formData, attachedSchoolName: v})} required placeholder="Ex: Col?gio Anglo Premium" icon={<School className="text-indigo-400" size={18}/>} />
+                             <InputField label="Nome da Instituição Anexada *" value={formData.attachedSchoolName} onChange={(v:string) => setFormData({...formData, attachedSchoolName: v})} required placeholder="Ex: Col?gio Anglo Premium" icon={<School className="text-indigo-400" size={18}/>} />
                            </div>
                         )}
 
@@ -844,11 +844,11 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
                      {isSuperAdmin && (
                         <div className="space-y-4 pt-3 border-t border-gray-50">
                            <h3 className="text-[10px] font-black text-amber-500 uppercase tracking-[4px] border-b pb-2 flex items-center gap-2">
-                              <Sparkles size={14}/> Configura??o SaaS
+                              <Sparkles size={14}/> Configuração SaaS
                            </h3>
                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                              <div className="space-y-1.5">
-                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Plano de Licen?a *</label>
+                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Plano de Licença *</label>
                                  <select 
                                     value={formData.planType}
                                     onChange={e => {
@@ -857,7 +857,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
                                     }}
                                     className="w-full px-4 py-2.5 bg-gray-50 border border-transparent focus:border-indigo-500 rounded-xl outline-none font-bold text-gray-800 transition-all shadow-inner text-sm"
                                  >
-                                    <option value="BASIC">B?SICO - R$ 197</option>
+                                    <option value="BASIC">BÁSICO - R$ 197</option>
                                     <option value="PREMIUM">PREMIUM - R$ 397</option>
                                  </select>
                               </div>
@@ -866,10 +866,10 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
                         </div>
                      )}
 
-                     {/* Endere?o Operacional Detalhado */}
+                     {/* Endereço Operacional Detalhado */}
                      <div className="space-y-4 pt-3 border-t border-gray-50">
                         <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[4px] border-b pb-2 flex items-center gap-2">
-                           <MapIcon size={14}/> Endere?o Operacional
+                           <MapIcon size={14}/> Endereço Operacional
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                            <div className="md:col-span-1">
@@ -880,14 +880,14 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
                                onBlur={handleCepBlur}
                                required
                                placeholder="00000-000"
-                               helperText={isCepLookupLoading ? 'Consultando endere?o pelo CEP...' : 'Ao informar CEP v?lido, o endere?o ? preenchido automaticamente.'}
+                               helperText={isCepLookupLoading ? 'Consultando endereço pelo CEP...' : 'Ao informar CEP válido, o endereço ? preenchido automaticamente.'}
                              />
                            </div>
                            <div className="md:col-span-2">
                              <InputField label="Logradouro (Rua/Av) *" value={formData.street} onChange={(v:string) => setFormData({...formData, street: v})} required placeholder="Rua das Flores" />
                            </div>
                            <div className="md:col-span-1">
-                             <InputField label="N?mero *" value={formData.number} onChange={(v:string) => setFormData({...formData, number: v})} required placeholder="123" />
+                             <InputField label="Número *" value={formData.number} onChange={(v:string) => setFormData({...formData, number: v})} required placeholder="123" />
                            </div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -901,7 +901,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
                   <div className="p-5 bg-gray-50 border-t flex items-center justify-end gap-4 shrink-0">
                      <button type="button" onClick={resetFormAndClose} className="px-6 py-3 text-[11px] font-black text-gray-400 uppercase tracking-widest hover:text-gray-600 transition-colors">Descartar</button>
                      <button type="submit" className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-black uppercase tracking-widest text-[11px] shadow-lg shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all flex items-center justify-center gap-2">
-                        <Save size={16} /> {editingEnterprise ? 'Salvar Altera??es' : (isSuperAdmin ? 'Ativar Licen?a SaaS' : 'Salvar e Gerar Licen?a')}
+                        <Save size={16} /> {editingEnterprise ? 'Salvar Alterações' : (isSuperAdmin ? 'Ativar Licença SaaS' : 'Salvar e Gerar Licença')}
                      </button>
                   </div>
                 </form>
@@ -915,7 +915,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
                         {isSuperAdmin ? 'Cliente Ativado!' : 'Unidade Ativada!'}
                       </h2>
                       <p className="text-gray-500 font-medium max-w-md mx-auto">
-                        {isSuperAdmin ? 'A licen?a SaaS foi gerada com sucesso. O cliente j? pode acessar o console de propriet?rio.' : 'A filial foi registrada com sucesso. Utilize as credenciais abaixo para o primeiro acesso da unidade.'}
+                        {isSuperAdmin ? 'A licença SaaS foi gerada com sucesso. O cliente já pode acessar o console de propriet?rio.' : 'A filial foi registrada com sucesso. Utilize as credenciais abaixo para o primeiro acesso da unidade.'}
                       </p>
                    </div>
 
@@ -929,7 +929,7 @@ const EnterprisesPage: React.FC<EnterprisesPageProps> = ({ currentUser, onSelect
                             </div>
                          </div>
                          <div className="space-y-1">
-                            <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest ml-1">Senha Padr?o</p>
+                            <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest ml-1">Senha Padrão</p>
                             <div className="w-full flex items-center justify-between bg-white px-4 py-3 rounded-xl border border-indigo-100 shadow-sm">
                                <span className="font-black text-indigo-600 text-base tracking-widest">{successData.pass}</span>
                                <button onClick={() => {navigator.clipboard.writeText(successData.pass); alert('Copiado!')}} className="text-indigo-400 hover:text-indigo-600 p-1.5"><Copy size={14}/></button>

@@ -2473,13 +2473,26 @@ router.get('/chats', async (_req: Request, res: Response) => {
     const allowedPhones = getEnterprisePhoneSet(enterpriseId);
     const leadPhones = getLeadPhoneSetForEnterprise(enterpriseId);
     const chats = await whatsappSession.getClientChats();
-    res.json({
-      success: true,
-      chats: (Array.isArray(chats) ? chats : []).filter((chat: any) => {
-        const phone = normalizePhoneDigits(chat?.phone || extractPhoneFromChatId(String(chat?.chatId || '')));
-        return Boolean(phone && (allowedPhones.has(phone) || leadPhones.has(phone)));
-      })
+
+    const filtered = (Array.isArray(chats) ? chats : []).filter((chat: any) => {
+      const phone = normalizePhoneDigits(chat?.phone || extractPhoneFromChatId(String(chat?.chatId || '')));
+      return Boolean(phone && (allowedPhones.has(phone) || leadPhones.has(phone)));
     });
+
+    // Deduplicate by normalized phone: same contact can appear with different chatId
+    // variants (e.g. with/without country code, with/without 9th digit). Keep the
+    // entry with the most recent lastTimestamp.
+    const byPhone = new Map<string, any>();
+    for (const chat of filtered) {
+      const phone = normalizePhoneDigits(chat?.phone || extractPhoneFromChatId(String(chat?.chatId || '')));
+      if (!phone) continue;
+      const existing = byPhone.get(phone);
+      if (!existing || Number(chat?.lastTimestamp || 0) >= Number(existing?.lastTimestamp || 0)) {
+        byPhone.set(phone, chat);
+      }
+    }
+
+    res.json({ success: true, chats: Array.from(byPhone.values()) });
   } catch (err) {
     res.status(400).json({
       success: false,

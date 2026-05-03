@@ -1,4 +1,3 @@
-﻿
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Link, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { 
@@ -86,7 +85,7 @@ const App: React.FC = () => {
         setNeedsSetup(response.needsSetup);
       } catch (err) {
         console.error('Erro ao verificar setup:', err);
-        setNeedsSetup(false); // Assume que j? est? configurado em caso de erro
+        setNeedsSetup(false); // Assume que já está configurado em caso de erro
       }
     };
     checkSetup();
@@ -134,7 +133,7 @@ const App: React.FC = () => {
 
         setActiveEnterprise(parsedEnterprise);
       } catch (err) {
-        console.error('Erro ao restaurar sess?o:', err);
+        console.error('Erro ao restaurar sessão:', err);
         ApiService.clearToken();
         localStorage.removeItem(AUTH_USER_STORAGE_KEY);
         localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
@@ -167,8 +166,8 @@ const App: React.FC = () => {
         window.location.hash = '#/';
       }
       notificationService.critico(
-        'Sess?o expirada',
-        'Sua sess?o expirou. Fa?a login novamente.'
+        'Sessão expirada',
+        'Sua sessão expirou. Faça login novamente.'
       );
     };
     window.addEventListener('canteen:session-expired', onSessionExpired);
@@ -196,7 +195,7 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // Recarregar empresas quando usu?rio autenticado n?o tiver empresa selecionada
+  // Recarregar empresas quando usuário autenticado não tiver empresa selecionada
   useEffect(() => {
     const loadEnterprises = async () => {
       const shouldLoadOwnerList = isAuthenticated
@@ -221,7 +220,7 @@ const App: React.FC = () => {
         } catch (err) {
           const message = err instanceof Error ? err.message : 'Falha ao carregar empresas.';
           console.error('Erro ao carregar empresas:', err);
-          if (message.toLowerCase().includes('backend indisponível')) {
+          if (message.toLowerCase().includes('backend indispon�vel')) {
             notificationService.alerta('Backend offline', message, 5000);
           }
         }
@@ -232,14 +231,14 @@ const App: React.FC = () => {
 
   const handleLogin = async (user: User) => {
     try {
-      // Usu?rio j? foi autenticado em LoginPage, apenas atualiza estado
+      // Usuário já foi autenticado em LoginPage, apenas atualiza estado
       setCurrentUser(user);
       setIsAuthenticated(true);
       setActiveEnterprise(null);
       localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user));
       localStorage.removeItem(ACTIVE_ENTERPRISE_STORAGE_KEY);
       
-      // Para SUPERADMIN, n?o precisa de activeEnterprise
+      // Para SUPERADMIN, não precisa de activeEnterprise
       if (isSuperAdminRole(String(user.role))) {
         return;
       }
@@ -248,24 +247,24 @@ const App: React.FC = () => {
       const enterprises = await ApiService.getEnterprises();
       setAvailableEnterprises(enterprises);
       
-      // Se tem enterpriseIds espec?ficos, usa o primeiro
+      // Se tem enterpriseIds específicos, usa o primeiro
       if (user.enterpriseIds && user.enterpriseIds.length > 0) {
         const ent = enterprises.find((e: any) => e.id === user.enterpriseIds?.[0]);
         if (ent) setActiveEnterprise(ent);
       } 
-      // Se ? OWNER, NÃƒO auto-seleciona - deixa ele escolher via modal
+      // Se é OWNER, NÃO auto-seleciona - deixa ele escolher via modal
       else if (user.role === 'OWNER') {
-        // N?o seta activeEnterprise, o modal ser? mostrado quando necess?rio
+        // Não seta activeEnterprise, o modal ser? mostrado quando necessário
         setActiveEnterprise(null);
       }
-      // Para outros usu?rios sem empresa, carrega a primeira dispon?vel
+      // Para outros usuários sem empresa, carrega a primeira disponível
       else if (enterprises.length > 0) {
         setActiveEnterprise(enterprises[0]);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Falha ao processar login.';
       console.error('Erro ao processar login:', err);
-      if (message.toLowerCase().includes('backend indisponível')) {
+      if (message.toLowerCase().includes('backend indispon�vel')) {
         notificationService.critico('Backend offline', message);
       }
     }
@@ -466,14 +465,15 @@ const AppContent: React.FC<any> = (props) => {
   const canAccessSystemSettingsRoute = isSuperAdmin || isAdminSistema || (isOwner && !isOwnerUnitPanel);
   const ownerMatrixLogo = String((currentUser as any)?.matrizLogo || '').trim();
   const ownerMatrixName = String((currentUser as any)?.matrizName || '').trim();
-  // Labels fixos (sem nome da unidade) conforme solicitado
-  const collaboratorSidebarLabel = 'FUNC.ESCOLA';
-  const studentsSidebarLabel = 'ALUNOS';
+  // Labels fixos para menu de clientes
+  const funcEscolaSidebarLabel = 'Func.Escola';
+  const responsibleSidebarLabel = 'Respons�veis';
+  const studentsSidebarLabel = 'Alunos';
 
-  // Verificar se est? na p?gina de enterprises
+  // Verificar se está na página de enterprises
   const isOnEnterprisesPage = location.pathname === '/enterprises';
   
-  // Redirecionar usu?rios RESPONSAVEL, COLABORADOR e CLIENTE para /portal
+  // Redirecionar usuários RESPONSAVEL, COLABORADOR e CLIENTE para /portal
   const isPortalUser = currentUser?.role === 'RESPONSAVEL' || currentUser?.role === 'COLABORADOR' || currentUser?.role === 'CLIENTE';
   React.useEffect(() => {
     if (isAuthenticated && isPortalUser && !location.pathname.startsWith('/portal')) {
@@ -488,8 +488,8 @@ const AppContent: React.FC<any> = (props) => {
     const hasLinkedEnterprise = Array.isArray(currentUser.enterpriseIds) && currentUser.enterpriseIds.length > 0;
     if (!hasLinkedEnterprise && location.pathname !== '/enterprises') {
       notificationService.alerta(
-        'Configura??o inicial necess?ria',
-        'Cadastre sua primeira unidade para concluir a configura??o da conta.'
+        'Configuração inicial necessária',
+        'Cadastre sua primeira unidade para concluir a configuração da conta.'
       );
       navigate('/enterprises');
     }
@@ -576,16 +576,16 @@ const AppContent: React.FC<any> = (props) => {
                 {trialBanner.daysLeft > 0 ? (
                   <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide">
                     {trialBanner.daysLeft <= 3
-                      ? `Aten??o: seu per?odo de teste termina em ${trialBanner.daysLeft} dia${trialBanner.daysLeft === 1 ? '' : 's'}. Renove agora para n?o ficar sem acesso.`
-                      : `Seu per?odo de teste termina em ${trialBanner.daysLeft} dia${trialBanner.daysLeft === 1 ? '' : 's'}. Renove para n?o ficar sem acesso.`}
+                      ? `Atenção: seu período de teste termina em ${trialBanner.daysLeft} dia${trialBanner.daysLeft === 1 ? '' : 's'}. Renove agora para não ficar sem acesso.`
+                      : `Seu período de teste termina em ${trialBanner.daysLeft} dia${trialBanner.daysLeft === 1 ? '' : 's'}. Renove para não ficar sem acesso.`}
                   </p>
                 ) : trialBanner.daysLeft === 0 ? (
                   <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide">
-                    Seu per?odo de teste termina hoje. Renove agora para n?o ficar sem acesso.
+                    Seu período de teste termina hoje. Renove agora para não ficar sem acesso.
                   </p>
                 ) : (
                   <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide">
-                    Seu per?odo de teste expirou h? {Math.abs(trialBanner.daysLeft)} dia{Math.abs(trialBanner.daysLeft) === 1 ? '' : 's'}. Renove para evitar bloqueio de acesso.
+                    Seu período de teste expirou há {Math.abs(trialBanner.daysLeft)} dia{Math.abs(trialBanner.daysLeft) === 1 ? '' : 's'}. Renove para evitar bloqueio de acesso.
                   </p>
                 )}
               </div>
@@ -613,20 +613,20 @@ const AppContent: React.FC<any> = (props) => {
                  path="/portal"
                  element={
                    currentUser?.role === 'COLABORADOR'
-                     ? <CollaboratorPortalPage currentUser={currentUser} handleLogout={handleLogout} />
-                     : currentUser?.role === 'RESPONSAVEL'
-                       ? <ResponsiblePortalPage currentUser={currentUser} handleLogout={handleLogout} />
-                       : <ClientPortalPageWrapper currentUser={currentUser} />
+                      ? <CollaboratorPortalPage currentUser={currentUser} handleLogout={handleLogout} />
+                      : currentUser?.role === 'RESPONSAVEL'
+                        ? <ResponsiblePortalPage currentUser={currentUser} handleLogout={handleLogout} />
+                        : <ClientPortalPageWrapper currentUser={currentUser} />
                  }
                />
                <Route
                  path="*"
                  element={
                    currentUser?.role === 'COLABORADOR'
-                     ? <CollaboratorPortalPage currentUser={currentUser} handleLogout={handleLogout} />
-                     : currentUser?.role === 'RESPONSAVEL'
-                       ? <ResponsiblePortalPage currentUser={currentUser} handleLogout={handleLogout} />
-                       : <ClientPortalPageWrapper currentUser={currentUser} />
+                      ? <CollaboratorPortalPage currentUser={currentUser} handleLogout={handleLogout} />
+                      : currentUser?.role === 'RESPONSAVEL'
+                        ? <ResponsiblePortalPage currentUser={currentUser} handleLogout={handleLogout} />
+                        : <ClientPortalPageWrapper currentUser={currentUser} />
                  }
                />
              </Routes>
@@ -722,7 +722,7 @@ const AppContent: React.FC<any> = (props) => {
                     {canAccessReports && <SidebarItem icon={<ReceiptText size={20} />} label="Transacoes" to="/unit-sales" isOpen={isSidebarOpen} />}
                     {canAccessReports && <SidebarItem icon={<DollarSign size={20} />} label="Financeiro" to="/financial" isOpen={isSidebarOpen} />}
                     {canAccessReports && <SidebarItem icon={<MessageCircle size={20} />} label="WhatsApp" to="/whatsapp" isOpen={isSidebarOpen} />}
-                    {canAccessContestations && <SidebarItem icon={<AlertTriangle size={20} />} label="Contestações" to="/contestacoes" isOpen={isSidebarOpen} />}
+                    {canAccessContestations && <SidebarItem icon={<AlertTriangle size={20} />} label="Contesta��es" to="/contestacoes" isOpen={isSidebarOpen} />}
                     {canAccessInventory && <SidebarItem icon={<ArrowRightLeft size={20} />} label="Estoque Unidade" to="/inventory" isOpen={isSidebarOpen} />}
                       {canAccessReports && <SidebarItem icon={<Users size={20} />} label="Contato WPP" to="/whatsapp-contacts" isOpen={isSidebarOpen} />}
                     {canManageStaff && <SidebarItem icon={<Settings size={20} />} label="Ajustes" to="/settings" isOpen={isSidebarOpen} />}
@@ -744,18 +744,25 @@ const AppContent: React.FC<any> = (props) => {
                   <div className="py-4 border-t border-slate-800/50 dark:border-white/5 mt-4 space-y-1">
                     <p className={`text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Operacional</p>
                     {canAccessPOS && <SidebarItem icon={<ShoppingCart size={20} />} label="Vender (PDV)" to="/pos" isOpen={isSidebarOpen} />}
-                    {canAccessClients && <SidebarItem icon={<UserCircle size={20} />} label={collaboratorSidebarLabel} to="/clients-responsaveis" isOpen={isSidebarOpen} />}
-                    {canAccessClients && <SidebarItem icon={<Users size={20} />} label={studentsSidebarLabel} to="/clients" isOpen={isSidebarOpen} />}
                     {canAccessInventory && <SidebarItem icon={<Package size={20} />} label="Produtos" to="/products" isOpen={isSidebarOpen} />}
                     {canAccessInventory && <SidebarItem icon={<ClipboardList size={20} />} label="Categorias" to="/product-categories" isOpen={isSidebarOpen} />}
                     <SidebarItem icon={<ClipboardList size={20} />} label="Suprimentos" to="/orders" isOpen={isSidebarOpen} />
                     <SidebarItem icon={<Truck size={20} />} label="Fornecedores" to="/suppliers" isOpen={isSidebarOpen} />
                   </div>
                 )}
+
+                {!isSuperAdmin && !isOwner && canAccessClients && (
+                  <div className="py-4 border-t border-slate-800/50 dark:border-white/5 mt-4 space-y-1">
+                    <p className={`text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 px-3 ${!isSidebarOpen && 'hidden'}`}>Respons�veis</p>
+                    <SidebarItem icon={<UserCircle size={20} />} label={funcEscolaSidebarLabel} to="/clients-func-escola" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<UserCircle size={20} />} label={responsibleSidebarLabel} to="/clients-responsaveis" isOpen={isSidebarOpen} />
+                    <SidebarItem icon={<Users size={20} />} label={studentsSidebarLabel} to="/clients" isOpen={isSidebarOpen} />
+                  </div>
+                )}
               </nav>
 
               <div className="px-2 py-1.5 border-t border-slate-800/50 dark:border-white/5 space-y-1">
-                {/* Bot?o para trocar unidade (apenas para OWNER) */}
+                {/* Botão para trocar unidade (apenas para OWNER) */}
                 {isOwner && (
                   <button 
                     onClick={() => {
@@ -858,6 +865,7 @@ const AppContent: React.FC<any> = (props) => {
                   />
                   <Route path="/pos" element={canAccessPOS ? (isRestaurant ? <RestaurantPOSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} /> : <POSPage currentUser={currentUser} activeEnterprise={activeEnterprise} onRegisterTransaction={(t) => setTransactions(prev => [t, ...prev])} />) : <Navigate to="/" />} />
                   <Route path="/clients" element={canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="ALUNOS" /> : <Navigate to="/" />} />
+                  <Route path="/clients-func-escola" element={canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="FUNC_ESCOLA" /> : <Navigate to="/" />} />
                   <Route path="/clients-responsaveis" element={canAccessClients ? <ClientsPage currentUser={currentUser} activeEnterprise={activeEnterprise} viewMode="CLIENTES_RESPONSAVEIS" /> : <Navigate to="/" />} />
                   <Route path="/products" element={canAccessInventory ? <ProductsPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
                   <Route path="/product-categories" element={canAccessInventory ? <ProductCategoriesPage currentUser={currentUser} activeEnterprise={activeEnterprise} /> : <Navigate to="/" />} />
@@ -926,7 +934,7 @@ const AppContent: React.FC<any> = (props) => {
           </>
         )}
 
-        {/* Modal de Sele??o de Empresa para OWNER */}
+        {/* Modal de Seleção de Empresa para OWNER */}
         {isAuthenticated && isOwner && (showEnterpriseSelector || (!activeEnterprise && !isOnEnterprisesPage)) && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-2xl w-full shadow-2xl border border-slate-200 dark:border-slate-700 animate-in zoom-in-95 duration-200">
@@ -937,7 +945,7 @@ const AppContent: React.FC<any> = (props) => {
                 </div>
                 <div>
                   <h3 className="text-xl font-black text-gray-800 dark:text-slate-100">{showEnterpriseSelector ? 'Trocar Unidade' : 'Selecione uma Unidade'}</h3>
-                  <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Escolha qual unidade voc? deseja acessar</p>
+                  <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Escolha qual unidade você deseja acessar</p>
                 </div>
                 </div>
                 {activeEnterprise && (
@@ -959,7 +967,7 @@ const AppContent: React.FC<any> = (props) => {
                   </div>
                   <h4 className="text-lg font-black text-gray-800 dark:text-slate-100 mb-2">Nenhuma Unidade Cadastrada</h4>
                   <p className="text-sm text-gray-600 dark:text-slate-300 mb-6">
-                    Voc? ainda n?o possui nenhuma unidade cadastrada no sistema.
+                    Você ainda não possui nenhuma unidade cadastrada no sistema.
                   </p>
                   <Link
                     to="/enterprises"
@@ -1025,13 +1033,41 @@ const AppContent: React.FC<any> = (props) => {
 const SidebarItem: React.FC<any> = ({ icon, label, to, isOpen }) => {
   const location = useLocation();
   const isActive = location.pathname === to;
+  const toTitleCase = (value: string) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const acronyms = new Set(['PDV', 'SaaS', 'WPP', 'CS']);
+    return raw
+      .split(' ')
+      .map((word) => {
+        if (!word) return word;
+        const punctuationPrefix = word.match(/^[^A-Za-z0-9�-�]+/)?.[0] || '';
+        const punctuationSuffix = word.match(/[^A-Za-z0-9�-�]+$/)?.[0] || '';
+        const core = word.slice(punctuationPrefix.length, word.length - punctuationSuffix.length);
+        if (!core) return word;
+
+        if (acronyms.has(core)) return `${punctuationPrefix}${core}${punctuationSuffix}`;
+
+        const normalized = core
+          .split('.')
+          .map((piece) => {
+            const safe = String(piece || '').trim();
+            if (!safe) return safe;
+            return safe.charAt(0).toUpperCase() + safe.slice(1).toLowerCase();
+          })
+          .join('.');
+        return `${punctuationPrefix}${normalized}${punctuationSuffix}`;
+      })
+      .join(' ');
+  };
+  const normalizedLabel = toTitleCase(label);
   return (
-    <Link to={to} title={!isOpen ? label : undefined} className={`relative flex items-center p-3 rounded-xl transition-all duration-200 group border-l-2 ${isActive ? 'bg-indigo-600/90 dark:bg-white/5 text-white border-emerald-400 shadow-xl' : 'text-zinc-400 border-transparent hover:bg-slate-800 dark:hover:bg-white/5 hover:text-white'} ${!isOpen && 'justify-center'}`}>
+    <Link to={to} title={!isOpen ? normalizedLabel : undefined} className={`relative flex items-center p-3 rounded-xl transition-all duration-200 group border-l-2 ${isActive ? 'bg-indigo-600/90 dark:bg-white/5 text-white border-emerald-400 shadow-xl' : 'text-zinc-400 border-transparent hover:bg-slate-800 dark:hover:bg-white/5 hover:text-white'} ${!isOpen && 'justify-center'}`}>
       <div className={`${isActive ? 'text-white' : 'group-hover:scale-110 transition-transform'}`}>{icon}</div>
-      {isOpen && <span className="ml-3 font-bold text-[13px] tracking-tight">{label}</span>}
+      {isOpen && <span className="ml-3 font-bold text-[13px] tracking-tight">{normalizedLabel}</span>}
       {!isOpen && (
         <span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-800 text-white text-[11px] font-bold px-2.5 py-1.5 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-[120]">
-          {label}
+          {normalizedLabel}
         </span>
       )}
     </Link>
@@ -1039,3 +1075,4 @@ const SidebarItem: React.FC<any> = ({ icon, label, to, isOpen }) => {
 };
 
 export default App;
+

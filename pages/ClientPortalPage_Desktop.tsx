@@ -632,21 +632,31 @@ const ClientPortalPageDesktop: React.FC<{ enterpriseId?: string; currentUser?: a
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {children.map((child, idx) => (
                   <div key={child.id} className="relative">
-                    <button
-                      onClick={() => setActiveChildIndex(idx)}
+                    <div
                       className={`w-full text-left p-4 rounded-xl transition-all border-2 ${
                         activeChildIndex === idx ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50'
                       }`}
                     >
-                      <div className="flex items-start gap-3">
-                        <img src={child.photo} alt={child.name} className="w-12 h-12 rounded-lg object-cover" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-black text-gray-900 truncate">{child.name}</p>
-                          <p className="text-xs text-gray-500 mt-0.5">{child.class}</p>
-                          <p className="text-xs text-gray-700 mt-2 font-semibold">Saldo: R$ {(child.balance || 0).toFixed(2)}</p>
+                      <button onClick={() => setActiveChildIndex(idx)} className="w-full text-left">
+                        <div className="flex items-start gap-3">
+                          <img src={child.photo} alt={child.name} className="w-12 h-12 rounded-lg object-cover" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-black text-gray-900 truncate">{child.name}</p>
+                            <p className="text-xs text-gray-500 mt-0.5">{child.class}</p>
+                            <p className="text-xs text-gray-700 mt-2 font-semibold">Saldo: R$ {(child.balance || 0).toFixed(2)}</p>
+                          </div>
                         </div>
-                      </div>
-                    </button>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setActiveChildIndex(idx);
+                          setActiveSection('DASHBOARD');
+                        }}
+                        className="mt-3 w-full rounded-lg bg-blue-600 hover:bg-blue-700 text-white py-2 text-[11px] font-black uppercase tracking-wide transition-all"
+                      >
+                        Ver aluno
+                      </button>
+                    </div>
                     {activeChildIndex === idx && (
                       <button
                         onClick={() => setDeleteConfirm(child.id)}

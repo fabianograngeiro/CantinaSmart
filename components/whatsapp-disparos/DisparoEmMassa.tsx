@@ -2202,9 +2202,40 @@ const DisparoEmMassa: React.FC<DisparoEmMassaProps> = ({
           </div>
         </div>
 
-        <p className={`text-sm font-semibold ${feedback ? 'text-orange-700 dark:text-orange-300' : 'text-slate-500 dark:text-zinc-400'}`}>
-          {feedback || 'Configure o filtro e inicie o disparo em massa.'}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className={`text-sm font-semibold ${feedback ? 'text-orange-700 dark:text-orange-300' : 'text-slate-500 dark:text-zinc-400'}`}>
+            {feedback || 'Configure e clique em processar envio.'}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => saveAutomationConfig('SAVE_ONLY')}
+              disabled={isSavingConfig || isLoadingConfig || !activeEnterprise?.id}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-60 text-slate-700 text-xs font-black uppercase tracking-widest"
+            >
+              {isSavingConfig && savingConfigAction === 'SAVE_ONLY' ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              Salvar Perfil
+            </button>
+            <button
+              type="button"
+              onClick={() => saveAutomationConfig('SAVE_AND_SCHEDULE')}
+              disabled={isSavingConfig || isLoadingConfig || !activeEnterprise?.id}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-60 text-slate-700 text-xs font-black uppercase tracking-widest"
+            >
+              {isSavingConfig && savingConfigAction === 'SAVE_AND_SCHEDULE' ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              Agenda Envios
+            </button>
+            <button
+              type="button"
+              onClick={iniciarDisparoEmMassa}
+              disabled={isSending || isLoadingRecipients || isLoadingConfig}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-400 hover:bg-slate-500 disabled:bg-slate-300 text-white text-xs font-black uppercase tracking-widest"
+            >
+              {isSending ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+              {isSending ? 'Processando...' : 'Processar envio'}
+            </button>
+          </div>
+        </div>
       </section>
 
       <section className="rounded-[24px] border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 shadow-[0_16px_38px_-28px_rgba(15,23,42,0.6)]">

@@ -1724,10 +1724,32 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
     }
     try {
       const data = await ApiService.getWhatsAppChats();
-      const nextChats = (Array.isArray(data?.chats) ? data.chats : []).map((chat: ChatSummary) => ({
+      const rawChats = (Array.isArray(data?.chats) ? data.chats : []).map((chat: ChatSummary) => ({
         ...chat,
         lastTimestamp: normalizeTimestampMs((chat as any)?.lastTimestamp) || 0,
       }));
+
+      // Secondary deduplication on the frontend: collapse chats that refer to
+      // the same contact using phone variants (with/without country code, etc.)
+      // and keep the most recent entry to avoid duplicate rows in CONVERSAS.
+      const nextChats = rawChats.reduce<ChatSummary[]>((acc, chat) => {
+        const chatDigits = resolveChatPhoneDigits(chat);
+        const existingIndex = acc.findIndex((existing) => {
+          const existingDigits = resolveChatPhoneDigits(existing);
+          if (chatDigits && existingDigits) {
+            return hasPhoneVariantIntersection(chatDigits, existingDigits);
+          }
+          return String(existing.chatId || '') === String(chat.chatId || '');
+        });
+        if (existingIndex === -1) {
+          acc.push(chat);
+          return acc;
+        }
+        if (Number(chat.lastTimestamp || 0) >= Number(acc[existingIndex].lastTimestamp || 0)) {
+          acc[existingIndex] = chat;
+        }
+        return acc;
+      }, []);
       setChats(nextChats);
       const backendChatIds = new Set(nextChats.map((chat: ChatSummary) => chat.chatId));
       setDraftChats((prev: ChatSummary[]) => prev.filter((draft: ChatSummary) => {
@@ -1823,7 +1845,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
       setAiHandoffRequests(nextRequests);
 
       nextRequests.forEach((request: AiHandoffRequest) => {
-        const id = String(request?.id || '').trim();
+        const id = String(requestá.id || '').trim();
         if (!id) return;
         if (notifiedHandoffIdsRef.current.has(id)) return;
         notifiedHandoffIdsRef.current.add(id);
@@ -2079,7 +2101,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
   };
 
   const handleAiHandoffDecision = async (request: AiHandoffRequest, accept: boolean) => {
-    const requestId = String(request?.id || '').trim();
+    const requestId = String(requestá.id || '').trim();
     if (!requestId) return;
     try {
       await ApiService.decideWhatsAppAiHandoffRequest(requestId, accept);
@@ -5939,7 +5961,11 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ currentUser, activeEnterpri
 
   const findExistingChatByPhone = (phone: string) => {
     const variants = Array.from(buildPhoneVariants(phone));
-    return chats.find((chat) => variants.some((variant) => chat.phone === variant || chat.chatId === `${variant}@c.us`)) || null;
+    const inChats = chats.find((chat) => variants.some((variant) => chat.phone === variant || chat.chatId === `${variant}@c.us`));
+    if (inChats) return inChats;
+    // Also check draft conversations so opening the same contact twice does not
+    // create a duplicate draft entry in the CONVERSAS list.
+    return draftChats.find((draft) => variants.some((variant) => draft.phone === variant || draft.chatId === `${variant}@c.us`)) || null;
   };
 
   const openDraftConversation = (params: {

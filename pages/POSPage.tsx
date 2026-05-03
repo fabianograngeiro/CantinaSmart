@@ -1826,9 +1826,6 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     setServiceActionType('CREDIT_STUDENT');
     setServiceActionAmount('');
     setServiceActionPayerResponsibleId('');
-    setStudentCreditPlanIds([]);
-    setStudentCreditPlanDays({});
-    setStudentCreditPlanDates({});
     setStudentCreditOpenCalendarId(null);
     setStudentCreditCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
     setIsServiceActionModalOpen(true);
@@ -1977,14 +1974,19 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
     setServiceActionType(null);
     setServiceActionAmount('');
     setServiceActionPayerResponsibleId('');
-    setStudentCreditPlanIds([]);
-    setStudentCreditPlanDays({});
-    setStudentCreditPlanDates({});
     setStudentCreditPlanPreviewByPlanId({});
     setIsStudentCreditPlanPreviewLoading(false);
     setStudentCreditOpenCalendarId(null);
     setStudentCreditCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   };
+
+  useEffect(() => {
+    setStudentCreditPlanIds([]);
+    setStudentCreditPlanDays({});
+    setStudentCreditPlanDates({});
+    setStudentCreditPlanPreviewByPlanId({});
+    setStudentCreditOpenCalendarId(null);
+  }, [selectedClient?.id]);
 
   useEffect(() => {
     if (!isServiceActionModalOpen || serviceActionType !== 'CREDIT_STUDENT' || !selectedClient) {
@@ -2076,12 +2078,7 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
 
     if (serviceActionType === 'CREDIT_STUDENT') {
       const studentResponsibles = getStudentResponsiblesForPdv(selectedClient);
-      const hasMultipleResponsibles = studentResponsibles.length > 1;
       const selectedPayerResponsible = studentResponsibles.find((r) => r.id === serviceActionPayerResponsibleId);
-      if (hasMultipleResponsibles && !selectedPayerResponsible) {
-        alert('Selecione o responsável pagante antes de confirmar os créditos.');
-        return;
-      }
       const validFreeAmount = Number.isFinite(freeAmount) && freeAmount > 0 ? freeAmount : 0;
       const previewByPlanId = { ...studentCreditPlanPreviewByPlanId } as Record<string, any>;
 
@@ -2212,7 +2209,33 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   };
 
   const removeFromCart = (productId: string) => {
+    const removedPlanMatch = productId.match(/^SERVICE_CREDIT_STUDENT_PLAN_(.+?)_\d+$/);
+    const removedPlanId = removedPlanMatch?.[1] || '';
+
     setCart(prev => prev.filter(item => item.productId !== productId));
+
+    if (removedPlanId) {
+      setStudentCreditPlanIds((prev) => prev.filter((id) => id !== removedPlanId));
+      setStudentCreditPlanDays((prev) => {
+        if (!prev[removedPlanId]) return prev;
+        const next = { ...prev };
+        delete next[removedPlanId];
+        return next;
+      });
+      setStudentCreditPlanDates((prev) => {
+        if (!prev[removedPlanId]) return prev;
+        const next = { ...prev };
+        delete next[removedPlanId];
+        return next;
+      });
+      setStudentCreditPlanPreviewByPlanId((prev) => {
+        if (!prev[removedPlanId]) return prev;
+        const next = { ...prev };
+        delete next[removedPlanId];
+        return next;
+      });
+      setStudentCreditOpenCalendarId((prev) => (prev === removedPlanId ? null : prev));
+    }
   };
 
   const changeCartItemQuantity = (productId: string, delta: number) => {
@@ -3421,12 +3444,10 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
   const canConfirmServiceAction = useMemo(() => {
     if (serviceActionType === 'CREDIT_STUDENT') {
       const hasCreditInput = serviceActionAmountNumeric > 0 || selectedPlanCreditCount > 0;
-      if (!selectedClient || String(selectedClient.type || '').toUpperCase() !== 'ALUNO') return hasCreditInput;
-      const requiresPayerSelection = getStudentResponsiblesForPdv(selectedClient).length > 1;
-      return hasCreditInput && (!requiresPayerSelection || Boolean(serviceActionPayerResponsibleId));
+      return hasCreditInput;
     }
     return serviceActionAmountNumeric > 0;
-  }, [serviceActionType, serviceActionAmountNumeric, selectedPlanCreditCount, selectedClient, serviceActionPayerResponsibleId]);
+  }, [serviceActionType, serviceActionAmountNumeric, selectedPlanCreditCount]);
 
   const pendingCantinaDiscount = useMemo(() => {
     if (!selectedClient || selectedClient.type === 'COLABORADOR') return 0;
@@ -4012,23 +4033,16 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
                    <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">
                      Responsável que está pagando
                    </p>
-                   <div className="flex flex-col gap-1.5">
+                   <select
+                     value={salePayerResponsibleId}
+                     onChange={(e) => setSalePayerResponsibleId(e.target.value)}
+                     className="w-full px-3 py-2 rounded-lg border border-indigo-200 bg-white text-slate-700 text-[11px] font-bold outline-none focus:border-indigo-400"
+                   >
+                     <option value="">Clique aqui para escolher o responsável...</option>
                      {saleResponsibles.map((resp) => (
-                       <button
-                         key={resp.id}
-                         type="button"
-                         onClick={() => setSalePayerResponsibleId((prev) => prev === resp.id ? '' : resp.id)}
-                         className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left text-[11px] font-bold transition-all ${
-                           salePayerResponsibleId === resp.id
-                             ? 'border-indigo-500 bg-indigo-600 text-white'
-                             : 'border-indigo-200 bg-white text-slate-700 hover:bg-indigo-50'
-                         }`}
-                       >
-                         <span className={`w-3 h-3 rounded-full border-2 shrink-0 ${salePayerResponsibleId === resp.id ? 'border-white bg-white' : 'border-indigo-400 bg-transparent'}`} />
-                         {resp.parentName}
-                       </button>
+                       <option key={resp.id} value={resp.id}>{resp.parentName}</option>
                      ))}
-                   </div>
+                   </select>
                    {hasNonSaldoPayment && !salePayerResponsibleId && (
                      <p className="text-[10px] font-black text-rose-600 uppercase tracking-wider">
                        Selecione o responsável para finalizar.
@@ -4823,41 +4837,6 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
              <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto">
                 {serviceActionType === 'CREDIT_STUDENT' ? (
                   <>
-                    {(() => {
-                      const responsibles = getStudentResponsiblesForPdv(selectedClient);
-                      if (responsibles.length <= 1) return null;
-                      return (
-                        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-                          <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">
-                            Obrigatório selecionar o responsável pagante antes de confirmar os créditos.
-                          </p>
-                        </div>
-                      );
-                    })()}
-
-                    {(() => {
-                      const responsibles = getStudentResponsiblesForPdv(selectedClient);
-                      if (responsibles.length <= 1) return null;
-                      return (
-                        <div className="space-y-2">
-                          <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Responsável Pagante</h3>
-                          <select
-                            value={serviceActionPayerResponsibleId}
-                            onChange={(e) => setServiceActionPayerResponsibleId(e.target.value)}
-                            className="w-full px-4 py-3 bg-indigo-50 border-2 border-indigo-100 rounded-xl outline-none focus:border-indigo-400 text-sm font-black text-indigo-700"
-                          >
-                            <option value="">Clique aqui para escolher o responsável pagante...</option>
-                            {responsibles.map((resp) => (
-                              <option key={resp.id} value={resp.id}>{resp.parentName}</option>
-                            ))}
-                          </select>
-                          {!serviceActionPayerResponsibleId && (
-                            <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Seleção obrigatória para finalizar créditos.</p>
-                          )}
-                        </div>
-                      );
-                    })()}
-
                     <div className="space-y-4">
                       <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Crédito Livre Cantina</h3>
                       <div className="space-y-2">

@@ -4009,7 +4009,7 @@ export class Database {
 
     this.transactions.push(newTransaction);
 
-    // Se for cr?dito de plano com datas selecionadas, persistir agenda no aluno
+    // Se for crédito de plano com datas selecionadas, persistir agenda no aluno
     const isPlanCredit = normalizedType === 'CREDIT' || normalizedType === 'CREDITO';
     if (isPlanCredit) {
       const clientId = String(newTransaction?.clientId || '').trim();
@@ -4061,7 +4061,7 @@ export class Database {
       }
     }
 
-    // Consumos retroativos vinculados ao cr?dito do plano (datas j? passadas)
+    // Consumos retroativos vinculados ao crédito do plano (datas já passadas)
     if (isPlanCredit) {
       const retroDatesFromPayload: string[] = Array.isArray((newTransaction as any)?.retroactiveConsumedDates)
         ? (newTransaction as any).retroactiveConsumedDates
@@ -4193,7 +4193,7 @@ export class Database {
       }
     }
 
-    // Recalcula saldos/agenda de planos para refletir novos cr?ditos/consumos
+    // Recalcula saldos/agenda de planos para refletir novos créditos/consumos
     this.clients = this.clients.map((client) => {
       const normalized = this.normalizeClientPlanBalances(client);
       const rebuilt = this.rebuildClientPlanBalancesFromTransactions(normalized);
@@ -4369,7 +4369,7 @@ export class Database {
       return Boolean(txId) && idsToDelete.has(txId);
     });
 
-    // Cr?ditos de plano com datas selecionadas: usado para remover agendamentos pendentes
+    // Créditos de plano com datas selecionadas: usado para remover agendamentos pendentes
     const planCreditDatesByClient = new Map<string, Array<{ planId: string; planToken: string; dates: Set<string> }>>();
     removedTransactions.forEach((tx: any) => {
       const txType = this.normalizeToken(tx?.type);

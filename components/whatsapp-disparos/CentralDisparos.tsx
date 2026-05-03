@@ -74,7 +74,12 @@ const CentralDisparos: React.FC<CentralDisparosProps> = ({ activeEnterprise }) =
         </div>
       </div>
 
-      {activeSubTab === 'DISPARO_UNICO' && <DisparoUnicoForm />}
+      {activeSubTab === 'DISPARO_UNICO' && (
+        <DisparoUnicoForm
+          activeEnterprise={activeEnterprise}
+          onOpenProfileTab={() => setActiveSubTab('PERFIL_DISPARO')}
+        />
+      )}
       {activeSubTab === 'DISPARO_MASSA' && (
         <DisparoEmMassa
           activeEnterprise={activeEnterprise}

@@ -1,4 +1,4 @@
-import path from 'path';
+﻿import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import makeWASocket, {
@@ -403,7 +403,7 @@ class WhatsAppSessionManager {
     mode: 'SAFE',
     phase: 'IDLE',
     progressPct: 0,
-    message: 'Sem sincronização em andamento.',
+    message: 'Sem sincronizaÃƒÂ§ÃƒÂ£o em andamento.',
     startedAt: null,
     finishedAt: null,
     elapsedSec: 0,
@@ -438,16 +438,16 @@ class WhatsAppSessionManager {
     onlyOutsideBusinessHours: false,
     responseDelaySeconds: 2,
     conversationSessionMinutes: 60,
-    globalPrompt: 'Você é o assistente da cantina. Responda de forma clara, educada e objetiva, usando dados reais do sistema quando disponíveis. Nunca ofereça ações destrutivas e nunca exponha dados de contatos fora do responsável atual e seus relacionados.',
+    globalPrompt: 'VocÃƒÂª ÃƒÂ© o assistente da cantina. Responda de forma clara, educada e objetiva, usando dados reais do sistema quando disponÃƒÂ­veis. Nunca ofereÃƒÂ§a aÃƒÂ§ÃƒÂµes destrutivas e nunca exponha dados de contatos fora do responsÃƒÂ¡vel atual e seus relacionados.',
     contexts: [
       {
         id: 1,
         name: 'Atendimento Geral',
-        description: 'Fluxo padrão para dúvidas de saldo, consumo e mensagens rápidas.',
+        description: 'Fluxo padrÃƒÂ£o para dÃƒÂºvidas de saldo, consumo e mensagens rÃƒÂ¡pidas.',
         enabled: true,
         conditionKeywords: ['saldo', 'consumo', 'relatorio', 'cantina'],
-        prompt: 'Sempre chame o responsável pelo nome e priorize informar saldo atual e próximo passo.',
-        responsePrompt: 'Responda com dados reais do sistema, de forma objetiva e em português do Brasil.',
+        prompt: 'Sempre chame o responsÃƒÂ¡vel pelo nome e priorize informar saldo atual e prÃƒÂ³ximo passo.',
+        responsePrompt: 'Responda com dados reais do sistema, de forma objetiva e em portuguÃƒÂªs do Brasil.',
         dataSelections: ['NOME', 'RESPONSAVEL_SETOR', 'TELEFONE_RESPONSAVEL', 'SALDO_CARTEIRA', 'SALDO_PLANOS'],
         actionType: 'RESPONDER_CLIENTE',
         routingMode: 'INTENT_SWITCH',
@@ -455,38 +455,38 @@ class WhatsAppSessionManager {
           {
             id: 101,
             name: 'Consultar Nome',
-            description: 'Confirma nome do aluno/colaborador e responsável.',
+            description: 'Confirma nome do aluno/colaborador e responsÃƒÂ¡vel.',
             enabled: true,
             conditionKeywords: ['nome', 'quem'],
             dataSelections: ['NOME', 'RESPONSAVEL_SETOR', 'TELEFONE_RESPONSAVEL', 'TIPO_CONTATO'],
-            responsePrompt: 'Confirme nome do aluno/colaborador e nome do responsável.',
+            responsePrompt: 'Confirme nome do aluno/colaborador e nome do responsÃƒÂ¡vel.',
           },
           {
             id: 102,
             name: 'Consultar Saldo Cantina',
             description: 'Informa saldo de carteira e planos.',
             enabled: true,
-            conditionKeywords: ['saldo', 'carteira', 'credito', 'crédito', 'plano'],
+            conditionKeywords: ['saldo', 'carteira', 'credito', 'crÃƒÂ©dito', 'plano'],
             dataSelections: ['NOME', 'RESPONSAVEL_SETOR', 'SALDO_CARTEIRA', 'SALDO_PLANOS', 'DATA_INICIAL', 'DATA_FINAL'],
             responsePrompt: 'Informe saldo da carteira e dos planos de forma clara.',
           },
           {
             id: 103,
-            name: 'Consultar Relatório de Consumo',
-            description: 'Mostra consumos e transações conforme período solicitado.',
+            name: 'Consultar RelatÃƒÂ³rio de Consumo',
+            description: 'Mostra consumos e transaÃƒÂ§ÃƒÂµes conforme perÃƒÂ­odo solicitado.',
             enabled: true,
-            conditionKeywords: ['consumo', 'gasto', 'transacao', 'transações', 'extrato', 'relatorio', 'relatório'],
+            conditionKeywords: ['consumo', 'gasto', 'transacao', 'transaÃƒÂ§ÃƒÂµes', 'extrato', 'relatorio', 'relatÃƒÂ³rio'],
             dataSelections: ['NOME', 'RESPONSAVEL_SETOR', 'TRANSACOES', 'SALDO_CARTEIRA', 'SALDO_PLANOS', 'DATA_INICIAL', 'DATA_FINAL'],
-            responsePrompt: 'Liste os consumos e transações do período pedido. Se não houver período, pergunte o período desejado.',
+            responsePrompt: 'Liste os consumos e transaÃƒÂ§ÃƒÂµes do perÃƒÂ­odo pedido. Se nÃƒÂ£o houver perÃƒÂ­odo, pergunte o perÃƒÂ­odo desejado.',
           },
           {
             id: 104,
-            name: 'Não corresponde a nenhum',
-            description: 'Fallback quando não casar com regras anteriores.',
+            name: 'NÃƒÂ£o corresponde a nenhum',
+            description: 'Fallback quando nÃƒÂ£o casar com regras anteriores.',
             enabled: true,
             conditionKeywords: [],
             dataSelections: [],
-            responsePrompt: 'Se a solicitação não se enquadrar, faça pergunta de esclarecimento antes de responder.',
+            responsePrompt: 'Se a solicitaÃƒÂ§ÃƒÂ£o nÃƒÂ£o se enquadrar, faÃƒÂ§a pergunta de esclarecimento antes de responder.',
           },
         ],
       }
@@ -505,13 +505,13 @@ class WhatsAppSessionManager {
   constructor() {
     this.loadPersistedSyncDiagnostics();
     this.loadPersistedChatHistory().catch((err) => {
-      this.logWarn('Falha ao carregar histórico persistido do WhatsApp na inicialização.', err);
+      this.logWarn('Falha ao carregar histÃƒÂ³rico persistido do WhatsApp na inicializaÃƒÂ§ÃƒÂ£o.', err);
     });
     this.loadScheduledMessages().catch((err) => {
-      this.logWarn('Falha ao carregar mensagens agendadas na inicialização.', err);
+      this.logWarn('Falha ao carregar mensagens agendadas na inicializaÃƒÂ§ÃƒÂ£o.', err);
     });
     this.loadAiConfig().catch((err) => {
-      this.logWarn('Falha ao carregar configuração de AI na inicialização.', err);
+      this.logWarn('Falha ao carregar configuraÃƒÂ§ÃƒÂ£o de AI na inicializaÃƒÂ§ÃƒÂ£o.', err);
     });
     this.scheduleTimer = setInterval(() => {
       if (this.isSyncProtectionActive()) {
@@ -525,7 +525,7 @@ class WhatsAppSessionManager {
       this.processAiAgentAutoResumeTimers();
       this.pruneExpiredAiHumanHandoffRequests();
       this.processAiHumanHandoffAutoAccept().catch((err) => {
-        this.logWarn('Falha ao autoaceitar solicitações pendentes de handoff IA.', err instanceof Error ? err.message : err);
+        this.logWarn('Falha ao autoaceitar solicitaÃƒÂ§ÃƒÂµes pendentes de handoff IA.', err instanceof Error ? err.message : err);
       });
     }, 5000);
   }
@@ -538,7 +538,7 @@ class WhatsAppSessionManager {
     this.chatPersistTimer = setTimeout(() => {
       this.chatPersistTimer = null;
       this.persistChatHistory().catch((err) => {
-        this.logWarn('Falha ao persistir histórico de conversas.', err);
+        this.logWarn('Falha ao persistir histÃƒÂ³rico de conversas.', err);
       });
     }, persistDelayMs);
   }
@@ -573,7 +573,7 @@ class WhatsAppSessionManager {
           .filter(([reason]) => Boolean(reason))
       );
     } catch (err) {
-      this.logWarn('Falha ao carregar diagnóstico de quarentena de sync.', err instanceof Error ? err.message : err);
+      this.logWarn('Falha ao carregar diagnÃƒÂ³stico de quarentena de sync.', err instanceof Error ? err.message : err);
       this.syncDiscardedEvents = [];
       this.syncDiscardedCounters = new Map();
     }
@@ -634,7 +634,7 @@ class WhatsAppSessionManager {
           const rawLegacy = await fs.readFile(WhatsAppSessionManager.LEGACY_CHAT_HISTORY_FILE_PATH, 'utf-8');
           parsed = JSON.parse(rawLegacy || '{}');
           db.updateWhatsAppStore({ history: parsed });
-          this.logInfo('Histórico WhatsApp migrado do arquivo legado para database.json.');
+          this.logInfo('HistÃƒÂ³rico WhatsApp migrado do arquivo legado para database.json.');
         } catch (_legacyErr: any) {
           parsed = {};
         }
@@ -670,12 +670,12 @@ class WhatsAppSessionManager {
         this.messageMap.set(jid, normalized);
       }
 
-      this.logInfo('Histórico de conversas restaurado do disco.', {
+      this.logInfo('HistÃƒÂ³rico de conversas restaurado do disco.', {
         chats: this.chatMap.size,
         messages: Array.from(this.messageMap.values()).reduce((acc, list) => acc + list.length, 0)
       });
     } catch (err: any) {
-      this.logWarn('Falha ao ler histórico persistido do WhatsApp.', err);
+      this.logWarn('Falha ao ler histÃƒÂ³rico persistido do WhatsApp.', err);
     }
   }
 
@@ -742,7 +742,7 @@ class WhatsAppSessionManager {
     this.aiAgentEnabledChats.delete(chatJid);
     this.aiAgentAutoResumeAtByChat.set(chatJid, until);
     await this.persistChatHistory();
-    this.logInfo('Agente IA pausado temporariamente por ação humana.', {
+    this.logInfo('Agente IA pausado temporariamente por aÃƒÂ§ÃƒÂ£o humana.', {
       chatId: this.toExternalChatId(chatJid),
       reason,
       resumeAt: new Date(until).toISOString()
@@ -758,14 +758,14 @@ class WhatsAppSessionManager {
       this.aiAgentAutoResumeAtByChat.delete(jid);
       this.aiAgentEnabledChats.add(jid);
       changed = true;
-      this.logInfo('Agente IA reativado automaticamente após cooldown.', {
+      this.logInfo('Agente IA reativado automaticamente apÃƒÂ³s cooldown.', {
         chatId: this.toExternalChatId(jid),
         resumedAt: new Date(now).toISOString()
       });
     }
     if (changed) {
       this.persistChatHistory().catch((err) => {
-        this.logWarn('Falha ao persistir reativação automática do agente IA.', err instanceof Error ? err.message : err);
+        this.logWarn('Falha ao persistir reativaÃƒÂ§ÃƒÂ£o automÃƒÂ¡tica do agente IA.', err instanceof Error ? err.message : err);
       });
     }
   }
@@ -790,7 +790,7 @@ class WhatsAppSessionManager {
       changed = true;
     }
     if (changed) {
-      this.logInfo('Solicitações pendentes de handoff IA expiradas automaticamente.', {
+      this.logInfo('SolicitaÃƒÂ§ÃƒÂµes pendentes de handoff IA expiradas automaticamente.', {
         totalPending: Array.from(this.aiHumanHandoffRequestsById.values()).filter((entry) => entry.status === 'pending').length
       });
     }
@@ -820,8 +820,8 @@ class WhatsAppSessionManager {
       /^blz$/,
       /^beleza$/,
       /^show$/,
-      /^👍+$/,
-      /^🙏+$/,
+      /^Ã°Å¸â€˜Â+$/,
+      /^Ã°Å¸â„¢Â+$/,
       /^boa noite$/,
       /^bom dia$/,
       /^boa tarde$/,
@@ -839,7 +839,7 @@ class WhatsAppSessionManager {
 
     const heuristicIntent = this.isFinancialIntentMessage(text)
       || this.shouldAutoSendClientReportPdf(text)
-      || /(\?|quero|preciso|ajuda|duvida|dúvida|saldo|consumo|relatorio|relatório|pedido|valor|como|quando|onde|problema|suporte)/i.test(text);
+      || /(\?|quero|preciso|ajuda|duvida|dÃƒÂºvida|saldo|consumo|relatorio|relatÃƒÂ³rio|pedido|valor|como|quando|onde|problema|suporte)/i.test(text);
 
     const provider: AiProvider = this.aiConfig.provider === 'gemini'
       ? 'gemini'
@@ -861,10 +861,10 @@ class WhatsAppSessionManager {
     }
 
     const selectorSystem = [
-      'Você classifica se uma mensagem de cliente precisa atendimento automático por IA.',
-      'Retorne APENAS JSON válido no formato {"shouldRespond":boolean,"reason":"string","confidence":number}.',
-      'Use shouldRespond=true quando houver pergunta, pedido, dúvida, solicitação de suporte, saldo, consumo ou relatório.',
-      'Use shouldRespond=false para mensagens de cortesia sem solicitação objetiva.',
+      'VocÃƒÂª classifica se uma mensagem de cliente precisa atendimento automÃƒÂ¡tico por IA.',
+      'Retorne APENAS JSON vÃƒÂ¡lido no formato {"shouldRespond":boolean,"reason":"string","confidence":number}.',
+      'Use shouldRespond=true quando houver pergunta, pedido, dÃƒÂºvida, solicitaÃƒÂ§ÃƒÂ£o de suporte, saldo, consumo ou relatÃƒÂ³rio.',
+      'Use shouldRespond=false para mensagens de cortesia sem solicitaÃƒÂ§ÃƒÂ£o objetiva.',
     ].join(' ');
 
     const selectorUser = JSON.stringify({
@@ -888,7 +888,7 @@ class WhatsAppSessionManager {
       const reason = String(parsed?.reason || '').trim() || (shouldRespond ? 'ai_positive' : 'ai_negative');
       return { shouldRequest: shouldRespond, reason };
     } catch (err) {
-      this.logWarn('Falha ao classificar handoff IA; aplicando heurística local.', err instanceof Error ? err.message : err);
+      this.logWarn('Falha ao classificar handoff IA; aplicando heurÃƒÂ­stica local.', err instanceof Error ? err.message : err);
       return { shouldRequest: heuristicIntent, reason: heuristicIntent ? 'heuristic_positive_after_ai_error' : 'heuristic_negative_after_ai_error' };
     }
   }
@@ -941,13 +941,13 @@ class WhatsAppSessionManager {
         };
         this.aiHumanHandoffRequestsById.set(id, request);
         this.aiHumanHandoffPendingIdByChat.set(chatJid, id);
-        this.logInfo('Solicitação de aprovação humana para IA criada.', {
+        this.logInfo('SolicitaÃƒÂ§ÃƒÂ£o de aprovaÃƒÂ§ÃƒÂ£o humana para IA criada.', {
           chatId: request.chatId,
           contactName: request.contactName,
           reason: analysis.reason,
         });
       } catch (err) {
-        this.logWarn('Falha ao avaliar handoff IA após timeout configurado.', err instanceof Error ? err.message : err);
+        this.logWarn('Falha ao avaliar handoff IA apÃƒÂ³s timeout configurado.', err instanceof Error ? err.message : err);
       }
     }, WhatsAppSessionManager.AI_HUMAN_HANDOFF_WAIT_MS);
 
@@ -986,7 +986,7 @@ class WhatsAppSessionManager {
       for (const request of shouldAutoAccept) {
         try {
           await this.decideAiHumanHandoffRequest(request.id, true, 'auto_timeout_without_human_decision');
-          this.logInfo('Handoff IA autoaceito por ausência de decisão humana no tempo configurado.', {
+          this.logInfo('Handoff IA autoaceito por ausÃƒÂªncia de decisÃƒÂ£o humana no tempo configurado.', {
             chatId: request.chatId,
             contactName: request.contactName,
           });
@@ -1002,10 +1002,10 @@ class WhatsAppSessionManager {
   async decideAiHumanHandoffRequest(id: string, accept: boolean, decisionReason?: string) {
     this.pruneExpiredAiHumanHandoffRequests();
     const targetId = String(id || '').trim();
-    if (!targetId) throw new Error('Solicitação inválida.');
+    if (!targetId) throw new Error('SolicitaÃƒÂ§ÃƒÂ£o invÃƒÂ¡lida.');
     const request = this.aiHumanHandoffRequestsById.get(targetId);
     if (!request || request.status !== 'pending') {
-      throw new Error('Solicitação não encontrada ou já finalizada.');
+      throw new Error('SolicitaÃƒÂ§ÃƒÂ£o nÃƒÂ£o encontrada ou jÃƒÂ¡ finalizada.');
     }
 
     request.status = accept ? 'accepted' : 'rejected';
@@ -1042,15 +1042,15 @@ class WhatsAppSessionManager {
   }
 
   private logInfo(message: string, meta?: unknown) {
-    console.log(`ℹ️ [WHATSAPP/BAILEYS] ${message}`, meta ?? '');
+    console.log(`Ã¢â€žÂ¹Ã¯Â¸Â [WHATSAPP/BAILEYS] ${message}`, meta ?? '');
   }
 
   private logWarn(message: string, meta?: unknown) {
-    console.warn(`⚠️ [WHATSAPP/BAILEYS] ${message}`, meta ?? '');
+    console.warn(`Ã¢Å¡Â Ã¯Â¸Â [WHATSAPP/BAILEYS] ${message}`, meta ?? '');
   }
 
   private logError(message: string, error?: unknown) {
-    console.error(`❌ [WHATSAPP/BAILEYS] ${message}`, error ?? '');
+    console.error(`Ã¢ÂÅ’ [WHATSAPP/BAILEYS] ${message}`, error ?? '');
   }
 
   private isSyncProtectionActive() {
@@ -1080,12 +1080,12 @@ class WhatsAppSessionManager {
   private getSyncThrottledFeatures() {
     if (!this.sessionConfig.safeSyncMode) return [] as string[];
     return [
-      'respostas IA automáticas',
+      'respostas IA automÃƒÂ¡ticas',
       'timers de handoff IA',
       'processamento de agendamentos',
-      'download de mídia do histórico',
+      'download de mÃƒÂ­dia do histÃƒÂ³rico',
       'refresh de foto de perfil',
-      'ingestão de mensagens em lote com intervalo',
+      'ingestÃƒÂ£o de mensagens em lote com intervalo',
     ];
   }
 
@@ -1184,8 +1184,8 @@ class WhatsAppSessionManager {
       phase: 'BOOTSTRAP',
       progressPct: 5,
       message: this.sessionConfig.safeSyncMode
-        ? 'Modo protegido ativo: reduzindo processos paralelos para priorizar sincronização.'
-        : 'Preparando sincronização da sessão WhatsApp.',
+        ? 'Modo protegido ativo: reduzindo processos paralelos para priorizar sincronizaÃƒÂ§ÃƒÂ£o.'
+        : 'Preparando sincronizaÃƒÂ§ÃƒÂ£o da sessÃƒÂ£o WhatsApp.',
       startedAt: now,
       finishedAt: null,
       elapsedSec: 0,
@@ -1207,7 +1207,7 @@ class WhatsAppSessionManager {
       if (this.syncProgress.phase !== 'FINALIZING' && quietForMs >= WhatsAppSessionManager.SYNC_ACTIVITY_QUIET_WINDOW_MS && this.syncProgress.elapsedSec >= minElapsedSec) {
         this.setSyncRuntimePhase(
           'FINALIZING',
-          `Finalizando sincronização: ${this.syncProgress.restoredConversations} conversas restauradas.`,
+          `Finalizando sincronizaÃƒÂ§ÃƒÂ£o: ${this.syncProgress.restoredConversations} conversas restauradas.`,
           96
         );
       }
@@ -1217,11 +1217,11 @@ class WhatsAppSessionManager {
           || this.syncProgress.processedMessages > 0;
         const allowFallbackByTime = this.syncProgress.elapsedSec >= (this.sessionConfig.syncFullHistory ? 90 : 25);
         if (hasRestoredMinimum || allowFallbackByTime) {
-          this.completeSyncRuntime('Sincronização concluída. Histórico de conversas disponível na aba Conversas.');
+          this.completeSyncRuntime('SincronizaÃƒÂ§ÃƒÂ£o concluÃƒÂ­da. HistÃƒÂ³rico de conversas disponÃƒÂ­vel na aba Conversas.');
         } else {
           this.setSyncRuntimePhase(
             'FINALIZING',
-            'Aguardando restauração final do histórico de conversas para concluir 100%...',
+            'Aguardando restauraÃƒÂ§ÃƒÂ£o final do histÃƒÂ³rico de conversas para concluir 100%...',
             96
           );
         }
@@ -1239,14 +1239,14 @@ class WhatsAppSessionManager {
     if (contactsDelta > 0) this.syncProgress.processedContacts += contactsDelta;
     if (messagesDelta > 0) this.syncProgress.processedMessages += messagesDelta;
     if (this.syncProgress.phase === 'CONNECTING' || this.syncProgress.phase === 'BOOTSTRAP') {
-      this.setSyncRuntimePhase('SYNCING_HISTORY', 'Sincronizando histórico de conversas...', 72);
+      this.setSyncRuntimePhase('SYNCING_HISTORY', 'Sincronizando histÃƒÂ³rico de conversas...', 72);
     }
   }
 
   private setSyncRuntimePhase(phase: SyncPhase, message: string, minProgress?: number) {
     if (!this.syncProgress.active) return;
     this.syncProgress.phase = phase;
-    this.syncProgress.message = String(message || this.syncProgress.message || '').trim() || 'Sincronização em andamento...';
+    this.syncProgress.message = String(message || this.syncProgress.message || '').trim() || 'SincronizaÃƒÂ§ÃƒÂ£o em andamento...';
     if (Number.isFinite(Number(minProgress))) {
       const next = Math.max(0, Math.min(100, Math.round(Number(minProgress))));
       if (next > this.syncProgress.progressPct) {
@@ -1261,7 +1261,7 @@ class WhatsAppSessionManager {
     this.syncProgress.active = false;
     this.syncProgress.phase = 'DONE';
     this.syncProgress.progressPct = 100;
-    this.syncProgress.message = String(message || '').trim() || 'Sincronização concluída.';
+    this.syncProgress.message = String(message || '').trim() || 'SincronizaÃƒÂ§ÃƒÂ£o concluÃƒÂ­da.';
     this.syncProgress.finishedAt = Date.now();
     this.syncProgress.elapsedSec = this.syncProgress.startedAt
       ? Math.max(0, Math.floor((this.syncProgress.finishedAt - this.syncProgress.startedAt) / 1000))
@@ -1275,7 +1275,7 @@ class WhatsAppSessionManager {
     this.syncProgress.active = false;
     this.syncProgress.phase = 'ERROR';
     this.syncProgress.progressPct = Math.max(5, this.syncProgress.progressPct);
-    this.syncProgress.message = String(message || '').trim() || 'Falha na sincronização.';
+    this.syncProgress.message = String(message || '').trim() || 'Falha na sincronizaÃƒÂ§ÃƒÂ£o.';
     this.syncProgress.finishedAt = Date.now();
     this.syncProgress.elapsedSec = this.syncProgress.startedAt
       ? Math.max(0, Math.floor((this.syncProgress.finishedAt - this.syncProgress.startedAt) / 1000))
@@ -1365,7 +1365,7 @@ class WhatsAppSessionManager {
         mediaDataUrl = `data:${mimeType || 'application/octet-stream'};base64,${buffer.toString('base64')}`;
       }
     } catch (err) {
-      this.logWarn('Falha ao baixar mídia da mensagem para visualização.', err instanceof Error ? err.message : err);
+      this.logWarn('Falha ao baixar mÃƒÂ­dia da mensagem para visualizaÃƒÂ§ÃƒÂ£o.', err instanceof Error ? err.message : err);
     }
 
     return {
@@ -1590,7 +1590,7 @@ class WhatsAppSessionManager {
           const rawLegacy = await fs.readFile(WhatsAppSessionManager.LEGACY_AI_CONFIG_FILE_PATH, 'utf-8');
           parsed = JSON.parse(rawLegacy || '{}');
           db.updateWhatsAppStore({ aiConfig: parsed });
-          this.logInfo('Configuração AI WhatsApp migrada do arquivo legado para database.json.');
+          this.logInfo('ConfiguraÃƒÂ§ÃƒÂ£o AI WhatsApp migrada do arquivo legado para database.json.');
         } catch (_legacyErr: any) {
           parsed = null;
         }
@@ -1598,7 +1598,7 @@ class WhatsAppSessionManager {
       if (parsed && typeof parsed === 'object') {
         this.aiConfig = this.sanitizeAiConfig(parsed);
       }
-      this.logInfo('Configuração de AI carregada do disco.', {
+      this.logInfo('ConfiguraÃƒÂ§ÃƒÂ£o de AI carregada do disco.', {
         contexts: this.aiConfig.contexts.length,
         hasOpenAiToken: Boolean(this.aiConfig.openAiToken),
         hasGeminiToken: Boolean(this.aiConfig.geminiToken),
@@ -1606,7 +1606,7 @@ class WhatsAppSessionManager {
         sttEnabled: Boolean(this.aiConfig.sttEnabled),
       });
     } catch (err: any) {
-      this.logWarn('Falha ao carregar configuração de AI do database.json.', err instanceof Error ? err.message : err);
+      this.logWarn('Falha ao carregar configuraÃƒÂ§ÃƒÂ£o de AI do database.json.', err instanceof Error ? err.message : err);
     }
   }
 
@@ -1701,7 +1701,7 @@ class WhatsAppSessionManager {
         if (vars) {
           contextHints = [
             `Contato: ${String(vars['{cliente_nome}'] || '-')}`,
-            `Responsável: ${String(vars['{responsavel_nome}'] || '-')}`,
+            `ResponsÃƒÂ¡vel: ${String(vars['{responsavel_nome}'] || '-')}`,
             `Tipo: ${String(vars['{tipo_contato}'] || '-')}`,
           ].join('\n');
         }
@@ -1709,13 +1709,13 @@ class WhatsAppSessionManager {
     }
 
     const systemPrompt = [
-      'Você é um assistente de escrita para atendimento via WhatsApp.',
-      'Melhore o texto do atendente mantendo o mesmo significado e intenção.',
-      'Escreva em português do Brasil, com clareza e tom profissional.',
-      'Não invente informações que não estejam no texto original.',
+      'VocÃƒÂª ÃƒÂ© um assistente de escrita para atendimento via WhatsApp.',
+      'Melhore o texto do atendente mantendo o mesmo significado e intenÃƒÂ§ÃƒÂ£o.',
+      'Escreva em portuguÃƒÂªs do Brasil, com clareza e tom profissional.',
+      'NÃƒÂ£o invente informaÃƒÂ§ÃƒÂµes que nÃƒÂ£o estejam no texto original.',
       this.getAiHardSafetyPolicyPrompt(),
       this.aiConfig.globalPrompt ? `Diretriz global: ${this.aiConfig.globalPrompt}` : '',
-      'Retorne apenas o texto final melhorado, sem aspas e sem explicações.'
+      'Retorne apenas o texto final melhorado, sem aspas e sem explicaÃƒÂ§ÃƒÂµes.'
     ].filter(Boolean).join('\n');
 
     const userPrompt = [
@@ -1741,7 +1741,7 @@ class WhatsAppSessionManager {
 
   isAiAgentEnabled(chatId: string) {
     const jid = this.toBaileysJid(chatId);
-    if (!jid || !this.isClientJid(jid)) throw new Error('Chat inválido.');
+    if (!jid || !this.isClientJid(jid)) throw new Error('Chat invÃƒÂ¡lido.');
     const coolingDown = this.isAiAgentCoolingDown(jid);
     const autoResumeAt = Number(this.aiAgentAutoResumeAtByChat.get(jid) || 0);
     return {
@@ -1755,7 +1755,7 @@ class WhatsAppSessionManager {
 
   async setAiAgentEnabled(chatId: string, enabled: boolean) {
     const jid = this.toBaileysJid(chatId);
-    if (!jid || !this.isClientJid(jid)) throw new Error('Chat inválido.');
+    if (!jid || !this.isClientJid(jid)) throw new Error('Chat invÃƒÂ¡lido.');
     if (enabled) {
       this.aiAgentEnabledChats.add(jid);
       this.aiAgentAutoResumeAtByChat.delete(jid);
@@ -1896,7 +1896,7 @@ class WhatsAppSessionManager {
     if (text.includes('timed out') || text.includes('timeout')) return true;
     if (text.includes('connection closed') || text.includes('connection lost')) return true;
     if (text.includes('resource busy') || text.includes('conflict')) return true;
-    // Fallback para códigos comuns de desconexão recuperável em sessões websocket.
+    // Fallback para cÃƒÂ³digos comuns de desconexÃƒÂ£o recuperÃƒÂ¡vel em sessÃƒÂµes websocket.
     return [408, 428, 440, 500, 503, 515].includes(Number(code || 0));
   }
 
@@ -1904,7 +1904,7 @@ class WhatsAppSessionManager {
     const attempt = Math.max(0, Number(streak || 0));
     const baseDelay = this.isTransientAckStreamError(reasonText) ? 1200 : 700;
     const backoffDelay = Math.min(5000, baseDelay + (attempt * 400));
-    // Para restart required, reconecta mais rápido.
+    // Para restart required, reconecta mais rÃƒÂ¡pido.
     if (Number(code || 0) === Number(DisconnectReason.restartRequired || 0)) {
       return 450;
     }
@@ -2114,7 +2114,7 @@ class WhatsAppSessionManager {
     }
 
     if (removed > 0 || removedMappings > 0) {
-      this.logInfo('Dados do próprio número removidos do cache local.', { removedChats: removed, removedMappings });
+      this.logInfo('Dados do prÃƒÂ³prio nÃƒÂºmero removidos do cache local.', { removedChats: removed, removedMappings });
       this.schedulePersistChatHistory();
     }
   }
@@ -2138,7 +2138,7 @@ class WhatsAppSessionManager {
         return resolvedFromCandidates;
       }
       if (fromMe) {
-        this.logWarn('Mensagem enviada pelo celular apontou para o próprio JID e sem destinatário resolvível. Ignorando.', {
+        this.logWarn('Mensagem enviada pelo celular apontou para o prÃƒÂ³prio JID e sem destinatÃƒÂ¡rio resolvÃƒÂ­vel. Ignorando.', {
           remoteJid: rawRemote,
           keyId: String(msg?.key?.id || ''),
           candidateCount: candidates.length
@@ -2158,7 +2158,7 @@ class WhatsAppSessionManager {
         return resolvedFromCandidates;
       }
       if (fromMe) {
-        this.logWarn('Mensagem enviada pelo celular com @c.us do próprio número sem destinatário resolvível. Ignorando.', {
+        this.logWarn('Mensagem enviada pelo celular com @c.us do prÃƒÂ³prio nÃƒÂºmero sem destinatÃƒÂ¡rio resolvÃƒÂ­vel. Ignorando.', {
           remoteJid: rawRemote,
           keyId: String(msg?.key?.id || ''),
           candidateCount: candidates.length
@@ -2184,7 +2184,7 @@ class WhatsAppSessionManager {
     }
 
     if (fromMe) {
-      this.logWarn('Mensagem @lid enviada pelo celular sem mapeamento de destinatário. Ignorando para evitar conversa fantasma.', {
+      this.logWarn('Mensagem @lid enviada pelo celular sem mapeamento de destinatÃƒÂ¡rio. Ignorando para evitar conversa fantasma.', {
         remoteJid: rawRemote,
         keyId: String(msg?.key?.id || ''),
         candidateCount: candidates.length
@@ -2397,7 +2397,7 @@ class WhatsAppSessionManager {
     try {
       this.logInfo('Iniciando resync de App State para sincronizar etiquetas existentes.');
       await this.sock.resyncAppState(WhatsAppSessionManager.APP_STATE_PATCHES, true);
-      this.logInfo('Resync de etiquetas concluído.');
+      this.logInfo('Resync de etiquetas concluÃƒÂ­do.');
     } catch (err) {
       this.logWarn('Falha no resync de etiquetas do App State.', err instanceof Error ? err.message : err);
     }
@@ -2465,10 +2465,10 @@ class WhatsAppSessionManager {
   private async resolveRecipientJid(baseJid: string) {
     const normalized = this.toBaileysJid(baseJid);
     if (!normalized) {
-      throw new Error('Destinatário inválido para envio.');
+      throw new Error('DestinatÃƒÂ¡rio invÃƒÂ¡lido para envio.');
     }
     if (this.isSelfJid(normalized)) {
-      throw new Error('Destinatário inválido: número da própria sessão.');
+      throw new Error('DestinatÃƒÂ¡rio invÃƒÂ¡lido: nÃƒÂºmero da prÃƒÂ³pria sessÃƒÂ£o.');
     }
 
     const phone = this.getPhoneFromJid(normalized);
@@ -2481,13 +2481,13 @@ class WhatsAppSessionManager {
       const resolvedJid = String(first?.jid || normalized);
 
       if (!exists) {
-        throw new Error(`Número ${phone} não foi encontrado no WhatsApp.`);
+        throw new Error(`NÃƒÂºmero ${phone} nÃƒÂ£o foi encontrado no WhatsApp.`);
       }
       if (this.isSelfJid(resolvedJid)) {
-        throw new Error('Destinatário inválido: número da própria sessão.');
+        throw new Error('DestinatÃƒÂ¡rio invÃƒÂ¡lido: nÃƒÂºmero da prÃƒÂ³pria sessÃƒÂ£o.');
       }
 
-      this.logInfo('Destinatário resolvido via onWhatsApp.', {
+      this.logInfo('DestinatÃƒÂ¡rio resolvido via onWhatsApp.', {
         lookupJid,
         resolvedJid,
         exists
@@ -2495,7 +2495,7 @@ class WhatsAppSessionManager {
 
       return resolvedJid;
     } catch (err) {
-      this.logWarn('Falha ao resolver destinatário via onWhatsApp. Usando jid normalizado.', {
+      this.logWarn('Falha ao resolver destinatÃƒÂ¡rio via onWhatsApp. Usando jid normalizado.', {
         lookupJid,
         normalized,
         error: err instanceof Error ? err.message : String(err)
@@ -2549,8 +2549,8 @@ class WhatsAppSessionManager {
     const stopWords = new Set([
       'o', 'a', 'os', 'as', 'de', 'da', 'do', 'das', 'dos', 'e', 'ou', 'em', 'no', 'na', 'nos', 'nas',
       'um', 'uma', 'uns', 'umas', 'por', 'para', 'com', 'sem', 'meu', 'minha', 'meus', 'minhas',
-      'quero', 'preciso', 'gostaria', 'saber', 'qual', 'quanto', 'valor', 'preco', 'preço', 'saldo',
-      'mostrar', 'consumo', 'transacoes', 'transações', 'relatorio', 'relatório'
+      'quero', 'preciso', 'gostaria', 'saber', 'qual', 'quanto', 'valor', 'preco', 'preÃƒÂ§o', 'saldo',
+      'mostrar', 'consumo', 'transacoes', 'transaÃƒÂ§ÃƒÂµes', 'relatorio', 'relatÃƒÂ³rio'
     ]);
 
     const normalized = this.normalizeSearchText(input);
@@ -2585,7 +2585,7 @@ class WhatsAppSessionManager {
       return { start, end };
     }
 
-    if (text.includes('mes') || text.includes('mês')) {
+    if (text.includes('mes') || text.includes('mÃƒÂªs')) {
       start.setMonth(start.getMonth() - 1);
       return { start, end };
     }
@@ -2728,20 +2728,20 @@ class WhatsAppSessionManager {
       'gastou',
       'extrato',
       'transacao',
-      'transação',
+      'transaÃƒÂ§ÃƒÂ£o',
       'devo',
       'carteira',
       'plano',
       'credito',
-      'crédito',
+      'crÃƒÂ©dito',
       'debito',
-      'débito',
+      'dÃƒÂ©bito',
       'movimentacao',
-      'movimentação',
+      'movimentaÃƒÂ§ÃƒÂ£o',
       'compra',
       'compras',
       'consumacao',
-      'consumação',
+      'consumaÃƒÂ§ÃƒÂ£o',
     ];
     if (exactKeywords.some((token) => text.includes(this.normalizeSearchText(token)))) {
       return true;
@@ -2799,20 +2799,20 @@ class WhatsAppSessionManager {
     const greetings = [
       'oi',
       'ola',
-      'olá',
+      'olÃƒÂ¡',
       'bom dia',
       'boa tarde',
       'boa noite',
       'tudo bem',
       'e ai',
-      'e aí',
+      'e aÃƒÂ­',
       'hey',
     ];
 
     const isGreeting = greetings.some((item) => text.includes(item));
     if (!isGreeting) return false;
 
-    // Considera "somente saudação" quando a mensagem é curta e sem intenção de consulta.
+    // Considera "somente saudaÃƒÂ§ÃƒÂ£o" quando a mensagem ÃƒÂ© curta e sem intenÃƒÂ§ÃƒÂ£o de consulta.
     const asksData = this.isFinancialIntentMessage(text) || this.shouldAutoSendClientReportPdf(text);
     const hasManyWords = text.split(/\s+/).filter(Boolean).length > 6;
     return !asksData && !hasManyWords;
@@ -2823,20 +2823,20 @@ class WhatsAppSessionManager {
     if (!text) return false;
     return [
       'relatorio',
-      'relatório',
+      'relatÃƒÂ³rio',
       'pdf',
       'extrato',
       'relatorio pdf',
-      'relatório pdf',
+      'relatÃƒÂ³rio pdf',
       'enviar relatorio',
-      'enviar relatório',
+      'enviar relatÃƒÂ³rio',
       'gerar relatorio',
-      'gerar relatório'
+      'gerar relatÃƒÂ³rio'
     ].some((token) => text.includes(token));
   }
 
   private getIntentClarificationPrompt() {
-    return 'Para eu te responder com precisão, você quer consultar saldo, consumo, relatório em PDF, produto/valor ou outro assunto? Se for sobre aluno, me diga o nome dele.';
+    return 'Para eu te responder com precisÃƒÂ£o, vocÃƒÂª quer consultar saldo, consumo, relatÃƒÂ³rio em PDF, produto/valor ou outro assunto? Se for sobre aluno, me diga o nome dele.';
   }
 
   private isAffirmativeMessage(message: string) {
@@ -2860,14 +2860,14 @@ class WhatsAppSessionManager {
 
   private extractLearnableKeywords(input: string) {
     const stopWords = new Set([
-      'oi', 'ola', 'olá', 'bom', 'boa', 'dia', 'tarde', 'noite',
+      'oi', 'ola', 'olÃƒÂ¡', 'bom', 'boa', 'dia', 'tarde', 'noite',
       'de', 'da', 'do', 'das', 'dos', 'e', 'ou', 'em', 'no', 'na',
       'um', 'uma', 'uns', 'umas', 'por', 'para', 'com', 'sem',
       'meu', 'minha', 'meus', 'minhas', 'quero', 'preciso', 'gostaria',
       'saber', 'qual', 'quanto', 'favor', 'agora', 'aqui', 'isso', 'sim',
       'pode', 'mandar', 'manda', 'enviar', 'envia', 'cliente', 'aluno',
-      'responsavel', 'responsável', 'pdf', 'relatorio', 'relatório',
-      'saldo', 'consumo', 'consum', 'gasto', 'transacao', 'transações'
+      'responsavel', 'responsÃƒÂ¡vel', 'pdf', 'relatorio', 'relatÃƒÂ³rio',
+      'saldo', 'consumo', 'consum', 'gasto', 'transacao', 'transaÃƒÂ§ÃƒÂµes'
     ]);
 
     const tokens = this.tokenizeNormalizedText(input)
@@ -2947,7 +2947,7 @@ class WhatsAppSessionManager {
 
     if (!changed) return false;
     await this.persistAiConfig();
-    this.logInfo('Aprendizado de gatilhos concluído por confirmação do cliente.', {
+    this.logInfo('Aprendizado de gatilhos concluÃƒÂ­do por confirmaÃƒÂ§ÃƒÂ£o do cliente.', {
       chatId: this.toExternalChatId(chatJid),
       context: target.context.name,
       subSwitch: target.subSwitch?.name || null,
@@ -2968,7 +2968,7 @@ class WhatsAppSessionManager {
       'mandar',
       'mandem',
       'manda ai',
-      'manda aí',
+      'manda aÃƒÂ­',
       'envia',
       'enviar',
       'enviem',
@@ -2992,7 +2992,7 @@ class WhatsAppSessionManager {
       const text = this.normalizeSearchText(value);
       return Boolean(text) && (
         text.includes('relatorio')
-        || text.includes('relatório')
+        || text.includes('relatÃƒÂ³rio')
         || text.includes('pdf')
         || text.includes('extrato')
       );
@@ -3043,16 +3043,16 @@ class WhatsAppSessionManager {
 
     if (!mayTalkAboutReportDelivery) {
       output = output
-        .replace(/\[?\s*enviando\s+relat[óo]rio\s+em\s+pdf\s*\]?/gi, '')
-        .replace(/o\s+relat[óo]rio\s+foi\s+enviado[^\n.]*(?:\.|$)/gi, '')
-        .replace(/vou\s+enviar\s+o\s+relat[óo]rio[^\n.]*(?:\.|$)/gi, '')
-        .replace(/\*\*relat[óo]rio[^*]*\*\*/gi, '')
-        .replace(/se\s+n[aã]o\s+receber[^.]*spam[^.]*\./gi, '');
+        .replace(/\[?\s*enviando\s+relat[ÃƒÂ³o]rio\s+em\s+pdf\s*\]?/gi, '')
+        .replace(/o\s+relat[ÃƒÂ³o]rio\s+foi\s+enviado[^\n.]*(?:\.|$)/gi, '')
+        .replace(/vou\s+enviar\s+o\s+relat[ÃƒÂ³o]rio[^\n.]*(?:\.|$)/gi, '')
+        .replace(/\*\*relat[ÃƒÂ³o]rio[^*]*\*\*/gi, '')
+        .replace(/se\s+n[aÃƒÂ£]o\s+receber[^.]*spam[^.]*\./gi, '');
     }
 
-    // O sistema não envia e-mail automaticamente pelo agente deste fluxo.
+    // O sistema nÃƒÂ£o envia e-mail automaticamente pelo agente deste fluxo.
     output = output
-      .replace(/foi\s+enviado\s+para\s+o\s+seu\s+e-?mail[^.]*\./gi, 'Se desejar, posso enviar o relatório diretamente por aqui no WhatsApp.')
+      .replace(/foi\s+enviado\s+para\s+o\s+seu\s+e-?mail[^.]*\./gi, 'Se desejar, posso enviar o relatÃƒÂ³rio diretamente por aqui no WhatsApp.')
       .replace(/verifique\s+sua\s+caixa\s+de\s+entrada[^.]*spam[^.]*\./gi, '');
 
     output = output
@@ -3060,7 +3060,7 @@ class WhatsAppSessionManager {
       .trim();
 
     const clarificationPrompt = this.getIntentClarificationPrompt();
-    const leakagePattern = /(relat[óo]rio|pdf|extrato|saldo|consumo|transa[cç][aã]o|carteira|plano)/i;
+    const leakagePattern = /(relat[ÃƒÂ³o]rio|pdf|extrato|saldo|consumo|transa[cÃƒÂ§][aÃƒÂ£]o|carteira|plano)/i;
     if (!requestedFinancialNow && !requestedReportNow && !autoReportSent && !allowFinancialContinuation && leakagePattern.test(output)) {
       return clarificationPrompt;
     }
@@ -3107,11 +3107,11 @@ class WhatsAppSessionManager {
     const weekdayKeys: Array<string[]> = [
       ['DOMINGO', 'SUNDAY'],
       ['SEGUNDA', 'MONDAY'],
-      ['TERCA', 'TERÇA', 'TUESDAY'],
+      ['TERCA', 'TERÃƒâ€¡A', 'TUESDAY'],
       ['QUARTA', 'WEDNESDAY'],
       ['QUINTA', 'THURSDAY'],
       ['SEXTA', 'FRIDAY'],
-      ['SABADO', 'SÁBADO', 'SATURDAY'],
+      ['SABADO', 'SÃƒÂBADO', 'SATURDAY'],
     ];
     const now = new Date();
     const dayIndex = now.getDay();
@@ -3357,7 +3357,7 @@ class WhatsAppSessionManager {
         items: companyItem.nomeEmpresa ? [companyItem] : [],
         summary: companyItem.nomeEmpresa
           ? `${companyItem.nomeEmpresa} | escola: ${companyItem.escola || '-'} | cnpj: ${companyItem.cnpj || '-'} | telefone: ${companyItem.telefone || '-'}`
-          : 'Dados da empresa não encontrados.'
+          : 'Dados da empresa nÃƒÂ£o encontrados.'
       });
     }
 
@@ -3367,17 +3367,17 @@ class WhatsAppSessionManager {
         : {};
       const weekdayOrder: Array<{ key: string; label: string }> = [
         { key: 'SEGUNDA', label: 'Segunda' },
-        { key: 'TERCA', label: 'Terça' },
+        { key: 'TERCA', label: 'TerÃƒÂ§a' },
         { key: 'QUARTA', label: 'Quarta' },
         { key: 'QUINTA', label: 'Quinta' },
         { key: 'SEXTA', label: 'Sexta' },
-        { key: 'SABADO', label: 'Sábado' },
+        { key: 'SABADO', label: 'SÃƒÂ¡bado' },
         { key: 'DOMINGO', label: 'Domingo' },
       ];
       const scheduleItems = weekdayOrder.map(({ key, label }) => {
         const cfg = (openingHours as Record<string, any>)[key]
           || (openingHours as Record<string, any>)[key.normalize('NFD').replace(/[\u0300-\u036f]/g, '')]
-          || (openingHours as Record<string, any>)[key === 'TERCA' ? 'TERÇA' : key === 'SABADO' ? 'SÁBADO' : key];
+          || (openingHours as Record<string, any>)[key === 'TERCA' ? 'TERÃƒâ€¡A' : key === 'SABADO' ? 'SÃƒÂBADO' : key];
         const closed = Boolean(cfg?.closed);
         return {
           dia: label,
@@ -3393,7 +3393,7 @@ class WhatsAppSessionManager {
         tool: 'tool_business_hours',
         total: scheduleItems.length,
         items: scheduleItems,
-        summary: summary || 'Horários de atendimento não configurados.'
+        summary: summary || 'HorÃƒÂ¡rios de atendimento nÃƒÂ£o configurados.'
       });
     }
 
@@ -3443,10 +3443,10 @@ class WhatsAppSessionManager {
         const shouldSearchProducts = (
           normalizedMessage.includes('produto')
           || normalizedMessage.includes('preco')
-          || normalizedMessage.includes('preço')
+          || normalizedMessage.includes('preÃƒÂ§o')
           || normalizedMessage.includes('valor')
           || normalizedMessage.includes('cardapio')
-          || normalizedMessage.includes('cardápio')
+          || normalizedMessage.includes('cardÃƒÂ¡pio')
           || normalizedMessage.includes('item')
           || normalizedMessage.includes('lanche')
           || normalizedMessage.includes('marmita')
@@ -3508,7 +3508,7 @@ class WhatsAppSessionManager {
           normalizedMessage.includes('plano')
           || normalizedMessage.includes('valor')
           || normalizedMessage.includes('preco')
-          || normalizedMessage.includes('preço')
+          || normalizedMessage.includes('preÃƒÂ§o')
           || normalizedMessage.includes('mensal')
         );
         if (!shouldSearchPlans && searchTerms.length > 0) {
@@ -3545,13 +3545,13 @@ class WhatsAppSessionManager {
         if (!menuCategories.has(category)) return false;
         const shouldSearchMenu = (
           normalizedMessage.includes('cardapio')
-          || normalizedMessage.includes('cardápio')
+          || normalizedMessage.includes('cardÃƒÂ¡pio')
           || normalizedMessage.includes('menu')
           || normalizedMessage.includes('refeicao')
-          || normalizedMessage.includes('refeição')
+          || normalizedMessage.includes('refeiÃƒÂ§ÃƒÂ£o')
           || normalizedMessage.includes('lanche')
           || normalizedMessage.includes('almoco')
-          || normalizedMessage.includes('almoço')
+          || normalizedMessage.includes('almoÃƒÂ§o')
         );
         if (!shouldSearchMenu && searchTerms.length > 0) {
           const bag = [product?.name, product?.description, product?.category].filter(Boolean).join(' ');
@@ -3575,7 +3575,7 @@ class WhatsAppSessionManager {
         items: menuItems,
         summary: menuItems.length > 0
           ? menuItems.map((item) => `${item.categoria}: ${item.item} - R$ ${Number(item.preco || 0).toFixed(2)}`).join(' | ')
-          : 'Nenhum item de cardápio encontrado para os filtros.'
+          : 'Nenhum item de cardÃƒÂ¡pio encontrado para os filtros.'
       });
     }
 
@@ -3605,10 +3605,10 @@ class WhatsAppSessionManager {
         normalizedMessage.includes('nutri')
         || normalizedMessage.includes('caloria')
         || normalizedMessage.includes('restricao')
-        || normalizedMessage.includes('restrição')
+        || normalizedMessage.includes('restriÃƒÂ§ÃƒÂ£o')
         || normalizedMessage.includes('lactose')
         || normalizedMessage.includes('gluten')
-        || normalizedMessage.includes('açucar')
+        || normalizedMessage.includes('aÃƒÂ§ucar')
         || normalizedMessage.includes('acucar')
       );
       if (!shouldSearchNutritional && searchTerms.length > 0) {
@@ -3625,7 +3625,7 @@ class WhatsAppSessionManager {
         items: nutritionalBase,
         summary: nutritionalBase.length > 0
           ? nutritionalBase.map((item: any) => `${item.tipo} ${item.nome} ${Number(item.calorias || 0)} kcal`).join(' | ')
-          : 'Nenhuma informação de base nutricional encontrada para os filtros.'
+          : 'Nenhuma informaÃƒÂ§ÃƒÂ£o de base nutricional encontrada para os filtros.'
       });
     }
 
@@ -3638,7 +3638,7 @@ class WhatsAppSessionManager {
         if (Boolean(product?.controlsStock) && Number(product?.stock || 0) <= 0) return false;
         const shouldSearchAvailable = (
           normalizedMessage.includes('disponivel')
-          || normalizedMessage.includes('disponível')
+          || normalizedMessage.includes('disponÃƒÂ­vel')
           || normalizedMessage.includes('tem hoje')
           || normalizedMessage.includes('produto')
           || normalizedMessage.includes('item')
@@ -3665,7 +3665,7 @@ class WhatsAppSessionManager {
         items: availableProducts,
         summary: availableProducts.length > 0
           ? availableProducts.map((item) => `${item.nome} - R$ ${Number(item.preco || 0).toFixed(2)} (estoque ${Number(item.estoque || 0)})`).join(' | ')
-          : 'Nenhum produto disponível encontrado para os filtros.'
+          : 'Nenhum produto disponÃƒÂ­vel encontrado para os filtros.'
       });
     }
 
@@ -3696,7 +3696,7 @@ class WhatsAppSessionManager {
       'amanh',
       'seman',
       'mes',
-      'mês',
+      'mÃƒÂªs',
       'period',
       'data',
       'dia',
@@ -3768,7 +3768,7 @@ class WhatsAppSessionManager {
         items: transactions,
         summary: transactions.length > 0
           ? transactions.map((item) => `${item.data} ${item.cliente} ${item.tipo} R$ ${Math.abs(Number(item.valor || 0)).toFixed(2)} ${item.descricao}`).join(' | ')
-          : 'Nenhuma transação encontrada para os filtros.'
+          : 'Nenhuma transaÃƒÂ§ÃƒÂ£o encontrada para os filtros.'
       });
     }
 
@@ -3813,7 +3813,7 @@ class WhatsAppSessionManager {
 
     const privacyHeader = scopedClientIds.size > 0
       ? `- escopo_privacidade: somente contato atual e relacionados autorizados (${Array.from(scopedClientIds).join(', ')})`
-      : '- escopo_privacidade: contato atual não identificado; não consultar dados pessoais de terceiros.';
+      : '- escopo_privacidade: contato atual nÃƒÂ£o identificado; nÃƒÂ£o consultar dados pessoais de terceiros.';
 
     const rawContext = compactTools.length > 0
       ? compactTools.join('\n')
@@ -3840,7 +3840,7 @@ class WhatsAppSessionManager {
     const restrictions = Array.isArray(client?.dietaryRestrictions)
       ? client.dietaryRestrictions.map((item: any) => String(item || '').trim()).filter(Boolean).join(', ')
       : String(client?.restrictions || client?.restriction || '').trim();
-    const restrictionText = restrictions || 'Sem restrições cadastradas.';
+    const restrictionText = restrictions || 'Sem restriÃƒÂ§ÃƒÂµes cadastradas.';
     const relatedClientsText = this.buildRelatedClientsText(chatJid, client, '');
     const enterprise = db.getEnterprise(client?.enterpriseId || '');
     const enterpriseName = String(this.aiConfig.companyName || enterprise?.name || 'Cantina Smart');
@@ -3892,7 +3892,7 @@ class WhatsAppSessionManager {
     }
     if ((client?.servicePlans || []).includes('PREPAGO')) {
       planEntries.push({
-        planName: 'Carteira Pré-paga',
+        planName: 'Carteira PrÃƒÂ©-paga',
         balanceUnits: 0,
         unitValue: 0,
         balance: totalBalance,
@@ -3989,11 +3989,11 @@ class WhatsAppSessionManager {
     if (related.length === 0) return 'Sem alunos/colaboradores relacionados encontrados.';
 
     return related.map((item: any) => {
-      const contactType = String(item?.type || 'NÃO_IDENTIFICADO');
+      const contactType = String(item?.type || 'NÃƒÆ’O_IDENTIFICADO');
       const responsible = String(item?.parentName || item?.guardianName || item?.guardians?.[0] || '-');
       const phone = String(item?.parentWhatsapp || item?.guardianPhone || item?.phone || '').replace(/\D/g, '');
       const className = String(item?.className || item?.grade || item?.department || '-');
-      return `${String(item?.name || 'Sem nome')} (${contactType}) | Responsável/Setor: ${responsible} | Turma/Setor: ${className} | Telefone: +${phone || '-'}`;
+      return `${String(item?.name || 'Sem nome')} (${contactType}) | ResponsÃƒÂ¡vel/Setor: ${responsible} | Turma/Setor: ${className} | Telefone: +${phone || '-'}`;
     }).join('\n');
   }
 
@@ -4035,13 +4035,13 @@ class WhatsAppSessionManager {
         }
       }
       if (balanceUnits > 0) {
-        lines.push(`${planName}: ${formatUnits(balanceUnits)} und. • R$ ${balance.toFixed(2)}`);
+        lines.push(`${planName}: ${formatUnits(balanceUnits)} und. Ã¢â‚¬Â¢ R$ ${balance.toFixed(2)}`);
       } else {
         lines.push(`${planName}: R$ ${balance.toFixed(2)}`);
       }
     }
 
-    return lines.length > 0 ? lines.join('\n') : 'Sem saldo de planos disponível.';
+    return lines.length > 0 ? lines.join('\n') : 'Sem saldo de planos disponÃƒÂ­vel.';
   }
 
   private buildProductsWithValuesText(client: any, message: string, cachedProducts?: AiCachedProductEntry[]) {
@@ -4068,8 +4068,8 @@ class WhatsAppSessionManager {
         }).slice(0, 20);
 
     if (relevant.length === 0) {
-      if (normalizedMessage.includes('produto') || normalizedMessage.includes('preco') || normalizedMessage.includes('preço') || normalizedMessage.includes('valor')) {
-        return 'Não encontrei produto correspondente na base.';
+      if (normalizedMessage.includes('produto') || normalizedMessage.includes('preco') || normalizedMessage.includes('preÃƒÂ§o') || normalizedMessage.includes('valor')) {
+        return 'NÃƒÂ£o encontrei produto correspondente na base.';
       }
       return products.slice(0, 10).map((product: any) => {
         const value = Number(product?.price || 0).toFixed(2);
@@ -4118,29 +4118,29 @@ class WhatsAppSessionManager {
     const terms = this.extractSearchTerms(message);
     const messageNorm = this.normalizeSearchText(message);
     const wantsLatestConsumption = (
-      (messageNorm.includes('ultimo') || messageNorm.includes('último'))
+      (messageNorm.includes('ultimo') || messageNorm.includes('ÃƒÂºltimo'))
       && messageNorm.includes('consumo')
-    ) || messageNorm.includes('ultimo gasto') || messageNorm.includes('último gasto');
+    ) || messageNorm.includes('ultimo gasto') || messageNorm.includes('ÃƒÂºltimo gasto');
     const wantsRecent = (
       messageNorm.includes('recente')
       || messageNorm.includes('recentes')
       || messageNorm.includes('ultimos')
-      || messageNorm.includes('últimos')
+      || messageNorm.includes('ÃƒÂºltimos')
       || messageNorm.includes('ultimas')
-      || messageNorm.includes('últimas')
+      || messageNorm.includes('ÃƒÂºltimas')
     );
     const wantsConsumption = (
       messageNorm.includes('consumo')
       || messageNorm.includes('gasto')
       || messageNorm.includes('compra')
       || messageNorm.includes('debito')
-      || messageNorm.includes('débito')
+      || messageNorm.includes('dÃƒÂ©bito')
       || messageNorm.includes('debit')
       || messageNorm.includes('entrega')
     );
     const wantsCredit = (
       messageNorm.includes('credito')
-      || messageNorm.includes('crédito')
+      || messageNorm.includes('crÃƒÂ©dito')
       || messageNorm.includes('recarga')
       || messageNorm.includes('credit')
     );
@@ -4171,39 +4171,39 @@ class WhatsAppSessionManager {
       'semana',
       'semanal',
       'mes',
-      'mês',
+      'mÃƒÂªs',
       'mensal',
       'hoje',
       'ontem',
       'amanha',
-      'amanhã',
+      'amanhÃƒÂ£',
       'dia',
       'dias',
       'periodo',
-      'período',
+      'perÃƒÂ­odo',
       'inicio',
-      'início',
+      'inÃƒÂ­cio',
       'fim',
       'atual',
       'agora',
       'ultimo',
-      'último',
+      'ÃƒÂºltimo',
       'consumo',
       'gasto',
       'saldo',
       'transacao',
-      'transações',
+      'transaÃƒÂ§ÃƒÂµes',
       'transacao',
       'extrato',
       'recente',
       'recentes',
       'ultimos',
-      'últimos',
+      'ÃƒÂºltimos',
       'ultimas',
-      'últimas',
+      'ÃƒÂºltimas',
       'compra',
       'debito',
-      'débito',
+      'dÃƒÂ©bito',
       'debit',
       'devo',
       'quanto',
@@ -4244,7 +4244,7 @@ class WhatsAppSessionManager {
       if (wantsCredit) {
         const type = this.normalizeSearchText(String(tx?.type || ''));
         const bag = this.normalizeSearchText([tx?.description, tx?.productName].filter(Boolean).join(' '));
-        return type === 'credit' || bag.includes('recarga') || bag.includes('credito') || bag.includes('crédito');
+        return type === 'credit' || bag.includes('recarga') || bag.includes('credito') || bag.includes('crÃƒÂ©dito');
       }
       return true;
     });
@@ -4301,7 +4301,7 @@ class WhatsAppSessionManager {
     if (wantsLatestConsumption) {
       const latestConsumption = sortedWithFallback.find((tx: any) => isConsumptionTx(tx));
       if (!latestConsumption) {
-        return 'Não encontrei registro de consumo para o aluno consultado.';
+        return 'NÃƒÂ£o encontrei registro de consumo para o aluno consultado.';
       }
       const amount = Number(latestConsumption?.amount || 0);
       const abs = Math.abs(amount).toFixed(2);
@@ -4310,7 +4310,7 @@ class WhatsAppSessionManager {
         ? new Date(resolvedTime).toLocaleDateString('pt-BR')
         : '-';
       const description = String(latestConsumption?.description || latestConsumption?.productName || latestConsumption?.type || 'Consumo');
-      return `Último consumo: ${date} | ${description} | R$ ${abs}`;
+      return `ÃƒÅ¡ltimo consumo: ${date} | ${description} | R$ ${abs}`;
     }
 
     let topList = sortedWithFallback.slice(0, 20);
@@ -4318,7 +4318,7 @@ class WhatsAppSessionManager {
       topList = sortedWithFallback.slice(0, 10);
     }
 
-    if (topList.length === 0) return 'Sem transações para o filtro solicitado.';
+    if (topList.length === 0) return 'Sem transaÃƒÂ§ÃƒÂµes para o filtro solicitado.';
 
     return topList.map((tx: any) => {
       const amount = Number(tx?.amount || 0);
@@ -4328,7 +4328,7 @@ class WhatsAppSessionManager {
       const date = Number.isFinite(resolvedTime)
         ? new Date(resolvedTime).toLocaleDateString('pt-BR')
         : '-';
-      const description = String(tx?.description || tx?.productName || tx?.type || 'Movimentação');
+      const description = String(tx?.description || tx?.productName || tx?.type || 'MovimentaÃƒÂ§ÃƒÂ£o');
       return `${date} | ${description} | ${sign}R$ ${abs}`;
     }).join('\n');
   }
@@ -4340,7 +4340,7 @@ class WhatsAppSessionManager {
     const cached = this.getOrBuildAiDataCache(chatJid, client);
     const responsibleName = String(cached?.staticData.responsibleName || client?.parentName || client?.guardianName || client?.guardians?.[0] || client?.name || 'Cliente').trim();
     const className = String(cached?.staticData.className || client?.className || client?.grade || client?.class || client?.year || '-').trim();
-    const restrictionText = String(cached?.staticData.restrictionText || 'Sem restrições cadastradas.');
+    const restrictionText = String(cached?.staticData.restrictionText || 'Sem restriÃƒÂ§ÃƒÂµes cadastradas.');
     const totalBalance = Number(cached?.dynamicData.totalBalance ?? client?.balance ?? 0);
     const planBalances = this.buildPlanBalanceText(client, customerMessage, cached?.dynamicData.planEntries);
     const transactionsText = this.buildTransactionsText(client, customerMessage, cached?.dynamicData.transactions);
@@ -4352,7 +4352,7 @@ class WhatsAppSessionManager {
     const phone = String(cached?.staticData.phone || `+${this.getPhoneFromJid(chatJid)}`);
     const reportSummary = [
       `Cliente: ${String(client?.name || responsibleName)}`,
-      `Responsável: ${responsibleName}`,
+      `ResponsÃƒÂ¡vel: ${responsibleName}`,
       `Telefone: ${phone}`,
       `Saldo total: R$ ${totalBalance.toFixed(2)}`,
       `Saldos dos planos:\n${planBalances}`
@@ -4374,8 +4374,8 @@ class WhatsAppSessionManager {
       '{entrega_dia}': deliveryText,
       '{produtos_valores}': productsWithValues,
       '{relatorio_resumo}': reportSummary,
-      '{relatorio_pdf}': 'Solicite relatório completo em PDF no painel de conversas.',
-      '{tipo_contato}': String(client?.type || 'NÃO_IDENTIFICADO'),
+      '{relatorio_pdf}': 'Solicite relatÃƒÂ³rio completo em PDF no painel de conversas.',
+      '{tipo_contato}': String(client?.type || 'NÃƒÆ’O_IDENTIFICADO'),
       '{empresa_nome}': enterpriseName,
       '{escola_nome}': schoolName,
       '{data_inicial}': startDate,
@@ -4565,7 +4565,7 @@ class WhatsAppSessionManager {
     const contactType = String(client?.type || '').toUpperCase();
     const responsible = String(client?.parentName || client?.guardianName || client?.guardians?.[0] || client?.name || '-');
     const { startDate, endDate } = this.getMonthlyReportDateRange();
-    const periodLabel = 'Mensal (últimos 30 dias)';
+    const periodLabel = 'Mensal (ÃƒÂºltimos 30 dias)';
 
     const transactions = this.buildAutoReportTransactions(client, incomingText)
       .filter((tx: any) => {
@@ -4616,7 +4616,7 @@ class WhatsAppSessionManager {
       if (direct) return direct;
 
       const source = `${String(tx?.description || '')} ${String(tx?.item || '')}`.trim();
-      const match = source.match(/plano\s+([A-Za-zÀ-ÿ0-9\s\-_]+)/i);
+      const match = source.match(/plano\s+([A-Za-zÃƒâ‚¬-ÃƒÂ¿0-9\s\-_]+)/i);
       if (match?.[1]) return String(match[1]).trim();
       return '';
     };
@@ -4694,7 +4694,7 @@ class WhatsAppSessionManager {
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(16);
-    doc.text('Extrato de Movimentações - WhatsApp', 40, 48);
+    doc.text('Extrato de MovimentaÃƒÂ§ÃƒÂµes - WhatsApp', 40, 48);
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
     doc.text(`Empresa: ${String(enterprise?.name || this.aiConfig.companyName || '-')}`, 40, 66);
@@ -4706,16 +4706,16 @@ class WhatsAppSessionManager {
     doc.setFontSize(10);
     doc.text(`Contato: ${String(client?.name || '-')}`, 28, 100);
     doc.text(`Tipo: ${contactType || '-'}`, 28, 116);
-    doc.text(`Período: ${formatDatePt(startDate)} até ${formatDatePt(endDate)} (${periodLabel})`, 28, 132);
+    doc.text(`PerÃƒÂ­odo: ${formatDatePt(startDate)} atÃƒÂ© ${formatDatePt(endDate)} (${periodLabel})`, 28, 132);
 
     if (contactType === 'ALUNO') {
       const classYear = [String(client?.class || '').trim(), String(client?.classGrade || '').trim()]
         .filter(Boolean)
         .join(' / ');
-      doc.text(`Responsável: ${responsible || '-'}`, 390, 100);
+      doc.text(`ResponsÃƒÂ¡vel: ${responsible || '-'}`, 390, 100);
       doc.text(`Turma/Ano: ${classYear || '-'}`, 390, 116);
     } else {
-      doc.text('Responsável: -', 390, 100);
+      doc.text('ResponsÃƒÂ¡vel: -', 390, 100);
     }
 
     const planBalances = (client?.planCreditBalances || {}) as Record<string, any>;
@@ -4735,9 +4735,9 @@ class WhatsAppSessionManager {
 
     // Cards de resumo destacados
     const cards = [
-      { label: 'Créditos no período', value: formatCurrency(totalCredits), bg: [219, 234, 254], border: [147, 197, 253] },
-      { label: 'Consumo no período', value: formatCurrency(totalConsumption), bg: [254, 226, 226], border: [252, 165, 165] },
-      { label: 'Saldo líquido', value: formatCurrency(netPeriod), bg: [220, 252, 231], border: [134, 239, 172] },
+      { label: 'CrÃƒÂ©ditos no perÃƒÂ­odo', value: formatCurrency(totalCredits), bg: [219, 234, 254], border: [147, 197, 253] },
+      { label: 'Consumo no perÃƒÂ­odo', value: formatCurrency(totalConsumption), bg: [254, 226, 226], border: [252, 165, 165] },
+      { label: 'Saldo lÃƒÂ­quido', value: formatCurrency(netPeriod), bg: [220, 252, 231], border: [134, 239, 172] },
       {
         label: contactType === 'ALUNO' ? 'Saldo atual (carteira + planos)' : 'Saldo/consumo colaborador',
         value: contactType === 'ALUNO'
@@ -4769,8 +4769,8 @@ class WhatsAppSessionManager {
       const txDate = Number.isFinite(ts) ? new Date(ts) : null;
       const dateLabel = txDate ? txDate.toLocaleDateString('pt-BR') : '-';
       const timeLabel = txDate ? txDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '-';
-      const description = String(tx?.description || tx?.item || tx?.plan || tx?.category || tx?.productName || 'Movimentação');
-      const txType = isConsumption(tx) ? 'CONSUMO' : isCredit(tx) ? 'CRÉDITO' : String(tx?.type || '-');
+      const description = String(tx?.description || tx?.item || tx?.plan || tx?.category || tx?.productName || 'MovimentaÃƒÂ§ÃƒÂ£o');
+      const txType = isConsumption(tx) ? 'CONSUMO' : isCredit(tx) ? 'CRÃƒâ€°DITO' : String(tx?.type || '-');
       const method = String(tx?.paymentMethod || tx?.method || '-');
       const amount = parseAmount(tx);
       return [
@@ -4786,8 +4786,8 @@ class WhatsAppSessionManager {
     autoTable(doc, {
       startY: 208,
       margin: { left: 28, right: 28 },
-      head: [['Data/Hora', 'Lançamento', 'Itens detalhados', 'Natureza', 'Método', 'Valor']],
-      body: bodyRows.length > 0 ? bodyRows : [['-', 'Sem movimentações no período selecionado', '-', '-', '-', 'R$ 0,00']],
+      head: [['Data/Hora', 'LanÃƒÂ§amento', 'Itens detalhados', 'Natureza', 'MÃƒÂ©todo', 'Valor']],
+      body: bodyRows.length > 0 ? bodyRows : [['-', 'Sem movimentaÃƒÂ§ÃƒÂµes no perÃƒÂ­odo selecionado', '-', '-', '-', 'R$ 0,00']],
       styles: { fontSize: 8, cellPadding: 5, textColor: [30, 41, 59] },
       headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: 'bold', fontSize: 8.5 },
       alternateRowStyles: { fillColor: [248, 250, 252] },
@@ -4809,10 +4809,10 @@ class WhatsAppSessionManager {
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
-    doc.text(`Total de movimentações: ${transactions.length}`, 40, summaryTop + 20);
-    doc.text(`Total créditos: ${formatCurrency(totalCredits)}`, 250, summaryTop + 20);
+    doc.text(`Total de movimentaÃƒÂ§ÃƒÂµes: ${transactions.length}`, 40, summaryTop + 20);
+    doc.text(`Total crÃƒÂ©ditos: ${formatCurrency(totalCredits)}`, 250, summaryTop + 20);
     doc.text(`Total consumo: ${formatCurrency(totalConsumption)}`, 450, summaryTop + 20);
-    doc.text(`Saldo líquido: ${formatCurrency(netPeriod)}`, 650, summaryTop + 20);
+    doc.text(`Saldo lÃƒÂ­quido: ${formatCurrency(netPeriod)}`, 650, summaryTop + 20);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
@@ -4830,7 +4830,7 @@ class WhatsAppSessionManager {
       doc.setFontSize(8);
       doc.setTextColor(100, 116, 139);
       doc.text(
-        `Extrato gerado por ${String(enterprise?.name || this.aiConfig.companyName || 'Cantina Smart')} | Página ${i} de ${pageCount}`,
+        `Extrato gerado por ${String(enterprise?.name || this.aiConfig.companyName || 'Cantina Smart')} | PÃƒÂ¡gina ${i} de ${pageCount}`,
         pageWidth - 28,
         pageHeight - 16,
         { align: 'right' }
@@ -4850,7 +4850,7 @@ class WhatsAppSessionManager {
     return {
       base64Data,
       fileName,
-      caption: 'Segue o relatório em PDF com as movimentações do último mês.'
+      caption: 'Segue o relatÃƒÂ³rio em PDF com as movimentaÃƒÂ§ÃƒÂµes do ÃƒÂºltimo mÃƒÂªs.'
     };
   }
 
@@ -4891,7 +4891,7 @@ class WhatsAppSessionManager {
       const direct = String(tx?.plan || tx?.planName || '').trim();
       if (direct) return direct;
       const source = `${String(tx?.description || '')} ${String(tx?.item || '')}`.trim();
-      const match = source.match(/plano\s+([A-Za-zÀ-ÿ0-9\s\-_]+)/i);
+      const match = source.match(/plano\s+([A-Za-zÃƒâ‚¬-ÃƒÂ¿0-9\s\-_]+)/i);
       return String(match?.[1] || '').trim();
     };
     const isPlanTransaction = (tx: any) => {
@@ -4945,13 +4945,13 @@ class WhatsAppSessionManager {
     const colWidths = [100, 380, 95, 95];
     const rowHeight = 20;
 
-    // Cabeçalho premium (fallback visual)
+    // CabeÃƒÂ§alho premium (fallback visual)
     doc.setFillColor(17, 24, 39);
     doc.roundedRect(24, 18, pageWidth - 48, 80, 10, 10, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(17);
-    doc.text('Extrato de Movimentações - WhatsApp', 36, 46);
+    doc.text('Extrato de MovimentaÃƒÂ§ÃƒÂµes - WhatsApp', 36, 46);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.text(`Empresa: ${String(enterprise?.name || this.aiConfig.companyName || '-')}`, 36, 66);
@@ -4962,16 +4962,16 @@ class WhatsAppSessionManager {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.text(`Contato: ${String(client?.name || '-')}`, 30, 118);
-    doc.text(`Responsável: ${responsible}`, 30, 134);
+    doc.text(`ResponsÃƒÂ¡vel: ${responsible}`, 30, 134);
     doc.text(`Telefone: +${this.getPhoneFromJid(chatJid)}`, 300, 118);
     doc.text(`Saldo carteira atual: ${formatCurrency(Number(client?.balance || 0))}`, 300, 134);
 
     // Cards de resumo
     const summaryCards = [
-      { label: 'Total movimentações', value: String(transactions.length), bg: [224, 242, 254], border: [125, 211, 252] },
-      { label: 'Total créditos', value: formatCurrency(totalCredits), bg: [220, 252, 231], border: [134, 239, 172] },
+      { label: 'Total movimentaÃƒÂ§ÃƒÂµes', value: String(transactions.length), bg: [224, 242, 254], border: [125, 211, 252] },
+      { label: 'Total crÃƒÂ©ditos', value: formatCurrency(totalCredits), bg: [220, 252, 231], border: [134, 239, 172] },
       { label: 'Total consumo', value: formatCurrency(totalConsumed), bg: [254, 226, 226], border: [252, 165, 165] },
-      { label: 'Saldo líquido', value: formatCurrency(totalCredits - totalConsumed), bg: [243, 232, 255], border: [196, 181, 253] },
+      { label: 'Saldo lÃƒÂ­quido', value: formatCurrency(totalCredits - totalConsumed), bg: [243, 232, 255], border: [196, 181, 253] },
     ];
     const cardWidth = (pageWidth - 64 - 18) / 4;
     summaryCards.forEach((card, idx) => {
@@ -4989,7 +4989,7 @@ class WhatsAppSessionManager {
       doc.text(card.value, x + 10, y + 34);
     });
 
-    // Tabela manual para não depender de plugin no fallback
+    // Tabela manual para nÃƒÂ£o depender de plugin no fallback
     let y = tableTop + 36;
     const maxRows = Math.max(1, Math.floor((pageHeight - y - 58) / rowHeight));
     const tableRows = transactions.length > 0
@@ -5001,7 +5001,7 @@ class WhatsAppSessionManager {
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
-    const headers = ['Data/Hora', 'Descrição', 'Natureza', 'Valor'];
+    const headers = ['Data/Hora', 'DescriÃƒÂ§ÃƒÂ£o', 'Natureza', 'Valor'];
     let cursorX = tableLeft + 8;
     headers.forEach((head, idx) => {
       doc.text(head, cursorX, tableTop + 16);
@@ -5014,7 +5014,7 @@ class WhatsAppSessionManager {
       doc.setFontSize(9);
       doc.setFillColor(248, 250, 252);
       doc.rect(tableLeft, y - 14, colWidths.reduce((a, b) => a + b, 0), rowHeight, 'F');
-      doc.text('Sem movimentações no período selecionado.', tableLeft + 8, y);
+      doc.text('Sem movimentaÃƒÂ§ÃƒÂµes no perÃƒÂ­odo selecionado.', tableLeft + 8, y);
       y += rowHeight;
     } else {
       tableRows.forEach((tx: any, idx: number) => {
@@ -5024,7 +5024,7 @@ class WhatsAppSessionManager {
           ? `${txDate.toLocaleDateString('pt-BR')} ${txDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
           : '-';
         const description = getDetalhamentoConsumo(tx);
-        const txType = this.isConsumptionTransaction(tx) ? 'CONSUMO' : this.isCreditTransaction(tx) ? 'CRÉDITO' : String(tx?.type || '-');
+        const txType = this.isConsumptionTransaction(tx) ? 'CONSUMO' : this.isCreditTransaction(tx) ? 'CRÃƒâ€°DITO' : String(tx?.type || '-');
         const amount = Math.abs(Number(tx?.amount ?? tx?.total ?? tx?.value ?? 0) || 0);
 
         if (idx % 2 === 0) {
@@ -5062,12 +5062,12 @@ class WhatsAppSessionManager {
     doc.line(tableLeft, tableTop, tableLeft + colWidths.reduce((a, b) => a + b, 0), tableTop);
     doc.line(tableLeft, y + 6, tableLeft + colWidths.reduce((a, b) => a + b, 0), y + 6);
 
-    // Rodapé
+    // RodapÃƒÂ©
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(100, 116, 139);
     doc.text(
-      `Relatório automático (fallback visual) | ${String(enterprise?.name || this.aiConfig.companyName || 'Cantina Smart')}`,
+      `RelatÃƒÂ³rio automÃƒÂ¡tico (fallback visual) | ${String(enterprise?.name || this.aiConfig.companyName || 'Cantina Smart')}`,
       rightMargin,
       pageHeight - 14,
       { align: 'right' }
@@ -5085,7 +5085,7 @@ class WhatsAppSessionManager {
     return {
       base64Data,
       fileName,
-      caption: 'Segue o relatório em PDF com as movimentações do último mês.',
+      caption: 'Segue o relatÃƒÂ³rio em PDF com as movimentaÃƒÂ§ÃƒÂµes do ÃƒÂºltimo mÃƒÂªs.',
       fallback: true as const,
     };
   }
@@ -5120,19 +5120,19 @@ class WhatsAppSessionManager {
       try {
         pdfPayload = this.buildClientAutoReportPdfFallback(chatJid, targetClient, incomingText);
       } catch (fallbackBuildErr) {
-        this.logWarn('Falha ao gerar PDF também no fallback.', fallbackBuildErr instanceof Error ? fallbackBuildErr.message : fallbackBuildErr);
+        this.logWarn('Falha ao gerar PDF tambÃƒÂ©m no fallback.', fallbackBuildErr instanceof Error ? fallbackBuildErr.message : fallbackBuildErr);
         return { sent: false, reason: 'pdf_build_failed' };
       }
     }
     if (!String(pdfPayload.base64Data || '').trim() || String(pdfPayload.base64Data || '').trim().length < 80) {
-      this.logWarn('PDF gerado sem conteúdo válido. Aplicando fallback.', {
+      this.logWarn('PDF gerado sem conteÃƒÂºdo vÃƒÂ¡lido. Aplicando fallback.', {
         clientId: String(targetClient?.id || ''),
         payloadSize: String(pdfPayload.base64Data || '').length,
       });
       try {
         pdfPayload = this.buildClientAutoReportPdfFallback(chatJid, targetClient, incomingText);
       } catch (fallbackBuildErr) {
-        this.logWarn('Falha ao regenerar fallback após payload inválido.', fallbackBuildErr instanceof Error ? fallbackBuildErr.message : fallbackBuildErr);
+        this.logWarn('Falha ao regenerar fallback apÃƒÂ³s payload invÃƒÂ¡lido.', fallbackBuildErr instanceof Error ? fallbackBuildErr.message : fallbackBuildErr);
         return { sent: false, reason: 'pdf_build_failed' };
       }
     }
@@ -5141,10 +5141,10 @@ class WhatsAppSessionManager {
     try {
       await this.sendMessageToChat(
         chatId,
-        'Estou consultando os dados e montando seu relatório em PDF. Aguarde só um instante, por favor.'
+        'Estou consultando os dados e montando seu relatÃƒÂ³rio em PDF. Aguarde sÃƒÂ³ um instante, por favor.'
       );
     } catch (queueInfoErr) {
-      this.logWarn('Falha ao enviar aviso de fila do relatório automático.', queueInfoErr instanceof Error ? queueInfoErr.message : queueInfoErr);
+      this.logWarn('Falha ao enviar aviso de fila do relatÃƒÂ³rio automÃƒÂ¡tico.', queueInfoErr instanceof Error ? queueInfoErr.message : queueInfoErr);
     }
 
     try {
@@ -5155,11 +5155,11 @@ class WhatsAppSessionManager {
         fileName: pdfPayload.fileName,
       }, pdfPayload.caption);
       try {
-        await this.sendMessageToChat(chatId, 'Relatório pronto. PDF enviado com sucesso.');
+        await this.sendMessageToChat(chatId, 'RelatÃƒÂ³rio pronto. PDF enviado com sucesso.');
       } catch (doneMsgErr) {
-        this.logWarn('Falha ao enviar confirmação de conclusão do relatório automático.', doneMsgErr instanceof Error ? doneMsgErr.message : doneMsgErr);
+        this.logWarn('Falha ao enviar confirmaÃƒÂ§ÃƒÂ£o de conclusÃƒÂ£o do relatÃƒÂ³rio automÃƒÂ¡tico.', doneMsgErr instanceof Error ? doneMsgErr.message : doneMsgErr);
       }
-      this.logInfo('Relatório PDF automático enviado para o cliente.', {
+      this.logInfo('RelatÃƒÂ³rio PDF automÃƒÂ¡tico enviado para o cliente.', {
         chatId,
         clientId: String(targetClient?.id || ''),
         fileName: pdfPayload.fileName,
@@ -5177,21 +5177,21 @@ class WhatsAppSessionManager {
             fileName: fallbackPayload.fileName,
           }, fallbackPayload.caption);
           try {
-            await this.sendMessageToChat(chatId, 'Relatório pronto. PDF enviado com sucesso.');
+            await this.sendMessageToChat(chatId, 'RelatÃƒÂ³rio pronto. PDF enviado com sucesso.');
           } catch (doneMsgErr) {
-            this.logWarn('Falha ao enviar confirmação de conclusão do relatório automático (fallback).', doneMsgErr instanceof Error ? doneMsgErr.message : doneMsgErr);
+            this.logWarn('Falha ao enviar confirmaÃƒÂ§ÃƒÂ£o de conclusÃƒÂ£o do relatÃƒÂ³rio automÃƒÂ¡tico (fallback).', doneMsgErr instanceof Error ? doneMsgErr.message : doneMsgErr);
           }
-          this.logInfo('Relatório PDF automático enviado em fallback após falha do layout principal.', {
+          this.logInfo('RelatÃƒÂ³rio PDF automÃƒÂ¡tico enviado em fallback apÃƒÂ³s falha do layout principal.', {
             chatId,
             clientId: String(targetClient?.id || ''),
             fileName: fallbackPayload.fileName,
           });
           return { sent: true, fileName: fallbackPayload.fileName };
         } catch (fallbackErr) {
-          this.logWarn('Falha ao enviar relatório PDF automático no fallback.', fallbackErr instanceof Error ? fallbackErr.message : fallbackErr);
+          this.logWarn('Falha ao enviar relatÃƒÂ³rio PDF automÃƒÂ¡tico no fallback.', fallbackErr instanceof Error ? fallbackErr.message : fallbackErr);
         }
       }
-      this.logWarn('Falha ao enviar relatório PDF automático.', firstErr instanceof Error ? firstErr.message : firstErr);
+      this.logWarn('Falha ao enviar relatÃƒÂ³rio PDF automÃƒÂ¡tico.', firstErr instanceof Error ? firstErr.message : firstErr);
       return { sent: false, reason: 'send_failed' };
     }
   }
@@ -5220,7 +5220,7 @@ class WhatsAppSessionManager {
       this.aiAuditLog.splice(WhatsAppSessionManager.AI_AUDIT_MAX_ITEMS);
     }
 
-    this.logWarn('Auditoria AI: resposta recusada por política.', {
+    this.logWarn('Auditoria AI: resposta recusada por polÃƒÂ­tica.', {
       reason: entry.reason,
       chatId: entry.chatId,
       contactName: entry.contactName,
@@ -5234,16 +5234,16 @@ class WhatsAppSessionManager {
 
     const rules = [
       { key: 'rm -rf', detail: 'Tentativa de comando destrutivo (rm -rf).' },
-      { key: 'drop table', detail: 'Tentativa de instrução SQL destrutiva (DROP TABLE).' },
-      { key: 'truncate table', detail: 'Tentativa de instrução SQL destrutiva (TRUNCATE TABLE).' },
+      { key: 'drop table', detail: 'Tentativa de instruÃƒÂ§ÃƒÂ£o SQL destrutiva (DROP TABLE).' },
+      { key: 'truncate table', detail: 'Tentativa de instruÃƒÂ§ÃƒÂ£o SQL destrutiva (TRUNCATE TABLE).' },
       { key: 'delete from', detail: 'Tentativa de DELETE potencialmente destrutivo.' },
-      { key: 'deletar em massa', detail: 'Tentativa de exclusão em massa.' },
+      { key: 'deletar em massa', detail: 'Tentativa de exclusÃƒÂ£o em massa.' },
       { key: 'apagar banco', detail: 'Tentativa de apagar banco de dados.' },
       { key: 'apagar tabela', detail: 'Tentativa de apagar tabela.' },
-      { key: 'apagar arquivo', detail: 'Tentativa de apagar arquivo/código.' },
+      { key: 'apagar arquivo', detail: 'Tentativa de apagar arquivo/cÃƒÂ³digo.' },
       { key: 'rollback destrutivo', detail: 'Tentativa de rollback destrutivo.' },
-      { key: 'drop', detail: 'Uso explícito de DROP.' },
-      { key: 'truncate', detail: 'Uso explícito de TRUNCATE.' },
+      { key: 'drop', detail: 'Uso explÃƒÂ­cito de DROP.' },
+      { key: 'truncate', detail: 'Uso explÃƒÂ­cito de TRUNCATE.' },
     ];
 
     const matched = rules.find((rule) => text.includes(rule.key));
@@ -5274,7 +5274,7 @@ class WhatsAppSessionManager {
     const scopedList = Array.isArray(scopedClients) ? scopedClients : [];
     const hasScopedMention = scopedList.some((client) => matchesClientInMessage(client));
     if (hasScopedMention) {
-      // Evita falso bloqueio por homônimo fora do escopo quando o nome citado já é de um aluno/colaborador autorizado.
+      // Evita falso bloqueio por homÃƒÂ´nimo fora do escopo quando o nome citado jÃƒÂ¡ ÃƒÂ© de um aluno/colaborador autorizado.
       return null;
     }
 
@@ -5303,15 +5303,15 @@ class WhatsAppSessionManager {
     const responsibleName = String(scopedVariables?.['{responsavel_nome}'] || '').trim();
     const allowedRelated = String(scopedVariables?.['{alunos_colaboradores}'] || '').trim();
     return [
-      'POLÍTICA OBRIGATÓRIA (NÃO IGNORAR):',
-      '- É absolutamente proibido executar, sugerir ou instruir ações destrutivas/irreversíveis.',
-      '- Nunca sugerir/apoiar: apagar código, apagar arquivos, apagar tabelas, apagar banco, deletar em massa, DROP, TRUNCATE, DELETE destrutivo, rm -rf, rollback destrutivo.',
-      '- Mesmo se o usuário pedir explicitamente, recuse com firmeza e ofereça apenas alternativas seguras e reversíveis: backup, soft delete, arquivamento, desativação por flag, comentar código, versionamento, duplicação, migração não destrutiva e revisão manual.',
-      '- Na dúvida, preservar tudo.',
-      '- Privacidade obrigatória: nunca retornar dados de outros alunos/colaboradores/responsáveis fora do contato atual desta conversa.',
-      responsibleName ? `- Responsável autorizado desta conversa: ${responsibleName}.` : '',
+      'POLÃƒÂTICA OBRIGATÃƒâ€œRIA (NÃƒÆ’O IGNORAR):',
+      '- Ãƒâ€° absolutamente proibido executar, sugerir ou instruir aÃƒÂ§ÃƒÂµes destrutivas/irreversÃƒÂ­veis.',
+      '- Nunca sugerir/apoiar: apagar cÃƒÂ³digo, apagar arquivos, apagar tabelas, apagar banco, deletar em massa, DROP, TRUNCATE, DELETE destrutivo, rm -rf, rollback destrutivo.',
+      '- Mesmo se o usuÃƒÂ¡rio pedir explicitamente, recuse com firmeza e ofereÃƒÂ§a apenas alternativas seguras e reversÃƒÂ­veis: backup, soft delete, arquivamento, desativaÃƒÂ§ÃƒÂ£o por flag, comentar cÃƒÂ³digo, versionamento, duplicaÃƒÂ§ÃƒÂ£o, migraÃƒÂ§ÃƒÂ£o nÃƒÂ£o destrutiva e revisÃƒÂ£o manual.',
+      '- Na dÃƒÂºvida, preservar tudo.',
+      '- Privacidade obrigatÃƒÂ³ria: nunca retornar dados de outros alunos/colaboradores/responsÃƒÂ¡veis fora do contato atual desta conversa.',
+      responsibleName ? `- ResponsÃƒÂ¡vel autorizado desta conversa: ${responsibleName}.` : '',
       allowedRelated ? `- Alunos/colaboradores autorizados relacionados: ${allowedRelated}.` : '',
-      '- Se faltarem dados do escopo autorizado, informe isso e peça confirmação do aluno/colaborador relacionado.',
+      '- Se faltarem dados do escopo autorizado, informe isso e peÃƒÂ§a confirmaÃƒÂ§ÃƒÂ£o do aluno/colaborador relacionado.',
     ].filter(Boolean).join('\n');
   }
 
@@ -5547,7 +5547,7 @@ class WhatsAppSessionManager {
   private async transcribeAudioInternal(chatJid: string, msgId: string, media: ExtractedMedia) {
     const providerConfig = this.resolveSttProvider();
     if (!providerConfig) {
-      this.logWarn('Sem token válido para transcrição de áudio.', {
+      this.logWarn('Sem token vÃƒÂ¡lido para transcriÃƒÂ§ÃƒÂ£o de ÃƒÂ¡udio.', {
         chatId: this.toExternalChatId(chatJid),
         msgId,
       });
@@ -5556,7 +5556,7 @@ class WhatsAppSessionManager {
 
     const payload = this.buildSttAudioPayload(media);
     if (!payload) {
-      this.logWarn('Transcrição não executada: áudio inválido ou vazio.', {
+      this.logWarn('TranscriÃƒÂ§ÃƒÂ£o nÃƒÂ£o executada: ÃƒÂ¡udio invÃƒÂ¡lido ou vazio.', {
         chatId: this.toExternalChatId(chatJid),
         msgId,
       });
@@ -5570,7 +5570,7 @@ class WhatsAppSessionManager {
         : await this.callOpenAiTranscription(providerConfig.token, model, payload);
       const transcript = String(text || '').trim();
       if (!transcript) {
-        this.logWarn('STT retornou transcrição vazia.', {
+        this.logWarn('STT retornou transcriÃƒÂ§ÃƒÂ£o vazia.', {
           chatId: this.toExternalChatId(chatJid),
           msgId,
           provider: providerConfig.provider,
@@ -5579,7 +5579,7 @@ class WhatsAppSessionManager {
         return null;
       }
 
-      this.logInfo('Áudio transcrito para resposta automática da IA.', {
+      this.logInfo('ÃƒÂudio transcrito para resposta automÃƒÂ¡tica da IA.', {
         chatId: this.toExternalChatId(chatJid),
         msgId,
         provider: providerConfig.provider,
@@ -5591,7 +5591,7 @@ class WhatsAppSessionManager {
         model,
       };
     } catch (err) {
-      this.logWarn('Falha ao transcrever áudio para resposta automática da IA.', {
+      this.logWarn('Falha ao transcrever ÃƒÂ¡udio para resposta automÃƒÂ¡tica da IA.', {
         chatId: this.toExternalChatId(chatJid),
         msgId,
         provider: providerConfig.provider,
@@ -5617,7 +5617,7 @@ class WhatsAppSessionManager {
   }) {
     const mediaDataUrl = String(input?.mediaDataUrl || '').trim();
     if (!mediaDataUrl) {
-      throw new Error('Áudio inválido para transcrição.');
+      throw new Error('ÃƒÂudio invÃƒÂ¡lido para transcriÃƒÂ§ÃƒÂ£o.');
     }
 
     const normalizedChatId = String(input?.chatId || '').trim();
@@ -5632,7 +5632,7 @@ class WhatsAppSessionManager {
 
     const result = await this.transcribeAudioInternal(jid, msgId, media);
     if (!result?.text) {
-      throw new Error('Não foi possível transcrever este áudio.');
+      throw new Error('NÃƒÂ£o foi possÃƒÂ­vel transcrever este ÃƒÂ¡udio.');
     }
 
     return {
@@ -5714,7 +5714,7 @@ class WhatsAppSessionManager {
       }
     }
 
-    const fallback = enabled.find((item) => this.normalizeSearchText(item.name).includes('nao corresponde') || this.normalizeSearchText(item.name).includes('não corresponde'));
+    const fallback = enabled.find((item) => this.normalizeSearchText(item.name).includes('nao corresponde') || this.normalizeSearchText(item.name).includes('nÃƒÂ£o corresponde'));
     return best?.item || fallback || enabled[0];
   }
 
@@ -5733,8 +5733,8 @@ class WhatsAppSessionManager {
     const model = String(this.aiConfig.model || '').trim();
 
     const selectorSystem = [
-      'Você é um classificador de contexto de atendimento WhatsApp.',
-      'Retorne APENAS JSON válido no formato {"contextId":number,"confidence":number,"reason":"string"}.',
+      'VocÃƒÂª ÃƒÂ© um classificador de contexto de atendimento WhatsApp.',
+      'Retorne APENAS JSON vÃƒÂ¡lido no formato {"contextId":number,"confidence":number,"reason":"string"}.',
       'Use confidence de 0 a 1.'
     ].join(' ');
 
@@ -5841,7 +5841,7 @@ class WhatsAppSessionManager {
     }
 
     if (removed > 0) {
-      this.logInfo('Sessões de contexto IA expiradas e removidas por TTL.', {
+      this.logInfo('SessÃƒÂµes de contexto IA expiradas e removidas por TTL.', {
         removed,
         ttlMinutes: Math.round(ttlMs / 60000)
       });
@@ -5916,7 +5916,7 @@ class WhatsAppSessionManager {
       return messageHistory.join('\n');
     }
 
-    // Fallback para sessão transitória em memória (caso histórico persistido ainda não tenha sido atualizado).
+    // Fallback para sessÃƒÂ£o transitÃƒÂ³ria em memÃƒÂ³ria (caso histÃƒÂ³rico persistido ainda nÃƒÂ£o tenha sido atualizado).
     const session = this.getOrCreateAiConversationSession(chatJid);
     const lines = session.history
       .filter((item) => (nowMs - Number(item.timestamp || 0)) <= ttlMs)
@@ -5950,21 +5950,21 @@ class WhatsAppSessionManager {
     const assistantName = String(this.aiConfig.assistantName || 'Assistente').trim();
     const companyName = String(this.aiConfig.companyName || 'Cantina').trim();
     const systemPrompt = this.applyVariables(
-      `Você é ${assistantName}, assistente da empresa ${companyName}.\n${this.getAiHardSafetyPolicyPrompt(scopedVariables)}\n${this.aiConfig.globalPrompt}\n\nContexto ativo: ${context.name}\n${context.description}\n${context.prompt}\n${context.responsePrompt}`,
+      `VocÃƒÂª ÃƒÂ© ${assistantName}, assistente da empresa ${companyName}.\n${this.getAiHardSafetyPolicyPrompt(scopedVariables)}\n${this.aiConfig.globalPrompt}\n\nContexto ativo: ${context.name}\n${context.description}\n${context.prompt}\n${context.responsePrompt}`,
       scopedVariables
     );
     const userPrompt = [
-      conversationContext ? `Histórico recente da sessão:\n${conversationContext}` : '',
+      conversationContext ? `HistÃƒÂ³rico recente da sessÃƒÂ£o:\n${conversationContext}` : '',
       `Mensagem do cliente: ${message}`,
       flowInstruction ? `Roteamento do fluxo:\n${flowInstruction}` : '',
       toolSearchContext ? `Resultado das tools de busca na database:\n${toolSearchContext}` : '',
-      'Dados variáveis disponíveis:',
+      'Dados variÃƒÂ¡veis disponÃƒÂ­veis:',
       JSON.stringify(scopedVariables, null, 2),
-      `Ação do contexto: ${context.actionType}`,
-      'Responda com base no pedido atual do cliente. Não assuma solicitação de relatório/PDF/e-mail se o cliente não pediu nesta mensagem.',
-      'Use prioritariamente os dados reais vindos das tools de busca e das variáveis.',
-      'Se não encontrar dado nas tools/variáveis, informe claramente que não encontrou.',
-      'Responda em português brasileiro de forma objetiva.'
+      `AÃƒÂ§ÃƒÂ£o do contexto: ${context.actionType}`,
+      'Responda com base no pedido atual do cliente. NÃƒÂ£o assuma solicitaÃƒÂ§ÃƒÂ£o de relatÃƒÂ³rio/PDF/e-mail se o cliente nÃƒÂ£o pediu nesta mensagem.',
+      'Use prioritariamente os dados reais vindos das tools de busca e das variÃƒÂ¡veis.',
+      'Se nÃƒÂ£o encontrar dado nas tools/variÃƒÂ¡veis, informe claramente que nÃƒÂ£o encontrou.',
+      'Responda em portuguÃƒÂªs brasileiro de forma objetiva.'
     ].filter(Boolean).join('\n');
 
     if (provider === 'openai' && tokenOpenAi) {
@@ -5978,7 +5978,7 @@ class WhatsAppSessionManager {
     }
 
     const fallback = this.applyVariables(
-      `Olá {responsavel_nome}, recebi sua mensagem sobre "${message}". Seu saldo atual é {saldo_total}.`,
+      `OlÃƒÂ¡ {responsavel_nome}, recebi sua mensagem sobre "${message}". Seu saldo atual ÃƒÂ© {saldo_total}.`,
       scopedVariables
     );
     return fallback;
@@ -5988,7 +5988,7 @@ class WhatsAppSessionManager {
     const finalReply = String(replyText || '').trim();
     if (!finalReply) return;
 
-    // O atraso sempre começa após a resposta já ter sido gerada.
+    // O atraso sempre comeÃƒÂ§a apÃƒÂ³s a resposta jÃƒÂ¡ ter sido gerada.
     const generatedAt = Date.now();
     const delaySeconds = Math.max(0, Math.min(120, Number(this.aiConfig.responseDelaySeconds || 0)));
     if (delaySeconds > 0) {
@@ -6003,7 +6003,7 @@ class WhatsAppSessionManager {
     this.appendAiConversationHistory(chatJid, 'assistant', finalReply);
     this.schedulePersistChatHistory();
 
-    this.logInfo('Resposta de AI enviada após atraso configurado.', {
+    this.logInfo('Resposta de AI enviada apÃƒÂ³s atraso configurado.', {
       chatId: this.toExternalChatId(chatJid),
       generatedAt,
       sentAt: Date.now(),
@@ -6042,7 +6042,7 @@ class WhatsAppSessionManager {
         });
         await this.sendAiReplyAfterConfiguredDelay(
           chatJid,
-          'Por segurança, não posso executar nem orientar ações destrutivas ou irreversíveis. Posso ajudar com alternativas seguras e reversíveis, como backup, soft delete, arquivamento e revisão manual.'
+          'Por seguranÃƒÂ§a, nÃƒÂ£o posso executar nem orientar aÃƒÂ§ÃƒÂµes destrutivas ou irreversÃƒÂ­veis. Posso ajudar com alternativas seguras e reversÃƒÂ­veis, como backup, soft delete, arquivamento e revisÃƒÂ£o manual.'
         );
         return;
       }
@@ -6053,7 +6053,7 @@ class WhatsAppSessionManager {
       const context = await this.selectAiContext(incomingText, enabledContexts);
       if (!context) return;
       if (context.actionType === 'ATENDIMENTO_HUMANO') {
-        this.logInfo('Contexto direcionado para atendimento humano. IA não responderá automaticamente.', {
+        this.logInfo('Contexto direcionado para atendimento humano. IA nÃƒÂ£o responderÃƒÂ¡ automaticamente.', {
           chatId: this.toExternalChatId(chatJid),
           context: context.name,
         });
@@ -6069,7 +6069,7 @@ class WhatsAppSessionManager {
       const flowInstruction = selectedSubSwitch
         ? [
             `Sub-switch selecionado: ${selectedSubSwitch.name}`,
-            selectedSubSwitch.description ? `Descrição: ${selectedSubSwitch.description}` : '',
+            selectedSubSwitch.description ? `DescriÃƒÂ§ÃƒÂ£o: ${selectedSubSwitch.description}` : '',
             selectedSubSwitch.responsePrompt ? `Prompt final: ${selectedSubSwitch.responsePrompt}` : '',
           ].filter(Boolean).join('\n')
         : 'Sem sub-switch selecionado. Use o contexto principal.';
@@ -6085,11 +6085,11 @@ class WhatsAppSessionManager {
           chatId,
           contactName,
           excerpt: incomingText,
-          details: `Solicitação citou contato fora do escopo autorizado: ${outOfScopeMention}`,
+          details: `SolicitaÃƒÂ§ÃƒÂ£o citou contato fora do escopo autorizado: ${outOfScopeMention}`,
         });
         await this.sendAiReplyAfterConfiguredDelay(
           chatJid,
-          'Por privacidade, só posso consultar dados do responsável desta conversa e dos alunos/colaboradores vinculados a ele. Se quiser, me informe o aluno relacionado a este responsável para eu continuar.'
+          'Por privacidade, sÃƒÂ³ posso consultar dados do responsÃƒÂ¡vel desta conversa e dos alunos/colaboradores vinculados a ele. Se quiser, me informe o aluno relacionado a este responsÃƒÂ¡vel para eu continuar.'
         );
         return;
       }
@@ -6099,7 +6099,7 @@ class WhatsAppSessionManager {
       if (this.aiConfig.onlyOutsideBusinessHours) {
         const hoursCheck = this.isOutsideEnterpriseBusinessHours(chatJid, targetClient);
         if (!hoursCheck.outside) {
-          this.logInfo('Resposta automática da IA suprimida: dentro do horário de atendimento.', {
+          this.logInfo('Resposta automÃƒÂ¡tica da IA suprimida: dentro do horÃƒÂ¡rio de atendimento.', {
             chatId: this.toExternalChatId(chatJid),
             enterpriseId: hoursCheck.enterpriseId,
             open: hoursCheck.open || null,
@@ -6113,8 +6113,8 @@ class WhatsAppSessionManager {
 
       if (this.isGreetingOnlyMessage(incomingText)) {
         const greetingReply = outsideHoursModeActive
-          ? 'Olá! No momento estamos fora do horário de atendimento humano da unidade. Mesmo assim, sigo disponível para te ajudar automaticamente com saldo, consumo, relatórios e envio de PDF.\n\nMe diga o que você deseja consultar.'
-          : 'Olá! Tudo bem? Me diga o que você deseja consultar e eu te ajudo.';
+          ? 'OlÃƒÂ¡! No momento estamos fora do horÃƒÂ¡rio de atendimento humano da unidade. Mesmo assim, sigo disponÃƒÂ­vel para te ajudar automaticamente com saldo, consumo, relatÃƒÂ³rios e envio de PDF.\n\nMe diga o que vocÃƒÂª deseja consultar.'
+          : 'OlÃƒÂ¡! Tudo bem? Me diga o que vocÃƒÂª deseja consultar e eu te ajudo.';
         if (outsideHoursModeActive && this.shouldSendOutsideHoursIntro(chatJid)) {
           this.markOutsideHoursIntroSent(chatJid);
         }
@@ -6128,13 +6128,13 @@ class WhatsAppSessionManager {
           .filter(Boolean);
         const listText = names.map((name, index) => `${index + 1}. ${name}`).join('\n');
         const disambiguationReply = [
-          'Encontrei mais de um aluno vinculado ao responsável.',
-          'Por favor, me diga de qual aluno você deseja consultar os dados:',
+          'Encontrei mais de um aluno vinculado ao responsÃƒÂ¡vel.',
+          'Por favor, me diga de qual aluno vocÃƒÂª deseja consultar os dados:',
           listText
         ].filter(Boolean).join('\n');
 
         await this.sendAiReplyAfterConfiguredDelay(chatJid, disambiguationReply);
-        this.logInfo('Resposta de desambiguação enviada para múltiplos alunos do responsável.', {
+        this.logInfo('Resposta de desambiguaÃƒÂ§ÃƒÂ£o enviada para mÃƒÂºltiplos alunos do responsÃƒÂ¡vel.', {
           chatId: this.toExternalChatId(chatJid),
           relatedCount: targetResolution.relatedClients.length
         });
@@ -6154,7 +6154,7 @@ class WhatsAppSessionManager {
       );
       if (wantsAutoReportNow) {
         if (autoReport.sent) {
-          this.logInfo('Fluxo de relatório concluído; resposta textual adicional da IA suprimida para evitar confirmação duplicada.', {
+          this.logInfo('Fluxo de relatÃƒÂ³rio concluÃƒÂ­do; resposta textual adicional da IA suprimida para evitar confirmaÃƒÂ§ÃƒÂ£o duplicada.', {
             chatId: this.toExternalChatId(chatJid),
             fileName: autoReport.fileName || null,
           });
@@ -6162,21 +6162,21 @@ class WhatsAppSessionManager {
         }
         const reportFailureMessage = (() => {
           if (autoReport.reason === 'target_client_not_found') {
-            return 'Não consegui identificar o aluno/colaborador para gerar o relatório. Me informe o nome exato para eu enviar o PDF.';
+            return 'NÃƒÂ£o consegui identificar o aluno/colaborador para gerar o relatÃƒÂ³rio. Me informe o nome exato para eu enviar o PDF.';
           }
           if (autoReport.reason === 'tool_disabled') {
-            return 'A ferramenta de relatório automático está desativada na configuração. Ative em WhatsApp > Configuração > Tools do Agent AI e tente novamente.';
+            return 'A ferramenta de relatÃƒÂ³rio automÃƒÂ¡tico estÃƒÂ¡ desativada na configuraÃƒÂ§ÃƒÂ£o. Ative em WhatsApp > ConfiguraÃƒÂ§ÃƒÂ£o > Tools do Agent AI e tente novamente.';
           }
           if (autoReport.reason === 'pdf_build_failed') {
             return 'Tive uma instabilidade para gerar o PDF agora. Tente novamente em alguns segundos.';
           }
-          return 'Não consegui enviar o PDF agora. Vou tentar novamente em seguida. Se preferir, me peça: "enviar relatório em PDF do [nome do aluno]".';
+          return 'NÃƒÂ£o consegui enviar o PDF agora. Vou tentar novamente em seguida. Se preferir, me peÃƒÂ§a: "enviar relatÃƒÂ³rio em PDF do [nome do aluno]".';
         })();
         await this.sendAiReplyAfterConfiguredDelay(
           chatJid,
           reportFailureMessage
         );
-        this.logWarn('Solicitação de relatório detectada, mas PDF não foi enviado.', {
+        this.logWarn('SolicitaÃƒÂ§ÃƒÂ£o de relatÃƒÂ³rio detectada, mas PDF nÃƒÂ£o foi enviado.', {
           chatId: this.toExternalChatId(chatJid),
           reason: autoReport.reason || 'unknown'
         });
@@ -6194,7 +6194,7 @@ class WhatsAppSessionManager {
         effectiveSelections,
         [
           flowInstruction,
-          autoReport.sent ? `Relatório PDF enviado automaticamente: ${autoReport.fileName}` : ''
+          autoReport.sent ? `RelatÃƒÂ³rio PDF enviado automaticamente: ${autoReport.fileName}` : ''
         ].filter(Boolean).join('\n'),
         toolSearchContext
       );
@@ -6214,33 +6214,33 @@ class WhatsAppSessionManager {
           sourceMessage: String(incomingText || '').trim(),
         };
       } else if (session.pendingIntentLearning) {
-        // Limpa pendência quando a conversa já seguiu com resposta objetiva/contextual.
+        // Limpa pendÃƒÂªncia quando a conversa jÃƒÂ¡ seguiu com resposta objetiva/contextual.
         session.pendingIntentLearning = null;
       }
       let replyToSend = finalReply;
       if (outsideHoursModeActive && this.shouldSendOutsideHoursIntro(chatJid)) {
         const outsideIntro = [
-          'Olá! No momento estamos fora do horário de atendimento humano da unidade.',
-          'Mesmo assim, sigo disponível para te ajudar automaticamente com saldo, consumo, relatórios e envio de PDF.',
+          'OlÃƒÂ¡! No momento estamos fora do horÃƒÂ¡rio de atendimento humano da unidade.',
+          'Mesmo assim, sigo disponÃƒÂ­vel para te ajudar automaticamente com saldo, consumo, relatÃƒÂ³rios e envio de PDF.',
         ].join(' ');
         replyToSend = `${outsideIntro}\n\n${finalReply}`;
         this.markOutsideHoursIntroSent(chatJid);
       }
       await this.sendAiReplyAfterConfiguredDelay(chatJid, replyToSend);
-      this.logInfo('Resposta automática de AI enviada.', {
+      this.logInfo('Resposta automÃƒÂ¡tica de AI enviada.', {
         chatId: this.toExternalChatId(chatJid),
         context: context.name,
         subSwitch: selectedSubSwitch?.name || null,
       });
     } catch (err) {
-      this.logWarn('Falha ao processar resposta automática de AI.', err instanceof Error ? err.message : err);
+      this.logWarn('Falha ao processar resposta automÃƒÂ¡tica de AI.', err instanceof Error ? err.message : err);
       try {
         await this.sendAiReplyAfterConfiguredDelay(
           chatJid,
-          'Tive uma instabilidade ao processar sua solicitação agora. Pode repetir sua mensagem em seguida?'
+          'Tive uma instabilidade ao processar sua solicitaÃƒÂ§ÃƒÂ£o agora. Pode repetir sua mensagem em seguida?'
         );
       } catch {
-        // Evita propagação de erro adicional no fallback final da IA.
+        // Evita propagaÃƒÂ§ÃƒÂ£o de erro adicional no fallback final da IA.
       }
     }
   }
@@ -6265,7 +6265,7 @@ class WhatsAppSessionManager {
   private async clearPersistedSession() {
     const authDir = this.getAuthDir();
     await fs.rm(authDir, { recursive: true, force: true });
-    this.logWarn('Sessão persistida removida para forçar novo QR Code.', { authDir });
+    this.logWarn('SessÃƒÂ£o persistida removida para forÃƒÂ§ar novo QR Code.', { authDir });
   }
 
   async start(options: StartOptions = {}) {
@@ -6313,9 +6313,9 @@ class WhatsAppSessionManager {
   private async startInternal(options: StartOptions = {}) {
     if (this.sock && this.state === 'CONNECTED') {
       if (this.syncProgress.active) {
-        this.completeSyncRuntime('Sincronização já concluída (sessão conectada).');
+        this.completeSyncRuntime('SincronizaÃƒÂ§ÃƒÂ£o jÃƒÂ¡ concluÃƒÂ­da (sessÃƒÂ£o conectada).');
       }
-      this.logInfo('Sessão já está conectada, reutilizando estado atual.');
+      this.logInfo('SessÃƒÂ£o jÃƒÂ¡ estÃƒÂ¡ conectada, reutilizando estado atual.');
       return this.getSnapshot();
     }
 
@@ -6330,13 +6330,13 @@ class WhatsAppSessionManager {
       this.phoneNumber = null;
       this.setState('INITIALIZING');
       this.beginSyncRuntimeTracking();
-      this.setSyncRuntimePhase('BOOTSTRAP', 'Preparando conexão e autenticação do WhatsApp...', 8);
+      this.setSyncRuntimePhase('BOOTSTRAP', 'Preparando conexÃƒÂ£o e autenticaÃƒÂ§ÃƒÂ£o do WhatsApp...', 8);
 
       if (this.sock?.ws) {
         try {
           this.sock.ws.close();
         } catch (err) {
-          this.logWarn('Erro ao fechar socket anterior antes de reiniciar sessão.', err);
+          this.logWarn('Erro ao fechar socket anterior antes de reiniciar sessÃƒÂ£o.', err);
         }
       }
       this.sock = null;
@@ -6349,7 +6349,7 @@ class WhatsAppSessionManager {
 
       const authDir = this.getAuthDir();
       await fs.mkdir(authDir, { recursive: true });
-      this.logInfo('Inicializando sessão WhatsApp.', { authDir, forceNewSession: Boolean(options.forceNewSession) });
+      this.logInfo('Inicializando sessÃƒÂ£o WhatsApp.', { authDir, forceNewSession: Boolean(options.forceNewSession) });
       const { state, saveCreds } = await useMultiFileAuthState(authDir);
       const { version } = await fetchLatestBaileysVersion();
       this.setSyncRuntimePhase('CONNECTING', 'Conectando ao servidor do WhatsApp...', 18);
@@ -6369,10 +6369,10 @@ class WhatsAppSessionManager {
         if (this.sock !== sock) return;
         try {
           await saveCreds();
-          this.logInfo('Credenciais da sessão persistidas com sucesso.');
+          this.logInfo('Credenciais da sessÃƒÂ£o persistidas com sucesso.');
         } catch (err) {
           this.lastError = err instanceof Error ? err.message : 'Falha ao persistir credenciais';
-          this.logError('Erro ao persistir credenciais da sessão.', err);
+          this.logError('Erro ao persistir credenciais da sessÃƒÂ£o.', err);
         }
       });
 
@@ -6388,7 +6388,7 @@ class WhatsAppSessionManager {
             this.qrDataUrl = await qrcode.toDataURL(qr, { margin: 1, scale: 6 });
             this.lastError = null;
             this.setState('QR_READY');
-            this.setSyncRuntimePhase('AWAITING_QR_SCAN', 'QR Code gerado. Aguardando leitura para iniciar sincronização...', 34);
+            this.setSyncRuntimePhase('AWAITING_QR_SCAN', 'QR Code gerado. Aguardando leitura para iniciar sincronizaÃƒÂ§ÃƒÂ£o...', 34);
             this.logInfo('QR gerado e pronto para escaneamento.');
           } catch (err) {
             this.qrDataUrl = null;
@@ -6412,8 +6412,8 @@ class WhatsAppSessionManager {
           this.setSyncRuntimePhase(
             'SYNCING_HISTORY',
             this.sessionConfig.syncFullHistory
-              ? 'Conectado. Sincronizando histórico completo no período configurado...'
-              : 'Conectado. Sincronizando dados essenciais da sessão...',
+              ? 'Conectado. Sincronizando histÃƒÂ³rico completo no perÃƒÂ­odo configurado...'
+              : 'Conectado. Sincronizando dados essenciais da sessÃƒÂ£o...',
             this.sessionConfig.syncFullHistory ? 62 : 78
           );
           this.markSyncRuntimeActivity({ chats: 1 });
@@ -6425,10 +6425,10 @@ class WhatsAppSessionManager {
             this.setSyncRuntimePhase('RESYNC_LABELS', 'Sincronizando etiquetas e metadados da conta...', 88);
             this.resyncLabelsFromAppState()
               .then(() => {
-                this.setSyncRuntimePhase('FINALIZING', 'Finalizando sincronização e consolidando cache local...', 95);
+                this.setSyncRuntimePhase('FINALIZING', 'Finalizando sincronizaÃƒÂ§ÃƒÂ£o e consolidando cache local...', 95);
               })
               .catch(() => {
-                this.setSyncRuntimePhase('FINALIZING', 'Finalizando sincronização com avisos em metadados...', 93);
+                this.setSyncRuntimePhase('FINALIZING', 'Finalizando sincronizaÃƒÂ§ÃƒÂ£o com avisos em metadados...', 93);
               });
           }, 1200);
         }
@@ -6456,7 +6456,7 @@ class WhatsAppSessionManager {
           this.qrDataUrl = null;
           this.phoneNumber = null;
 
-          this.logWarn('Conexão encerrada.', {
+          this.logWarn('ConexÃƒÂ£o encerrada.', {
             code,
             loggedOut,
             shouldReconnect,
@@ -6469,17 +6469,17 @@ class WhatsAppSessionManager {
             this.connectionFailureStreak = 0;
             this.setState('DISCONNECTED');
             if (loggedOut) {
-              this.lastError = 'Sessão desconectada no aparelho celular. Faça novo pareamento por QR Code.';
+              this.lastError = 'SessÃƒÂ£o desconectada no aparelho celular. FaÃƒÂ§a novo pareamento por QR Code.';
               try {
                 await this.clearPersistedSession();
               } catch (err) {
-                this.logWarn('Falha ao remover credenciais após logout detectado no aparelho.', err);
+                this.logWarn('Falha ao remover credenciais apÃƒÂ³s logout detectado no aparelho.', err);
               }
             } else {
               this.lastError = null;
             }
             if (this.syncProgress.active) {
-              this.failSyncRuntime(this.lastError || 'Sessão desconectada durante sincronização.');
+              this.failSyncRuntime(this.lastError || 'SessÃƒÂ£o desconectada durante sincronizaÃƒÂ§ÃƒÂ£o.');
             }
             return;
           }
@@ -6492,12 +6492,12 @@ class WhatsAppSessionManager {
             }
 
             if (this.connectionFailureStreak >= WhatsAppSessionManager.MAX_CONNECTION_FAILURE_RETRIES) {
-              this.logWarn('Muitas falhas 401 consecutivas. Forçando limpeza da sessão para gerar novo QR.', {
+              this.logWarn('Muitas falhas 401 consecutivas. ForÃƒÂ§ando limpeza da sessÃƒÂ£o para gerar novo QR.', {
                 retries: this.connectionFailureStreak,
                 authDir: this.getAuthDir()
               });
               this.connectionFailureStreak = 0;
-              this.lastError = 'Sessão inválida detectada. Gere e escaneie um novo QR Code.';
+              this.lastError = 'SessÃƒÂ£o invÃƒÂ¡lida detectada. Gere e escaneie um novo QR Code.';
               this.setState('INITIALIZING');
               if (this.reconnectTimer) {
                 clearTimeout(this.reconnectTimer);
@@ -6506,9 +6506,9 @@ class WhatsAppSessionManager {
                 this.reconnectTimer = null;
                 if (!this.manualStop) {
                   this.start({ forceNewSession: true }).catch((err) => {
-                    this.lastError = err instanceof Error ? err.message : 'Falha ao renovar sessão';
+                    this.lastError = err instanceof Error ? err.message : 'Falha ao renovar sessÃƒÂ£o';
                     this.setState('ERROR');
-                    this.logError('Erro ao forçar nova sessão após falhas de conexão.', err);
+                    this.logError('Erro ao forÃƒÂ§ar nova sessÃƒÂ£o apÃƒÂ³s falhas de conexÃƒÂ£o.', err);
                   });
                 }
               }, 600);
@@ -6527,19 +6527,19 @@ class WhatsAppSessionManager {
                 this.start().catch((err) => {
                   this.lastError = err instanceof Error ? err.message : 'Falha ao reconectar';
                   this.setState('ERROR');
-                  this.logError('Erro na tentativa de reconexão automática.', err);
+                  this.logError('Erro na tentativa de reconexÃƒÂ£o automÃƒÂ¡tica.', err);
                 });
               }
             }, reconnectDelay);
             return;
           }
 
-          this.lastError = update?.lastDisconnect?.error?.message || 'Conexão encerrada';
+          this.lastError = update?.lastDisconnect?.error?.message || 'ConexÃƒÂ£o encerrada';
           this.setState('ERROR');
           if (this.syncProgress.active) {
-            this.failSyncRuntime(this.lastError || 'Conexão encerrada em estado de erro.');
+            this.failSyncRuntime(this.lastError || 'ConexÃƒÂ£o encerrada em estado de erro.');
           }
-          this.logError('Sessão encerrada em estado de erro.', update?.lastDisconnect?.error);
+          this.logError('SessÃƒÂ£o encerrada em estado de erro.', update?.lastDisconnect?.error);
         }
       });
 
@@ -6607,7 +6607,7 @@ class WhatsAppSessionManager {
           }
 
           const preview = body
-            || (location ? '[Localização]' : '')
+            || (location ? '[LocalizaÃƒÂ§ÃƒÂ£o]' : '')
             || (media?.fileName ? `[Arquivo: ${media.fileName}]` : media ? '[Arquivo]' : (hasMediaPayload ? '[Arquivo]' : ''));
 
           const isTechnicalNotice = this.isTechnicalWhatsAppNoticeBody(preview)
@@ -6813,7 +6813,7 @@ class WhatsAppSessionManager {
           const hasConversationContent = this.hasChatMessageContent(contactJid);
           const hasChatActivity = Number(existing?.lastTimestamp || 0) > 0;
           if (!hasConversationContent && !hasChatActivity) {
-            // Não cria conversa vazia apenas por sincronização de contato.
+            // NÃƒÂ£o cria conversa vazia apenas por sincronizaÃƒÂ§ÃƒÂ£o de contato.
             continue;
           }
 
@@ -6861,7 +6861,7 @@ class WhatsAppSessionManager {
           const hasConversationContent = this.hasChatMessageContent(contactJid);
           const hasChatActivity = Number(existing?.lastTimestamp || 0) > 0;
           if (!hasConversationContent && !hasChatActivity) {
-            // Não cria conversa vazia apenas por atualização de contato.
+            // NÃƒÂ£o cria conversa vazia apenas por atualizaÃƒÂ§ÃƒÂ£o de contato.
             continue;
           }
 
@@ -6914,7 +6914,7 @@ class WhatsAppSessionManager {
 
         const chatJid = this.normalizeLabelChatJid(chatId);
         if (!chatJid) {
-          this.logWarn('Etiqueta recebida, mas chatId não pôde ser normalizado.', { chatId, labelId, associationType });
+          this.logWarn('Etiqueta recebida, mas chatId nÃƒÂ£o pÃƒÂ´de ser normalizado.', { chatId, labelId, associationType });
           return;
         }
 
@@ -6931,7 +6931,7 @@ class WhatsAppSessionManager {
 
         applyLabel(chatJid);
 
-        // Propaga para aliases da mesma conversa (ex.: @c.us / @s.whatsapp.net / variações)
+        // Propaga para aliases da mesma conversa (ex.: @c.us / @s.whatsapp.net / variaÃƒÂ§ÃƒÂµes)
         const targetExternal = this.toExternalChatId(chatJid);
         const targetPhone = this.getPhoneFromJid(chatJid);
         for (const existingJid of this.chatMap.keys()) {
@@ -6947,10 +6947,10 @@ class WhatsAppSessionManager {
       return this.getSnapshot();
     } catch (err) {
       this.sock = null;
-      this.lastError = err instanceof Error ? err.message : 'Falha ao iniciar sessão WhatsApp';
+      this.lastError = err instanceof Error ? err.message : 'Falha ao iniciar sessÃƒÂ£o WhatsApp';
       this.setState('ERROR');
-      this.failSyncRuntime(this.lastError || 'Falha ao iniciar sessão WhatsApp.');
-      this.logError('Erro ao iniciar sessão.', err);
+      this.failSyncRuntime(this.lastError || 'Falha ao iniciar sessÃƒÂ£o WhatsApp.');
+      this.logError('Erro ao iniciar sessÃƒÂ£o.', err);
       return this.getSnapshot();
     }
   }
@@ -6958,11 +6958,11 @@ class WhatsAppSessionManager {
   async initializeOnBoot() {
     const shouldAutoStart = String(process.env.WHATSAPP_AUTO_START || 'true').toLowerCase() !== 'false';
     if (!shouldAutoStart) {
-      this.logInfo('Inicialização automática desativada por configuração.');
+      this.logInfo('InicializaÃƒÂ§ÃƒÂ£o automÃƒÂ¡tica desativada por configuraÃƒÂ§ÃƒÂ£o.');
       return this.getSnapshot();
     }
 
-    this.logInfo('Inicialização automática da sessão habilitada.');
+    this.logInfo('InicializaÃƒÂ§ÃƒÂ£o automÃƒÂ¡tica da sessÃƒÂ£o habilitada.');
     return this.start();
   }
 
@@ -6987,7 +6987,7 @@ class WhatsAppSessionManager {
         this.sock.ws.close();
       }
     } catch (err) {
-      this.logError('Erro ao encerrar sessão.', err);
+      this.logError('Erro ao encerrar sessÃƒÂ£o.', err);
     } finally {
       this.sock = null;
       this.qrDataUrl = null;
@@ -6996,20 +6996,20 @@ class WhatsAppSessionManager {
       try {
         await this.clearPersistedSession();
       } catch (err) {
-        this.logWarn('Falha ao remover credenciais da sessão durante desconexão manual.', err);
+        this.logWarn('Falha ao remover credenciais da sessÃƒÂ£o durante desconexÃƒÂ£o manual.', err);
       }
       this.setState('DISCONNECTED');
       if (this.syncProgress.active) {
-        this.failSyncRuntime('Sincronização interrompida por desconexão manual.');
+        this.failSyncRuntime('SincronizaÃƒÂ§ÃƒÂ£o interrompida por desconexÃƒÂ£o manual.');
       }
-      this.logInfo('Sessão encerrada e credenciais removidas. Histórico de conversas preservado.');
+      this.logInfo('SessÃƒÂ£o encerrada e credenciais removidas. HistÃƒÂ³rico de conversas preservado.');
     }
     return this.getSnapshot();
   }
 
   private ensureConnected() {
     if (!this.sock || this.state !== 'CONNECTED') {
-      throw new Error('WhatsApp não conectado.');
+      throw new Error('WhatsApp nÃƒÂ£o conectado.');
     }
   }
 
@@ -7017,7 +7017,7 @@ class WhatsAppSessionManager {
     this.ensureConnected();
 
     const jid = await this.resolveRecipientJid(phone);
-    if (!jid) throw new Error('Telefone inválido.');
+    if (!jid) throw new Error('Telefone invÃƒÂ¡lido.');
     this.logInfo('Enviando mensagem por telefone.', {
       phone,
       normalizedJid: jid,
@@ -7107,7 +7107,7 @@ class WhatsAppSessionManager {
 
   async getChatMessages(chatId: string, limit = 80): Promise<ChatMessage[]> {
     const aliasJids = this.getChatAliasJids(chatId);
-    if (aliasJids.length === 0) throw new Error('Chat inválido.');
+    if (aliasJids.length === 0) throw new Error('Chat invÃƒÂ¡lido.');
 
     const mergedMessages: ChatMessage[] = [];
     for (const alias of aliasJids) {
@@ -7156,7 +7156,7 @@ class WhatsAppSessionManager {
     const resolved = this.toBaileysJid(target);
     const jid = this.resolveCanonicalChatJid(resolved);
     if (!jid || !this.isClientJid(jid) || this.isSelfJid(jid)) {
-      throw new Error('Destinatário de origem inválido para ingestão externa.');
+      throw new Error('DestinatÃƒÂ¡rio de origem invÃƒÂ¡lido para ingestÃƒÂ£o externa.');
     }
 
     const nowSec = Math.floor(Date.now() / 1000);
@@ -7262,7 +7262,7 @@ class WhatsAppSessionManager {
     const resolved = this.toBaileysJid(target);
     const jid = this.resolveCanonicalChatJid(resolved);
     if (!jid || !this.isClientJid(jid) || this.isSelfJid(jid)) {
-      throw new Error('Destinatário de destino inválido para persistência externa.');
+      throw new Error('DestinatÃƒÂ¡rio de destino invÃƒÂ¡lido para persistÃƒÂªncia externa.');
     }
 
     const nowSec = Math.floor(Date.now() / 1000);
@@ -7349,7 +7349,7 @@ class WhatsAppSessionManager {
   async clearChatMessages(chatId: string) {
     const aliasJids = this.getChatAliasJids(chatId);
     if (aliasJids.length === 0) {
-      throw new Error('Chat inválido para limpeza de mensagens.');
+      throw new Error('Chat invÃƒÂ¡lido para limpeza de mensagens.');
     }
 
     let existedMessages = false;
@@ -7388,7 +7388,7 @@ class WhatsAppSessionManager {
   async deleteChat(chatId: string) {
     const aliasJids = this.getChatAliasJids(chatId);
     if (aliasJids.length === 0) {
-      throw new Error('Chat inválido para exclusão.');
+      throw new Error('Chat invÃƒÂ¡lido para exclusÃƒÂ£o.');
     }
 
     const externalChatId = this.toExternalChatId(aliasJids[0]);
@@ -7442,7 +7442,7 @@ class WhatsAppSessionManager {
   async sendMessageToChat(chatId: string, message: string, options: SendChatOptions = {}) {
     this.ensureConnected();
     const jid = await this.resolveRecipientJid(chatId);
-    if (!jid || !this.isClientJid(jid)) throw new Error('Chat inválido.');
+    if (!jid || !this.isClientJid(jid)) throw new Error('Chat invÃƒÂ¡lido.');
     const text = String(message || '');
     this.logInfo('Enviando mensagem para conversa.', {
       chatId,
@@ -7531,9 +7531,9 @@ class WhatsAppSessionManager {
   async sendMediaToChat(chatId: string, attachment: MediaAttachmentInput, caption = '', options: SendChatOptions = {}) {
     this.ensureConnected();
     const jid = await this.resolveRecipientJid(chatId);
-    if (!jid || !this.isClientJid(jid)) throw new Error('Chat inválido.');
+    if (!jid || !this.isClientJid(jid)) throw new Error('Chat invÃƒÂ¡lido.');
     if (!attachment?.base64Data || !attachment?.mediaType) {
-      throw new Error('Anexo inválido.');
+      throw new Error('Anexo invÃƒÂ¡lido.');
     }
 
     let sent: any;
@@ -7670,8 +7670,8 @@ class WhatsAppSessionManager {
   async cancelScheduledMessage(id: string) {
     const targetId = String(id || '').trim();
     const target = this.scheduledMessages.find((item) => item.id === targetId);
-    if (!target) throw new Error('Agendamento não encontrado.');
-    if (target.status === 'sent') throw new Error('Não é possível cancelar mensagem já enviada.');
+    if (!target) throw new Error('Agendamento nÃƒÂ£o encontrado.');
+    if (target.status === 'sent') throw new Error('NÃƒÂ£o ÃƒÂ© possÃƒÂ­vel cancelar mensagem jÃƒÂ¡ enviada.');
 
     target.status = 'cancelled';
     target.error = null;
@@ -7686,3 +7686,6 @@ class WhatsAppSessionManager {
 }
 
 export const whatsappSession = new WhatsAppSessionManager();
+
+
+
