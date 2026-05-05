@@ -1067,8 +1067,8 @@ router.get('/needs-setup', (req: Request, res: Response) => {
 router.post('/initial-setup', async (req: Request, res: Response) => {
   console.log('\n🚀 [SYSTEM] INITIAL SETUP REQUEST RECEIVED');
   
-  const { name, email, password } = req.body;
-  
+  const { name, email, password, establishmentType } = req.body;
+
   if (!name || !email || !password) {
     return res.status(400).json({
       success: false,
@@ -1103,7 +1103,11 @@ router.post('/initial-setup', async (req: Request, res: Response) => {
     
     // Usa a API da database para criar o usuário
     const createdUser = db.createUser(superAdmin);
-    
+
+    if (establishmentType) {
+      db.updateSystemSettings({ establishmentType });
+    }
+
     console.log('✅ [SYSTEM] SUPERADMIN criado com sucesso');
     console.log(`   Nome: ${name}`);
     console.log(`   Email: ${email}`);

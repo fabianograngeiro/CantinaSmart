@@ -47,6 +47,7 @@ type FinancialTx = {
   payerResponsibleId?: string;
   payerResponsibleName?: string;
   isAudit?: boolean;
+  purchaseRefCode?: string;
   auditedItemType?: 'ITEM' | 'PLANO';
   auditedQuantity?: number;
   items?: Array<{ name: string; quantity: number; unitPrice?: number; subtotal?: number }>;
@@ -230,6 +231,7 @@ const mapRawTransactionToFinancial = (tx: any): FinancialTx | null => {
       isManual: false,
       rawType,
       userName,
+      purchaseRefCode: String(tx?.purchaseRefCode || tx?.refCompra || '').trim() || undefined,
       payerResponsibleId: String(tx?.payerResponsibleId || '').trim() || undefined,
       payerResponsibleName: String(tx?.payerResponsibleName || '').trim() || undefined,
       isAudit: true,
@@ -267,6 +269,7 @@ const mapRawTransactionToFinancial = (tx: any): FinancialTx | null => {
       isManual: isManualFinance,
       rawType,
       userName,
+      purchaseRefCode: String(tx?.purchaseRefCode || tx?.refCompra || '').trim() || undefined,
       payerResponsibleId: String(tx?.payerResponsibleId || '').trim() || undefined,
       payerResponsibleName: String(tx?.payerResponsibleName || '').trim() || undefined,
       isAudit: false,
@@ -305,6 +308,7 @@ const mapRawTransactionToFinancial = (tx: any): FinancialTx | null => {
       isManual: false,
       rawType,
       userName,
+      purchaseRefCode: String(tx?.purchaseRefCode || tx?.refCompra || '').trim() || undefined,
       payerResponsibleId: String(tx?.payerResponsibleId || '').trim() || undefined,
       payerResponsibleName: String(tx?.payerResponsibleName || '').trim() || undefined,
       isAudit: false,
@@ -644,7 +648,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
       const paymentTokens = splitPaymentMethods(tx.method);
       const matchesPaymentMethod = launchPaymentMethodFilter === 'ALL' || paymentTokens.includes(launchPaymentMethodFilter);
       const matchesSearch = !term
-        || normalizeUpper(`${tx.description} ${tx.category} ${tx.client} ${tx.payerResponsibleName || ''} ${tx.method || ''}`).includes(term);
+        || normalizeUpper(`${tx.description} ${tx.category} ${tx.client} ${tx.payerResponsibleName || ''} ${tx.method || ''} ${tx.purchaseRefCode || ''}`).includes(term);
       return matchesType && matchesPaymentMethod && matchesSearch;
     });
   }, [transactions, launchTimeFilter, launchSpecificDate, launchTypeFilter, launchPaymentMethodFilter, launchSearch]);
@@ -656,7 +660,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
       .filter((tx) => tx.isAudit)
       .filter((tx) => {
         if (!term) return true;
-        return normalizeUpper(`${tx.id} ${tx.description} ${tx.category} ${tx.rawType || tx.type} ${tx.client} ${tx.userName || ''} ${tx.auditedItemType || ''} ${tx.auditedQuantity || ''}`).includes(term);
+        return normalizeUpper(`${tx.id} ${tx.purchaseRefCode || ''} ${tx.description} ${tx.category} ${tx.rawType || tx.type} ${tx.client} ${tx.userName || ''} ${tx.auditedItemType || ''} ${tx.auditedQuantity || ''}`).includes(term);
       })
       .sort((a, b) => {
         const left = new Date(`${a.date || ''}T${a.time || '00:00'}`).getTime();
@@ -1353,6 +1357,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
                 <th className="px-3 py-2.5 text-left">Aluno</th>
                 <th className="px-3 py-2.5 text-left">Descrição</th>
                 <th className="px-3 py-2.5 text-left">Categoria</th>
+                <th className="px-3 py-2.5 text-left">REF.COMPRA</th>
                 <th className="px-3 py-2.5 text-left">Tipo</th>
                 <th className="px-3 py-2.5 text-left">Forma de Pagamento</th>
                 <th className="px-3 py-2.5 text-right">Valor</th>
@@ -1363,7 +1368,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
             <tbody className="divide-y">
               {filteredLaunchTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-gray-400 font-bold uppercase text-xs">Sem lançamentos no período</td>
+                  <td colSpan={11} className="px-4 py-8 text-center text-gray-400 font-bold uppercase text-xs">Sem lançamentos no período</td>
                 </tr>
               ) : filteredLaunchTransactions.map((tx) => {
                 const isDeletionAdjustment = isDeletionAdjustmentTx(tx);
@@ -1395,6 +1400,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
                       )}
                     </div>
                   </td>
+                  <td className="px-3 py-2.5 text-gray-700 font-black">{tx.purchaseRefCode || '-'}</td>
                   <td className="px-3 py-2.5">
                     <span className={`text-[10px] font-black uppercase px-2 py-1 rounded ${tx.type === 'RECEITA' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
                       {tx.type}
@@ -1425,7 +1431,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
             type="text"
             value={auditSearch}
             onChange={(e) => setAuditSearch(e.target.value)}
-            placeholder="Filtrar por ARD, descrição, categoria, tipo, aluno/colaborador ou usuário..."
+            placeholder="Filtrar por ARD, REF.COMPRA, descrição, categoria, tipo, aluno/colaborador ou usuário..."
             className="w-full px-3 py-2 rounded-xl bg-gray-50 border border-transparent focus:border-indigo-500 outline-none text-xs font-semibold"
           />
           <select
@@ -1456,6 +1462,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
                 <th className="px-3 py-2.5 text-left">Data/Hora</th>
                 <th className="px-3 py-2.5 text-left">Tipo</th>
                 <th className="px-3 py-2.5 text-left">ARD</th>
+                <th className="px-3 py-2.5 text-left">REF.COMPRA</th>
                 <th className="px-3 py-2.5 text-left">Aluno/Colaborador</th>
                 <th className="px-3 py-2.5 text-left">Usuário</th>
                 <th className="px-3 py-2.5 text-left">Categoria</th>
@@ -1468,7 +1475,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
             <tbody className="divide-y">
               {filteredAuditTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-gray-400 font-bold uppercase text-xs">Sem registros de auditoria no período</td>
+                  <td colSpan={11} className="px-4 py-8 text-center text-gray-400 font-bold uppercase text-xs">Sem registros de auditoria no período</td>
                 </tr>
               ) : filteredAuditTransactions.map((tx) => (
                 <tr key={`audit_${tx.id}`}>
@@ -1479,6 +1486,7 @@ const FinancialPage: React.FC<FinancialPageProps> = ({ activeEnterprise, current
                     </span>
                   </td>
                   <td className="px-3 py-2.5 font-black text-gray-700">{tx.id}</td>
+                  <td className="px-3 py-2.5 font-black text-gray-700">{tx.purchaseRefCode || '-'}</td>
                   <td className="px-3 py-2.5 text-gray-800 font-bold">{tx.client || '-'}</td>
                   <td className="px-3 py-2.5 text-gray-700 font-bold">{tx.userName || 'SISTEMA'}</td>
                   <td className="px-3 py-2.5 text-gray-700 font-bold">{tx.category || '-'}</td>

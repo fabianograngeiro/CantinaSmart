@@ -1425,11 +1425,11 @@ export class ApiService {
     return response.json();
   }
 
-  static async initialSetup(name: string, email: string, password: string) {
+  static async initialSetup(name: string, email: string, password: string, establishmentType?: string) {
     const response = await fetch(`${API_URL}/system/initial-setup`, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify({ name, email, password }),
+      body: JSON.stringify({ name, email, password, establishmentType }),
     });
     if (!response.ok) throw new Error('Falha ao realizar setup inicial');
     const data = await response.json();

@@ -1984,6 +1984,40 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
     });
   }, [normalizedTransactions, searchTerm, typeFilter, planFilter, timeFilter, startDate, endDate]);
 
+  // Ordenação para exibição: mantém timestamp DESC mas garante ENTRADA antes de SAÍDA
+  // quando pertencem ao mesmo purchaseRefCode (evita consumo aparecer acima do crédito que o originou)
+  const displayedTransactions = useMemo(() => {
+    const getTs = (row: ExtendedTransactionRecord) => {
+      const rawTs = String(row.raw?.timestamp || '').trim();
+      if (rawTs) {
+        const parsed = new Date(rawTs).getTime();
+        if (Number.isFinite(parsed)) return parsed;
+      }
+      const dateKey = String(row.date || '').trim();
+      const timeKey = String(row.time || '00:00').trim() || '00:00';
+      const fallback = new Date(`${dateKey}T${timeKey}`).getTime();
+      return Number.isFinite(fallback) ? fallback : 0;
+    };
+
+    return [...filteredTransactions].sort((a, b) => {
+      const aRef = String(a.raw?.purchaseRefCode || '').trim();
+      const bRef = String(b.raw?.purchaseRefCode || '').trim();
+
+      // Dentro do mesmo purchaseRef: CREDITO/CREDIT sempre antes de CONSUMO
+      if (aRef && bRef && aRef === bRef) {
+        const aIsCredit = a.type === 'CREDITO' || a.type === 'CREDIT';
+        const bIsCredit = b.type === 'CREDITO' || b.type === 'CREDIT';
+        if (aIsCredit !== bIsCredit) return aIsCredit ? -1 : 1;
+      }
+
+      // Fora do mesmo ref: mais recente primeiro
+      const aTs = getTs(a);
+      const bTs = getTs(b);
+      if (aTs !== bTs) return bTs - aTs;
+      return String(a.id || '').localeCompare(String(b.id || ''));
+    });
+  }, [filteredTransactions]);
+
   const deletableFilteredIds = useMemo(() => {
     if (!canHardDeleteTransactions) return [] as string[];
     return filteredTransactions
@@ -3379,7 +3413,7 @@ const UnitSalesTransactionsPage: React.FC<UnitSalesTransactionsPageProps> = ({ a
                    <tr>
                      <td colSpan={11} className="px-8 py-20 text-center text-gray-300 font-black uppercase text-xs tracking-widest">Nenhum registro corresponde aos filtros</td>
                    </tr>
-                 ) : filteredTransactions.map(row => {
+                 ) : displayedTransactions.map(row => {
                    const rowUnitsProgress = resolveRowUnitsProgress(row);
                    const isPlanRow = row.plan !== 'Venda' && !isCantinaCreditPlan(row.plan);
                    const rowMarkedAsReversed = hasReversalForTransaction(row);

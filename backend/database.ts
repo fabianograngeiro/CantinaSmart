@@ -452,8 +452,8 @@ export class Database {
 
   private normalizeParentRelationship(value: any) {
     const normalized = String(value || '').trim().toUpperCase();
-    if (['PAIS', 'AVOS', 'TIOS', 'TUTOR_LEGAL'].includes(normalized)) return normalized;
-    return 'PAIS';
+    if (['PAI', 'MAE', 'PAIS', 'AVOS', 'TIOS', 'TUTOR_LEGAL'].includes(normalized)) return normalized;
+    return 'PAI';
   }
 
   private normalizeUnitKind(value: any) {
@@ -1989,6 +1989,7 @@ export class Database {
       category: String(data?.category || '').trim(),
       referenceType: String(data?.referenceType || '').trim().toUpperCase(),
       referenceId: String(data?.referenceId || '').trim(),
+      purchaseRefCode: String(data?.purchaseRefCode || data?.refCompra || '').trim(),
       createdByUserId: String(data?.createdByUserId || '').trim(),
       createdByName: String(data?.createdByName || '').trim(),
       createdByRole: String(data?.createdByRole || '').trim().toUpperCase(),
@@ -3123,7 +3124,7 @@ export class Database {
           spentToday: 0,
           isBlocked: false,
           parentName: String(newClient?.name || '').trim(),
-          parentRelationship: relatedStudent.responsibleType || 'PAIS',
+          parentRelationship: relatedStudent.responsibleType || 'PAI',
           parentWhatsappCountryCode: collaboratorCountryCode,
           parentWhatsapp: collaboratorPhone,
           phone: collaboratorPhone,
@@ -3250,7 +3251,7 @@ export class Database {
               spentToday: 0,
               isBlocked: false,
               parentName: String(updatedClient?.name || '').trim(),
-              parentRelationship: relatedStudent.responsibleType || 'PAIS',
+              parentRelationship: relatedStudent.responsibleType || 'PAI',
               parentWhatsappCountryCode: collaboratorCountryCode,
               parentWhatsapp: collaboratorPhone,
               phone: collaboratorPhone,
@@ -3413,7 +3414,7 @@ export class Database {
           spentToday: 0,
           isBlocked: false,
           parentName: String(record?.name || '').trim(),
-          parentRelationship: relatedStudent.responsibleType || 'PAIS',
+          parentRelationship: relatedStudent.responsibleType || 'PAI',
           parentWhatsappCountryCode: responsibleCountryCode,
           parentWhatsapp: responsiblePhone,
           phone: responsiblePhone,
@@ -3736,6 +3737,22 @@ export class Database {
       return Boolean(txPlanId) || txMethod.includes('PLANO') || (txPlan.length > 0 && !['AVULSO', 'PREPAGO', 'GERAL', 'VENDA'].includes(txPlan));
     };
 
+    const expandByOriginTransactionId = () => {
+      let expanded = true;
+      while (expanded) {
+        expanded = false;
+        this.transactions.forEach((tx: any) => {
+          const txId = String(tx?.id || '').trim();
+          const originId = String(tx?.originTransactionId || '').trim();
+          if (!txId || !originId) return;
+          if (idsToDelete.has(originId) && !idsToDelete.has(txId)) {
+            idsToDelete.add(txId);
+            expanded = true;
+          }
+        });
+      }
+    };
+
     if (includeOriginCredit) {
       const targetType = this.normalizeToken(targetTransaction?.type);
       if (targetType === 'CONSUMO') {
@@ -3750,28 +3767,36 @@ export class Database {
     }
 
     // Remove a transação solicitada e toda a cadeia vinculada por originTransactionId.
-    let expanded = true;
-    while (expanded) {
-      expanded = false;
-      this.transactions.forEach((tx: any) => {
-        const txId = String(tx?.id || '').trim();
-        const originId = String(tx?.originTransactionId || '').trim();
-        if (!txId || !originId) return;
-        if (idsToDelete.has(originId) && !idsToDelete.has(txId)) {
-          idsToDelete.add(txId);
-          expanded = true;
-        }
-      });
-    }
+    expandByOriginTransactionId();
 
     const isPlanCreditTarget = isPlanCreditTx(targetTransaction);
 
     if (isPlanCreditTarget) {
       const targetId = String(targetTransaction?.id || '').trim();
       const targetClientId = String(targetTransaction?.clientId || '').trim();
+      const targetEnterpriseId = String(targetTransaction?.enterpriseId || '').trim();
       const targetPlanId = String(targetTransaction?.planId || targetTransaction?.originPlanId || '').trim();
       const targetPlanName = this.normalizeToken(targetTransaction?.plan || targetTransaction?.planName || '');
       const targetPurchaseRef = String(targetTransaction?.purchaseRefCode || '').trim();
+
+      if (targetPurchaseRef) {
+        this.transactions.forEach((tx: any) => {
+          const txId = String(tx?.id || '').trim();
+          if (!txId || idsToDelete.has(txId)) return;
+          if (this.normalizeToken(tx?.type) === 'AUDITORIA_EXCLUSAO') return;
+          const txPurchaseRef = String(tx?.purchaseRefCode || '').trim();
+          if (!txPurchaseRef || txPurchaseRef !== targetPurchaseRef) return;
+          const txClientId = String(tx?.clientId || '').trim();
+          if (targetClientId && txClientId && txClientId !== targetClientId) return;
+          const txEnterpriseId = String(tx?.enterpriseId || '').trim();
+          if (targetEnterpriseId && txEnterpriseId && txEnterpriseId !== targetEnterpriseId) return;
+          idsToDelete.add(txId);
+        });
+
+        // Depois de incluir tudo por REF.COMPRA, recolhe filhos que eventualmente
+        // apontem por originTransactionId, mesmo que nao tenham purchaseRefCode.
+        expandByOriginTransactionId();
+      }
 
       const isAutoDeliveryConsumption = (tx: any) => {
         const desc = this.normalizeToken(tx?.description || tx?.item);
@@ -4157,6 +4182,7 @@ export class Database {
       category: String(newTransaction?.category || '').trim(),
       referenceType: 'TRANSACTION',
       referenceId: String(newTransaction?.id || '').trim(),
+      purchaseRefCode: String(newTransaction?.purchaseRefCode || '').trim(),
       createdByUserId: String(newTransaction?.createdByUserId || '').trim(),
       createdByName: String(newTransaction?.createdByName || '').trim(),
       createdByRole: String(newTransaction?.createdByRole || '').trim().toUpperCase(),
@@ -4258,6 +4284,7 @@ export class Database {
           description: String(this.transactions[index]?.description || '').trim(),
           amount: this.resolveTransactionAmount(this.transactions[index]),
           category: String(this.transactions[index]?.category || financialEntry?.category || '').trim(),
+          purchaseRefCode: String(this.transactions[index]?.purchaseRefCode || financialEntry?.purchaseRefCode || '').trim(),
         });
       }
 
@@ -4617,6 +4644,22 @@ export class Database {
     };
 
     this.transactions.push(auditTransaction as any);
+    this.createFinancialEntry({
+      enterpriseId: String(auditTransaction.enterpriseId || '').trim(),
+      kind: 'MOVIMENTACAO',
+      type: 'CREDITO',
+      title: String(auditTransaction.item || 'Auditoria de exclusao').trim(),
+      description: String(auditTransaction.description || '').trim(),
+      amount: 0,
+      category: String(auditTransaction.financeCategory || 'AJUSTE EXCLUSAO TRANSACAO').trim(),
+      referenceType: 'TRANSACTION',
+      referenceId: String(auditTransaction.id || '').trim(),
+      purchaseRefCode: targetRef || undefined,
+      createdByUserId: requesterUserId,
+      createdByName: deletedByName,
+      createdByRole: requesterRole,
+      createdAt: String(auditTransaction.timestamp || now.toISOString()),
+    });
     this.saveData();
     return true;
   }
