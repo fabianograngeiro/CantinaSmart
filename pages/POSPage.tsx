@@ -3040,7 +3040,20 @@ const StandardPOSInterface: React.FC<{ currentUser: UserType; activeEnterprise: 
       if (createdTransactions.length > 0) {
         setPosTransactions(prev => [...createdTransactions, ...prev]);
       }
-      
+
+      if (planCreditItems.length > 0 && selectedClient?.id) {
+        const clientIdToRefresh = selectedClient.id;
+        (async () => {
+          try {
+            await ApiService.getTransactions({ enterpriseId: activeEnterpriseId });
+            const freshClient = await ApiService.getClient(clientIdToRefresh);
+            setClients((prev: Client[]) => prev.map((c: Client) => c.id === clientIdToRefresh ? freshClient : c));
+          } catch {
+            // fire-and-forget
+          }
+        })();
+      }
+
       // Registrar transação
       if (onRegisterTransaction) {
         const transactionId = `V-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
