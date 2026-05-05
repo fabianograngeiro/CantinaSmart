@@ -4066,14 +4066,11 @@ export class Database {
       const retroDatesFromPayload: string[] = Array.isArray((newTransaction as any)?.retroactiveConsumedDates)
         ? (newTransaction as any).retroactiveConsumedDates
         : [];
-      const selectedDatesFromPayload: string[] = Array.isArray((newTransaction as any)?.selectedDates)
-        ? (newTransaction as any).selectedDates
-        : [];
       const nowLocal = new Date();
       const cutoffTime = this.resolvePlanConsumptionCutoffTime(String(newTransaction?.enterpriseId || '').trim());
       const todayDateKey = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth() + 1).padStart(2, '0')}-${String(nowLocal.getDate()).padStart(2, '0')}`;
       const dueDates = Array.from(new Set(
-        [...retroDatesFromPayload, ...selectedDatesFromPayload]
+        retroDatesFromPayload
           .map((d) => String(d || '').slice(0, 10))
           .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
           .filter((d) => this.isPastCutoffForDate(d, cutoffTime, nowLocal))

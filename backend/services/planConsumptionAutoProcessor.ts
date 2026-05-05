@@ -204,6 +204,10 @@ const getDueDatesForConfig = (
 
   const dueDates = selectedDates.filter((dateIso) => isPastCutoffForDate(dateIso, cutoffTime, now));
 
+  if (selectedDates.length > 0) {
+    return Array.from(new Set(dueDates)).sort();
+  }
+
   const normalizedDays = new Set(
     (Array.isArray(config?.daysOfWeek) ? config.daysOfWeek : [])
       .map((value: unknown) => normalizeDayKey(value))
@@ -232,20 +236,27 @@ const getDueDatesForConfig = (
 const findMostRecentPlanCreditTransaction = (
   clientId: string,
   planId: string,
+  scheduledDate: string,
   transactions: any[]
 ) => {
   const normalizedClientId = String(clientId || '').trim();
   const normalizedPlanId = String(planId || '').trim();
-  if (!normalizedClientId || !normalizedPlanId) return null;
+  const normalizedScheduledDate = normalizeDateKey(scheduledDate);
+  if (!normalizedClientId || !normalizedPlanId || !normalizedScheduledDate) return null;
 
   const creditTx = (Array.isArray(transactions) ? transactions : [])
     .filter((tx: any) => {
       const txClientId = String(tx?.clientId || '').trim();
       const txPlanId = String(tx?.planId || tx?.originPlanId || '').trim();
       const txType = normalizeToken(tx?.type);
+      const txSelectedDates = Array.isArray(tx?.selectedDates) ? tx.selectedDates : [];
+      const containsScheduledDate = txSelectedDates
+        .map((date: unknown) => normalizeDateKey(date))
+        .some((date: string) => date === normalizedScheduledDate);
       return txClientId === normalizedClientId
         && txPlanId === normalizedPlanId
-        && (txType === 'CREDIT' || txType === 'CREDITO');
+        && (txType === 'CREDIT' || txType === 'CREDITO')
+        && containsScheduledDate;
     })
     .sort((a: any, b: any) => {
       const aTs = new Date(a?.timestamp || `${a?.date || ''}T${a?.time || '00:00'}`).getTime();
@@ -299,6 +310,9 @@ const runAutoProcessForEnterprise = (enterpriseId: string, now: Date) => {
 
   let processedCount = 0;
 
+  // Acumula deduções de saldo por cliente/plano para aplicar ao final
+  const balanceDeductions = new Map<string, Map<string, { units: number; unitValue: number }>>();
+
   clients.forEach((client: any) => {
     const selectedConfigs = Array.isArray(client?.selectedPlansConfig) ? client.selectedPlansConfig : [];
     selectedConfigs.forEach((config: any) => {
@@ -323,10 +337,13 @@ const runAutoProcessForEnterprise = (enterpriseId: string, now: Date) => {
         const mostRecentCredit = findMostRecentPlanCreditTransaction(
           String(client?.id || '').trim(),
           resolvedPlanId,
+          scheduledDate,
           transactions
         );
+        if (!mostRecentCredit) return;
 
         const txTimestamp = new Date(now.getTime() + index * 1000);
+        const unitValue = Number(plan?.price || config?.planPrice || 0);
         const createPayload: any = {
           clientId: String(client?.id || '').trim(),
           clientName: String(client?.name || '').trim(),
@@ -345,7 +362,7 @@ const runAutoProcessForEnterprise = (enterpriseId: string, now: Date) => {
           executionSource: 'SISTEMA',
           plan: resolvedPlanName,
           planId: resolvedPlanId || undefined,
-          planUnitValue: Number(plan?.price || config?.planPrice || 0) || undefined,
+          planUnitValue: unitValue || undefined,
           planUnits: 1,
         };
 
@@ -358,8 +375,46 @@ const runAutoProcessForEnterprise = (enterpriseId: string, now: Date) => {
         db.createTransaction(createPayload);
         deliveryBalanceByKey.set(deliveryKey, 1);
         processedCount += 1;
+
+        // Acumula dedução de saldo para este cliente/plano
+        const clientId = String(client?.id || '').trim();
+        if (clientId && resolvedPlanId && unitValue > 0) {
+          if (!balanceDeductions.has(clientId)) {
+            balanceDeductions.set(clientId, new Map());
+          }
+          const planMap = balanceDeductions.get(clientId)!;
+          const prev = planMap.get(resolvedPlanId) || { units: 0, unitValue };
+          planMap.set(resolvedPlanId, { units: prev.units + 1, unitValue });
+        }
       });
     });
+  });
+
+  // Atualiza planCreditBalances nos clientes para refletir os consumos do auto-processor
+  balanceDeductions.forEach((planMap, clientId) => {
+    const currentClient = db.getClient(clientId);
+    if (!currentClient) return;
+
+    const planCreditBalances = { ...((currentClient as any)?.planCreditBalances || {}) };
+    let changed = false;
+
+    planMap.forEach(({ units, unitValue }, planId) => {
+      const entry = planCreditBalances[planId];
+      if (!entry) return;
+      const currentBalance = Number(entry.balance || 0);
+      if (currentBalance <= 0) return;
+      const deduction = Number((units * unitValue).toFixed(2));
+      planCreditBalances[planId] = {
+        ...entry,
+        balance: Math.max(0, Number((currentBalance - deduction).toFixed(2))),
+        updatedAt: now.toISOString(),
+      };
+      changed = true;
+    });
+
+    if (changed) {
+      db.updateClient(clientId, { planCreditBalances });
+    }
   });
 
   if (processedCount > 0) {
